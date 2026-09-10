@@ -1,0 +1,639 @@
+# ConsumerSim — Engine Architecture
+
+**Scope:** the open-source simulation engine, implementation only. No business, market, positioning, pricing, or tiering content — this document is what you build from.
+**Language/runtime:** Python 3.12+, `uv`-managed.
+**License:** Apache-2.0 (matches upstream OASIS and ASAL).
+**Salvage sources:** [OASIS](https://github.com/camel-ai/oasis) (Apache-2.0), [ASAL](https://github.com/SakanaAI/asal) (Apache-2.0), [MatrAIx-Persona-8B](https://github.com/MatrAIx-ai/MatrAIx-Persona-8B) (MIT) + HF dataset `MatrAIx2026/MatrAIx_Persona_1M`.
+**Companion documents:** `CONTEXT.md` is the project glossary and is authoritative on naming — where a word here disagrees with it, the glossary wins. `docs/adr/` records decisions whose reasoning would otherwise be invisible in the code. `docs/prd/` and `plans/` carry per-module requirements and phasing.
+
+---
+
+## 1. What the engine does
+
+A product brief goes in. A population is sampled from a real 1,290-attribute persona dataset and given a social structure. Those personas are run through interacting environments — survey room, social feed, forum, word-of-mouth — where they see each other's behavior. Purchase intent is elicited as free text and converted to a Likert distribution by embedding similarity, never by asking a model for a number. Everything that happens is written to an append-only trace. A report is derived from that trace, and no claim renders without resolving to trace IDs.
+
+```mermaid
+flowchart LR
+    A["brief.yaml"] --> B["brief"]
+    B --> C["population<br/>personas + graph + communities"]
+    C --> D["runner"]
+    D --> E["world<br/>survey · feed · forum · WOM"]
+    E <--> F["agent<br/>context · memory · turn"]
+    F --> G["elicitation<br/>SSR → Likert PMF"]
+    F --> H["inference<br/>router · cache · fake mode"]
+    G --> H
+    E --> I["trace<br/>append-only spine"]
+    F --> I
+    I --> J["analysis<br/>digests · clusters · anomalies · findings"]
+    J --> K["report<br/>render only"]
+    D --> J
+```
+
+---
+
+## 2. Architectural principles
+
+These are the rules that decide where code goes. They are binding; §13 records where the design previously violated them and what changed.
+
+**P1 — Deep modules.** A module earns its existence by hiding more than it exposes. If a module's interface is about as complex as its implementation, it should be part of its only caller. Measured concretely: a module with one caller and an interface of 3+ parameters carrying intermediate types is a merge candidate, not a module.
+
+**P2 — No orphan intermediates.** A type that exists only to travel between two modules, and that no external caller ever wants on its own, is evidence the boundary is in the wrong place.
+
+**P3 — One owner per invariant.** Every cross-cutting rule (budget, persona conditioning, provenance, trust) has exactly one module that owns and enforces it. Rules enforced in three places are enforced in none.
+
+**P4 — Ports at every non-deterministic boundary.** Anything with network, filesystem, clock, or model non-determinism is reached through a port with at least two adapters: the real one and an in-memory one used by tests. This is what makes deep modules testable without mocking internals.
+
+**P5 — Boundary tests are the primary test layer.** Property tests guard data invariants; golden runs detect drift. Correctness is asserted at deep-module boundaries, against observable outputs, using in-memory adapters.
+
+**P6 — Salvaged code stays diffable.** Forked OASIS files keep upstream file structure and license headers so quarterly upstream diffs remain mechanical. Salvage is isolated behind our own port so upstream shape never leaks into engine-wide interfaces.
+
+---
+
+## 3. Module map
+
+Twelve modules. Every one is either a leaf contract, a deep behavioral module, or a thin adapter over salvaged code.
+
+| # | Module | Owns | Hides | Interface |
+|---|---|---|---|---|
+| 1 | `schemas` | every type crossing a module boundary | nothing (leaf, zero logic) | types + validators |
+| 2 | `brief` | intake, category ontology, assumption ledger | YAML parsing, evidence fetching, ontology versioning | `load_brief(path) -> BriefPack` |
+| 3 | `population` | who is in this study and how they are connected | 4-bit decode, conditioning filter, postings filter, audience-proportional sampling, distribution gates, sparse completion, graph generation, Leiden community detection | `build(brief, n, population_seed) -> Population` |
+| 4 | `inference` | every model call in the system | provider routing, retries, coalescing, caching, token accounting, model pinning, fake mode | `chat(role, msgs) -> Completion`, `embed(texts) -> Vectors` |
+| 5 | `elicitation` | free text → Likert PMF (SSR) | anchor sets, reference-set averaging, τ, non-collapse checks | `score(text) -> SsrResult` |
+| 6 | `agent` | one persona's reaction to one impression | context assembly, persona conditioning, memory retrieval, reflection, tier routing, output parsing, guardrails | `turn(persona, impression, view) -> Reaction` |
+| 7 | `world` | environment mechanics and who sees what | platform state, action handling, recsys ranking, activation clock, interventions | `reset(cfg) -> State`, `step(t, actions) -> WorldDelta` |
+| 8 | `runner` | executing a study within a budget | job expansion, worker pool, checkpointing, resume, budget governance and its enforcement, sweep | `run(RunConfig) -> RunResult` |
+| 9 | `trace` | the append-only record and its read views | SQLite→Parquet lifecycle, partitioning, registry, query shapes | `write(events)`, `view(run_id) -> TraceView` |
+| 10 | `analysis` | deriving meaning from a trace | digest computation, verbatim clustering, anomaly detection, finding authorship, trust guard | `digest(view) -> OutcomeDigest`, `findings(views) -> list[Finding]` |
+| 11 | `report` | rendering | templates, markdown/JSON parity | `render(findings, digests) -> Report` |
+| 12 | `cli` | entrypoints | argument plumbing, exit codes | `coreset-gate`, `ssr-replica`, `concepts run`, `sweep run` |
+
+### Mapping from the previous 28-module numbering
+
+Kept so the salvage inventory and any existing notes stay resolvable.
+
+| Old | New home | Old | New home |
+|---|---|---|---|
+| M1 | `schemas` | M15 | `world` |
+| M2 | `brief` | M16 | `runner` |
+| M3, M4, M5, M6 | `population` | M17 | `runner` (budget, single enforcement point) |
+| M7 | `inference` | M18 | `inference` (cache folded in) |
+| M8, M10, `ContextBuilder` | `agent` | M19 | `trace` |
+| M9 | `elicitation` | M20 | `runner` (sweep) + `analysis` (digest) |
+| M11 | deferred (§12) | M21–M23 | deferred (§12) |
+| M12, M13, M14 | `world` (RetailShelf deferred, §12) | M24, M25 | `AnchorSource`/`PersonaPatchSource` ports + deferred harness (§12) |
+| — | — | M26 | deferred (§12) |
+| — | — | M27 | `analysis` (authorship) + `report` (render) |
+| — | — | M28 | `cli` |
+
+---
+
+## 4. Ports and adapters
+
+Five ports. Each has a production adapter and an in-memory adapter; the in-memory one is what every boundary test runs against.
+
+| Port | Production adapter | Test adapter | Why it's a port |
+|---|---|---|---|
+| `ChatPort` / `EmbedPort` | OpenAI-compatible HTTP (OpenRouter, LiteLLM, vLLM); optional `bedrock_direct` | `FakeInference` — deterministic completions keyed by prompt hash | network + model non-determinism |
+| `CoresetSource` | `HfCoresetSource` — downloads shards from HF at first run | `FixtureCoresetSource` (committed mini-shard), `SyntheticCoresetSource` (generated, always `provenance=SYNTHESIZED`) | filesystem + a 4.17 GB dependency that must not be bundled |
+| `AnchorSource` | `PackagedAnchors` — versioned anchor sets and default τ shipped in-repo | `StubAnchors` — fixed vectors, exact expected PMFs | lets anchors and τ be replaced without touching `elicitation` |
+| `PersonaPatchSource` | `NullPatchSource` (ships as default) | `InMemoryPatchSource` | lets externally-derived persona corrections be applied without changing `population`'s signature later |
+| `TraceSink` | `SqliteParquetSink` | `InMemoryTraceSink` | filesystem + a hot write path |
+
+Two of these are load-bearing beyond testability:
+
+**`CoresetSource` is the dataset-independence seam.** The engine never requires the 1M-row dataset to be present or bundled. `HfCoresetSource` pulls it at first run so the user accepts the dataset's own terms directly; `SyntheticCoresetSource` makes `concepts run --fake` work end-to-end with zero downloads and zero API keys, which is the quickstart path. Nothing in the engine may import a dataset file path directly — it goes through the port.
+
+**`AnchorSource` and `PersonaPatchSource` are the calibration seams.** The engine ships defaults (a documented default τ, no patches). If anchors, τ, or persona corrections are later derived from real human data, they arrive as a different adapter — no change to `elicitation` or `population` signatures. Designing these in now is cheap; adding them after the interfaces are public is a breaking change.
+
+```mermaid
+flowchart TB
+    subgraph CORE["engine core — pure, deterministic under seed"]
+        POP["population"]; AG["agent"]; EL["elicitation"]
+        WO["world"]; RUN["runner"]; AN["analysis"]; RP["report"]
+    end
+    subgraph PORTS["ports"]
+        CP["ChatPort / EmbedPort"]; CS["CoresetSource"]
+        AS["AnchorSource"]; PP["PersonaPatchSource"]; TS["TraceSink"]
+    end
+    subgraph PROD["production adapters"]
+        P1["OpenAI-compatible HTTP"]; P2["HF hub download"]
+        P3["packaged anchors"]; P4["null patches"]; P5["SQLite → Parquet"]
+    end
+    subgraph TEST["test adapters"]
+        T1["FakeInference"]; T2["fixture / synthetic coreset"]
+        T3["stub anchors"]; T4["in-memory patches"]; T5["in-memory trace"]
+    end
+    CORE --> PORTS
+    CP --> P1 & T1
+    CS --> P2 & T2
+    AS --> P3 & T3
+    PP --> P4 & T4
+    TS --> P5 & T5
+```
+
+---
+
+## 5. Module specifications
+
+Each spec states what the module **owns**, what it **hides**, its **interface**, its **internals**, its **salvage**, and its **boundary tests**.
+
+### 5.1 `schemas` — contracts
+
+**Owns:** every type crossing a module boundary, and the invariants that are true of the data by definition.
+**Hides:** nothing. This is a leaf.
+**Hard rule:** imports nothing from `simcore`, and only `pydantic` + stdlib from outside. No numpy, no pyarrow, no networkx. If `schemas` needs a project import, a type is in the wrong file.
+
+**Interface:** ~40 frozen pydantic v2 models with `extra="forbid"`, `allow_inf_nan=False`, grouped one file per domain — `brief`, `persona`, `population`, `sim`, `run`, `trace`, `report`, `enums`, `errors`, `base`.
+
+**Load-bearing validators:**
+- `PMF5` — 5 values, all strictly `> 0`, sum ∈ [0.999, 1.001]. Strict positivity because polarization is a JSD across community PMFs and downstream metrics are KL-family; SSR's softmax cannot emit an exact zero, so a zero means something upstream is broken.
+- `ModelPins` — rejects `latest`, `*`, or empty. This single validator is what makes replayability structural rather than aspirational.
+- `Finding` — `evidence_trace_ids` min length 1, `disconfirming_test` non-empty. Makes an unprovenanced or auto-crowned claim unconstructible.
+- `TrustStatement` — any level above `UNCALIBRATED` requires a `CalibrationRef`, and nothing in the repository produces one. The engine cannot overclaim by construction.
+- `Persona` — the ontology's conditioning set must be fully populated, and no demographic or psychographic may carry `FieldOrigin.SYNTHESIZED`.
+- `Beliefs` — `claim_credence` keys must match the brief's claim IDs exactly, catching a scenario that references a renamed claim.
+- Gate results refuse any attribute whose `FieldOrigin` is `SYNTHESIZED` — the engine may not validate its own output against a target it also produced.
+
+**Canonical hashing** (`base.py`): `sha256(json.dumps(model.model_dump(mode="json", exclude=HASH_EXCLUDE), sort_keys=True, separators=(",",":"), allow_nan=False))`. `sort_keys` is required — `audience_mix` and `target_filters` are dicts and insertion order must not move a hash. `mode="json"` means enum *member* renames don't move hashes, only value changes do. Four hashes: `brief_hash`, `population_hash`, `config_hash` (includes `SCHEMA_VERSION`), `graph_hash`.
+
+**Performance rule:** pydantic guards boundaries, not inner loops. Three paths use `model_construct` and are validated only in fake-mode CI: trace writes (~500k events/world), graph adjacency (~100k edges), per-row coreset decode. Embeddings never live inside a model — `EmbeddingRef {model_id, dim, index}` points into one contiguous `float32` array per population.
+
+**Boundary tests:** round-trip property tests per type (hypothesis); committed hash-stability golden fixtures; one test per validator; an AST test asserting the leaf rule holds; a forward-compat test that a trace partition written under an older contract version still loads.
+
+---
+
+### 5.2 `brief` — intake
+
+**Owns:** turning user YAML into validated structures, the category ontology, and the assumption ledger.
+**Hides:** parsing, strict-mode rejection, claim ID assignment, evidence-URL fetch and hashing, ontology file versioning.
+
+**Interface:** `load_brief(path: Path, ontology_dir: Path) -> BriefPack`
+
+**Internals:** `yaml.safe_load` → `ProductBrief.model_validate` (unknown keys rejected); claim IDs auto-assigned `C1..Cn`; evidence URLs fetched and SHA-256'd at ingest; category ontology loaded as versioned JSON supplying `attr_relevance` (which of the 1,290 attributes matter, ranked), `stimulus_types`, `anchor_set_ref`, and `completion_policy` (which persona fields may be synthesized — economics, decision rules, media yes; demographics, psychographics never); assumption ledger built so every assumption is a first-class record surfaced in the report.
+
+**Gotcha to encode:** claims are the atomic stimulus unit — feed cards, forum posts and report findings all reference `Claim.id`. Reordering claims mid-study silently breaks comparability, which is why `brief_hash` covers claim order and the runner refuses to resume a run whose `brief_hash` moved.
+
+**Boundary tests:** malformed YAML rejected with a `GateFailure`, not a stack trace; unknown keys rejected; claim IDs stable and contiguous; `brief_hash` invariant to comment/whitespace changes and sensitive to claim reordering.
+
+---
+
+### 5.3 `population` — who is in the study
+
+*Absorbs old M3 (loader), M4 (sampling), M5 (projection), M6 (graph).*
+
+**Owns:** producing the complete population for a study — personas, their social graph, their communities, and the report that says whether the sample is acceptable.
+**Hides:** packed-4-bit decode, null-bitmask and codebook semantics, `attribute_overrides` precedence, postings-index filtering, conditioning-set filtering, audience-proportional sampling, categorical and ordinal distribution gates, sparse completion via the model, embedding computation, two-layer graph generation, Leiden community detection, community-card authoring.
+
+**Interface:**
+
+```python
+def build(brief: BriefPack, n: int, population_seed: int, *,
+          coreset: CoresetSource, inference: ChatPort & EmbedPort,
+          patches: PersonaPatchSource = NullPatchSource()) -> Population
+```
+
+`Population` carries `personas`, `graph`, `communities`, `gate_report`, `embeddings` (one `float32` array), `manifest` (row ids, `achieved_mix` keyed by audience, seeds, `population_hash`).
+
+Sampling and graph generation draw from **independent streams** spawned off the one population seed (`SeedSequence(population_seed).spawn(2)`) rather than from two separately authored seeds, which would invite correlated draws if anyone set them equal (ADR 0001).
+
+**Why these four merged:** nobody ever wants a `DecodedRow` — it existed only to cross a boundary. Field-mapping knowledge was split between decode and projection. The completion policy was defined in `brief` but enforced in projection. The graph is not a separate concept from the population; a population without its social structure is not usable by any caller. One module, one question: *who is in this study?*
+
+**Internals, in order:**
+1. **Resolve** — intersect postings sets per filter key **and require every attribute in the category's conditioning set to be populated**; index-only, never opens a data shard. Filtering for conditionability here rather than dropping sparse rows after sampling is what stops the population skewing toward the dataset's complete synthetic rows (ADR 0002).
+2. **Decode** — `pyarrow.parquet.read_table(memory_map=True)`; vectorized nibble decode (even index = low nibble `arr[::2] & 0x0F`, odd = high `arr[1::2] >> 4`); codebook gather via numpy mapping arrays; null bitmask applied (set bit = missing, LSB-first); `attribute_overrides` overlaid last.
+3. **Sample** — seeded `np.random.Generator`; proportions from the brief's declared audiences, or derived from `calibration_targets.json` when the brief declares none; shortfall policy widens filters and logs the degradation, never silently drops.
+4. **Gate** — a tagged union, never nullable twins: `CategoricalGate` on categorical marginals (χ², pass at p > 0.05) and `OrdinalGate` on attributes the ontology declares ordinal, using their band→midpoint scale (pass at `ks_similarity ≥ 0.80`, where `ks_similarity = 1 − D` — named for direction, because a threshold on a bare `ks` reads backwards). Gates run on grounded attributes only. Any FAIL rejects the population. `GateReport.overall` is computed, never settable, and the report carries the population's `source_mix` so any skew the conditioning filter induced is visible.
+5. **Project** — ontology `attr_relevance` selects fields; the conditioning set lands in `Persona.conditioning`, everything else in `Persona.attributes`; sparse completion batched one call per ~25 personas of the same audience; **every** projected field states a `FieldOrigin`, completed ones as `SYNTHESIZED` — grounding is never inferred from an absent key.
+6. **Patch** — `PersonaPatchSource` applied; default adapter is a no-op.
+7. **Embed** — mean-pooled attribute-text vectors into one contiguous array; `EmbeddingRef` on each persona.
+8. **Graph** — Watts–Strogatz ring (clustering) merged with preferential attachment (hub tail), then a homophily rewiring pass; tie strength `w = 0.45·cos(emb_u, emb_v) + 0.35·homophily + 0.20·strong_flag`. Seeded, bit-identical per seed.
+9. **Detect communities** — Leiden over the weighted graph, γ ∈ {0.3, 0.5, 1.0}, selected on modularity ≥ 0.4 with 4–8 communities of ≥ ~80 members; community cards authored once per population and versioned. Communities are discovered, so they appear only in outputs — never in an input file.
+
+**Graph gates:** degree KS vs. power-law target; clustering within ±0.05; giant component ≥ 98%; zero isolates (an isolate gets one weak edge).
+
+**Salvage:** MatrAIx `persona_codes.schema.json` (the decode contract), `build_persona_1m_indexes.py`, `persona_1m_index.py`, `persona_1m_pool.py`, `calibration_targets.json`. OASIS `agent_graph.py` for the networkx container only — topology is ours. `leidenalg` for community detection.
+
+**Perf gates:** 10k-persona decode < 60 s cold, < 2 s warm. Postings filter must not open a shard. Full `build()` for n=2,000 under `SyntheticCoresetSource` < 5 s (this is the quickstart path).
+
+**Boundary tests** (against `FixtureCoresetSource` + `FakeInference`) — these replace the separate decode/sampling/projection unit tests entirely:
+- known fixture rows decode to known attribute dicts, including a null-bitmask case and an `attribute_overrides` case;
+- an injected positivity skew in the fixture makes the gate FAIL and rejects the population;
+- **no demographic or psychographic field is ever `SYNTHESIZED`** — the contract-2 test, and it is only expressible here;
+- a fixture row missing a conditioning-set attribute never reaches the candidate pool;
+- the gate report's `source_mix` reflects the conditioning filter's effect on source composition;
+- same `(brief, n, population_seed)` → identical `population_hash`, twice;
+- graph gates hold across 20 seeds;
+- filter widening on shortfall is logged and reflected in `gate_report.degradations`.
+
+---
+
+### 5.4 `inference` — every model call
+
+*Absorbs old M7 (router), M18 (cache). Unchanged in shape — this was already the deepest module in the system.*
+
+**Owns:** all model access. No other module talks to a provider.
+**Hides:** role→model resolution, request coalescing, response and embedding caching, retries with provider-aware backoff, fallback routes, token accounting, cost events, fake mode.
+
+**Interface:** `chat(role, messages, *, temp, max_tokens, template_id) -> Completion` · `embed(texts) -> np.ndarray`
+
+**Internals:** resolve role→model from `ModelPins`, failing hard if unpinned; coalesce identical in-flight requests within a 50 ms window; cache lookup (chat key `sha256(provider, model_id, template_id, messages, temp)`, embed key `sha256(embed_model, text)`); dispatch over the OpenAI-compatible transport; retry ×3 exponential, provider-aware on 429/5xx, then the role's fallback route; emit a `COST` trace event on every completion.
+
+**Roles:** `tier_a` (bulk persona ticks — Persona-8B via OpenRouter or self-hosted vLLM, small-instruct fallback), `tier_b` (first impressions, conversations, reflections, purchases — a frontier model), `embed` (**one** pinned model for anchors, responses and recsys alike — mixing embedding models invalidates SSR geometry), `safety` (optional moderation before any generated text is written to the trace).
+
+**Cache invalidation:** never within a run — pins are immutable. Cross-run reuse only when `model_id` and `template_version` both match.
+
+**Salvage:** MatrAIx `model_client.py` (multi-provider resolution — keep every provider branch, add `bedrock/` and `vllm/`), `openai_client.py` (`coerce_json`, timeouts), `persona_model.py` (CLI→env→config→default pin precedence), `llm_usage.py` (token accounting).
+
+**Boundary tests:** identical prompts hit cache and report `cache_hit`; a 429 retries then falls back; an unpinned role raises before any network call; `FakeInference` is deterministic across processes for the same prompt hash; cache hit rate ≥ 30% on a baseline re-run.
+
+---
+
+### 5.5 `elicitation` — SSR
+
+*Old M9. Deliberately kept separate despite having one production caller.*
+
+**Owns:** converting free text to a Likert-5 probability mass.
+**Hides:** anchor sets, per-reference-set scoring, averaging, τ, non-collapse diagnostics.
+
+**Interface:** `score(text: str, construct: str, category: str) -> SsrResult`
+
+**Why it stays its own module** despite `agent` being its only runtime caller: it has an independent entrypoint (`ssr-replica`), its own acceptance gate against published human data, and it carries the engine's central scientific claim. Independent addressability is worth the shallowness; this is the one deliberate exception to P1.
+
+**Internals:** anchor sets are versioned JSON per `(construct, category)` with R ≥ 6 reference sets of 5 statements, embedded once with the pinned embed model. Scoring: embed the text once, then per reference set `softmax(cosine(v, anchor_i) / τ)` over the 5 anchors, averaged across sets. The free text is retained as the objection-mining corpus; the PMF is the number.
+
+**Two rules that are not negotiable:**
+- **Numeric elicitation is forbidden.** The prompt asks for one short paragraph and explicitly forbids numbers. There is no code path that accepts a model-emitted rating.
+- **Anchors and responses must share one embedding model.** `SsrResult` carries `embed_model_id` so a mismatch is detectable from the trace alone, after the fact.
+
+**Interface out:** `SsrResult {pmf, per_set_pmfs, anchor_set_id, anchor_version, embed_model_id, tau}`.
+
+**Salvage:** the SSR method (Colgate-Palmolive × PyMC Labs, arXiv 2510.08338) — method only, no code exists. MatrAIx `json_survey.py` adapted for the free-text mode.
+
+**Boundary tests:** PMFs never collapse to a point mass on stub anchors with known geometry; rank stability across reference sets Spearman > 0.8; an embed-model mismatch between anchors and response raises; τ change moves distribution spread monotonically.
+
+---
+
+### 5.6 `agent` — the persona turn
+
+*Absorbs old M8 (agent), M10 (memory), and the previously unowned `ContextBuilder`.*
+
+**Owns:** one persona's reaction to one stimulus, and **the persona-conditioning invariant**.
+**Hides:** context assembly and token budgeting, persona rendering from 1,290 attributes, memory retrieval scoring, reflection triggering, belief updates, tier routing, output parsing, guardrail enforcement.
+
+**Interface:** `turn(persona: Persona, impression: Impression, view: WorldView) -> Reaction`
+
+A persona reacts once per channel per tick, to everything it saw — an `Impression` holding one or more `Exposure`s. Seeing two things side by side is not the same as seeing each alone, and social proof, the mechanic that distinguishes the feed from the survey room, only operates through juxtaposition. A survey-room impression holds exactly one exposure, so both environments share one code path. The reaction records the impression it saw **and** the `subject_stimulus_id` it is about, since intent is directed at a specific proposition even when several things were on screen (ADR 0003).
+
+**Why these merged:** memory had exactly one caller and an interface as complex as its implementation. More importantly, `ContextBuilder` was referenced by the old spec but assigned to no module — and it is where persona conditioning lives. Conditioning is the load-bearing variable in the SSR literature: unconditioned personas produce optimistic, narrow distributions and rank correlation falls to roughly half. **An invariant that decides the engine's validity cannot be co-owned.** It now has exactly one owner, and one place to test.
+
+**Internals:**
+1. **Tier routing** — `{first_seen, conversation, reflection, purchase, claim_audit}` → tier B; everything else → tier A. The routing table is config, not code.
+2. **Context assembly** — persona block rendered from ontology-selected attributes, plus current beliefs (read directly, no retrieval cost), plus retrieved memories, plus the stimulus. Token-budgeted per tier.
+3. **Conditioning assertion** — the context is checked for a non-empty persona block before dispatch. A turn cannot proceed unconditioned; the failure is loud.
+4. **Memory retrieval** — `score = exp(-Δt/τ_r) · importance · cos(emb_event, emb_stimulus)`, top-k per tier (A: 3, B: 8), `τ_r ≈ horizon/4`.
+5. **Dispatch** via `ChatPort`.
+6. **Parse** per task type; SSR applied via `elicitation` when the task asks purchase intent.
+7. **Guardrails at parse time** — free text referencing a stimulus not in context is rejected, retried once with a stricter instruction, then logged as a violation. Never silently kept.
+8. **Belief update** — deltas applied across the closed `BeliefDim` set (price value, self fit, trust) *and* per-claim credence; reflection triggered every ~6 ticks or on `max |Δ| > 0.3` across dimensions and claims together, so a persona who flips on one specific claim reflects even when aggregate belief barely moves. Writes a new belief snapshot and a high-importance memory event.
+
+**Salvage:** OASIS `agent.py`, `agent_action.py`, `agent_environment.py` (agent↔action↔env indirection; extend `ActionType` with `buy`, `ask_peer`, `reject`, `complain`). MatrAIx `templating.py` — the 1,290-attribute → prompt-section renderer, which is the hardest prompt-engineering problem in the salvage set and is already solved upstream. MatrAIx `user_sim.py` for conversational turns. Generative Agents (Park et al.) for the memory-and-reflection method — paper only, no code.
+
+**Boundary tests** (`FakeInference` + `StubAnchors`):
+- **the conditioning test** — conditioned and unconditioned context produce measurably different PMF distributions in the direction the literature reports; unconditioned dispatch is refused outright;
+- a stimulus absent from context triggers the guardrail path exactly once, then logs a violation;
+- reflection fires at the tick cadence and at the belief-delta threshold — including a flip on a single claim — and not otherwise;
+- a survey-room impression carries exactly one exposure and produces exactly one reaction;
+- memory retrieval returns the k most relevant items under a known fixture;
+- token budget respected per tier;
+- tier routing matches the config table for all event classes.
+
+---
+
+### 5.7 `world` — environments
+
+*Absorbs old M12 (env), M13 (platforms), M14 (recsys), M15 (schedule).*
+
+**Owns:** environment mechanics, platform state, who sees what, when agents act.
+**Hides:** SQLite platform state, per-platform action handling, four recsys modes, the activation clock, intervention scheduling.
+
+**Interface:** `reset(config, population) -> WorldState` · `step(tick, actions) -> WorldDelta`
+
+**Time is declared, not assumed.** A scenario states its `tick_unit` (hour, day, week) and `horizon_ticks`; interventions are expressed in ticks against them, and the unit travels forward into every digest so a report can label an axis truthfully. There is no second time vocabulary — the straggler case is simply *the lowest tick among live worlds*.
+
+**Internal structure mirrors upstream OASIS** — `env.py`, `platform.py`, `recsys.py`, `clock.py` keep their upstream file shapes and license headers so quarterly upstream diffs stay mechanical (P6). The merge is at the *interface*: the rest of the engine sees one `World` port, not four modules. This is the deliberate compromise — one narrow interface outward, upstream-diffable structure inward.
+
+**Platforms:**
+
+| Platform | Mechanics | Actions |
+|---|---|---|
+| **SurveyRoom** | isolated; every persona receives the stimulus, no social signals. The baseline environment | answer (SSR always applied) |
+| **SocialFeed** | broadcast posts, comments, likes, reposts, quotes; exposure via recsys; visible social-proof counters | post, comment, like, repost, quote, follow |
+| **Forum** | one class, two presets — `reddit_global` (any agent, any thread, hot-score ranking) and `community_scoped` (threads scoped to Leiden communities, recency + agreement ranking, no hot-score) | create_post, reply, vote |
+| **WOM** | a graph channel, not a platform. After a reaction, `wants_to_talk(reaction, peer)` gates on sentiment strength and tie strength; delivery creates a next-tick exposure with `reason=wom` | send (implicit) |
+
+The two forum presets are mechanically similar and dynamically opposite — hot-score produces herding, consensus ranking produces slow hardening. Having both in one class makes that a study variable rather than a fork.
+
+**Recsys, all four OASIS modes retained:** `reddit_hot` (hot-score math copied verbatim — do not "improve" it, its value is fidelity to upstream), `twitter` (interest match on profile embeddings), `twhin` (graph-aware, using generated degree centralities), `random` (the control arm — required to separate filter-driven effects from organic ones). Exposure budget defaults to 3 stimuli per agent per tick; drops are logged with a reason. Exposures keep their per-stimulus attention, reason and seen flag, and are **grouped into one `Impression`** before reaching `agent` — grouped, not flattened.
+
+**Schedule:** per-agent activation probability from involvement × daily rhythm, seeded. Interventions compose rather than overwrite — a promo during a launch is both, not the later one.
+
+**Salvage:** OASIS `env.py`/`env_action.py`/`make.py` (PettingZoo-style loop; strip CAMEL, inject our `ChatPort`), `platform.py` + `database.py` + `channel.py` (already trace-shaped — extend, don't rewrite; add provenance columns at write time), `recsys.py` + `process_recsys_posts.py` (swap embedder to our port), `clock.py` (add straggler-aware semantics — variant worlds finish at different ticks), `typing.py` (`ActionType`, `RecsysType`).
+
+**Boundary tests:** `step()` is deterministic under a fixed seed, bit-identical across two processes; `random` recsys mode produces measurably flatter exposure concentration than `reddit_hot` on the same fixture; exposure budget is never exceeded and an impression never exceeds it; a WOM delivery appears as a next-tick exposure with the correct tie strength; composed interventions apply additively.
+
+---
+
+### 5.8 `runner` — execution and budget
+
+*Absorbs old M16 (scheduler), M17 (costs), M20 (sweep).*
+
+**Owns:** running a study to completion inside a budget, including **enforcing degradation**.
+**Hides:** job expansion, the worker pool, per-tick checkpointing, crash resume, the cost ledger, the degrade ladder and its application, sweep expansion, finalization to Parquet.
+
+**Interface:** `run(config: RunConfig) -> RunResult` · `sweep(grid: Grid, budget: Budget) -> SweepResult`
+
+**Why budget moved here.** The previous design had the governor decide `allow | degrade(level) | halt` and then required three separate modules — agent (freeze tier B), world (subsample activation), scheduler (pause) — to each interpret that decision correctly. Three enforcement points for one policy means no single place can test *"does the budget actually stop spending?"*, and a misinterpretation silently changes simulation fidelity mid-run, corrupting a study without failing it. The governor now **applies** degradation itself, by mutating the run plan between ticks: it lowers the activation rate in the tick config it hands to `world`, and it flips the tier-routing config it hands to `agent`. Those two modules stay unaware that budgets exist.
+
+**Degrade ladder** (P3: one owner, one place):
+1. 80% of budget → warn.
+2. 95% → freeze optional tier-B work (reflections, optional audits).
+3. 100% → activation subsample 0.62 → 0.40.
+4. Beyond → pause the run. **Completed worlds are kept and labeled partial** — partial results are valid results, and discarding them is the wrong failure mode.
+
+**Sweep is not a separate concept** — it is `run()` over N scenario configs × seeds, with a worker pool and a shared budget. It emits per-cell digests for the heatmap. The pattern comes from ASAL's `main_sweep_gol.py` (brute-force discrete sweep); nothing is copy-pasted, since JAX/CLIP is the wrong modality.
+
+**Determinism and resume:** a scenario carries no seed — it describes conditions, not a draw. Replicate seeds live on `RunConfig.seeds`, and each cell derives `world_seed = h(replicate_seed, variant_id)` and `world_id = sha256(variant_id, replicate_seed, population_hash)[:12]` (ADR 0001). Expanding variants × seeds therefore produces genuinely distinct worlds, which is what makes the per-seed spread real and the 2σ anomaly thresholds meaningful. Resume is idempotent and "have I already run this sweep cell?" is answerable without a registry query. Per-tick checkpoint flushes world state and the event batch; resume reads the last complete tick from the registry.
+
+**Salvage:** ASAL `main_sweep_gol.py` (sweep pattern), `rollout.py` (run-then-score shape). MatrAIx `llm_usage.py`, `budget.py`, `scoring.py` (accounting plumbing), `jobs.py`/`job_aggregation.py` (run aggregation shape).
+
+**Boundary tests** (in-memory adapters, synthetic cost stream) — these are the tests that could not be written before:
+- feeding a cost stream past each threshold produces the *observable* effect: tier-B calls stop, activation rate actually drops, the run pauses;
+- a paused run retains every completed world, labeled partial;
+- kill a run mid-tick and resume — the result is identical to an uninterrupted run;
+- the same sweep grid run twice produces identical `world_id`s and identical digests;
+- a `brief_hash` change refuses resume rather than silently continuing.
+
+---
+
+### 5.9 `trace` — the audit spine
+
+*Old M19.*
+
+**Owns:** the append-only record of everything that happened, and the typed read views over it.
+**Hides:** the SQLite→Parquet lifecycle, partitioning, the run registry, query shapes.
+
+**Interface:** `write(events: Iterable[TraceEvent]) -> None` · `view(run_id) -> TraceView` · `registry.record(entry)`
+
+`TraceView` is a **typed, closed set** of read shapes — `events(filter)`, `beliefs(persona_id)`, `edges()`, `verbatims(grouping)`, `resolve(trace_ids)` — not an open handle to Parquet files. The previous design passed "trace views" as an undefined wide interface, which is what let derivation logic leak into two consumers.
+
+**Layout:**
+```
+trace/
+├── registry.db          run_id → config_hash, brief_hash, population_hash, seeds, pins, cost, status
+├── world/{run_id}/
+│   ├── events.parquet   sorted by (agent_id, tick)
+│   ├── beliefs.parquet  delta-encoded per reflection
+│   ├── edges.parquet    (u, v, channel, count, last_tick)
+│   └── state.db         live platform state during the run
+└── exports/{study_id}/  one row per (matraix_row_id, run_id, variant, seed)
+```
+
+**Sizing:** ~2k agents × 30 ticks ≈ 500k events per world ≈ 100–200 MB Parquet; verbose tier-B verbatims are ~7% of events.
+
+**Context is never stored whole** — only its parts plus `prompt_hash`. Full prompts are re-derivable from the registry's pins and template versions. There is deliberately no field to put a full prompt in.
+
+**Write path:** `TraceEvent.model_construct` on the hot path, batched; full validation runs in fake-mode CI. Payloads are a discriminated union over the 11 event types, which is what lets the Parquet writer fan out into typed columns instead of a JSON blob. Events carry **no seed and no contract version** — `world_id` already resolves the world, the registry holds every seed, and the contract version is a constant across a partition, so storing either on 500k rows is pure redundancy on the hottest path in the system.
+
+**Read path is lenient by version.** The contract version is written once into the Parquet partition metadata and the run registry entry. `write` is strict; `read_event` dispatches on the *partition's* version and falls back to a permissive shape for older runs. Decide this now — a trace you cannot read under a newer schema makes replay a lie, and retrofitting it after runs are stored is painful.
+
+**Salvage:** OASIS `database.py` and `channel.py` — already trace-shaped.
+
+**Boundary tests:** 500k events round-trip through `InMemoryTraceSink` and back with identical ordering by `(agent_id, tick, seq)`; a partition written under contract 1.0 loads under 1.1; an event whose payload kind disagrees with its declared type is refused; `resolve(trace_ids)` returns exactly the referenced events or raises; registry entries pin every hash needed for replay.
+
+---
+
+### 5.10 `analysis` — deriving meaning
+
+*Absorbs old M20's digest builder and M27's finding authorship. New module, and the fix for a real duplication.*
+
+**Owns:** everything derived from a trace — digests, verbatim clustering, anomaly detection, finding authorship, and **the trust guard**.
+**Hides:** clustering, statistics, anomaly thresholds, evidence resolution.
+
+**Interface:** `digest(view: TraceView) -> OutcomeDigest` · `findings(views: list[TraceView], digests) -> list[Finding]`
+
+**Why this module exists.** The previous design computed objection clusters in two places — the sweep's digest builder and the report builder — from the same verbatims, with no stated owner. One concept, two implementations, guaranteed to diverge. Worse, the trust guard ("refuse any claim without trace resolution") sat in the renderer, meaning it could only be tested by rendering. Derivation now has one owner, and the guard runs where findings are authored.
+
+**Digest:** `adoption` = share-weighted mean purchase intent; `audience_pmfs` (declared slices, authorable and comparable) and `community_pmfs` (discovered clusters) both reported; `polarization` = size-weighted JSD across **community** PMFs, the emergent measure, with audience-level divergence alongside it; adoption curve per tick, carrying the scenario's `tick_unit`; objection clusters from verbatim embeddings; anomalies. Comparing digests whose `tick_unit` differs is refused.
+
+**Anomalies are rule-based, not model-judged:** `|Δ mean_PI| > 2σ` over a trailing window → `herding`; bimodal comment-sentiment split past threshold → `backlash`; sustained low adoption with high awareness → `flop`. Deterministic, cheap, and testable — no judge model, no calibration burden.
+
+**Finding authorship** is deterministic extraction, not generation: objection clusters from verbatim embeddings, belief-delta chains from `beliefs.parquet`, WOM paths from `edges.parquet`. Every finding is constructed with its evidence trace IDs already attached, because `Finding` cannot be constructed without them.
+
+**Trust guard, enforced here:**
+- Every finding resolves to trace IDs, or it is not created.
+- Every finding carries a `disconfirming_test` — the real-world check that would falsify it.
+- Calibration status is stated **once per run**, not per finding — every finding from one run necessarily shares it, so repeating it invites someone to vary it. `Finding` carries only what genuinely varies per finding: kind, statement, evidence IDs, confidence, and a disconfirming test.
+- The run's `TrustStatement` is `UNCALIBRATED`. `CATEGORY_BENCHMARKED` and `PROSPECTIVELY_VALIDATED` require a `CalibrationRef`, which **nothing in this repository can produce** — the benchmark harness is deferred (§12). The engine cannot overclaim by construction rather than by discipline.
+
+**Boundary tests:** a fixture trace with a planted herding pattern produces exactly one `herding` anomaly at the right tick; a planted 60/40 sentiment split produces `backlash`; identical verbatims cluster identically across two runs; constructing a finding without evidence raises; a trust level above `UNCALIBRATED` without a calibration reference raises; every finding from a fixture trace resolves against that trace.
+
+---
+
+### 5.11 `report` — rendering
+
+*Old M27's renderer half.*
+
+**Owns:** turning findings and digests into documents. Nothing else.
+**Hides:** templates, markdown/JSON parity.
+
+**Interface:** `render(findings, digests, brief_pack) -> Report`
+
+**Deliberately thin.** All judgment lives in `analysis`; this module cannot introduce a claim, because it only formats `Finding` objects, and those arrive pre-validated. Emits markdown (human) and JSON (the mockup pages consume the JSON — that shape is a real contract, not an afterthought). Every report ends with the recommended real-world validation section, and the method disclosure states the model pins, seeds, and template versions used. The report carries the run's single `TrustStatement`; findings carry only their own `confidence`, so "this audience was small" is never confused with "this engine has never been benchmarked".
+
+**Boundary tests:** markdown and JSON contain the same findings; the validation section is always present; rendering a finding set twice is byte-identical.
+
+---
+
+### 5.12 `cli` — entrypoints
+
+| Command | Behavior |
+|---|---|
+| `coreset-gate --brief b.yaml --n 1500 --seed 4021` | gate report + population manifest |
+| `ssr-replica --anchors PI-oralcare-v3 --population manifest.json` | distribution diagnostics |
+| `concepts run brief.yaml [--fake]` | report.md + report.json + run_id |
+| `sweep run --grid grid.yaml --budget 42` | sweep heatmap JSON |
+
+Every command prints `run_id`. Exit codes come from the exception class, so a failed gate is distinguishable from a crash: `SimError` 1 (crash), `GateFailure` 2, `BudgetExhausted` 3, `SchemaVersionError` 5.
+
+`--fake` uses `FakeInference` + `SyntheticCoresetSource`, requires no API key and no dataset download, and runs the full pipeline end to end. This is the path a new user hits first, so it is a first-class CI target, not a debug flag.
+
+---
+
+## 6. Cross-cutting contracts
+
+Four rules, each with exactly one enforcement owner (P3).
+
+| Contract | Owner | Enforcement |
+|---|---|---|
+| **No unprovenanced numbers** — every claim resolves to trace IDs | `analysis` | `Finding` cannot be constructed without evidence IDs; the guard runs at authorship |
+| **Grounded ≠ synthesized** — coreset facts and model-completed fields never mix silently | `population` | an explicit `FieldOrigin` on **every** projected field, never inferred from an absent key; demographics/psychographics are never completable; asserted in a boundary test |
+| **Replayability** — run_id + seeds + pins + template hashes reproduce a run | `runner` + `trace` | `ModelPins` rejects unpinned IDs; `config_hash` covers schema version; registry stores every hash |
+| **Nothing auto-crowned** — winners are hypotheses | `analysis` | `disconfirming_test` is a required non-empty field; every report ends in the next real-world test |
+
+---
+
+## 7. Salvage inventory
+
+Full per-file detail is in `SALVAGE.md`; this is the module-level mapping. Keep license headers intact in every forked file and credit CAMEL-AI, Sakana AI, and MatrAIx in `NOTICE.md`.
+
+| Source | License | Feeds | Verdict |
+|---|---|---|---|
+| **OASIS** `env.py`, `env_action.py`, `make.py` | Apache-2.0 | `world` | COPY/ADAPT — strip CAMEL, inject `ChatPort` |
+| **OASIS** `platform.py`, `database.py`, `channel.py` | Apache-2.0 | `world`, `trace` | COPY — add provenance columns at write time |
+| **OASIS** `recsys.py`, `process_recsys_posts.py` | Apache-2.0 | `world` | ADAPT — hot-score math verbatim; swap embedder to our port |
+| **OASIS** `clock.py` | Apache-2.0 | `world` | COPY/ADAPT — add straggler-aware tick semantics |
+| **OASIS** `agent.py`, `agent_action.py`, `agent_environment.py` | Apache-2.0 | `agent` | COPY/ADAPT — extend `ActionType` |
+| **OASIS** `agent_graph.py` | Apache-2.0 | `population` | ADAPT — networkx container only; topology is ours |
+| **OASIS** `generator/` | Apache-2.0 | — | SKIP — grounded sampling replaces persona invention |
+| **ASAL** `main_sweep_gol.py`, `rollout.py` | Apache-2.0 | `runner` | ADAPT (pattern) — reimplemented in plain Python; JAX/CLIP is the wrong modality |
+| **ASAL** `main_illuminate.py`, `main_opt.py`, `asal_metrics.py` | Apache-2.0 | `analysis` (phase 4) | ADAPT (pattern) — see §12 |
+| **ASAL** JAX substrates, `clip.py`, `dino.py` | Apache-2.0 | — | SKIP — wrong substrate and modality |
+| **MatrAIx** `persona_codes.schema.json`, index builders, pool | MIT | `population` | COPY — the decode contract |
+| **MatrAIx** Persona-1M parquet shards | **terms unconfirmed** | `population` via `CoresetSource` | **Never bundled** — downloaded at first run so users accept the dataset's own terms; `SyntheticCoresetSource` keeps the quickstart working regardless |
+| **MatrAIx** `model_client.py`, `openai_client.py`, `persona_model.py`, `llm_usage.py` | MIT | `inference` | COPY — the multi-provider router core |
+| **MatrAIx** `templating.py`, `user_sim.py`, `json_survey.py` | MIT | `agent`, `elicitation` | COPY/ADAPT — the 1,290-attribute prompt renderer |
+| **MatrAIx** `survey_task_content.py`, `survey_eval.py` | MIT | `world` (SurveyRoom) | ADAPT — strip eval framing, add SSR free-text mode |
+| **MatrAIx** Harbor runtime, web app, browser/OS agents | MIT | — | SKIP — orthogonal |
+| **SSR paper** (arXiv 2510.08338) | method | `elicitation` | no code exists — implement from the paper |
+| **Generative Agents** (Park et al.) | method | `agent` | no code — memory/reflection recipe |
+| **Leiden** (Traag et al.) | method + `leidenalg` | `population` | library |
+
+**Salvage rules:** one router — no module talks to a provider directly. Forked OASIS code keeps upstream structure and headers (P6); pin upstream SHAs and review diffs quarterly for recsys/clock fixes. No persona-invention code from any source. Any salvage that changes golden-run output gets reviewed and re-committed deliberately, never silently.
+
+---
+
+## 8. Testing strategy
+
+Three layers, with distinct jobs. The middle layer is the primary one and is where most test code should live.
+
+**Layer 1 — property and contract tests (`schemas`).** Fast, exhaustive, hypothesis-driven. PMFs sum to 1; hashes are stable and order-independent; round-trips are lossless; the leaf rule holds. These guard *data*, not behavior.
+
+**Layer 2 — boundary tests (every deep module).** The primary layer. Each module is exercised through its public interface with in-memory adapters, asserting observable outputs. This is the layer the previous architecture was missing, and the reason several invariants — no synthesized demographics, budget actually stops spending, conditioning changes distributions, planted anomalies are detected — were previously untestable at any granularity below a full pipeline run.
+
+**Layer 3 — golden runs (characterization).** Seeded full-pipeline runs under `FakeInference` + `SyntheticCoresetSource`, snapshotting final PMFs, event counts, and cost. These detect *change*, not correctness — a consistently wrong decode passes forever — so they are a drift alarm, never a correctness argument. Any diff must be reviewed and re-committed deliberately.
+
+**What is explicitly not tested with unit tests:** internal helpers of deep modules. Testing a private scoring formula couples tests to implementation and blocks the refactors the deep-module structure exists to enable. If a helper feels like it needs its own test, that is evidence it should be its own module with its own boundary.
+
+**CI:** layers 1–3 all run with zero API keys and zero dataset downloads. Runs against real models are a separate, manual, logged benchmark class.
+
+---
+
+## 9. Repository layout
+
+```
+consumersim/
+├── FINAL_ARCH.md
+├── SALVAGE.md
+├── NOTICE.md                    CAMEL-AI · Sakana AI · MatrAIx attribution
+├── LICENSE                      Apache-2.0
+├── pyproject.toml
+├── simcore/
+│   ├── schemas/                 leaf: contracts only
+│   ├── ports/                   port protocols + all adapters (fake, fixture, synthetic, http, hf)
+│   ├── brief/
+│   ├── population/              decode · sample · gate · project · embed · graph · communities
+│   ├── inference/               router + cache + fake
+│   ├── elicitation/             SSR + anchor sets
+│   ├── agent/                   context · conditioning · memory · turn
+│   ├── world/                   env · platforms · recsys · clock  (upstream-shaped)
+│   ├── runner/                  scheduler · budget · sweep · checkpoint
+│   ├── trace/                   sink · views · registry
+│   ├── analysis/                digests · clustering · anomalies · findings
+│   ├── report/
+│   └── cli/
+├── anchors/                     versioned SSR anchor sets
+├── ontologies/                  versioned category ontologies
+├── examples/
+│   ├── protein_water.yaml       concept test
+│   ├── subreddit_policy.yaml    forum dynamics
+│   └── price_grid.yaml          sweep
+└── tests/
+    ├── property/                layer 1
+    ├── boundary/                layer 2 — one directory per module
+    ├── golden/                  layer 3 + committed snapshots
+    └── fixtures/                mini coreset shard, stub anchors, fixture traces
+```
+
+`ports/` holding both protocols and adapters is deliberate: adapters are infrastructure, and keeping them out of the core packages means no core module can accidentally import a concrete adapter.
+
+Core dependencies: `pydantic`, `pyarrow`, `numpy`, `networkx`, `leidenalg`, `openai` (the OpenAI-compatible transport), optional `boto3`. SQLite for live state and traces until scale demands otherwise.
+
+---
+
+## 10. Build phases
+
+Each phase ends in something runnable.
+
+| Phase | Weeks | Modules | Exit artifact |
+|---|---|---|---|
+| **0** | 1–2 | `schemas`, `ports`, `population`, `inference`, `elicitation`, `cli` (2 cmds) | `coreset-gate` produces a passing gate report on a real cohort; `ssr-replica` reproduces the conditioning signature — conditioned vs. unconditioned distributions diverge as reported, rank stability Spearman > 0.8 |
+| **1** | 3–6 | `brief`, `agent`, `world` (SurveyRoom), `runner`, `trace`, `analysis`, `report` | `concepts run brief.yaml --fake` completes end to end with no API key; a real run produces a ranked report in < 30 min for < $20 |
+| **2** | 7–12 | `world` (feed, forum, WOM), `agent` memory + reflection, `population` graph + communities | a herding event in a feed run is explainable by walking the trace from cause to effect; identical seeds reproduce bit-identically |
+| **3** | 13–18 | `runner` sweep, `world` remaining recsys modes and intervention kinds, `analysis` anomalies | `sweep run` produces a measured adoption/polarization heatmap with rule-based risk flags |
+
+**Phase-0 microbenchmark to settle early:** tier-A serving for Persona-8B — OpenRouter-hosted vs. self-hosted vLLM vs. a small instruct model with prompt conditioning. Benchmark *distribution fidelity*, not chat quality; that is the only property that matters here.
+
+---
+
+## 11. Performance and acceptance gates
+
+| Gate | Target | Phase |
+|---|---|---|
+| Coreset decode, 10k personas | < 60 s cold, < 2 s warm | 0 |
+| Postings filter | never opens a data shard | 0 |
+| `population.build(n=2000)` under synthetic source | < 5 s | 0 |
+| SSR rank stability across reference sets | Spearman > 0.8 | 0 |
+| Distribution non-collapse | full 1–5 mass, no point mass | 0 |
+| `concepts run` end to end | < 30 min, < $20 | 1 |
+| Inference cache hit on baseline re-run | ≥ 30% | 1 |
+| Graph: clustering / giant component / isolates | ±0.05 target / ≥ 98% / zero | 2 |
+| Leiden modularity | ≥ 0.4, 4–8 communities of ≥ ~80 | 2 |
+| Determinism | identical seeds → identical `population_hash`, `world_id`, digests | all |
+
+---
+
+## 12. Deferred, with return criteria
+
+Not built now. Each carries the condition that would justify building it, so these are decisions rather than omissions.
+
+| Capability | Why deferred | Return criterion |
+|---|---|---|
+| **Skill library** (VOYAGER-pattern cached reaction templates) | An optimization, not a capability — nothing becomes possible that isn't already. Mining patterns from uncalibrated traces would bake current biases into the engine | ≥ 20 completed studies with validated traces, and measured repetition high enough that templated hints save ≥ 30% of tier-A tokens with no distribution-fidelity loss against golden runs |
+| **Retail shelf environment** | Buy/reject decisions against competitor prices need willingness-to-pay grounding. Shipping synthetic purchase decisions without it produces confident numbers with nothing behind them | WTP grounding available from real data, plus actual demand for pricing studies |
+| **Scenario illumination** (ASAL MAP-Elites over an archive of runs) | Answers "what outcomes are possible beyond my grid?" — a question worth asking only once baseline runs are trusted and an archive of runs exists to search over. The grid sweep answers the question users actually have first | A benchmark harness exists and passes, plus an archive of validated runs, plus users asking for auto-exploration rather than specifying their own grids |
+| **LLM-as-judge scoring** | Rule-based anomaly flags cover current needs deterministically and cheaply; a judge adds cost and its own calibration burden | Rule-based flags demonstrably underperform on real traces |
+| **Analyst-debate reporting** (multi-role bull/bear synthesis) | `analysis` already authors findings deterministically with citations, so the trust invariant holds without it. A debate layer earns its cost only when *explanation quality* is the bottleneck, not trust | Reports are trusted, and an A/B on decision-usefulness (with vs. without) shows a difference |
+| **Benchmark harness against real human studies** | Requires real human study data, which the engine does not have. Until then every run is `UNCALIBRATED` and the engine claims nothing about accuracy | Human study data available. Building this openly and publishing the methodology is the single highest-value addition to the engine — the `AnchorSource` and `PersonaPatchSource` ports exist specifically so it can be added without changing any module signature |
+
+---
+
+## 13. Design decisions
+
+What changed from the previous 28-module design, and why. Recorded so the reasoning survives.
+
+**1. Twenty-eight modules became twelve.** The old decomposition followed the pipeline's eight layers, so boundaries fell where data changed shape rather than where complexity could be hidden. That produced modules whose interfaces were about as complex as their implementations, and intermediate types (`DecodedRow`, `MemoryView`, undefined "trace views") that existed only to cross a boundary. Modules now correspond to questions — *who is in this study?*, *what does this persona do?*, *what happened?* — not to pipeline stages.
+
+**2. Budget enforcement moved into the runner.** Previously the governor decided and three modules applied. One policy with three interpretation points cannot be tested in one place, and a misinterpretation degrades fidelity mid-run without failing — a study silently becomes a different study. The governor now applies degradation itself by mutating the run plan; `agent` and `world` never learn that budgets exist.
+
+**3. Persona conditioning got an owner.** Context assembly was referenced by the old spec but assigned to no module, while conditioning is the variable that decides whether the elicitation method works at all. It now lives in `agent`, with a boundary test that asserts the effect directly rather than inferring it from a full run.
+
+**4. Derivation was split from rendering.** Objection clustering previously appeared in both the sweep digest and the report builder, and the trust guard sat in the renderer, testable only by rendering. `analysis` owns all derivation and the guard; `report` only formats pre-validated findings and structurally cannot introduce a claim.
+
+**5. Ports were introduced at five boundaries.** This is what makes deep modules testable without mocking internals — every boundary test runs against in-memory adapters. Two of the ports do additional work: `CoresetSource` means the engine never depends on the dataset being bundled or licensed a particular way, and `AnchorSource`/`PersonaPatchSource` mean calibration can be added later without changing any public signature. That last point is time-sensitive: once these interfaces are published, adding a parameter is a breaking change for every fork.
+
+**6. The world modules merged at the interface, not internally.** The four OASIS-derived modules present one `World` port outward while keeping upstream file structure inward. This is the one place where P1 is traded against P6, and the trade is deliberate: upstream OASIS ships fixes worth re-porting, and `recsys.py` is only valuable while its hot-score math stays diffable against the original.
+
+**7. `elicitation` stays separate despite having one caller.** The single deliberate exception to P1, justified by an independent entrypoint, an independent acceptance gate against published data, and its role as the engine's central methodological claim.
+
+**8. Nine type-level defects were found and fixed before any code was written.** A grilling pass against this document surfaced problems that would all have compiled and produced plausible numbers: one provenance vocabulary serving three unrelated subjects while lacking the word its own contract is named after; "segment" meaning a declared slice, a sampling cell *and* a discovered cluster, which made sweep files unauthorable; a replicate-seed list that silently produced identical worlds and a structurally zero variance estimate; a dataset whose sparsest rows cannot support the conditioning the method depends on, where the obvious fix biases the population toward synthetic rows; a gate threshold whose pass direction was ambiguous and whose only numeric inputs were the engine's own output; an undefined tick duration alongside a second undefined time unit; per-stimulus reactions that reduced the feed to a slower survey room at triple the cost; a scalar claim-belief that made the engine's most valuable finding unrepresentable; and a per-finding trust ladder still carrying a commercial level with no referent. The resolutions are folded into the sections above; three are recorded as ADRs; the vocabulary fixes live in `CONTEXT.md`.
