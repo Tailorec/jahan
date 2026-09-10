@@ -1,43 +1,23 @@
-# ConsumerSim — Engine Architecture
+# ConsumerSim — Engine Architecture (OSS)
 
-**Status:** v1 (codebase architecture for `sim_engine/`)
-**Related docs:** `SALVAGE.md` (exact salvage inventory, same directory) · `../ideas/technical_architecture_sim_engine.md` (design spec v2: layers, loops, schemas, trust model) · `../PRODUCT.md` / `../DESIGN.md` (product context)
+**Status:** v1 (open-source codebase architecture for `sim_engine/`)
+**Scope:** this document specifies only the modules that ship in the open-source engine. Everything Pro-gated (calibration/validation, scenario search beyond grid sweep, analyst-debate reporting, retail-shelf pricing) has been moved to `../ideas/PRO_ARCHITECTURE.md` — same module IDs, so the two documents stay cross-referenceable.
+**Related docs:** `SALVAGE.md` (OSS-scoped salvage inventory, same directory) · `OSSARCH.md` (open-core split, positioning, Mermaid diagrams, repo layout) · `../ideas/STRATEGY.md` (business/market context) · `../ideas/PRO_ARCHITECTURE.md` (everything removed from this document)
 **Inference substrate:** OSS / OpenAI-compatible inference router (decided — see §4): one model-agnostic gateway (hosted OpenRouter-style or self-hosted LiteLLM/vLLM) that can serve Bedrock models *and* any other provider model behind one interface.
 
 ---
 
 ## 1. Repository layout
 
-```
-sim_engine/
-├── ARCHITECTURE.md            ← this document
-├── SALVAGE.md                 ← salvage inventory (what we take from OASIS/ASAL/MatrAIx)
-├── pyproject.toml             ← uv-managed package: consumersim
-├── simcore/
-│   ├── brief/                 ← L1: brief ingestion + provenance
-│   ├── coreset/               ← L2: MatrAIx-1M loader, sampling, gates        [SALVAGE: MatrAIx]
-│   ├── personas/              ← L2: projection, sparse completion, graph, Leiden
-│   ├── llm/                   ← provider-agnostic model router + prompt registry  [NEW + SALVAGE: MatrAIx]
-│   ├── cognition/             ← L3: tiered agent runtime, memory, skills, SSR
-│   ├── world/                 ← L4: env server, platforms, info filter, time      [SALVAGE: OASIS]
-│   ├── execution/             ← L5: scheduler, batching, caching, cost governor
-│   ├── search/                ← L6: ASAL-style illuminate/optimize/sweep          [SALVAGE: ASAL patterns]
-│   ├── validation/            ← L7: benchmarks, calibration loop, trust tiers
-│   ├── reporting/             ← L8: report builder (v1: deterministic, citation-resolving); analyst debate = Phase 4+ upgrade
-│   ├── trace/                 ← append-only event store + registry
-│   └── schemas/               ← ProductBrief, Persona, ScenarioConfig, TraceEvent…
-├── scripts/                   ← CLI entrypoints (phase 0/1: concepts run brief.yaml)
-├── tests/                     ← unit + golden-run regression (seeded)
-└── notebooks/                 ← analysis/verification notebooks
-```
+The OSS-scoped repository tree (with Pro-gated folders/stubs annotated) lives in `OSSARCH.md` §2 — not duplicated here to avoid drift. In short: `simcore/{schemas,brief,coreset,personas,llm,cognition,world,execution,search,trace,reporting}/` ship as open-source Python (`uv`-managed, Python 3.12+), with `search/` and `reporting/`'s Pro-only sub-modules present only as typed interfaces that raise `ProFeatureError` (see `OSSARCH.md` §2's design rule).
 
-Python 3.12+, `uv`, no framework dependencies beyond: `pyarrow` (coreset), `networkx` + `leidenalg` (graph/segments), `openai` pkg (OpenAI-compatible router client — works against OpenRouter, LiteLLM, vLLM, and most managed gateways), optional `boto3` (direct-Bedrock adapter for batch/embeddings), `cmaes` (search v2), `pydantic` (schemas). SQLite for env state and traces until scale demands otherwise.
+Core dependencies: `pyarrow` (coreset), `networkx` + `leidenalg` (graph/segments), `openai` pkg (OpenAI-compatible router client — works against OpenRouter, LiteLLM, vLLM, and most managed gateways), optional `boto3` (direct-Bedrock adapter for batch/embeddings), `pydantic` (schemas). SQLite for env state and traces until scale demands otherwise.
 
 ---
 
-## 2. Module inventory
+## 2. Module inventory (OSS)
 
-Legend: **SRC** = salvaged source · phase = when the module lands (spec §7).
+Legend: **SRC** = salvaged source · phase = when the module lands (spec §6).
 
 | # | Module | Layer | Source | Phase | One-line purpose |
 |---|---|---|---|---|---|
@@ -46,33 +26,31 @@ Legend: **SRC** = salvaged source · phase = when the module lands (spec §7).
 | M3 | `coreset/loader` | L2 | **MatrAIx** | 0 | Packed-4-bit decode, postings-index segment filter, shard reader |
 | M4 | `coreset/sampling` | L2 | **MatrAIx** + NEW | 0 | Segment→row-id resolution, cohort assembly, distribution gates (χ²/KS vs calibration_targets.json) |
 | M5 | `personas/projection` | L2 | NEW | 0 | 1,290-attr → Persona record; sparse-completion policy w/ `synthesized` tagging |
-| M6 | `personas/graph` | L2 | NEW + Leiden paper | 2 | Social graph attach (tie strength), Leiden segmentation, segment cards. **Bridges the MatrAIx gap:** the dataset has no follower/following edges (population sample, not a network) — the graph is *generated* (seeded topology, category-fitted degree/clustering params) and injected into OASIS's agent_graph as connection input; twhin-mode follower counts = generated degree centralities. "Interests" are likewise not a field: OASIS's interest-match embeds profile text — we embed the decoded attribute profile (~656 attrs avg); sparse decision-relevant gaps go through the completion policy, tagged `synthesized` |
+| M6 | `personas/graph` | L2 | NEW + Leiden paper | 2 | Social graph attach (tie strength), Leiden segmentation, segment cards |
 | M7 | `llm/router` | cross | NEW + **MatrAIx model_client** | 0 | Provider-agnostic Tier A/B + judge + embeddings via OpenAI-compatible router; retries, token accounting, model pinning, per-role provider routing, fake mode |
 | M8 | `cognition/agent` | L3 | **OASIS** agent + **MatrAIx** persona templates | 1 | Persona-conditioned agent turn: perceive → retrieve memory → Tier A/B → Reaction |
 | M9 | `cognition/ssr` | L3 | **SSR paper** | 0 | Textual elicitation → router embedding → anchor cosine → Likert pmf (≥6 reference sets) |
 | M10 | `cognition/memory` | L3 | **Generative Agents** paper | 2 | Memory stream (recency×importance×relevance), reflections, belief dimensions |
-| M11 | `cognition/skills` | L3 | **VOYAGER** paper | 3+ | Reaction-pattern library (trigger→response, embedding-keyed); post-MVP |
+| M11 | `cognition/skills` | L3 | **CUT from v1** | — | Not built in OSS or Pro — see `../ideas/PRO_ARCHITECTURE.md` for the full rationale and return criteria |
 | M12 | `world/env` | L4 | **OASIS** | 1 | PettingZoo-style env server, action spaces, SQLite platform state |
-| M13 | `world/platforms` | L4 | **OASIS** | 2 | One `ForumPlatform` class, presets: `reddit_global` (OASIS salvage: global posting, hot-score herding) and `community_scoped` (threads = Leiden communities, recency + consensus ranking, slow hardening — mechanically similar to Reddit, dynamically distinct). Plus SurveyRoom, WOM (graph channels), SocialFeed (X-like), RetailShelf |
-| M14 | `world/recsys` | L4 | **OASIS** | 2 | Info filter: hot-score (verbatim math), interest-match via router embeddings, exposure budgets |
-| M15 | `world/schedule` | L4 | **OASIS clock** + pandemic-ABM paper | 2 | Activation probabilities + intervention schedules (teaser/launch/promo/competitor/shock) |
+| M13 | `world/platforms` | L4 | **OASIS** | 2 | SurveyRoom, SocialFeed, ForumPlatform (`reddit_global` + `community_scoped` presets), WOM. *(RetailShelf is Pro-only — see `../ideas/PRO_ARCHITECTURE.md`.)* |
+| M14 | `world/recsys` | L4 | **OASIS** | 2 | Info filter: hot-score (verbatim math), interest-match via router embeddings, exposure budgets. All 4 OASIS modes salvaged; `twhin`/`random` land Phase 2 late |
+| M15 | `world/schedule` | L4 | **OASIS clock** + pandemic-ABM paper | 2 | Activation probabilities + intervention schedules (teaser/launch/promo initially; influencer/competitor_move/shock land as OSS matures) |
 | M16 | `execution/scheduler` | L5 | NEW | 1 | RunConfig expansion: variants × seeds × cohorts → world run plan |
 | M17 | `execution/costs` | L5 | NEW + **MatrAIx usage** | 1 | Budget governor, per-tier spend ledger, degradation paths |
 | M18 | `execution/cache` | L5 | NEW | 1 | Prompt-hash response cache, embedding cache, coreset decode cache |
 | M19 | `trace/store` | cross | NEW + **OASIS db shape** | 1 | Append-only TraceEvents + run registry (config hash, seeds, model pins, cost) |
-| M20 | `search/rollout` | L6 | **ASAL** | 3 | Candidate θ → surrogate world run → outcome digest |
-| M21 | `search/opt` | L6 | **ASAL main_opt** | 3 | Supervised target search: v1 LLM-proposer + grid; v2 CMA-ES |
-| M22 | `search/illuminate` | L6 | **ASAL main_illuminate** | 3 | MAP-Elites-style archive on adoption×polarization; embedding dedupe |
-| M23 | `search/judge` | L6 | NEW (LLM-as-judge v1) | 3 | Rubric scoring (target/novelty/diversity/dynamics) with cited evidence; agreement checks |
-| M24 | `validation/bench` | L7 | NEW + **SSR paper metrics** | 4 | KS similarity, correlation attainment, supervised baseline (LightGBM) |
-| M25 | `validation/calibrate` | L7 | NEW + **MatrAIx self-report** | 4 | Persona-patch loop with held-out gates, anchor versioning, trust-tier transitions |
-| M26 | `reporting/analysts` | L8 | **TradingAgents paper** | **4+ (deferred — not in v1)** | Segment/competitor/risk analysts + bull/bear debate over traces. v1 duty (finding authorship + citation resolution) absorbed by M27 |
-| M27 | `reporting/build` | L8 | NEW | 1 | Report renderer: rankings, segment cards, objections, trust labels, validation plan |
-| M28 | `scripts/` CLI | — | NEW | 0+ | `coreset-gate`, `ssr-replica`, `concepts run`, `sweep run`, `benchmark run` |
+| M20 | `search/rollout` | L5 | generic (ASAL-adjacent pattern) | 1 | Batch world runner: N configs × seeds → OutcomeDigests, ships as grid sweep + measured heatmap + rule-based risk flags |
+| M21/M22/M23 | `search/{opt,illuminate,judge}` | L6 | ASAL | **Pro** | Auto-proposal, MAP-Elites illumination, LLM-judge — see `../ideas/PRO_ARCHITECTURE.md` |
+| M24 | `validation/bench` | L7 | — | **Pro** | Human-vs-synthetic benchmark harness — see `../ideas/PRO_ARCHITECTURE.md` |
+| M25 | `validation/calibrate` | L7 | — | **Pro** | Calibration loop, trust-tier transitions — see `../ideas/PRO_ARCHITECTURE.md` |
+| M26 | `reporting/analysts` | L8 | TradingAgents pattern | **Pro** | Bull/bear analyst-debate reporting — see `../ideas/PRO_ARCHITECTURE.md` |
+| M27 | `reporting/build` | L8 | NEW | 1 | Report renderer: rankings, segment cards, objections, trust labels, validation plan — v1 also authors findings deterministically (M26's duty, absorbed) |
+| M28 | `scripts/` CLI | — | NEW | 0+ | `coreset-gate`, `ssr-replica`, `concepts run`, `sweep run` ship in OSS; `benchmark run`, `calibrate` are Pro-gated (see §7) |
 
 ---
 
-## 3. Module specs — detailed (every module: what it does, how, inputs, outputs)
+## 3. Module specs — detailed (OSS modules only)
 
 Notation: **In →** / **Out →** are the typed structures at the module boundary (all defined in M1 unless marked local). Every module writes to the trace store and carries provenance fields per §5 contracts.
 
@@ -185,6 +163,8 @@ class ReportFinding(BaseModel):
 
 **Perf gate:** decode 10k personas < 60 s cold, < 2 s warm (Phase-0 acceptance). Postings filter must not open data shards (index-only).
 
+**Licensing note:** do not bundle the parquet shards in this repository — download at first run so end users accept the HF dataset's own terms directly. See `OSSARCH.md` §4.3 for the full pre-launch licensing checklist (currently the one blocking item before public release).
+
 ---
 
 ### M4 — `coreset/sampling` (MatrAIx + NEW · Phase 0) — cohort assembly + gates
@@ -243,10 +223,10 @@ class ReportFinding(BaseModel):
 3. Retry: exponential backoff ×3, provider-aware (429/5xx); fallback route per role (e.g. tier_b: openrouter → direct provider) on repeated failure.
 4. On completion: `Completion {text, tokens_in, tokens_out, cost_usd, provider, model_id, latency_ms, cache_hit}`; emit COST TraceEvent → M17; emit `(provider, model_id, template_id, prompt_hash)` → M19.
 5. `embed(texts)` → pinned EMBED model, batched, cached.
-6. Fake mode: deterministic canned completions keyed by `prompt_hash` — CI parity with mockups.
+6. Fake mode: deterministic canned completions keyed by `prompt_hash` — this is what lets the OSS quickstart run end-to-end with zero API keys (see `OSSARCH.md` §9 / `mockups/oss/quickstart.html`), and gives CI parity with the mockups.
 
 **In →** role, messages (from M8 context assembly), pins
-**Out →** `Completion` / `list[embedding]` + COST events. Judge calls = Tier-B, temp 0, JSON schema enforced, cited-evidence requirement (M23).
+**Out →** `Completion` / `list[embedding]` + COST events.
 
 ---
 
@@ -270,7 +250,7 @@ class ReportFinding(BaseModel):
 
 **How:**
 1. Anchor sets: per (construct, category), versioned JSON — `{construct, likert_map, reference_sets: R×5 statements, embeddings: R×5×dim}`; R ≥ 6 sets, Tier-B drafted, human-reviewed, embedded once with the pinned EMBED model (anchors and responses must share the model — mismatch invalidates the pmf).
-2. `ssr_score(free_text)`: embed text once → per reference set: `softmax(cosine(v, anchor_i)/τ)` over 5 anchors → average R sets → `PMF5`. τ calibrated on held-out human data in Phase 4.
+2. `ssr_score(free_text)`: embed text once → per reference set: `softmax(cosine(v, anchor_i)/τ)` over 5 anchors → average R sets → `PMF5`. τ calibrated on held-out human data — the calibration step itself is a Pro-tier activity (`../ideas/PRO_ARCHITECTURE.md` M25); OSS ships with a documented default τ.
 3. The free text is retained (objection mining corpus); the pmf is the number.
 4. Elicitation prompt template: "respond in one short paragraph: how likely would you be to purchase? do not use numbers" + persona context (M8). Unconditioned personas rejected at the gate (paper 1: unconditioned → optimistic narrow distributions, ρ falls to ~50%).
 
@@ -294,16 +274,6 @@ class ReportFinding(BaseModel):
 
 ---
 
-### M11 — `cognition/skills` (VOYAGER pattern · Phase 3+) — reaction patterns
-
-**Does:** reusable (trigger → response) patterns so consistent persona archetypes don't need re-derivation each turn.
-
-**How:** library table `{pattern_id, trigger_embedding, response_template, segment_applicability, success_stats}`; on turn: `cosine(trigger_embedding, ctx_emb) > τ` → template injected as an optional "known reaction" hint (token-budgeted). Mining: post-run extraction of recurring (context → reaction) pairs from traces; new patterns embedded and inserted; success stats updated from downstream PI movement.
-
-**In →** context embedding, library table. **Out →** optional skill hints (list of template strings) — consumed by M8 prompt assembly.
-
----
-
 ### M12 — `world/env` (OASIS COPY/ADAPT · Phase 1) — world orchestration
 
 **Does:** the PettingZoo-style step loop that ties platforms, filter, clock, and agents together. Fork of `oasis/environment/env.py` with CAMEL stripped, M7 injected.
@@ -314,7 +284,7 @@ class ReportFinding(BaseModel):
 
 ---
 
-### M13 — `world/platforms` (OASIS COPY/ADAPT · Phase 2) — the five environments
+### M13 — `world/platforms` (OASIS COPY/ADAPT · Phase 2) — the OSS environments
 
 Each platform = action handlers + an exposure source; all state in the world SQLite DB with provenance columns.
 
@@ -324,7 +294,8 @@ Each platform = action handlers + an exposure source; all state in the world SQL
 | **SocialFeed** (P2, X-like) | broadcast posts, comments, likes/reposts/quotes; exposure via M14 rec_matrix; social-proof counters | post, comment, like, repost, quote, follow |
 | **ForumPlatform** (P2) — one class, two presets | `reddit_global`: any agent, any thread, hot-score ranking (OASIS verbatim) · `community_scoped`: threads = Leiden communities, membership enforced, recency + consensus ranking (reply recency + agreement ratio), no hot-score | create_post, reply, vote |
 | **WOM** (P2) | graph channel, not a platform: after a reaction, `wants_to_talk(reaction, peer)` gate (sentiment strength > θ_s AND tie > θ_t, rng) → `deliver(peer, message)` creates next-tick Exposure(reason="wom", tie) | send (implicit) |
-| **RetailShelf** (P4) | comparison-page stimulus: competitor prices, reviews written by other agents; buy/reject decisions; review reading = social proof ingestion | view, review_read, buy, reject |
+
+*(RetailShelf is Pro-only — pricing decisions need willingness-to-pay grounding from the Pro calibration loop to be credible. Full spec in `../ideas/PRO_ARCHITECTURE.md`.)*
 
 **In →** per-tick actions, intervention stimuli (M15). **Out →** `WorldDelta` + next-tick candidate stimuli + provenance-tagged rows (persona row id, stimulus id, claim ids).
 
@@ -335,10 +306,11 @@ Each platform = action handlers + an exposure source; all state in the world SQL
 **Does:** decides which stimuli each activated agent sees — the engine's attention economy. Salvages all four OASIS modes; embedder branches swapped to the router.
 
 **How (modes, from OASIS `recsys.py`):**
-- `random` — uniform sample; **kept as the control arm** (isolates filter-driven vs organic outcomes).
+- `random` — uniform sample; kept as the control arm (isolates filter-driven vs organic outcomes).
 - `reddit_hot` — hot-score **copied verbatim**: engagement counts with time decay; drives herding.
 - `twitter` — interest-match: cosine(profile_embedding (M5), post_embedding) ranking.
 - `twhin` — personalized graph-aware: follower-graph signals (generated degrees, M6) + posting history + like-scores.
+
 Exposure budget: max E stimuli per agent per tick (default 3); beyond budget, lowest-scored dropped with reason logged. Post embeddings computed at creation (cached); user profile embeddings cached per cohort.
 
 **In →** activated agents, platform stimulus tables, mode + params (from ScenarioConfig). **Out →** `list[Exposure]` (with reason + attention scores) → M8.
@@ -349,7 +321,7 @@ Exposure budget: max E stimuli per agent per tick (default 3); beyond budget, lo
 
 **How:**
 1. Activation clock (fork of `oasis/clock/clock.py`): per-agent `p_act(tick)` = involvement × daily-rhythm profile; seeded sampling; activation counts feed the cost governor.
-2. Intervention scheduler: `interventions` from ScenarioConfig injected at tick start — each kind carries an adoption/decay model (promo: uplift with τ-decay; influencer: reach pulse; competitor_move: counter-stimulus targeting; shock: negative review injection). Pandemic-ABM paper's intervention-interplay semantics: interventions compose, they don't overwrite.
+2. Intervention scheduler: `interventions` from ScenarioConfig injected at tick start — each kind carries an adoption/decay model (promo: uplift with τ-decay; launch: teaser/announce). Pandemic-ABM paper's intervention-interplay semantics: interventions compose, they don't overwrite. Intervention kinds beyond launch/promo (influencer, competitor_move, shock) land as the OSS engine matures.
 
 **In →** ScenarioConfig.interventions, cohort activation profiles. **Out →** per-tick stimuli + activated agent list.
 
@@ -391,7 +363,7 @@ Exposure budget: max E stimuli per agent per tick (default 3); beyond budget, lo
 
 ### M19 — `trace/store` (NEW + OASIS db shape · Phase 1) — the audit spine
 
-**Does:** append-only TraceEvents + run registry; the store every other module reads for explanation, and the calibration corpus.
+**Does:** append-only TraceEvents + run registry; the store every other module reads for explanation.
 
 **How/layout:**
 
@@ -408,97 +380,31 @@ trace/
 
 Sizing: 2k agents × 30 ticks ≈ 500k events/world ≈ 100–200 MB Parquet; verbose payloads (Tier-B verbatims) ≈ 7% of events. Context is never stored whole — parts + prompt hash only, history re-derivable from registry pins.
 
-**In →** TraceEvents from all modules. **Out →** trace queries (M27's v1 builder reads via prebuilt views; analyst agents consume them in Phase 4+), registry entries, export tables.
+**In →** TraceEvents from all modules. **Out →** trace queries, registry entries, export tables.
 
 ---
 
-### M20 — `search/rollout` (ASAL pattern · Phase 3) — candidate → digest
+### M20 — `search/rollout` (generic · Phase 1) — batch world runner
 
-**Does:** one θ in, one measured outcome out — the unit of search.
+**Does:** run N ScenarioConfigs × seeds → OutcomeDigests. Every multi-variant study needs this; the ASAL-derived auto-search machinery (M21–M23) is Pro-only (see `../ideas/PRO_ARCHITECTURE.md`).
 
-**How:** surrogate cohort = stratified 200 from CohortManifest (sparse rows completed per policy); 3 world-seeds ensemble; reduced ticks (config, default 10) — mirroring `mockups/sim.js MiniAtlasSweep` (the reference implementation). Digest builder: adoption = share-weighted mean PI; polarization = size-weighted JSD across segment PMFs; objections = quick clustering of Tier-B verbatims; anomalies = tick-level PI jumps > 2σ.
+**How:** worker pool over M16's scheduler (2 workers default); per world: reduced or full tick run per config class (baseline = full 30 ticks; grid sweep = configurable); digest builder (adoption = share-weighted mean PI; polarization = size-weighted JSD between segment PMFs; objections from verbatim clustering; anomalies = tick-level PI jumps > 2σ + comment-sentiment divergence).
 
-**In →** `ScenarioConfig` (θ), surrogate cohort. **Out →** `OutcomeDigest` (+ per-seed adoption list for σ).
+The **rule-based risk flags** ship here in OSS: per world, per tick, |Δ mean_PI| > 2σ over trailing window → `herding` flag; comment-sentiment split (bimodal valence) > threshold → `backlash` flag; flagged ticks annotated on trajectories and surfaced in the report risk register — no judge model involved. This is the OSS pattern borrowed from ASAL's `main_sweep_gol.py` (brute-force discrete sweep) — see `SALVAGE.md`.
 
----
-
-### M21 — `search/opt` (ASAL main_opt · Phase 3) — proposers & optimizers
-
-**Does:** generate the next θ candidates.
-
-**How:** v1 — LLM-proposer: prompt = archive summary (cells, configs, outcomes, empty cells) + search objective → JSON proposals (mutate existing configs / new), plus grid over discrete dims; v2 — `cmaes` over continuous dims (price, audience-mix ratios) with discrete dims fixed per CMA tier. Proposal validation: θ schema-checked, constraint-checked (price bounds, channel constraints from brief).
-
-**In →** search space def, archive state, objective. **Out →** `list[ScenarioConfig]` candidates.
-
----
-
-### M22 — `search/illuminate` (ASAL main_illuminate · Phase 3) — the atlas
-
-**Does:** MAP-Elites-style archive over measured outcome space — filled cell = a distinct reachable market world.
-
-**How:** 6×6 bins on (adoption, polarization) — both *measured* from digests (polarization = size-weighted JSD between segment PMFs, scaled 0–1). Insert if cell empty or fitness better; fitness = `2×adoption − 0.5×polarization − 0.4×risk`. Dedupe: cosine(flat segment PMFs) > 0.995 → same world id (semantic, not numeric diversity). Termination: budget or coverage plateau. Labels per cell: robust winner (adoption > 3.7 ∧ pol < 0.45), backlash (risk ∧ pol > 0.5), quiet flop (adoption < 2.9 ∧ pol < 0.4), split market (pol > 0.55 ∧ adoption > 3.2), niche. Wedge = highest-adoption contested world → human review, never auto-crowned. Reference implementation: `MiniAtlasSweep` in `mockups/sim.js`.
-
-**In →** search space, budget, judge (M23). **Out →** `Atlas {cells, worlds, wedge, winners, failures}` + archived (θ, digest, trace) tuples.
-
----
-
-### M23 — `search/judge` (NEW v1 · Phase 3) — LLM-as-judge
-
-**Does:** scores runs where ASAL would use CLIP — text outcomes need a text judge.
-
-**How:** outcome digest → structured JSON verdicts, each with cited evidence (digest line refs): `target_alignment` (0–1 vs target prompt), `novelty_late` (0–1, late-tick novelty), `pairwise_diversity` (vs archive members), `emergent_dynamics` (backlash|herd|hijack|polarization|none + rationale). Judge model pinned (temp 0); agreement: two calls (different seeds/models) within 0.15 → accept, else human review; calibration: judge scores checked against real outcomes once available — ranking worse than random ⇒ freeze v1, ship v2 embeddings (§3.7 of spec).
-
-**In →** OutcomeDigest (+ archive context). **Out →** `JudgeVerdict {scores, evidence_refs, model_id, prompt_hash}`.
-
----
-
-### M24 — `validation/bench` (SSR paper metrics · Phase 4) — benchmarks
-
-**Does:** synthetic-vs-human benchmark in the paper-1 grammar; the trust-tier referee.
-
-**How:**
-1. Inputs: human study export (concept_id, n, pmf5, mean, rank — CSV/JSON with provenance) + matching synthetic runs (blind: predictions registered before outcome load).
-2. Metrics: per concept `KS_sim = 1 − KS(pmf_human, pmf_syn)`; rank attainment `ρ = pearson(rank_syn, rank_human) / pearson(split-half human)` (test–retest ceiling); supervised baseline: LightGBM trained on half the human features → predict held-out (if it beats zero-shot SSR, per-category training becomes mandatory).
-3. Output grades tier transitions; bias audit: per-segment signed bias table with mitigation policy.
-
-**In →** human exports + synthetic digests. **Out →** `BenchmarkReport {per-concept rows, KS, ρ_attainment, baseline comparison, bias table, tier recommendation}` → registry.
-
----
-
-### M25 — `validation/calibrate` (MatrAIx self-report pattern · Phase 4) — calibration loop
-
-**Does:** turns human data into gated persona/anchor improvements — trust as a maintained feature.
-
-**How:**
-1. Patch mining: verbatims + cluster stats → Tier-B proposes persona patches (JSON: {target_segment, field, operation, evidence_refs}).
-2. Gate: simulate held-out study with/without patch → accept iff ΔKS > +0.005; accepted patches versioned, applied to *future cohorts only*, logged with evidence; rejected patches retained as negative evidence.
-3. Anchor updates: same gate on anchor-set changes.
-4. Tier ladder: exploratory → category → customer → prospective; each transition requires its metric gate; **revocation** supported (later benchmark below floor ⇒ tier downgraded).
-
-**In →** human studies (M24 inputs), current patches, anchor versions. **Out →** `PatchSet {accepted[], rejected[], evidence}`, new anchor versions, tier transitions → registry.
-
----
-
-### M26 — `reporting/analysts` (TradingAgents pattern · **DEFERRED — Phase 4+ upgrade, not in v1**)
-
-**v1 decision:** cut from the initial build. The v1 citation duty moves into M27: the report builder itself authors findings from prebuilt trace views (deterministic extraction of objection clusters, belief-delta chains, WOM paths) and resolves every claim to trace IDs before rendering — the trust invariant is enforced without the debate layer.
-
-**Why it stays on the roadmap (not deleted):** the analyst debate earns its cost only once reports are trusted enough that *mechanistic explanation quality* is the bottleneck — (1) risk chains that averages hide ("the claim is the liability, not the product") need trace-reading agents to construct; (2) the bear role counters same-model-family self-consistency bias; (3) visible bull/bear disagreement communicates uncertainty better than a clean verdict. Revisit after Phase-4 calibration proves trust; the A/B is cheap (reports with vs without the analyst section, measure decision-usefulness).
-
-**Spec (when built):**
-- Roles: segment analyst, competitor analyst (counterfactual worlds), risk analyst — each gets prebuilt trace views + digest; cheap models for reading, frontier for synthesis.
-- Debate: bull → bear (must cite risk-register evidence) → synthesis; every authored claim carries trace-ID citations, validated before M27 rendering.
-- **In →** trace views, OutcomeDigest, risk register. **Out →** `list[ReportFinding]` (validated) + debate transcript (abridged into report).
+**In →** `list[ScenarioConfig]`, `CohortManifest`, budget. **Out →** `list[OutcomeDigest]` (+ per-seed adoption lists for σ) → registry + exports.
 
 ---
 
 ### M27 — `reporting/build` (NEW · Phase 1) — the report renderer
 
-**Does:** digests + trace views → the report object (rankings, segment cards, objection clusters, risk register, scenario atlas, validation plan, method disclosure). **In v1 it also authors the findings** (M26 deferred): deterministic extraction from prebuilt trace views — objection clusters from verbatim embeddings, belief-delta chains from beliefs.parquet, WOM paths from edges.parquet — with every claim resolved to trace IDs by the builder itself.
+**Does:** digests + trace views → the report object (rankings, segment cards, objection clusters, risk register, scenario atlas, validation plan, method disclosure). **In OSS this module also authors the findings** (the Pro-tier M26 analyst-debate is an optional upgrade, not a requirement): deterministic extraction from prebuilt trace views — objection clusters from verbatim embeddings, belief-delta chains from beliefs.parquet, WOM paths from edges.parquet — with every claim resolved to trace IDs by the builder itself.
 
-**How:** template-versioned renderer; **trust guard at the door**: refuses any finding missing trust_tier/provenance/evidence IDs; refuses quantitative claims without trace resolution (author-then-validate in one pass); emits both markdown (human) and JSON (UI/mockups parity). Always ends with the recommended real-world validation section (invariant: nothing auto-crowned). Risk register is populated from L6 anomalies + judge verdicts (deterministic), not from a debate.
+**How:** template-versioned renderer; **trust guard at the door**: refuses any finding missing trust_tier/provenance/evidence IDs; refuses quantitative claims without trace resolution (author-then-validate in one pass); emits both markdown (human) and JSON (UI/mockups parity). Always ends with the recommended real-world validation section (invariant: nothing auto-crowned). Risk register is populated from M20's rule-based anomalies (deterministic), not from a debate.
 
-**In →** `list[OutcomeDigest]`, trace views (events/beliefs/edges parquet), benchmark/calibration state (M24/M25). **Out →** `Report {sections, findings, trust_statement, method_disclosure}` (md + json), report registry entry.
+**In →** `list[OutcomeDigest]`, trace views (events/beliefs/edges parquet). **Out →** `Report {sections, findings, trust_statement, method_disclosure}` (md + json), report registry entry.
+
+*Note: in OSS, every report is `trust_tier="exploratory"` — the category/customer/prospective tiers require the Pro calibration loop (M24/M25, `../ideas/PRO_ARCHITECTURE.md`) and are never claimed by the open-source renderer on its own.*
 
 ---
 
@@ -509,9 +415,9 @@ Sizing: 2k agents × 30 ticks ≈ 500k events/world ≈ 100–200 MB Parquet; ve
 | `coreset-gate` | M3, M4 | `coreset-gate --brief brief.yaml --n 1500 --seed 4021` → GateReport + cohort manifest |
 | `ssr-replica` | M7, M9 | `ssr-replica --anchors PI-oralcare-v3 --cohort manifest.json` → distribution notebook |
 | `concepts run` | M2, M16, M19, M27 | `concepts run brief.yaml` → report.md/json + run_id |
-| `sweep run` | M20–M23 | `sweep run --space space.yaml --budget 42` → atlas.json |
-| `benchmark run` | M24 | `benchmark run --human exports.csv --runs r1,r2` → BenchmarkReport |
-| `calibrate` | M25 | `calibrate --patches queue.json` → PatchSet |
+| `sweep run` | M20 (+ grid sweep) | `sweep run --grid grid.yaml --budget 42` → sweep heatmap json |
+
+`benchmark run` (M24) and `calibrate` (M25) are Pro-gated: present in the CLI, but print an upgrade message and do not execute — see `../ideas/PRO_ARCHITECTURE.md` and `OSSARCH.md` §7.
 
 All commands print `run_id` and refuse to proceed past any failed gate (exit codes distinguish gate-failure from crash).
 
@@ -519,12 +425,12 @@ All commands print `run_id` and refuse to proceed past any failed gate (exit cod
 
 ### Salvage cross-reference
 
-Per-module source details live in `SALVAGE.md` (exact repo paths, verdicts, adaptation notes): M3/M4/M5 ← MatrAIx §3.1/3.4 · M7 ← MatrAIx §3.2 · M8 ← MatrAIx §3.3 + OASIS §1 · M12/M13/M14/M15/M19 ← OASIS §1 · M20–M22 ← ASAL §2 · M9/M10/M24 ← papers (no code exists — spec §2 recipes are the source). M26 deferred (see its section).
-
+Per-module source details live in `SALVAGE.md` (exact repo paths, verdicts, adaptation notes): M3/M4/M5 ← MatrAIx §3.1/3.4 · M7 ← MatrAIx §3.2 · M8 ← MatrAIx §3.3 + OASIS §1 · M12/M13/M14/M15/M19 ← OASIS §1 · M20 ← ASAL (one pattern only, `main_sweep_gol.py`) · M9/M10 ← papers (no code exists — spec §2 recipes are the source). Pro-tier salvage (ASAL → M21–M23, MatrAIx self-report → M25) lives in `../ideas/PRO_ARCHITECTURE.md`.
 
 ---
 
 ## 4. Inference layer (OSS / [OI]-compatible router) — call-site map
+
 One router (M7) fronts every model call; roles route to different provider models by config:
 
 | Role | Default route (swappable via config) | Call sites |
@@ -532,12 +438,13 @@ One router (M7) fronts every model call; roles route to different provider model
 | Tier-B cognition | Claude / GPT / Gemini via **OpenRouter** or direct provider | M8 first impressions, conversations, reflections, purchases |
 | Tier-A cognition | **Persona-8B**: OpenRouter-hosted, vLLM self-host, or Bedrock Custom Model Import — Phase-0 microbenchmark decides; Nova Micro / GPT-4o-mini fallback | M8 bulk ticks |
 | SSR + info-filter embeddings | one pinned embedding model (OpenAI, Voyage, Bedrock Titan/Cohere — any, but **one** for anchors + responses + recsys) | M9, M14 |
-| Judge | temp-0 JSON model with cited evidence, pinned per registry | M23 |
 | Content safety | router-side moderation (OpenAI/Bedrock Guardrails) or LLM-based safety check | generated posts/comments before trace write |
-| Batch | router provider batch APIs, or direct-Bedrock adapter for large sweeps/backtests | M20–M22, M24 |
+| Batch | router provider batch APIs, or direct-Bedrock adapter for large sweeps | M20 |
 | Telemetry | router usage payloads → M17 cost governor; per-provider spend tracked separately | all |
 
 **Adapter shape:** `[OI]-compatible` chat endpoint is the primary interface (OpenRouter, LiteLLM proxy, vLLM, and most managed gateways all speak it). Two optional adapters: `bedrock_direct.py` (boto3 — for Batch Inference + Bedrock-native embeddings/guardrails when a route needs them) and `embeddings.py` (provider-specific embedding endpoints). Swapping providers = config change, zero call-site changes.
+
+*(The Judge role — temp-0 JSON model with cited evidence — is Pro-only, feeding M23; not part of the OSS router's default role set.)*
 
 ---
 
@@ -552,16 +459,16 @@ These are enforced in code: schemas carry the fields; `trace/` persists them; `r
 
 ---
 
-## 6. Phase → module map (spec §7)
+## 6. Phase → module map (OSS)
 
 | Phase | Modules | Exit artifact |
 |---|---|---|
 | 0 (wks 1–2) | M1, M3, M4, M5, M7, M9, M28 | `coreset-gate` report + `ssr-replica` notebook (distributions realistic, persona-conditioning signature reproduced) |
 | 1 (wks 3–6) | M2, M8, M12, M16, M17, M18, M19, M27 | `concepts run brief.yaml` → ranked report <30 min / <$20 |
 | 2 (wks 7–12) | M6, M10, M13, M14, M15 | WOM/feed/forum world; herding event explainable via traces; seeds reproducible |
-| 3 (wks 13–18) | M11, M20–M23 | Scenario atlas (≥30 distinct worlds), judge agreement ≥0.7 |
-| 4 (wks 19–26) | M24, M25 | External human-study benchmark: KS ≥0.8, ρ ≥0.8 of ceiling; trust tiers enforced |
-| 4+ upgrade | M26 (analyst debate) | Mechanistic-explanation quality A/B: reports with vs without analyst section |
+| 3 (wks 13–18) | M14 (twhin/random modes), M15 (full intervention kinds), M20 grid-sweep feature | Sweep heatmap over user grid; rule-based risk flags live |
+
+Phase 4 (calibration/validation) and the Phase 4+ analyst-debate upgrade are Pro-tier — see `../ideas/PRO_ARCHITECTURE.md`.
 
 ---
 
@@ -570,3 +477,15 @@ These are enforced in code: schemas carry the fields; `trace/` persists them; `r
 - **Golden runs:** seeded world runs snapshotted (final PMFs, event counts, cost) — any change to prompts/models/policies must diff consciously.
 - **Property tests:** SSR pmfs sum to 1; distribution gate catches injected positivity-collapse; dedupe rejects near-duplicates; cost governor degrades not fails.
 - **Fake-mode CI:** full pipeline in CI with fake router; real-model runs are a manual, logged benchmark class.
+
+---
+
+## 8. v1 scope cuts (OSS-relevant only)
+
+| Module | v1 status | Why cut | Return trigger |
+|---|---|---|---|
+| M11 skills | **Cut** (neither OSS nor Pro) | Optimization not capability; mining pre-calibration traces bakes biases in | ≥20 validated studies + ≥30% Tier-A token savings without fidelity loss — full spec in `../ideas/PRO_ARCHITECTURE.md` |
+| M14 `twhin`/`random` modes | **Deferred → Phase 2 late / 3** | Two modes (reddit_hot + twitter) suffice for early OSS world dynamics; `random` is a control arm needed once calibration work begins | Graph-personalized mode when WOM depth matters; control arm needed for the Pro calibration phase |
+| M15 intervention kinds | **Trimmed** | OSS ships launch + promo only; influencer/competitor_move/shock need risk-register work that lands with the Pro tier | R-register expansion work |
+
+The Pro-relevant rows removed from this table (M26 analysts, M21 opt, M22 illuminate, M23 judge, M13 RetailShelf, and the M11-adjacent per-agent graph memory idea) are specified in `../ideas/PRO_ARCHITECTURE.md`.
