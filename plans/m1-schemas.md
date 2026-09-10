@@ -32,16 +32,16 @@ The demonstration is deliberately narrow — one small model defined purely to e
 
 ### Acceptance criteria
 
-- [ ] A model built on the shared base rejects an unknown field, refuses mutation after construction, and rejects a non-finite float
-- [ ] Bounded primitives reject values outside their range, and constrained strings reject the empty case
-- [ ] The same structure hashes identically across two processes, and identically when its dictionary fields are built in a different insertion order
-- [ ] A field marked as excluded from hashing can change without moving the hash
-- [ ] The contract version is folded into the run-configuration hash and absent from the brief hash
-- [ ] A committed fixture pins a known structure to a known hash, and fails loudly if serialization changes
-- [ ] Round-trip holds over generated values, not only hand-written examples
-- [ ] Each error class exposes a distinct exit code, and a failed gate is distinguishable from a crash
-- [ ] A test inspects the package's imports and fails on any project import or heavy numeric dependency
-- [ ] The suite runs with no API key, no network access, and no dataset present
+- [x] A model built on the shared base rejects an unknown field, refuses mutation after construction, and rejects a non-finite float
+- [x] Bounded primitives reject values outside their range, and constrained strings reject the empty case
+- [x] The same structure hashes identically across two processes, and identically when its dictionary fields are built in a different insertion order
+- [x] A field marked as excluded from hashing can change without moving the hash
+- [x] The contract version is folded into the run-configuration hash and absent from the brief hash
+- [x] A committed fixture pins a known structure to a known hash, and fails loudly if serialization changes
+- [x] Round-trip holds over generated values, not only hand-written examples
+- [x] Each error class exposes a distinct exit code, and a failed gate is distinguishable from a crash
+- [x] A test inspects the package's imports and fails on any project import or heavy numeric dependency
+- [x] The suite runs with no API key, no network access, and no dataset present
 
 ---
 

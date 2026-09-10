@@ -1,0 +1,51 @@
+{
+  "demo_brief": {
+    "hash": "b229e93ba4ccb24f9c78cef1dec882ac41c0a90478e81f80c7c339af8ebca959",
+    "payload": {
+      "audience_mix": {
+        "dieters": 0.4,
+        "gym_regulars": 0.6
+      },
+      "claims": [
+        "clear hydration",
+        "zero sugar",
+        "20g protein"
+      ],
+      "fetched_at": "2026-09-11T00:00:00Z",
+      "target_filters": {
+        "age_band": "25_40",
+        "region": "urban"
+      },
+      "title": "Protein water"
+    }
+  },
+  "demo_run_config": {
+    "hash": "732c328961d9ef192065ddca2fd25f730b722c1b45acafe44cfe56fa2b9ca887",
+    "payload": {
+      "brief": {
+        "audience_mix": {
+          "dieters": 0.4,
+          "gym_regulars": 0.6
+        },
+        "claims": [
+          "clear hydration",
+          "zero sugar",
+          "20g protein"
+        ],
+        "fetched_at": "2026-09-11T00:00:00Z",
+        "target_filters": {
+          "age_band": "25_40",
+          "region": "urban"
+        },
+        "title": "Protein water"
+      },
+      "observed_cost": 12.5,
+      "population_hash": "ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12ab12",
+      "run_id": "run20260911a",
+      "seeds": [
+        4021,
+        917731
+      ]
+    }
+  }
+}
