@@ -50,6 +50,7 @@ BriefHash = HashDigest
 PopulationHash = HashDigest
 ConfigHash = HashDigest
 GraphHash = HashDigest
+OntologyHash = HashDigest
 
 
 class FrozenDict[K, V](Mapping[K, V]):

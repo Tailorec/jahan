@@ -32,3 +32,28 @@ class FieldOrigin(StrEnum):
     GROUNDED = "grounded"
     SYNTHESIZED = "synthesized"
     CALIBRATED = "calibrated"
+
+
+class TickUnit(StrEnum):
+    """The declared real-world duration of one tick; two studies compare only under equal units."""
+
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+
+
+class InterventionKind(StrEnum):
+    """Something the study does to the world at a tick; interventions compose."""
+
+    LAUNCH = "launch"
+    TEASER = "teaser"
+    PROMOTION = "promotion"
+
+
+class InferenceRole(StrEnum):
+    """The roles every model call in the system resolves through."""
+
+    TIER_A = "tier_a"
+    TIER_B = "tier_b"
+    EMBED = "embed"
+    SAFETY = "safety"
