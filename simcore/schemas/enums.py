@@ -93,7 +93,8 @@ class ActionKind(StrEnum):
     REJECT = "reject"
     COMPLAIN = "complain"
     REPLY = "reply"
-    VOTE = "vote"
+    UPVOTE = "upvote"
+    DOWNVOTE = "downvote"
     IGNORE = "ignore"
 
 

@@ -152,7 +152,7 @@ def test_identifier_formats():
 def test_action_kind_is_a_closed_set_covering_every_channel_and_not_reacting():
     assert {member.value for member in ActionKind} == {
         "answer", "post", "comment", "like", "repost", "quote", "follow", "buy", "ask_peer", "reject", "complain",
-        "reply", "vote", "ignore",
+        "reply", "upvote", "downvote", "ignore",
     }
 
 
