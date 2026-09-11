@@ -10,6 +10,7 @@ from .base import (
     NonEmptyStr,
     NonNegativeInt,
     PersonaId,
+    SignedUnitInterval,
     SimBaseModel,
     StimulusId,
     UnitInterval,
@@ -85,3 +86,89 @@ class Stimulus(SimBaseModel):
     kind: StimulusKind
     text: NonEmptyStr
     claim_id: ClaimId | None = None
+
+
+class Beliefs(SimBaseModel):
+    """What a persona currently holds: where they stand on each dimension and how much
+    they credit each individual claim of the brief."""
+
+    claim_ids: frozenset[ClaimId] = Field(min_length=1)
+    dimensions: FrozenDict[BeliefDim, UnitInterval]
+    claim_credence: FrozenDict[ClaimId, UnitInterval]
+
+    @model_validator(mode="after")
+    def _dimensions_are_the_closed_set(self) -> Self:
+        missing = sorted(dimension.value for dimension in BeliefDim if dimension not in self.dimensions)
+        if missing:
+            raise ValueError(f"beliefs cover the closed dimension set; missing {missing}")
+        return self
+
+    @model_validator(mode="after")
+    def _credence_keys_match_the_tracked_claims(self) -> Self:
+        if set(self.claim_credence) != set(self.claim_ids):
+            raise ValueError(
+                f"credence keys must match the tracked claims exactly: "
+                f"tracked {sorted(self.claim_ids)}, credence {sorted(self.claim_credence)}"
+            )
+        return self
+
+
+class BeliefChange(SimBaseModel):
+    """How a turn or reflection moved beliefs; only moved entries appear."""
+
+    claim_ids: frozenset[ClaimId] = Field(min_length=1)
+    dimensions: FrozenDict[BeliefDim, SignedUnitInterval] = FrozenDict({})
+    claim_credence: FrozenDict[ClaimId, SignedUnitInterval] = FrozenDict({})
+
+    @model_validator(mode="after")
+    def _changed_keys_stay_within_the_closed_vocabulary(self) -> Self:
+        unknown_claims = sorted(set(self.claim_credence) - set(self.claim_ids))
+        if unknown_claims:
+            raise ValueError(f"credence changed for untracked claims: {unknown_claims}")
+        return self
+
+
+class RetrievedMemory(SimBaseModel):
+    """One remembered experience as retrieval returned it."""
+
+    memory_id: Identifier
+    tick: NonNegativeInt
+    description: NonEmptyStr
+    importance: UnitInterval
+    relevance: UnitInterval
+
+
+class MemoryView(SimBaseModel):
+    """What memory retrieval returned for one turn; possibly nothing."""
+
+    items: tuple[RetrievedMemory, ...]
+
+
+class SsrResult(SimBaseModel):
+    """The elicitation record: free text in, a response mass out, and every identifier
+    needed to detect an anchor/response embedding-model mismatch from the record alone."""
+
+    response_text: NonEmptyStr
+    pmf: PMF5
+    per_set_pmfs: tuple[PMF5, ...] = Field(min_length=1)
+    construct_id: Identifier
+    category: Identifier
+    anchor_set_id: Identifier
+    anchor_version: Identifier
+    embed_model_id: PinnedModelId
+    tau: Annotated[float, Field(gt=0.0)]
+
+
+class Reaction(SimBaseModel):
+    """What a persona produced from one impression: what they did and said, how their
+    beliefs moved, and — when the turn asked purchase intent — the elicitation record."""
+
+    reaction_id: ReactionId
+    persona_id: PersonaId
+    impression_id: ImpressionId
+    subject_stimulus_id: StimulusId
+    tick: NonNegativeInt
+    action: ActionKind
+    verbatim: NonEmptyStr
+    belief_change: BeliefChange
+    intent: SsrResult | None = None
