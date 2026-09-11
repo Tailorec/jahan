@@ -164,6 +164,8 @@ class Confidence(StrEnum):
 class FindingKind(StrEnum):
     """What a finding is; a recommendation is one kind of finding."""
 
+    RANKING = "ranking"
+    RISK = "risk"
     OBJECTION = "objection"
     BELIEF_SHIFT = "belief_shift"
     WOM_PATH = "wom_path"
