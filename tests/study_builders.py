@@ -215,8 +215,16 @@ def stimulus_id(n: int) -> str:
     return f"st-{ulid(100 + n)}"
 
 
-def turn_payload(persona: str, tick: int, shown: list[tuple[int, str, float]], reaction: dict, n: int = 0) -> dict:
-    """A whole turn: the impression (stimulus number, reason, attention) and the reaction to it."""
+def turn_payload(
+    persona: str, tick: int, shown: list[tuple[int, str, float]], reaction: dict, contexts: dict | None = None, n: int = 0
+) -> dict:
+    """A whole turn: the impression (stimulus number, reason, attention), the view beside it, and the
+    reaction. Contexts key stimulus numbers and override fields of the default (empty) context."""
+    entries = {}
+    for stimulus, _, _ in shown:
+        entry = {"likes": 0, "reposts": 0, "replies": 0, "upvotes": 0, "downvotes": 0, "ancestry": []}
+        entry.update((contexts or {}).get(stimulus, {}))
+        entries[stimulus_id(stimulus)] = entry
     return {
         "impression": {
             "impression_id": f"im-{ulid(200 + n)}",
@@ -225,6 +233,7 @@ def turn_payload(persona: str, tick: int, shown: list[tuple[int, str, float]], r
             "tick": tick,
             "exposures": [{"stimulus_id": stimulus_id(s), "reason": reason, "attention": attention} for s, reason, attention in shown],
         },
+        "view": {"impression_id": f"im-{ulid(200 + n)}", "contexts": entries},
         "reaction": {"reaction_id": f"rc-{ulid(300 + n)}", **reaction},
     }
 

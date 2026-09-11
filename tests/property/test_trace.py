@@ -258,7 +258,7 @@ def test_events_at_realistic_volume_round_trip_fully_validated_in_any_stored_ord
     constructed = [TraceEvent.model_validate(event(0, 0, {"kind": "lifecycle", "phase": "started"}, world=world))]
     for s in range(1, 51):
         constructed.append(TraceEvent.model_validate(event(len(constructed), 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(s), "tick": 0, "kind": "concept", "text": f"copy {s}"}}, world=world)))
-    template = TurnRecorded.model_validate(turn_event(0, 1, turn_payload("p-000000", 1, [(1, "interest", 0.7)], {"subject_stimulus_id": stimulus_id(1), "action": "like"}), "p-000000")["payload"])
+    template = TurnRecorded.model_validate(turn_event(0, 1, turn_payload("p-000000", 1, [(1, "interest", 0.7)], {"subject_stimulus_id": stimulus_id(1), "action": "ignore"}), "p-000000")["payload"])
     for t in range(turns):
         tick, persona = 1 + (t * 29) // turns, f"p-{t % 2000:06d}"
         impression = template.turn.impression.model_construct(
@@ -266,7 +266,9 @@ def test_events_at_realistic_volume_round_trip_fully_validated_in_any_stored_ord
             exposures=template.turn.impression.exposures,
         )
         reaction = template.turn.reaction.model_construct(**{**dict(template.turn.reaction), "reaction_id": f"rc-{ulid(10_000 + t)}"})
-        payload = template.model_construct(**{**dict(template), "turn": template.turn.model_construct(impression=impression, reaction=reaction)})
+        view = template.turn.view.model_construct(impression_id=impression.impression_id, contexts=template.turn.view.contexts)
+        turn = template.turn.model_construct(impression=impression, view=view, reaction=reaction)
+        payload = template.model_construct(**{**dict(template), "turn": turn})
         constructed.append(TraceEvent.model_construct(event_id=f"ev-{ulid(10_000 + t)}", world_id=world, tick=tick, seq=len(constructed), persona_id=persona, payload=payload))
 
     stored = sorted((json.loads(json.dumps(e.model_dump(mode="json"))) for e in constructed), key=lambda e: (e["persona_id"] or "", e["tick"], e["seq"]))

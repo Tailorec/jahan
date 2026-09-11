@@ -230,11 +230,69 @@ class Reaction(SimBaseModel):
         return self
 
 
+class StimulusContext(SimBaseModel):
+    """The public context around one shown stimulus: the engagement counts beside it, its reply
+    ancestry from nearest parent to root, and the viewer's relationship to its author.
+
+    Reposts count quotes too — both reshare. Counts include only engagement from earlier ticks. Tie
+    strength and shared community are absent for study-authored stimuli and the viewer's own; shared
+    community says only whether the two share one, never which. No other persona's attributes,
+    beliefs or private reactions appear here, and no aggregate outcome — a view is what one persona
+    can see, never what the study knows.
+    """
+
+    likes: NonNegativeInt = 0
+    reposts: NonNegativeInt = 0
+    replies: NonNegativeInt = 0
+    upvotes: NonNegativeInt = 0
+    downvotes: NonNegativeInt = 0
+    ancestry: tuple[StimulusId, ...] = ()
+    tie_strength: UnitInterval | None = None
+    shared_community: bool | None = None
+
+    @model_validator(mode="after")
+    def _ancestry_has_no_cycles(self) -> Self:
+        if len(set(self.ancestry)) != len(self.ancestry):
+            raise ValueError(f"a reply ancestry cannot visit a stimulus twice: {list(self.ancestry)}")
+        return self
+
+
+class View(SimBaseModel):
+    """The public context around everything one persona is shown: one entry per stimulus of
+    its impression. Social proof only works through what is visible, so this is the whole of it."""
+
+    impression_id: ImpressionId
+    contexts: FrozenDict[StimulusId, StimulusContext]
+
+    @model_validator(mode="after")
+    def _covers_something(self) -> Self:
+        if not self.contexts:
+            raise ValueError("a view covers the stimuli of an impression, and an impression shows at least one")
+        return self
+
+
 class Turn(SimBaseModel):
-    """One persona reacting to one impression; the unit of simulation and of cost."""
+    """One persona reacting to one impression; the unit of simulation and of cost. The view
+    it was shown travels with the turn, so social proof is part of the record."""
 
     impression: Impression
+    view: View
     reaction: Reaction
+
+    @model_validator(mode="after")
+    def _view_matches_the_impression(self) -> Self:
+        if self.view.impression_id != self.impression.impression_id:
+            raise ValueError(
+                f"view names impression {self.view.impression_id}, but the turn shows {self.impression.impression_id}"
+            )
+        shown = {exposure.stimulus_id for exposure in self.impression.exposures}
+        covered = set(self.view.contexts)
+        if covered != shown:
+            raise ValueError(
+                f"a view covers exactly the stimuli of its impression: uncovered {sorted(shown - covered)}, "
+                f"extra {sorted(covered - shown)}"
+            )
+        return self
 
     @model_validator(mode="after")
     def _reaction_is_about_something_shown(self) -> Self:

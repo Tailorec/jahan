@@ -111,12 +111,12 @@ from .run import (
     derive_world_seed,
 )
 from .sim import (
+    MIN_REFERENCE_SETS,
     BeliefChange,
     Beliefs,
     Exposure,
     Impression,
     ImpressionId,
-    MIN_REFERENCE_SETS,
     MemoryView,
     PMF5,
     Reaction,
@@ -124,7 +124,9 @@ from .sim import (
     RetrievedMemory,
     SsrResult,
     Stimulus,
+    StimulusContext,
     Turn,
+    View,
 )
 from .trace import (
     CONTRACT_MIGRATIONS,
@@ -250,6 +252,7 @@ __all__ = [
     "SocialGraph",
     "SsrResult",
     "Stimulus",
+    "StimulusContext",
     "StimulusId",
     "StimulusKind",
     "StimulusPublished",
@@ -263,6 +266,7 @@ __all__ = [
     "TrustStatement",
     "Turn",
     "TurnRecorded",
+    "View",
     "UnitInterval",
     "Variant",
     "VariantId",

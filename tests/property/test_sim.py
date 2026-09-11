@@ -21,8 +21,10 @@ from simcore.schemas import (
     SimBaseModel,
     SsrResult,
     Stimulus,
+    StimulusContext,
     StimulusId,
     Turn,
+    View,
 )
 from tests.study_builders import beliefs_payload, ssr_payload, stimulus_id, turn_payload, ulid
 
@@ -281,3 +283,54 @@ def test_no_schema_type_accepts_a_model_emitted_numeric_rating():
 def test_beliefs_round_trip_over_generated_values(value, fit, trust, credence):
     beliefs = Beliefs.model_validate(beliefs_payload(dimensions={"value": value, "fit": fit, "trust": trust}, claim_credence={"C1": credence}))
     assert Beliefs.model_validate_json(beliefs.model_dump_json()) == beliefs
+
+
+# --- views ------------------------------------------------------------------------------------
+
+
+def test_view_covers_exactly_the_stimuli_of_its_impression_and_names_it():
+    shown = [(1, "interest", 0.8), (2, "random", 0.2)]
+    turn = Turn.model_validate(turn_payload("p-000042", 7, shown, reaction()))
+    assert set(turn.view.contexts) == turn.impression.stimulus_ids
+    assert turn.view.impression_id == turn.impression.impression_id
+    missing = turn_payload("p-000042", 7, shown, reaction())
+    missing["view"]["contexts"] = {stimulus_id(1): missing["view"]["contexts"][stimulus_id(1)]}
+    with pytest.raises(ValidationError, match="uncovered"):
+        Turn.model_validate(missing)
+    extra = turn_payload("p-000042", 7, shown, reaction())
+    extra["view"]["contexts"][stimulus_id(9)] = {}
+    with pytest.raises(ValidationError, match="extra"):
+        Turn.model_validate(extra)
+    renamed = turn_payload("p-000042", 7, shown, reaction())
+    renamed["view"]["impression_id"] = f"im-{ulid(999)}"
+    with pytest.raises(ValidationError, match="view names impression"):
+        Turn.model_validate(renamed)
+
+
+def test_view_carries_nothing_private_and_nothing_aggregate():
+    assert set(View.model_fields) == {"impression_id", "contexts"}
+    assert set(StimulusContext.model_fields) == {
+        "likes", "reposts", "replies", "upvotes", "downvotes", "ancestry", "tie_strength", "shared_community",
+    }
+
+
+def test_author_relationship_may_be_absent_and_tie_strength_is_bounded():
+    study_authored = StimulusContext()
+    assert (study_authored.tie_strength, study_authored.shared_community) == (None, None)
+    assert StimulusContext(tie_strength=0.0, shared_community=False).tie_strength == 0.0
+    with pytest.raises(ValidationError):
+        StimulusContext(tie_strength=1.5)
+    with pytest.raises(ValidationError):
+        StimulusContext(shared_community="community-1")
+
+
+def test_counts_are_non_negative_and_ancestry_cannot_loop():
+    with pytest.raises(ValidationError):
+        StimulusContext(likes=-1)
+    with pytest.raises(ValidationError, match="twice"):
+        StimulusContext(ancestry=[stimulus_id(1), stimulus_id(2), stimulus_id(1)])
+
+
+def test_view_must_cover_at_least_one_stimulus():
+    with pytest.raises(ValidationError, match="at least one"):
+        View(impression_id=f"im-{ulid(1)}", contexts={})
