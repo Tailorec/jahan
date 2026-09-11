@@ -439,13 +439,13 @@ class TracePartition(SimBaseModel):
                 parents[stimulus.stimulus_id] = stimulus.in_reply_to
                 if stimulus.in_reply_to is not None:
                     pending.setdefault(stimulus.in_reply_to, Counter())["replies"] += 1
-            elif isinstance(payload, TurnRecorded):
-                where = f"event {event.seq} (turn)"
-                turn = payload.turn
-                _check_view(turn.view, turn.impression.persona_id, authors, parents, visible, where)
-                counted = _ENGAGEMENT.get(turn.reaction.action)
-                if counted is not None:
-                    pending.setdefault(turn.reaction.subject_stimulus_id, Counter())[counted] += 1
+            elif (presented := _presented(payload)) is not None:
+                impression, view = presented
+                _check_view(view, impression.persona_id, authors, parents, visible, f"event {event.seq} ({payload.kind})")
+                if isinstance(payload, TurnRecorded):
+                    counted = _ENGAGEMENT.get(payload.turn.reaction.action)
+                    if counted is not None:
+                        pending.setdefault(payload.turn.reaction.subject_stimulus_id, Counter())[counted] += 1
         return self
 
 
@@ -530,10 +530,11 @@ class WorldRecord(SimBaseModel):
             if isinstance(payload, StimulusPublished):
                 authors[payload.stimulus.stimulus_id] = payload.stimulus.author
                 continue
-            if not isinstance(payload, TurnRecorded):
+            presented = _presented(payload)
+            if presented is None:
                 continue
-            viewer = payload.turn.impression.persona_id
-            for stimulus_id, context in payload.turn.view.contexts.items():
+            viewer = presented[0].persona_id
+            for stimulus_id, context in presented[1].contexts.items():
                 author = authors.get(stimulus_id)
                 if author is None or author == viewer:
                     continue

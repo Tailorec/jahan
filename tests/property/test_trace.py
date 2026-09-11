@@ -941,8 +941,43 @@ def test_an_impression_is_either_a_turn_or_a_violation_never_both():
         TracePartition.model_validate(data)
 
 
+@pytest.mark.parametrize(
+    ("change", "match"),
+    [
+        (lambda p: p["view"]["contexts"][stimulus_id(3)].update(likes=0), "1 were visible from earlier ticks"),
+        (lambda p: p["view"]["contexts"][stimulus_id(4)].update(upvotes=1), "0 were visible from earlier ticks"),
+        (lambda p: p["view"]["contexts"][stimulus_id(4)].update(ancestry=[]), "its reply chain is"),
+        (lambda p: p["view"]["contexts"][stimulus_id(3)].update(tie_strength=None), "records no tie strength"),
+    ],
+    ids=["hidden-like", "same-tick-upvote", "broken-reply-chain", "peer-without-tie"],
+)
+def test_a_partition_verifies_a_violations_view_as_it_does_a_turns(change, match):
+    data = partition_payload()
+    change(data["events"][R["violation"]]["payload"])
+    with pytest.raises(ValidationError, match=match):
+        TracePartition.model_validate(data)
+
+
 def test_a_violation_shows_only_published_stimuli_within_the_budget():
     data = partition_payload()
     data["events"][R["violation"]] = violation_event(R["violation"], 4, [(3, "wom", 0.4), (9, "forum", 0.4)], "p-000004", n=5)
     with pytest.raises(ValidationError, match="never published"):
         TracePartition.model_validate(data)
+
+
+def test_a_violation_adds_no_engagement_to_later_views():
+    later = turn_payload("p-000001", 5, [(4, "forum", 0.7)], {"subject_stimulus_id": stimulus_id(4), "action": "ignore"},
+                         contexts={4: {"upvotes": 1, "ancestry": [stimulus_id(3)], "tie_strength": 0.8, "shared_community": True}}, n=6)
+    assert TracePartition.model_validate(with_turn_before_completion(partition_payload(), 5, later, "p-000001"))
+
+
+@pytest.mark.parametrize(
+    ("stimulus", "change", "match"),
+    [(3, {"tie_strength": 0.6}, "but the graph has 0.0"), (4, {"shared_community": True}, "different communities")],
+    ids=["invented-tie", "claimed-shared-community"],
+)
+def test_world_record_checks_a_violations_view_against_the_population(stimulus, change, match):
+    data = world_record_payload()
+    data["partition"]["events"][R["violation"]]["payload"]["view"]["contexts"][stimulus_id(stimulus)].update(change)
+    with pytest.raises(ValidationError, match=match):
+        WorldRecord.model_validate(data)
