@@ -23,6 +23,8 @@ from simcore.schemas import (
     read_partition,
 )
 from tests.study_builders import (
+    PARTITION_ROLES,
+    R,
     event,
     partition_header_payload,
     partition_payload,
@@ -59,13 +61,13 @@ def test_payload_kinds_are_distinct_types_that_dispatch_on_kind_alone():
 
 def test_each_kind_is_the_only_record_of_what_it_describes():
     assert not {"exposure", "reaction", "ssr", "belief_delta"} & {TypeAdapter(TracePayload).validate_python(e["payload"]).kind for e in events_of(partition_payload())}
-    turn = TracePartition.model_validate(partition_payload()).in_sequence[3].payload
+    turn = TracePartition.model_validate(partition_payload()).in_sequence[R["first_turn"]].payload
     assert isinstance(turn, TurnRecorded)
     assert turn.turn.impression.exposures and turn.turn.reaction.intent is not None
 
 
 def test_event_with_a_payload_that_does_not_fit_its_kind_refused():
-    bad = event(4, 1, {"kind": "cost", "stimulus_id": stimulus_id(1)}, "p-000001")
+    bad = event(R["first_turn_cost"], 1, {"kind": "cost", "stimulus_id": stimulus_id(1)}, "p-000001")
     with pytest.raises(ValidationError):
         TraceEvent.model_validate(bad)
 
@@ -73,7 +75,7 @@ def test_event_with_a_payload_that_does_not_fit_its_kind_refused():
 def test_events_carry_no_seed_and_no_contract_version_field():
     assert not {"seed", "world_seed", "contract_version", "schema_version", "agent_id"} & set(TraceEvent.model_fields)
     with pytest.raises(ValidationError):
-        TraceEvent.model_validate({**events_of(partition_payload())[0], "seed": 4021})
+        TraceEvent.model_validate({**events_of(partition_payload())[R["started"]], "seed": 4021})
 
 
 @pytest.mark.parametrize(
@@ -89,7 +91,7 @@ def test_events_are_attributed_to_personas_exactly_when_they_describe_one(index,
 
 
 def test_turn_event_must_agree_with_the_impression_it_records():
-    record = copy.deepcopy(events_of(partition_payload())[3])
+    record = copy.deepcopy(events_of(partition_payload())[R["first_turn"]])
     with pytest.raises(ValidationError, match="shown to"):
         TraceEvent.model_validate({**record, "persona_id": "p-000099"})
     with pytest.raises(ValidationError, match="impression from tick"):
@@ -98,7 +100,7 @@ def test_turn_event_must_agree_with_the_impression_it_records():
 
 def test_stimulus_event_must_agree_with_the_stimulus_date():
     with pytest.raises(ValidationError, match="dated tick"):
-        TraceEvent.model_validate({**events_of(partition_payload())[1], "tick": 5})
+        TraceEvent.model_validate({**events_of(partition_payload())[R["concept"]], "tick": 5})
 
 
 def test_turn_records_template_and_hashes_but_never_a_full_prompt():
@@ -115,7 +117,7 @@ def test_event_id_format():
 
 
 def test_unvalidated_construction_takes_payload_models_not_mappings():
-    record = events_of(partition_payload())[4]
+    record = events_of(partition_payload())[R["first_turn_cost"]]
     with pytest.raises(TypeError, match="takes models, not mappings"):
         TraceEvent.model_construct(**record)
     built = TraceEvent.model_construct(**{**record, "payload": CostRecorded.model_validate(record["payload"])})
@@ -128,7 +130,7 @@ def test_unvalidated_construction_takes_payload_models_not_mappings():
 
 def test_representative_partition_validates_and_round_trips():
     partition = TracePartition.model_validate(partition_payload())
-    assert [e.seq for e in partition.in_sequence] == list(range(12))
+    assert [e.seq for e in partition.in_sequence] == list(range(len(PARTITION_ROLES)))
     assert TracePartition.model_validate_json(partition.model_dump_json()) == partition
 
 
@@ -147,52 +149,52 @@ def test_header_scenario_must_test_the_packed_brief():
 
 
 def test_events_from_another_world_refused():
-    record = copy.deepcopy(events_of(partition_payload())[11])
+    record = copy.deepcopy(events_of(partition_payload())[R["completed"]])
     record["world_id"] = "ffffffffffff"
     with pytest.raises(ValidationError, match="other worlds"):
-        TracePartition.model_validate(with_event(11, record))
+        TracePartition.model_validate(with_event(R["completed"], record))
 
 
 @pytest.mark.parametrize(("seq", "match"), [(12, "without gaps"), (3, "without gaps")], ids=["gap", "repeat"])
 def test_sequence_must_be_gapless(seq, match):
-    record = copy.deepcopy(events_of(partition_payload())[11])
+    record = copy.deepcopy(events_of(partition_payload())[R["completed"]])
     record["seq"] = seq
     with pytest.raises(ValidationError, match=match):
-        TracePartition.model_validate(with_event(11, record))
+        TracePartition.model_validate(with_event(R["completed"], record))
 
 
 def test_repeated_event_ids_refused():
-    record = copy.deepcopy(events_of(partition_payload())[11])
-    record["event_id"] = events_of(partition_payload())[0]["event_id"]
+    record = copy.deepcopy(events_of(partition_payload())[R["completed"]])
+    record["event_id"] = events_of(partition_payload())[R["started"]]["event_id"]
     with pytest.raises(ValidationError, match="event ids repeated"):
-        TracePartition.model_validate(with_event(11, record))
+        TracePartition.model_validate(with_event(R["completed"], record))
 
 
 def test_events_cannot_go_back_in_time_or_past_the_horizon():
-    back = copy.deepcopy(events_of(partition_payload())[9])
+    back = copy.deepcopy(events_of(partition_payload())[R["reflection"]])
     back["tick"] = 2
     with pytest.raises(ValidationError, match="back in time"):
-        TracePartition.model_validate(with_event(9, back))
-    late = copy.deepcopy(events_of(partition_payload())[11])
+        TracePartition.model_validate(with_event(R["reflection"], back))
+    late = copy.deepcopy(events_of(partition_payload())[R["completed"]])
     late["tick"] = 30
     with pytest.raises(ValidationError, match="beyond the scenario horizon"):
-        TracePartition.model_validate(with_event(11, late))
+        TracePartition.model_validate(with_event(R["completed"], late))
 
 
 def test_stored_order_does_not_matter_but_sequence_order_is_recovered():
     data = partition_payload()
     random.Random(7).shuffle(data["events"])
     partition = TracePartition.model_validate(data)
-    assert [e.seq for e in partition.in_sequence] == list(range(12))
+    assert [e.seq for e in partition.in_sequence] == list(range(len(PARTITION_ROLES)))
 
 
 @pytest.mark.parametrize(
     ("index", "replacement", "match"),
     [
-        (3, turn_event(3, 1, turn_payload("p-000001", 1, [(7, "interest", 0.8)], {"subject_stimulus_id": stimulus_id(7), "action": "like"}, n=1), "p-000001"), "never published"),
-        (5, event(5, 1, {"kind": "exposure_dropped", "stimulus_id": stimulus_id(8), "channel": "social_feed", "reason": "budget_exhausted"}, "p-000002"), "never published"),
-        (7, event(7, 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(4), "tick": 2, "author": "p-000002", "kind": "peer_reply", "text": "?", "in_reply_to": stimulus_id(9)}}), "never published"),
-        (6, event(6, 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(1), "tick": 2, "author": "p-000001", "kind": "peer_post", "text": "again"}}), "republishes"),
+        (R["first_turn"], turn_event(R["first_turn"], 1, turn_payload("p-000001", 1, [(7, "interest", 0.8)], {"subject_stimulus_id": stimulus_id(7), "action": "like"}, n=1), "p-000001"), "never published"),
+        (R["drop"], event(R["drop"], 1, {"kind": "exposure_dropped", "stimulus_id": stimulus_id(8), "channel": "social_feed", "reason": "budget_exhausted"}, "p-000002"), "never published"),
+        (R["peer_reply"], event(R["peer_reply"], 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(4), "tick": 2, "author": "p-000002", "kind": "peer_reply", "text": "?", "in_reply_to": stimulus_id(9)}}), "never published"),
+        (R["peer_post"], event(R["peer_post"], 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(1), "tick": 2, "author": "p-000001", "kind": "peer_post", "text": "again"}}), "republishes"),
     ],
     ids=["turn-shows-unpublished", "drop-of-unpublished", "reply-to-unpublished", "republished"],
 )
@@ -204,9 +206,9 @@ def test_stimuli_must_be_published_before_they_are_shown_dropped_or_replied_to(i
 @pytest.mark.parametrize(
     ("index", "replacement"),
     [
-        (2, event(2, 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(2), "tick": 0, "kind": "claim_post", "text": "x", "claim_id": "C9"}})),
-        (9, event(9, 3, {"kind": "reflection", "trigger": "belief_shift", "change": {"claim_credence": {"C9": 0.2}}}, "p-000001")),
-        (10, turn_event(10, 3, turn_payload("p-000002", 3, [(3, "wom", 0.6)], {"subject_stimulus_id": stimulus_id(3), "action": "like", "belief_change": {"claim_credence": {"C9": 0.1}}}, n=2), "p-000002")),
+        (R["claim_post"], event(R["claim_post"], 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(2), "tick": 0, "kind": "claim_post", "text": "x", "claim_id": "C9"}})),
+        (R["reflection"], event(R["reflection"], 3, {"kind": "reflection", "trigger": "belief_shift", "change": {"claim_credence": {"C9": 0.2}}}, "p-000001")),
+        (R["second_turn"], turn_event(R["second_turn"], 3, turn_payload("p-000002", 3, [(3, "wom", 0.6)], {"subject_stimulus_id": stimulus_id(3), "action": "like", "belief_change": {"claim_credence": {"C9": 0.1}}}, n=2), "p-000002")),
     ],
     ids=["stimulus-claim", "reflection-change", "turn-change"],
 )
@@ -217,38 +219,38 @@ def test_claims_named_anywhere_in_the_trace_must_be_the_briefs(index, replacemen
 
 def test_impressions_are_bounded_by_the_scenarios_exposure_budget():
     four = [(1, "interest", 0.8), (2, "random", 0.1), (3, "wom", 0.2), (4, "forum", 0.3)]
-    crowded = turn_event(10, 3, turn_payload("p-000002", 3, four, {"subject_stimulus_id": stimulus_id(1), "action": "like"}, n=2), "p-000002")
+    crowded = turn_event(R["second_turn"], 3, turn_payload("p-000002", 3, four, {"subject_stimulus_id": stimulus_id(1), "action": "like"}, n=2), "p-000002")
     with pytest.raises(ValidationError, match="budget of 3"):
-        TracePartition.model_validate(with_event(10, crowded))
+        TracePartition.model_validate(with_event(R["second_turn"], crowded))
     wide_scenario = scenario_payload(exposure_budget=5)
     data = partition_payload(scenario=wide_scenario)
     world = world_id_for(wide_scenario)
-    data["events"][10] = crowded
+    data["events"][R["second_turn"]] = crowded
     for record in data["events"]:
         record["world_id"] = world
     assert TracePartition.model_validate(data).header.scenario.exposure_budget == 5
 
 
 def test_only_scheduled_interventions_are_applied():
-    promo = event(8, 3, {"kind": "intervention", "intervention_kind": "promotion"})
+    promo = event(R["launch"], 3, {"kind": "intervention", "intervention_kind": "promotion"})
     with pytest.raises(ValidationError, match="does not schedule"):
-        TracePartition.model_validate(with_event(8, promo))
+        TracePartition.model_validate(with_event(R["launch"], promo))
 
 
 def test_impressions_and_reactions_are_recorded_once():
     data = partition_payload()
-    repeat = copy.deepcopy(data["events"][3])
+    repeat = copy.deepcopy(data["events"][R["first_turn"]])
     repeat["payload"]["turn"]["impression"]["tick"] = 3
-    repeat.update(seq=10, tick=3, event_id=data["events"][10]["event_id"])
-    data["events"][10] = repeat
+    repeat.update(seq=10, tick=3, event_id=data["events"][R["second_turn"]]["event_id"])
+    data["events"][R["second_turn"]] = repeat
     with pytest.raises(ValidationError, match="repeats impression"):
         TracePartition.model_validate(data)
 
 
 def test_turn_inside_a_partition_still_refuses_a_subject_not_shown():
-    wrong = turn_event(10, 3, turn_payload("p-000002", 3, [(3, "wom", 0.6)], {"subject_stimulus_id": stimulus_id(1), "action": "like"}, n=2), "p-000002")
+    wrong = turn_event(R["second_turn"], 3, turn_payload("p-000002", 3, [(3, "wom", 0.6)], {"subject_stimulus_id": stimulus_id(1), "action": "like"}, n=2), "p-000002")
     with pytest.raises(ValidationError, match="did not show"):
-        TracePartition.model_validate(with_event(10, wrong))
+        TracePartition.model_validate(with_event(R["second_turn"], wrong))
 
 
 def test_events_at_realistic_volume_round_trip_fully_validated_in_any_stored_order():
@@ -437,13 +439,13 @@ def with_payload_change(index: int, change) -> dict:
 @pytest.mark.parametrize(
     ("index", "change", "match"),
     [
-        (10, lambda e: e.update(persona_id="p-999999") or e["payload"]["turn"]["impression"].update(persona_id="p-999999"), "not in this population"),
-        (6, lambda e: e["payload"]["stimulus"].update(author="p-999999"), "not in this population"),
-        (3, lambda e: e["payload"].update(template_id="unpinned_template"), "does not pin"),
-        (3, lambda e: e["payload"]["turn"]["reaction"]["intent"].update(embed_model_id="voyage/voyage-3-large"), "pins openai/text-embedding-3-small for every embedding"),
-        (3, lambda e: e["payload"]["turn"]["reaction"]["intent"].update(anchor_set_id="pi-snacks-v9"), "does not pin"),
-        (3, lambda e: e["payload"]["turn"]["reaction"]["intent"].update(category="snack_bar"), "anchors for a 'beverage_protein' brief"),
-        (4, lambda e: e["payload"].update(model_id="openai/gpt-4o-2024-08-06"), "but the run pins"),
+        (R["second_turn"], lambda e: e.update(persona_id="p-999999") or e["payload"]["turn"]["impression"].update(persona_id="p-999999"), "not in this population"),
+        (R["peer_post"], lambda e: e["payload"]["stimulus"].update(author="p-999999"), "not in this population"),
+        (R["first_turn"], lambda e: e["payload"].update(template_id="unpinned_template"), "does not pin"),
+        (R["first_turn"], lambda e: e["payload"]["turn"]["reaction"]["intent"].update(embed_model_id="voyage/voyage-3-large"), "pins openai/text-embedding-3-small for every embedding"),
+        (R["first_turn"], lambda e: e["payload"]["turn"]["reaction"]["intent"].update(anchor_set_id="pi-snacks-v9"), "does not pin"),
+        (R["first_turn"], lambda e: e["payload"]["turn"]["reaction"]["intent"].update(category="snack_bar"), "anchors for a 'beverage_protein' brief"),
+        (R["first_turn_cost"], lambda e: e["payload"].update(model_id="openai/gpt-4o-2024-08-06"), "but the run pins"),
     ],
     ids=["turn-by-stranger", "stimulus-by-stranger", "unpinned-template", "other-embedding-model", "unpinned-anchor-set", "foreign-category", "unpinned-cost-model"],
 )
@@ -454,27 +456,27 @@ def test_events_must_honour_the_run_and_its_population(index, change, match):
 
 def test_turns_recall_only_earlier_turns_or_reflections_of_the_same_persona():
     data = partition_payload()
-    own_turn, own_reflection = data["events"][3]["event_id"], data["events"][9]["event_id"]
-    data["events"][10]["payload"]["memory_ids"] = [data["events"][3]["event_id"]]
+    own_turn, own_reflection = data["events"][R["first_turn"]]["event_id"], data["events"][R["reflection"]]["event_id"]
+    data["events"][R["second_turn"]]["payload"]["memory_ids"] = [data["events"][R["first_turn"]]["event_id"]]
     with pytest.raises(ValidationError, match="not an earlier turn or reflection of p-000002"):
         TracePartition.model_validate(data)
     data = partition_payload()
-    data["events"][3]["payload"]["memory_ids"] = [data["events"][9]["event_id"]]
+    data["events"][R["first_turn"]]["payload"]["memory_ids"] = [data["events"][R["reflection"]]["event_id"]]
     with pytest.raises(ValidationError, match="not an earlier turn or reflection"):
         TracePartition.model_validate(data)
     data = partition_payload()
-    data["events"][10]["payload"]["turn"]["impression"]["persona_id"] = "p-000001"
-    data["events"][10]["persona_id"] = "p-000001"
-    data["events"][10]["payload"]["memory_ids"] = [own_turn, own_reflection]
-    assert TracePartition.model_validate(data).in_sequence[10].payload.memory_ids == (own_turn, own_reflection)
+    data["events"][R["second_turn"]]["payload"]["turn"]["impression"]["persona_id"] = "p-000001"
+    data["events"][R["second_turn"]]["persona_id"] = "p-000001"
+    data["events"][R["second_turn"]]["payload"]["memory_ids"] = [own_turn, own_reflection]
+    assert TracePartition.model_validate(data).in_sequence[R["second_turn"]].payload.memory_ids == (own_turn, own_reflection)
 
 
 @pytest.mark.parametrize(
     ("phases", "match"),
     [
-        ({0: "completed"}, "moves the world from nothing to completed"),
-        ({11: "started"}, "moves the world from started to started"),
-        ({8: "paused"}, "recorded while the world is paused"),
+        ({R["started"]: "completed"}, "moves the world from nothing to completed"),
+        ({R["completed"]: "started"}, "moves the world from started to started"),
+        ({R["launch"]: "paused"}, "recorded while the world is paused"),
     ],
     ids=["completed-first", "started-twice", "events-while-paused"],
 )
@@ -497,11 +499,11 @@ def test_partition_must_open_with_the_world_starting():
 
 def test_paused_world_may_resume_and_events_after_completion_are_refused():
     data = partition_payload()
-    data["events"][8] = event(8, 3, {"kind": "lifecycle", "phase": "paused"})
-    data["events"][9] = event(9, 3, {"kind": "lifecycle", "phase": "started"})
-    data["events"][10] = event(10, 3, {"kind": "intervention", "intervention_kind": "launch"})
-    assert TracePartition.model_validate(data).in_sequence[9].payload.phase.value == "started"
+    data["events"][R["launch"]] = event(R["launch"], 3, {"kind": "lifecycle", "phase": "paused"})
+    data["events"][R["reflection"]] = event(R["reflection"], 3, {"kind": "lifecycle", "phase": "started"})
+    data["events"][R["second_turn"]] = event(R["second_turn"], 3, {"kind": "intervention", "intervention_kind": "launch"})
+    assert TracePartition.model_validate(data).in_sequence[R["reflection"]].payload.phase.value == "started"
     data = partition_payload()
-    data["events"][11], data["events"][10] = event(10, 4, {"kind": "lifecycle", "phase": "completed"}), event(11, 4, {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-ai/persona-8b", "input_tokens": 1, "output_tokens": 1, "cache_hit": True, "cost": 0.0})
+    data["events"][R["completed"]], data["events"][R["second_turn"]] = event(R["second_turn"], 4, {"kind": "lifecycle", "phase": "completed"}), event(R["completed"], 4, {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-ai/persona-8b", "input_tokens": 1, "output_tokens": 1, "cache_hit": True, "cost": 0.0})
     with pytest.raises(ValidationError, match="while the world is completed"):
         TracePartition.model_validate(data)

@@ -284,26 +284,45 @@ def partition_header_payload(scenario: dict | None = None, persona_ids: list[str
             "scenario": scenario, "replicate_seed": 4021}
 
 
+# Events of the representative partition, in sequence order. Tests address them by role, so inserting an
+# event changes this list and nothing else.
+PARTITION_ROLES = (
+    "started",
+    "concept",
+    "claim_post",
+    "first_turn",
+    "first_turn_cost",
+    "drop",
+    "peer_post",
+    "peer_reply",
+    "launch",
+    "reflection",
+    "second_turn",
+    "completed",
+)
+R = {name: seq for seq, name in enumerate(PARTITION_ROLES)}
+
+
 def partition_payload(**header_overrides) -> dict:
     """A small but complete world: study stimuli, whole turns, a drop, a reply thread, an intervention,
     a reflection and lifecycle bookends — every reference resolving within the partition."""
     events = [
-        event(0, 0, {"kind": "lifecycle", "phase": "started"}),
-        event(1, 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(1), "tick": 0, "kind": "concept", "text": "Clear protein water"}}),
-        event(2, 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(2), "tick": 0, "kind": "claim_post", "text": "20g protein, zero sugar", "claim_id": "C1"}}),
-        turn_event(3, 1, turn_payload("p-000001", 1, [(1, "interest", 0.8), (2, "social_proof", 0.0)], {
+        event(R["started"], 0, {"kind": "lifecycle", "phase": "started"}),
+        event(R["concept"], 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(1), "tick": 0, "kind": "concept", "text": "Clear protein water"}}),
+        event(R["claim_post"], 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(2), "tick": 0, "kind": "claim_post", "text": "20g protein, zero sugar", "claim_id": "C1"}}),
+        turn_event(R["first_turn"], 1, turn_payload("p-000001", 1, [(1, "interest", 0.8), (2, "social_proof", 0.0)], {
             "subject_stimulus_id": stimulus_id(1), "action": "comment", "verbatim": "the protein claim would get me",
             "belief_change": {"dimensions": {"value": 0.1}, "claim_credence": {"C1": 0.2}}, "intent": ssr_payload()}, n=1), "p-000001"),
-        event(4, 1, {"kind": "cost", "role": "tier_b", "model_id": "anthropic/claude-sonnet-4-5-20250929",
+        event(R["first_turn_cost"], 1, {"kind": "cost", "role": "tier_b", "model_id": "anthropic/claude-sonnet-4-5-20250929",
                      "input_tokens": 812, "output_tokens": 96, "cache_hit": False, "cost": 0.004}, "p-000001"),
-        event(5, 1, {"kind": "exposure_dropped", "stimulus_id": stimulus_id(2), "channel": "social_feed", "reason": "budget_exhausted"}, "p-000002"),
-        event(6, 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(3), "tick": 2, "author": "p-000001", "kind": "peer_post", "text": "tried it after the gym"}}),
-        event(7, 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(4), "tick": 2, "author": "p-000002", "kind": "peer_reply", "text": "how was the taste?", "in_reply_to": stimulus_id(3)}}),
-        event(8, 3, {"kind": "intervention", "intervention_kind": "launch"}),
-        event(9, 3, {"kind": "reflection", "trigger": "tick_cadence", "change": {"claim_credence": {"C2": -0.1}}}, "p-000001"),
-        turn_event(10, 3, turn_payload("p-000002", 3, [(3, "wom", 0.6), (4, "forum", 0.4)], {
+        event(R["drop"], 1, {"kind": "exposure_dropped", "stimulus_id": stimulus_id(2), "channel": "social_feed", "reason": "budget_exhausted"}, "p-000002"),
+        event(R["peer_post"], 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(3), "tick": 2, "author": "p-000001", "kind": "peer_post", "text": "tried it after the gym"}}),
+        event(R["peer_reply"], 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(4), "tick": 2, "author": "p-000002", "kind": "peer_reply", "text": "how was the taste?", "in_reply_to": stimulus_id(3)}}),
+        event(R["launch"], 3, {"kind": "intervention", "intervention_kind": "launch"}),
+        event(R["reflection"], 3, {"kind": "reflection", "trigger": "tick_cadence", "change": {"claim_credence": {"C2": -0.1}}}, "p-000001"),
+        turn_event(R["second_turn"], 3, turn_payload("p-000002", 3, [(3, "wom", 0.6), (4, "forum", 0.4)], {
             "subject_stimulus_id": stimulus_id(3), "action": "like"}, n=2), "p-000002"),
-        event(11, 4, {"kind": "lifecycle", "phase": "completed"}),
+        event(R["completed"], 4, {"kind": "lifecycle", "phase": "completed"}),
     ]
     header = partition_header_payload(header_overrides.get("scenario"))
     header.update(header_overrides)
