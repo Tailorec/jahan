@@ -1,0 +1,48 @@
+# A concept test for a clear protein water, priced against the category it competes in.
+# Claim identifiers are assigned in the order below — reordering claims changes what a
+# study is comparable with, so the engine treats it as a new brief.
+
+product:
+  name: Protein water
+  category: beverage_protein
+  description: Clear protein-infused water with 20g whey isolate
+
+price:
+  amount: 2.49
+  currency: USD
+
+claims:
+  - text: 20g protein with zero sugar
+    source: user_asserted
+  - text: Hydrates like water, not milk
+    source: assumed
+  - text: Preferred over milky shakes after workouts
+    source: public_source
+
+competitors:
+  - name: Clear whey shooter
+    price:
+      amount: 2.99
+      currency: USD
+    claims:
+      - Shooter format, 25g protein
+  - name: Electrolyte water
+
+target_market: US urban adults 25-40 who train at least weekly
+
+# Audiences are declared here and referred to by name everywhere else. Every attribute
+# an audience filters on must be one the category ontology declares.
+audiences:
+  - name: gym_regulars
+    attribute_filters:
+      exercise_frequency: 3_plus_weekly
+  - name: protein_dieters
+    attribute_filters:
+      diet_protein_focus: high
+
+assumptions:
+  - text: Respondents distinguish clear from milky protein formats
+    source: user_asserted
+
+# The category ontology this brief is read against. Exact versions only.
+ontology_version: 1.0.0

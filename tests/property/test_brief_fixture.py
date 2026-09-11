@@ -8,9 +8,12 @@ from pydantic import ValidationError
 from simcore.schemas import BriefPack, CategoryOntology, ProductBrief, canonical_hash
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
+ONTOLOGY = Path(__file__).resolve().parents[2] / "ontologies" / "beverage_protein" / "1.0.0.json"
 
 
 def load(name: str) -> dict:
+    if name == "example_ontology.json":
+        return json.loads(ONTOLOGY.read_text())
     return json.loads((FIXTURES / name).read_text())
 
 

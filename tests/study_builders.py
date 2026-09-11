@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
+ONTOLOGIES = Path(__file__).resolve().parents[1] / "ontologies"
 PERSONA_IDS = ["p-000001", "p-000002", "p-000003", "p-000004"]
 
 
@@ -16,9 +17,14 @@ def load_fixture(name: str) -> dict:
     return json.loads((FIXTURES / name).read_text())
 
 
+def load_ontology(category: str = "beverage_protein", version: str = "1.0.0") -> dict:
+    """A shipped category ontology, read from the repository's own ontology directory."""
+    return json.loads((ONTOLOGIES / category / f"{version}.json").read_text())
+
+
 def ontology_payload() -> dict:
-    """The example ontology, extended with an economic attribute that completion may synthesize."""
-    ontology = load_fixture("example_ontology.json")
+    """The shipped ontology, extended with an economic attribute that completion may synthesize."""
+    ontology = load_ontology()
     ontology["attribute_domains"]["spend_band"] = "economic"
     ontology["relevance_order"] = [*ontology["relevance_order"], "spend_band"]
     return ontology
