@@ -306,6 +306,7 @@ PARTITION_ROLES = (
     "peer_post",
     "peer_reply",
     "close_2",
+    "warned",
     "launch",
     "reflection",
     "second_turn",
@@ -335,6 +336,7 @@ def partition_payload(**header_overrides) -> dict:
         event(R["peer_post"], 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(3), "tick": 2, "author": "p-000001", "kind": "peer_post", "text": "tried it after the gym"}}),
         event(R["peer_reply"], 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(4), "tick": 2, "author": "p-000002", "kind": "peer_reply", "text": "how was the taste?", "in_reply_to": stimulus_id(3)}}),
         event(R["close_2"], 2, {"kind": "tick_closed"}),
+        event(R["warned"], 3, {"kind": "degraded", "rung": "warn", "activation_rate": 0.62, "tier_b_frozen": False}),
         event(R["launch"], 3, {"kind": "intervention", "intervention_kind": "launch"}),
         event(R["reflection"], 3, {"kind": "reflection", "trigger": "tick_cadence", "change": {"claim_credence": {"C2": -0.1}}}, "p-000001"),
         # Views count only engagement from earlier ticks: st4's reply (tick 2) is visible here, and this

@@ -6,6 +6,7 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from simcore.schemas import (
+    Degraded,
     TickClosed,
     SCHEMA_VERSION,
     ContractMigration,
@@ -60,7 +61,7 @@ def with_event(index: int, replacement: dict) -> dict:
 def test_payload_kinds_are_distinct_types_that_dispatch_on_kind_alone():
     adapter = TypeAdapter(TracePayload)
     kinds = {adapter.validate_python(e["payload"]).kind: type(adapter.validate_python(e["payload"])) for e in events_of(partition_payload())}
-    assert set(kinds) == {"lifecycle", "stimulus_published", "turn", "cost", "exposure_dropped", "intervention", "reflection", "tick_closed"}
+    assert set(kinds) == {"lifecycle", "stimulus_published", "turn", "cost", "exposure_dropped", "intervention", "reflection", "tick_closed", "degraded"}
     assert len(set(kinds.values())) == len(kinds)
 
 
@@ -485,9 +486,9 @@ def test_turns_recall_only_earlier_turns_or_reflections_of_the_same_persona():
     [
         ({R["started"]: "completed"}, "moves the world from nothing to completed"),
         ({R["completed"]: "started"}, "moves the world from started to started"),
-        ({R["launch"]: "paused"}, "recorded while the world is paused"),
+        ({R["launch"]: "paused"}, "which only follows the budget's pause rung"),
     ],
-    ids=["completed-first", "started-twice", "events-while-paused"],
+    ids=["completed-first", "started-twice", "paused-without-the-pause-rung"],
 )
 def test_lifecycle_moves_through_valid_phases_and_nothing_happens_while_stopped(phases, match):
     data = partition_payload()
@@ -508,6 +509,7 @@ def test_partition_must_open_with_the_world_starting():
 
 def test_paused_world_may_resume_and_events_after_completion_are_refused():
     data = partition_payload()
+    data["events"][R["warned"]] = event(R["warned"], 3, PAUSE_RUNG)
     data["events"][R["launch"]] = event(R["launch"], 3, {"kind": "lifecycle", "phase": "paused"})
     data["events"][R["reflection"]] = event(R["reflection"], 3, {"kind": "lifecycle", "phase": "started"})
     data["events"][R["second_turn"]] = event(R["second_turn"], 3, {"kind": "intervention", "intervention_kind": "launch"})
@@ -519,6 +521,7 @@ def test_paused_world_may_resume_and_events_after_completion_are_refused():
         TracePartition.model_validate(data)
 
 
+PAUSE_RUNG = {"kind": "degraded", "rung": "pause", "activation_rate": 0.40, "tier_b_frozen": True}
 COST_AT_TICK = {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-ai/persona-8b", "input_tokens": 1, "output_tokens": 1, "cache_hit": True, "cost": 0.0}
 
 
@@ -699,6 +702,68 @@ def test_closing_a_tick_twice_is_refused():
 
 def test_a_tick_close_belongs_to_the_world_not_a_persona():
     record = copy.deepcopy(events_of(partition_payload())[R["close_0"]])
+    record["persona_id"] = "p-000001"
+    with pytest.raises(ValidationError, match="belongs to the world"):
+        TraceEvent.model_validate(record)
+
+
+
+# --- degradation ------------------------------------------------------------------------------
+
+
+def rung(name: str, activation: float) -> dict:
+    return {"kind": "degraded", "rung": name, "activation_rate": activation, "tier_b_frozen": name != "warn"}
+
+
+def test_representative_partition_records_a_degradation_rung_and_round_trips():
+    partition = TracePartition.model_validate(partition_payload())
+    degraded = partition.in_sequence[R["warned"]].payload
+    assert (degraded.rung.value, degraded.activation_rate, degraded.tier_b_frozen) == ("warn", 0.62, False)
+    assert TracePartition.model_validate_json(partition.model_dump_json()) == partition
+
+
+@pytest.mark.parametrize(
+    ("name", "frozen"),
+    [("warn", True), ("freeze_optional_tier_b", False), ("subsample_activation", False), ("pause", False)],
+)
+def test_a_rung_states_the_tier_b_freeze_it_implies(name, frozen):
+    with pytest.raises(ValidationError, match="frozen from the freeze_optional_tier_b rung onwards"):
+        Degraded.model_validate({"kind": "degraded", "rung": name, "activation_rate": 0.5, "tier_b_frozen": frozen})
+
+
+def test_degradation_climbs_the_ladder_one_way():
+    data = partition_payload()
+    ladder = [rung("freeze_optional_tier_b", 0.62), rung("subsample_activation", 0.40), rung("pause", 0.40)]
+    for offset, record in enumerate(ladder, start=1):
+        data["events"].insert(R["warned"] + offset, event(0, 3, record))
+    resequence(data)
+    rungs = [e.payload.rung.value for e in TracePartition.model_validate(data).in_sequence if isinstance(e.payload, Degraded)]
+    assert rungs == ["warn", "freeze_optional_tier_b", "subsample_activation", "pause"]
+
+
+@pytest.mark.parametrize(
+    ("second", "match"),
+    [(rung("warn", 0.62), "degradation only escalates"), (rung("subsample_activation", 0.80), "degradation never restores it")],
+    ids=["same-rung-again", "activation-raised"],
+)
+def test_degradation_that_does_not_escalate_is_refused(second, match):
+    data = partition_payload()
+    data["events"].insert(R["warned"] + 1, event(0, 3, second))
+    resequence(data)
+    with pytest.raises(ValidationError, match=match):
+        TracePartition.model_validate(data)
+
+
+def test_a_pause_follows_the_pause_rung_and_nothing_is_recorded_while_paused():
+    data = partition_payload()
+    data["events"][R["warned"]] = event(R["warned"], 3, PAUSE_RUNG)
+    data["events"][R["launch"]] = event(R["launch"], 3, {"kind": "lifecycle", "phase": "paused"})
+    with pytest.raises(ValidationError, match="recorded while the world is paused"):
+        TracePartition.model_validate(data)
+
+
+def test_degradation_belongs_to_the_world_not_a_persona():
+    record = copy.deepcopy(events_of(partition_payload())[R["warned"]])
     record["persona_id"] = "p-000001"
     with pytest.raises(ValidationError, match="belongs to the world"):
         TraceEvent.model_validate(record)

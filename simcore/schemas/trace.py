@@ -18,10 +18,11 @@ from .base import (
     PersonaId,
     SimBaseModel,
     StimulusId,
+    UnitInterval,
     canonical_hash,
 )
 from .brief import BriefPack
-from .enums import ActionKind, Channel, DropReason, InferenceRole, InterventionKind, LifecyclePhase, ReflectionTrigger, RunStatus
+from .enums import ActionKind, Channel, DegradationRung, DropReason, InferenceRole, InterventionKind, LifecyclePhase, ReflectionTrigger, RunStatus
 from .errors import SchemaVersionError
 from .population import Population, PopulationManifest
 from .run import PinnedModelId, RunConfig, Scenario, WorldId, check_scenario_against_brief, derive_world_id
@@ -82,6 +83,26 @@ class InterventionApplied(SimBaseModel):
     intervention_kind: InterventionKind
 
 
+class Degraded(SimBaseModel):
+    """A budget rung applied to the world at the event's tick, with the activation rate and tier-B freeze now in
+    force. Recorded so replay reproduces it and a degraded world is never compared silently with a full one."""
+
+    kind: Literal["degraded"]
+    rung: DegradationRung
+    activation_rate: UnitInterval
+    tier_b_frozen: bool
+
+    @model_validator(mode="after")
+    def _freeze_matches_the_rung(self) -> Self:
+        frozen_from = _RUNG_ORDER.index(DegradationRung.FREEZE_OPTIONAL_TIER_B)
+        if self.tier_b_frozen != (_RUNG_ORDER.index(self.rung) >= frozen_from):
+            raise ValueError(f"optional tier-B work is frozen from the {DegradationRung.FREEZE_OPTIONAL_TIER_B.value} rung onwards, not at {self.rung.value}")
+        return self
+
+
+_RUNG_ORDER = tuple(DegradationRung)
+
+
 class TickClosed(SimBaseModel):
     """Marks the event's tick as fully recorded. Nothing more is recorded for it, and resume discards anything
     after the last closed tick (ADR 0011)."""
@@ -101,13 +122,14 @@ TracePayload = Annotated[
     | ReflectionRecorded
     | CostRecorded
     | InterventionApplied
+    | Degraded
     | TickClosed
     | LifecycleRecorded,
     Field(discriminator="kind"),
 ]
 
 _PERSONA_EVENTS = frozenset({"exposure_dropped", "turn", "reflection"})
-_WORLD_EVENTS = frozenset({"stimulus_published", "intervention", "tick_closed", "lifecycle"})
+_WORLD_EVENTS = frozenset({"stimulus_published", "intervention", "degraded", "tick_closed", "lifecycle"})
 
 
 class TraceEvent(SimBaseModel):
@@ -274,6 +296,7 @@ class TracePartition(SimBaseModel):
         config, members = self.header.config, set(self.header.population.persona_ids)
         category = self.header.pack.brief.product.category
         lifecycle: LifecyclePhase | None = None
+        last_degradation: Degraded | None = None
         remembered: dict[str, str] = {}
         for event in self.in_sequence:
             where = f"event {event.seq} ({event.payload.kind})"
@@ -284,10 +307,19 @@ class TracePartition(SimBaseModel):
                 allowed = _LIFECYCLE_TRANSITIONS[lifecycle]
                 if payload.phase not in allowed:
                     raise ValueError(f"{where} moves the world from {lifecycle.value if lifecycle else 'nothing'} to {payload.phase.value}")
+                if payload.phase is LifecyclePhase.PAUSED and (last_degradation is None or last_degradation.rung is not DegradationRung.PAUSE):
+                    raise ValueError(f"{where} pauses the world, which only follows the budget's pause rung")
                 lifecycle = payload.phase
                 continue
             if lifecycle is not LifecyclePhase.STARTED:
                 raise ValueError(f"{where} is recorded while the world is {lifecycle.value}")
+            if isinstance(payload, Degraded):
+                if last_degradation is not None:
+                    if _RUNG_ORDER.index(payload.rung) <= _RUNG_ORDER.index(last_degradation.rung):
+                        raise ValueError(f"{where} applies {payload.rung.value} after {last_degradation.rung.value}; degradation only escalates")
+                    if payload.activation_rate > last_degradation.activation_rate:
+                        raise ValueError(f"{where} raises activation from {last_degradation.activation_rate} to {payload.activation_rate}; degradation never restores it")
+                last_degradation = payload
             if event.persona_id is not None and event.persona_id not in members:
                 raise ValueError(f"{where} belongs to {event.persona_id}, who is not in this population")
             if isinstance(payload, StimulusPublished) and payload.stimulus.author is not None and payload.stimulus.author not in members:

@@ -179,3 +179,12 @@ class AnomalyKind(StrEnum):
     HERDING = "herding"
     BACKLASH = "backlash"
     FLOP = "flop"
+
+
+class DegradationRung(StrEnum):
+    """A step on the budget's degrade ladder, in escalating order; a world only ever climbs it."""
+
+    WARN = "warn"
+    FREEZE_OPTIONAL_TIER_B = "freeze_optional_tier_b"
+    SUBSAMPLE_ACTIVATION = "subsample_activation"
+    PAUSE = "pause"
