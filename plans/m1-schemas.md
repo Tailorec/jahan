@@ -178,16 +178,16 @@ This is the hottest write path in the engine, so the phase also establishes the 
 
 ### Acceptance criteria
 
-- [ ] An event whose payload kind disagrees with its declared type is refused
-- [ ] Each of the eleven payload kinds has a distinct type, and the union dispatches on the kind alone
-- [ ] Events carry no seed field and no contract version field
-- [ ] The contract version is recorded once per partition and in the run registry entry
-- [ ] A partition written under an earlier contract version loads under a later one without error
-- [ ] The strict write path and the lenient read path are separate entry points, and the lenient one is never used to write
-- [ ] Events at realistic volume round-trip with ordering preserved by persona, tick and sequence
-- [ ] Unvalidated construction is available, documented, and covered by a validated equivalent in continuous integration
-- [ ] There is no field capable of storing a full prompt; only its parts and a hash
-- [ ] A registry entry pins every hash and model identifier required to reproduce its run
+- [x] An event whose payload kind disagrees with its declared type is refused
+- [x] Each of the eleven payload kinds has a distinct type, and the union dispatches on the kind alone
+- [x] Events carry no seed field and no contract version field
+- [x] The contract version is recorded once per partition and in the run registry entry
+- [x] A partition written under an earlier contract version loads under a later one without error
+- [x] The strict write path and the lenient read path are separate entry points, and the lenient one is never used to write
+- [x] Events at realistic volume round-trip with ordering preserved by persona, tick and sequence
+- [x] Unvalidated construction is available, documented, and covered by a validated equivalent in continuous integration
+- [x] There is no field capable of storing a full prompt; only its parts and a hash
+- [x] A registry entry pins every hash and model identifier required to reproduce its run
 
 ---
 
