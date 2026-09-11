@@ -9,9 +9,9 @@ Durable across every phase:
 
 - **Leaf rule** — the package imports nothing from the project, and only the validation library plus the standard library from outside. No numeric or dataframe dependency, ever. Enforced by a test, not by convention.
 - **File organization** — one file per domain (base/identifiers, enumerations, errors, brief, persona, population, simulation, run, trace, report), with a single curated export surface as the only import path other modules use.
-- **Model defaults** — every model rejects unknown fields, is frozen, rejects non-finite floats, and strips surrounding string whitespace. Hashed structures use immutable sequences rather than lists.
-- **Canonical hashing** — sorted keys, compact separators, enumerations serialized by value, non-finite values rejected, per-class exclusion of outputs (observed cost, wall-clock timestamps). Four hashes exist: brief, population, run configuration (which folds in the contract version), and graph.
-- **Identity** — persona identity derives from the dataset row so cross-run joins need no lookup table; run and stimulus identities are sortable opaque identifiers; world identity derives from variant, replicate seed and population hash (ADR 0001).
+- **Model defaults** — every model rejects unknown fields, is frozen, rejects non-finite floats, and strips surrounding string whitespace. Container fields are tuples, frozensets or `FrozenDict` — list, dict and set annotations are refused when a class is defined, because freezing a model does not freeze a container inside it. Copying a model with updates re-validates the updates.
+- **Canonical hashing** — sorted keys, compact separators, enumerations serialized by value, non-finite values rejected, per-class exclusion of outputs (observed cost, wall-clock timestamps), exclusions and version folding honoured at every nesting level, including inside sequences and mappings; set-valued fields sorted so hash-seed iteration order never leaks in; negative zero normalised so structures that compare equal hash equally; the contract version folded under a reserved key no field can occupy; misspelled or mistyped exclusions refused when a class is defined. Four hashes exist: brief, population, run configuration (which folds in the contract version), and graph.
+- **Identity** — persona identity derives from the dataset row so cross-run joins need no lookup table; persona identity is `p-` followed by the dataset row identifier; run and stimulus identities are `run-` and `st-` followed by a lowercase ULID, so they sort by creation time; world identity derives from variant, replicate seed and population hash (ADR 0001).
 - **Two provenance vocabularies** — one for where a brief statement came from, one for where a persona field came from. The second carries an explicit grounded value; grounding is never inferred from an absent key.
 - **Audience versus community** — audiences are declared in inputs and referred to by name; communities are discovered and appear only in outputs. "Segment" and "stratum" are not used.
 - **Validation guards boundaries, not inner loops** — three documented unvalidated-construction paths (trace writes, graph adjacency, per-row decode), fully validated only in continuous integration.
@@ -41,7 +41,14 @@ The demonstration is deliberately narrow — one small model defined purely to e
 - [x] Round-trip holds over generated values, not only hand-written examples
 - [x] Each error class exposes a distinct exit code, and a failed gate is distinguishable from a crash
 - [x] A test inspects the package's imports and fails on any project import or heavy numeric dependency
-- [x] The suite runs with no API key, no network access, and no dataset present
+- [x] The suite runs with no API key, no network access, and no dataset present, and a guard refuses network connections and hides credentials rather than relying on none being used
+- [x] Hash exclusions hold at every nesting level — inside nested models, sequences and mappings
+- [x] Set-valued fields hash identically across processes regardless of hash seed
+- [x] Structures that compare equal hash equally, including negative and positive zero
+- [x] Container field contents cannot be mutated after construction, and mutable container annotations are refused when a class is defined
+- [x] A misspelled or mistyped hash exclusion, or a field that could displace the folded contract version, is refused or made impossible
+- [x] Copying a model with updates re-validates those updates
+- [x] Run, stimulus and persona identifiers enforce their documented prefixed formats
 
 ---
 

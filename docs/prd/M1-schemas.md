@@ -98,7 +98,7 @@ The module is organized one file per domain — the shared base and identifier t
 
 It imports nothing from the project and only the validation library plus the standard library from outside. No numeric or dataframe libraries. A test enforces this by inspecting imports directly, because it is the rule most likely to erode under pressure.
 
-Every model rejects unknown fields, is frozen, rejects non-finite floats, and strips surrounding whitespace on strings. Structures that are hashed use immutable sequence types rather than lists, since freezing a model does not freeze a list inside it.
+Every model rejects unknown fields, is frozen, rejects non-finite floats, and strips surrounding whitespace on strings. Container fields are tuples, frozensets or `FrozenDict` — list, dict and set annotations are refused when a class is defined, because freezing a model does not freeze a container inside it. Copying a model with updates re-validates the updates.
 
 ### The nine decisions from the grilling session
 
@@ -122,11 +122,11 @@ Every model rejects unknown fields, is frozen, rejects non-finite floats, and st
 
 ### Supporting decisions
 
-Price is typed rather than a bare float and lives only on the scenario; the brief's price seeds the first scenario. The persona source is a validated string against a known-value set rather than a strict enumeration, because the dataset's actual values are unverified and a strict enumeration would fail on first contact with real data; it is promoted to an enumeration once the dataset card is read. The contract version is recorded in partition metadata and the run registry, not on every event. Persona identifiers derive from the dataset row identifier so cross-run joins need no lookup table; run and stimulus identifiers are sortable opaque identifiers.
+Price is typed rather than a bare float and lives only on the scenario; the brief's price seeds the first scenario. The persona source is a validated string against a known-value set rather than a strict enumeration, because the dataset's actual values are unverified and a strict enumeration would fail on first contact with real data; it is promoted to an enumeration once the dataset card is read. The contract version is recorded in partition metadata and the run registry, not on every event. Persona identifiers are `p-` followed by the dataset row identifier, so cross-run joins need no lookup table; run and stimulus identifiers are `run-` and `st-` followed by a lowercase ULID, so they sort by creation time.
 
 ### Hashing
 
-Canonical serialization sorts keys, uses compact separators, rejects non-finite values, and serializes enumerations by value so member renames do not move hashes. Each type declares which of its fields are excluded — outputs like observed cost and timestamps. Four hashes exist: one pinning the brief and its claim order, one pinning the population, one pinning the run configuration including the contract version, and one pinning the generated graph.
+Canonical serialization sorts keys, uses compact separators, rejects non-finite values, and serializes enumerations by value so member renames do not move hashes. Each type declares which of its fields are excluded — outputs like observed cost and timestamps — and the declaration holds wherever the type is nested. Set-valued fields are sorted, negative zero is normalised, and the contract version is folded under a reserved key that no field can occupy. Four hashes exist: one pinning the brief and its claim order, one pinning the population, one pinning the run configuration including the contract version, and one pinning the generated graph.
 
 ### Performance
 

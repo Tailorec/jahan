@@ -142,9 +142,9 @@ Each spec states what the module **owns**, what it **hides**, its **interface**,
 
 **Owns:** every type crossing a module boundary, and the invariants that are true of the data by definition.
 **Hides:** nothing. This is a leaf.
-**Hard rule:** imports nothing from `simcore`, and only `pydantic` + stdlib from outside. No numpy, no pyarrow, no networkx. If `schemas` needs a project import, a type is in the wrong file.
+**Hard rule:** imports nothing from `simcore`, and only `pydantic` (with its own `pydantic-core` engine) + stdlib from outside. No numpy, no pyarrow, no networkx. If `schemas` needs a project import, a type is in the wrong file.
 
-**Interface:** ~40 frozen pydantic v2 models with `extra="forbid"`, `allow_inf_nan=False`, grouped one file per domain — `brief`, `persona`, `population`, `sim`, `run`, `trace`, `report`, `enums`, `errors`, `base`.
+**Interface:** ~40 frozen pydantic v2 models with `extra="forbid"`, `allow_inf_nan=False`, and immutable containers only — tuples, frozensets and `FrozenDict`; list, dict and set annotations are refused at class definition, and `model_copy(update=...)` re-validates — grouped one file per domain — `brief`, `persona`, `population`, `sim`, `run`, `trace`, `report`, `enums`, `errors`, `base`.
 
 **Load-bearing validators:**
 - `PMF5` — 5 values, all strictly `> 0`, sum ∈ [0.999, 1.001]. Strict positivity because polarization is a JSD across community PMFs and downstream metrics are KL-family; SSR's softmax cannot emit an exact zero, so a zero means something upstream is broken.
@@ -155,7 +155,7 @@ Each spec states what the module **owns**, what it **hides**, its **interface**,
 - `Beliefs` — `claim_credence` keys must match the brief's claim IDs exactly, catching a scenario that references a renamed claim.
 - Gate results refuse any attribute whose `FieldOrigin` is `SYNTHESIZED` — the engine may not validate its own output against a target it also produced.
 
-**Canonical hashing** (`base.py`): `sha256(json.dumps(model.model_dump(mode="json", exclude=HASH_EXCLUDE), sort_keys=True, separators=(",",":"), allow_nan=False))`. `sort_keys` is required — `audience_mix` and `target_filters` are dicts and insertion order must not move a hash. `mode="json"` means enum *member* renames don't move hashes, only value changes do. Four hashes: `brief_hash`, `population_hash`, `config_hash` (includes `SCHEMA_VERSION`), `graph_hash`.
+**Canonical hashing** (`base.py`): dump the model with `mode="json"`, then walk that dump alongside the live model so each nested model's `_hash_exclude_` and `_hash_version_` apply at its own depth — a single top-level `exclude` silently ignores nested declarations. Set-valued fields are sorted (their iteration order depends on the process hash seed), negative zero becomes zero, and the contract version is folded under `_schema_version`, a key pydantic will not let any field occupy. The result is hashed as `sha256(json.dumps(payload, sort_keys=True, separators=(",",":"), allow_nan=False))`; `sort_keys` is required because insertion order must not move a hash. `mode="json"` means enum *member* renames don't move hashes, only value changes do. Four hashes: `brief_hash`, `population_hash`, `config_hash` (includes `SCHEMA_VERSION`), `graph_hash`.
 
 **Performance rule:** pydantic guards boundaries, not inner loops. Three paths use `model_construct` and are validated only in fake-mode CI: trace writes (~500k events/world), graph adjacency (~100k edges), per-row coreset decode. Embeddings never live inside a model — `EmbeddingRef {model_id, dim, index}` points into one contiguous `float32` array per population.
 
