@@ -54,7 +54,7 @@ from .enums import (
     TickUnit,
 )
 from .errors import BudgetExhausted, GateFailure, SchemaVersionError, SimError
-from .persona import AttributeValue, EmbeddingRef, Persona, PersonaSource
+from .persona import KNOWN_PERSONA_SOURCES, AttributeValue, EmbeddingRef, Persona, PersonaSource
 from .population import (
     CategoricalGateResult,
     Community,
@@ -113,6 +113,7 @@ __all__ = [
     "InferenceRole",
     "Intervention",
     "InterventionKind",
+    "KNOWN_PERSONA_SOURCES",
     "ModelPins",
     "NonEmptyStr",
     "NonNegativeInt",

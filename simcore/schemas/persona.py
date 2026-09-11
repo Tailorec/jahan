@@ -1,16 +1,32 @@
 """The persona domain: one simulated individual projected from a dataset row."""
 
+import warnings
 from typing import Annotated, Self
 
-from pydantic import Field, StringConstraints, model_validator
+from pydantic import AfterValidator, StringConstraints, model_validator
 
 from .base import FrozenDict, Identifier, NonNegativeInt, PersonaId, PositiveInt, SimBaseModel
 from .brief import AttributeId
-from .enums import FieldOrigin, PersonaFieldDomain
+from .enums import FieldOrigin
 
 AttributeValue = str | int | float
 
-PersonaSource = Annotated[str, StringConstraints(pattern=r"^(matraix|gss|synthetic)$")]
+# The corpora the dataset documents for its rows. Unverified against the dataset card, so an
+# unrecognised source warns rather than refuses; promote to an enumeration once the card is read.
+KNOWN_PERSONA_SOURCES = frozenset({"wiki", "amazon", "stackoverflow", "gss", "prism", "real_human_survey", "synthetic"})
+
+
+def _warn_on_unrecognised_source(value: str) -> str:
+    if value not in KNOWN_PERSONA_SOURCES:
+        warnings.warn(f"unrecognised persona source {value!r}; known sources: {sorted(KNOWN_PERSONA_SOURCES)}", stacklevel=2)
+    return value
+
+
+PersonaSource = Annotated[
+    str,
+    StringConstraints(pattern=r"^[a-z][a-z0-9_]*$"),
+    AfterValidator(_warn_on_unrecognised_source),
+]
 
 
 class EmbeddingRef(SimBaseModel):
@@ -22,29 +38,23 @@ class EmbeddingRef(SimBaseModel):
 
 
 class Persona(SimBaseModel):
-    """One projected persona; every field states where its value came from."""
+    """One projected persona; every field states where its value came from.
+
+    What its category requires — the conditioning set and each attribute's domain — belongs to the
+    ontology, and is checked where personas are joined with it, never taken from the persona itself.
+    """
 
     persona_id: PersonaId
     source: PersonaSource
-    category: Identifier
-    conditioning_set: frozenset[AttributeId] = Field(min_length=1)
     conditioning: FrozenDict[AttributeId, AttributeValue]
     attributes: FrozenDict[AttributeId, AttributeValue]
-    attribute_domains: FrozenDict[AttributeId, PersonaFieldDomain]
     origins: FrozenDict[AttributeId, FieldOrigin]
     embedding: EmbeddingRef
 
     @model_validator(mode="after")
-    def _conditioning_is_exactly_the_declared_set(self) -> Self:
-        declared = set(self.conditioning_set)
-        present = set(self.conditioning)
-        if present != declared:
-            missing = sorted(declared - present)
-            unexpected = sorted(present - declared)
-            raise ValueError(
-                f"conditioning must hold exactly the declared set for {self.category!r}: "
-                f"missing {missing}, unexpected {unexpected}"
-            )
+    def _conditioning_is_present(self) -> Self:
+        if not self.conditioning:
+            raise ValueError("a persona cannot be conditioned without conditioning attributes")
         return self
 
     @model_validator(mode="after")
@@ -65,22 +75,6 @@ class Persona(SimBaseModel):
             )
         return self
 
-    @model_validator(mode="after")
-    def _domains_cover_every_projected_field(self) -> Self:
-        projected = set(self.conditioning) | set(self.attributes)
-        missing = sorted(projected - set(self.attribute_domains))
-        if missing:
-            raise ValueError(f"projected fields have no declared domain: {missing}")
-        return self
-
-    @model_validator(mode="after")
-    def _demographics_and_psychographics_are_never_synthesized(self) -> Self:
-        never = {PersonaFieldDomain.DEMOGRAPHIC, PersonaFieldDomain.PSYCHOGRAPHIC}
-        invented = sorted(
-            attribute
-            for attribute, origin in self.origins.items()
-            if origin is FieldOrigin.SYNTHESIZED and self.attribute_domains[attribute] in never
-        )
-        if invented:
-            raise ValueError(f"demographic or psychographic fields may not be synthesized: {invented}")
-        return self
+    @property
+    def projected_attributes(self) -> frozenset[str]:
+        return frozenset(self.conditioning) | frozenset(self.attributes)

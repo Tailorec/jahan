@@ -1,92 +1,45 @@
+import warnings
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import TypeAdapter, ValidationError
 
-from simcore.schemas import EmbeddingRef, FieldOrigin, Persona, PersonaFieldDomain, PersonaSource
-
-DOMAINS = {
-    "age": "demographic",
-    "exercise_frequency": "category_behaviour",
-    "brand_loyalty": "psychographic",
-    "spend_band": "economic",
-}
+from simcore.schemas import KNOWN_PERSONA_SOURCES, EmbeddingRef, FieldOrigin, Persona, PersonaSource
+from tests.study_builders import persona_payload
 
 
-def persona_payload(**overrides):
-    payload = {
-        "persona_id": "p-000042",
-        "source": "gss",
-        "category": "beverage_protein",
-        "conditioning_set": ["age", "exercise_frequency"],
-        "conditioning": {"age": "25_34", "exercise_frequency": "3_plus_weekly"},
-        "attributes": {"brand_loyalty": "medium", "spend_band": "5_10"},
-        "attribute_domains": DOMAINS,
-        "origins": {
-            "age": "grounded",
-            "exercise_frequency": "grounded",
-            "brand_loyalty": "grounded",
-            "spend_band": "synthesized",
-        },
-        "embedding": {"model_id": "text-embedding-3-small", "dim": 1536, "index": 17},
-    }
-    payload.update(overrides)
-    return payload
-
-
-def test_conditioned_persona_validates():
+def test_persona_validates_with_every_field_stating_its_origin():
     persona = Persona.model_validate(persona_payload())
-    assert persona.conditioning == {"age": "25_34", "exercise_frequency": "3_plus_weekly"}
+    assert persona.conditioning["exercise_frequency"] == "3_plus_weekly"
     assert persona.origins["age"] is FieldOrigin.GROUNDED
     assert persona.origins["spend_band"] is FieldOrigin.SYNTHESIZED
+    assert persona.projected_attributes == {"age", "sex", "exercise_frequency", "diet_protein_focus", "spend_band"}
 
 
-def test_persona_missing_a_conditioning_attribute_refused():
-    payload = persona_payload(conditioning={"age": "25_34"})
-    with pytest.raises(ValidationError, match="missing"):
-        Persona.model_validate(payload)
+def test_persona_carries_no_copy_of_what_its_category_requires():
+    for field in ("conditioning_set", "attribute_domains", "category"):
+        assert field not in Persona.model_fields
 
 
-def test_persona_with_extra_conditioning_attribute_refused():
+def test_persona_without_conditioning_refused():
     payload = persona_payload(
-        conditioning={"age": "25_34", "exercise_frequency": "3_plus_weekly", "sex": "female"}
+        conditioning={},
+        origins={"diet_protein_focus": "grounded", "spend_band": "synthesized"},
     )
-    with pytest.raises(ValidationError, match="unexpected"):
+    with pytest.raises(ValidationError, match="conditioned"):
         Persona.model_validate(payload)
-
-
-def test_empty_conditioning_set_refused():
-    with pytest.raises(ValidationError):
-        Persona.model_validate(persona_payload(conditioning_set=[]))
 
 
 def test_conditioning_and_attributes_must_be_disjoint():
-    payload = persona_payload(
-        conditioning={"age": "25_34", "exercise_frequency": "3_plus_weekly"},
-        attributes={"age": "25_34", "brand_loyalty": "medium", "spend_band": "5_10"},
-    )
-    with pytest.raises(ValidationError, match="disjoint|both"):
+    payload = persona_payload(attributes={"age": "25_34", "diet_protein_focus": "high", "spend_band": "5_10"})
+    with pytest.raises(ValidationError, match="both"):
         Persona.model_validate(payload)
-
-
-@pytest.mark.parametrize(
-    ("attribute", "domain"),
-    [("age", PersonaFieldDomain.DEMOGRAPHIC), ("brand_loyalty", PersonaFieldDomain.PSYCHOGRAPHIC)],
-)
-def test_demographic_and_psychographic_fields_refuse_synthesized_origin(attribute, domain):
-    origins = {**persona_payload()["origins"], attribute: "synthesized"}
-    with pytest.raises(ValidationError, match="may not be synthesized"):
-        Persona.model_validate(persona_payload(origins=origins))
-
-
-def test_calibrated_demographic_origin_allowed():
-    payload = persona_payload(origins={**persona_payload()["origins"], "age": "calibrated"})
-    assert Persona.model_validate(payload).origins["age"] is FieldOrigin.CALIBRATED
 
 
 def test_every_projected_field_must_state_an_origin():
     origins = persona_payload()["origins"]
-    del origins["brand_loyalty"]
+    del origins["diet_protein_focus"]
     with pytest.raises(ValidationError, match="unstated"):
         Persona.model_validate(persona_payload(origins=origins))
 
@@ -97,29 +50,33 @@ def test_origin_for_unknown_attribute_refused():
         Persona.model_validate(persona_payload(origins=origins))
 
 
-def test_domains_must_cover_every_projected_field():
-    domains = dict(DOMAINS)
-    del domains["spend_band"]
-    with pytest.raises(ValidationError, match="no declared domain"):
-        Persona.model_validate(persona_payload(attribute_domains=domains))
+@pytest.mark.parametrize("source", sorted(KNOWN_PERSONA_SOURCES))
+def test_known_persona_sources_accepted_silently(source):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        assert TypeAdapter(PersonaSource).validate_python(source) == source
 
 
-@pytest.mark.parametrize("source", ["matraix", "gss", "synthetic"])
-def test_persona_source_accepts_the_known_value_set(source):
-    assert TypeAdapter(PersonaSource).validate_python(source) == source
+def test_documented_dataset_corpora_are_known():
+    assert {"amazon", "gss", "wiki", "prism", "stackoverflow", "synthetic"} <= KNOWN_PERSONA_SOURCES
+    assert "matraix" not in KNOWN_PERSONA_SOURCES
 
 
-@pytest.mark.parametrize("source", ["census", "MATRAIX", ""])
-def test_persona_source_refuses_unknown_values(source):
+def test_unrecognised_but_well_formed_source_warns_and_passes():
+    with pytest.warns(UserWarning, match="unrecognised persona source 'census'"):
+        assert TypeAdapter(PersonaSource).validate_python("census") == "census"
+
+
+@pytest.mark.parametrize("source", ["", "MATRAIX", "has space", "1gss"])
+def test_malformed_source_refused(source):
     with pytest.raises(ValidationError):
         TypeAdapter(PersonaSource).validate_python(source)
 
 
 def test_embedding_is_a_positional_reference():
-    persona = Persona.model_validate(persona_payload())
+    persona = Persona.model_validate(persona_payload(index=2))
     assert isinstance(persona.embedding, EmbeddingRef)
-    assert persona.embedding.index == 17
-    assert persona.embedding.dim == 1536
+    assert (persona.embedding.index, persona.embedding.dim) == (2, 1536)
     with pytest.raises(ValidationError):
         EmbeddingRef(model_id="text-embedding-3-small", dim=0, index=0)
     with pytest.raises(ValidationError):
@@ -132,7 +89,6 @@ def test_persona_round_trips_through_json():
     assert Persona.model_validate_json(persona.model_dump_json()) == persona
 
 
-keys = st.sampled_from(["brand_loyalty", "spend_band", "age", "exercise_frequency"])
 value = st.one_of(
     st.from_regex(r"[a-z][a-z0-9_]{0,11}", fullmatch=True),
     st.integers(min_value=0, max_value=1_000),
@@ -140,11 +96,7 @@ value = st.one_of(
 )
 
 
-@given(spend=value, loyalty=value)
-def test_persona_attribute_values_round_trip_over_generated_values(spend, loyalty):
-    payload = persona_payload(
-        attributes={"brand_loyalty": loyalty, "spend_band": spend},
-        origins={**persona_payload()["origins"], "brand_loyalty": "grounded"},
-    )
-    persona = Persona.model_validate(payload)
+@given(spend=value, focus=value)
+def test_persona_attribute_values_round_trip_over_generated_values(spend, focus):
+    persona = Persona.model_validate(persona_payload(attributes={"diet_protein_focus": focus, "spend_band": spend}))
     assert Persona.model_validate(persona.model_dump(mode="json")) == persona
