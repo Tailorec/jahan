@@ -132,7 +132,11 @@ TracePayload = Annotated[
 class TraceEvent(SimBaseModel):
     """One append-only record. It carries no seed and no contract version: the world id
     resolves the world, the registry holds every seed, and the contract version is a
-    constant recorded once per partition."""
+    constant recorded once per partition.
+
+    This is the hottest write path in the engine; it may be built with `model_construct`,
+    and a fully validated equivalent over the same records runs in continuous integration.
+    """
 
     event_id: EventId
     world_id: WorldId
