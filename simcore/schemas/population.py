@@ -2,6 +2,7 @@
 and the population that joins them with the brief and ontology they were built for."""
 
 from collections import Counter
+from collections.abc import Sequence
 from typing import Annotated, Literal, Self
 
 from pydantic import Field, computed_field, model_validator
@@ -15,6 +16,9 @@ from .base import (
     PopulationHash,
     SimBaseModel,
     UnitInterval,
+    canonical_hash,
+    canonical_payload,
+    hash_payload,
     proportions_sum_to_one,
 )
 from .brief import AttributeId, BriefPack
@@ -87,7 +91,11 @@ class GateReport(SimBaseModel):
 
 
 class PopulationManifest(SimBaseModel):
+    """The light-weight record of a population: what travels with runs and traces in place of the personas.
+    Its hashes are stated here and verified wherever the population itself is present."""
+
     population_hash: PopulationHash
+    graph_hash: GraphHash | None = None
     population_seed: NonNegativeInt
     persona_ids: tuple[PersonaId, ...] = Field(min_length=1)
     achieved_mix: FrozenDict[Identifier, UnitInterval]
@@ -118,7 +126,9 @@ class SocialEdge(SimBaseModel):
 
 
 class SocialGraph(SimBaseModel):
-    graph_hash: GraphHash
+    """The generated ties between personas. Its hash is derived from the ties themselves — each tie counted
+    once, in either direction — so two different graphs can never share an identity."""
+
     edges: tuple[SocialEdge, ...]
 
     @model_validator(mode="after")
@@ -129,6 +139,12 @@ class SocialGraph(SimBaseModel):
             raise ValueError(f"social ties declared more than once, in either direction: {repeated}")
         return self
 
+    @computed_field
+    @property
+    def graph_hash(self) -> str:
+        ties = sorted((*sorted((edge.u, edge.v)), edge.weight + 0.0) for edge in self.edges)
+        return hash_payload([list(tie) for tie in ties])
+
 
 class Community(SimBaseModel):
     community_id: Identifier
@@ -136,6 +152,30 @@ class Community(SimBaseModel):
 
 
 _NEVER_SYNTHESIZED = frozenset({PersonaFieldDomain.DEMOGRAPHIC, PersonaFieldDomain.PSYCHOGRAPHIC})
+
+
+def derive_population_hash(
+    pack: BriefPack,
+    population_seed: int,
+    personas: Sequence[Persona],
+    graph: SocialGraph | None,
+    communities: Sequence[Community],
+) -> str:
+    """A population's identity: the brief and ontology it was built for, its seed, every persona, and the
+    social structure among them. Gate results and the achieved mix are diagnostics of that, not part of it."""
+    return hash_payload(
+        {
+            "brief": canonical_hash(pack.brief),
+            "ontology": canonical_hash(pack.ontology),
+            "population_seed": population_seed,
+            "personas": [canonical_payload(persona) for persona in personas],
+            "graph": graph.graph_hash if graph is not None else None,
+            "communities": sorted(
+                ([community.community_id, sorted(community.member_ids)] for community in communities),
+                key=lambda entry: entry[0],
+            ),
+        }
+    )
 
 
 class Population(SimBaseModel):
@@ -151,6 +191,11 @@ class Population(SimBaseModel):
     gate_report: GateReport
     graph: SocialGraph | None = None
     communities: tuple[Community, ...] = ()
+
+    @computed_field
+    @property
+    def population_hash(self) -> str:
+        return derive_population_hash(self.pack, self.manifest.population_seed, self.personas, self.graph, self.communities)
 
     @model_validator(mode="after")
     def _personas_are_the_manifest(self) -> Self:
@@ -264,4 +309,14 @@ class Population(SimBaseModel):
                 "communities must partition the population: "
                 f"in several {overlapping}, in none {unplaced}, not in the population {outsiders}"
             )
+        return self
+
+    # Runs last: every semantic check above names its own problem before the identity check catches the change.
+    @model_validator(mode="after")
+    def _manifest_hashes_are_this_populations(self) -> Self:
+        if self.manifest.population_hash != self.population_hash:
+            raise ValueError(f"manifest states population hash {self.manifest.population_hash}, but this population is {self.population_hash}")
+        graph_hash = self.graph.graph_hash if self.graph is not None else None
+        if self.manifest.graph_hash != graph_hash:
+            raise ValueError(f"manifest states graph hash {self.manifest.graph_hash}, but this population's graph is {graph_hash}")
         return self

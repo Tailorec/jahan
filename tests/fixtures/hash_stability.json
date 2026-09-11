@@ -63,5 +63,20 @@
   },
   "example_ontology": {
     "hash": "086856fb0aded195f7a2c30c9d7467f161fc58a913400b7a98c706fecc624bcb"
+  },
+  "replay_pins": {
+    "1.0.0": {
+      "config_hash": "be922b6bf1a5bbc86fd437f7ba3187f87eb61dfe8f1ead1e21a0d9a322a2b224",
+      "graph_hash": "94dad3d334867e6cdb8756cf09d829da55ed94ece7dc850ad94b50a0e9515e59",
+      "population_hash": "641d420fce07db53849070377bbf82c8923d31563c838d050fc2dafd9eb16a04",
+      "world_ids": [
+        "25e32b8557fa",
+        "4ab192839840",
+        "6c7aef60b2a2",
+        "885a391dc501",
+        "b8d980d09fb8",
+        "f8db9295de74"
+      ]
+    }
   }
 }

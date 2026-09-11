@@ -4,6 +4,7 @@ Each returns plain JSON-shaped data so a test can break exactly one thing and as
 """
 
 import copy
+import functools
 import json
 from pathlib import Path
 
@@ -78,7 +79,7 @@ def population_payload(**overrides) -> dict:
     payload = {
         "pack": pack_payload(),
         "manifest": {
-            "population_hash": "ab12" * 16,
+            "population_hash": "00" * 32,
             "population_seed": 4021,
             "persona_ids": list(PERSONA_IDS),
             "achieved_mix": {"gym_regulars": 0.5, "protein_dieters": 0.5},
@@ -86,7 +87,6 @@ def population_payload(**overrides) -> dict:
         "personas": [persona_payload(index) for index in range(len(PERSONA_IDS))],
         "gate_report": gate_report_payload(),
         "graph": {
-            "graph_hash": "cd34" * 16,
             "edges": [
                 {"u": "p-000001", "v": "p-000002", "weight": 0.8},
                 {"u": "p-000003", "v": "p-000004", "weight": 0.6},
@@ -99,7 +99,39 @@ def population_payload(**overrides) -> dict:
         ],
     }
     payload.update(copy.deepcopy(overrides))
+    return with_derived_hashes(payload)
+
+
+def with_derived_hashes(payload: dict) -> dict:
+    """State the manifest's population and graph hashes as derived from the payload's own parts, so a test
+    that changes one thing is refused for that thing rather than for a stale identity. Parts that do not
+    validate on their own are left as they are, and their own refusal surfaces."""
+    from pydantic import ValidationError
+
+    from simcore.schemas import BriefPack, Community, Persona, SocialGraph, derive_population_hash
+
+    try:
+        pack = BriefPack.model_validate(payload["pack"])
+        personas = [Persona.model_validate(persona) for persona in payload["personas"]]
+        graph = SocialGraph.model_validate(payload["graph"]) if payload.get("graph") is not None else None
+        communities = [Community.model_validate(community) for community in payload.get("communities") or []]
+    except (ValidationError, KeyError, TypeError):
+        return payload
+    manifest = payload["manifest"]
+    if manifest.get("population_hash") == "00" * 32:
+        manifest["population_hash"] = derive_population_hash(pack, manifest["population_seed"], personas, graph, communities)
+    manifest.setdefault("graph_hash", graph.graph_hash if graph is not None else None)
     return payload
+
+
+@functools.cache
+def _representative_manifest() -> str:
+    return json.dumps(population_payload()["manifest"])
+
+
+def population_manifest_payload() -> dict:
+    """The representative population's manifest, with its derived hashes."""
+    return json.loads(_representative_manifest())
 
 
 # --- runs, turns and traces ------------------------------------------------------------------
@@ -200,7 +232,25 @@ def turn_payload(persona: str, tick: int, shown: list[tuple[int, str, float]], r
 def world_id_for(scenario: dict | None = None, seed: int = 4021) -> str:
     from simcore.schemas import Scenario, derive_world_id
 
-    return derive_world_id(Scenario.model_validate(scenario or scenario_payload()), seed, POPULATION_HASH)
+    population_hash = population_manifest_payload()["population_hash"]
+    return derive_world_id(Scenario.model_validate(scenario or scenario_payload()), seed, population_hash)
+
+
+def partition_run_config(scenario: dict | None = None, **overrides) -> dict:
+    """A run configuration pinning exactly what the representative partition carries."""
+    from simcore.schemas import BriefPack, canonical_hash
+
+    pack = BriefPack.model_validate(pack_payload())
+    manifest = population_manifest_payload()
+    config = run_config_payload(
+        brief_hash=canonical_hash(pack.brief),
+        ontology_hash=canonical_hash(pack.ontology),
+        population_hash=manifest["population_hash"],
+        graph_hash=manifest["graph_hash"],
+        scenarios=[scenario or scenario_payload()],
+    )
+    config.update(overrides)
+    return config
 
 
 def event(seq: int, tick: int, payload: dict, persona: str | None = None, world: str | None = None) -> dict:
@@ -211,6 +261,18 @@ def event(seq: int, tick: int, payload: dict, persona: str | None = None, world:
 def turn_event(seq: int, tick: int, turn: dict, persona: str) -> dict:
     return event(seq, tick, {"kind": "turn", "turn": turn, "template_id": "persona_turn",
                              "prompt_hash": "12" * 32, "persona_block_hash": "34" * 32}, persona)
+
+
+def partition_header_payload(scenario: dict | None = None, persona_ids: list[str] | None = None) -> dict:
+    """A header whose run configuration pins exactly the pack, population and scenario it carries. Given persona
+    ids, it describes a stand-in population of those personas instead of the representative one."""
+    scenario = scenario or scenario_payload()
+    manifest = population_manifest_payload()
+    if persona_ids is not None:
+        manifest = {**manifest, "persona_ids": list(persona_ids), "population_hash": "99" * 32, "graph_hash": None}
+    config = partition_run_config(scenario, population_hash=manifest["population_hash"], graph_hash=manifest["graph_hash"])
+    return {"contract_version": "1.0.0", "config": config, "pack": pack_payload(), "population": manifest,
+            "scenario": scenario, "replicate_seed": 4021}
 
 
 def partition_payload(**header_overrides) -> dict:
@@ -234,8 +296,7 @@ def partition_payload(**header_overrides) -> dict:
             "subject_stimulus_id": stimulus_id(3), "action": "like"}, n=2), "p-000002"),
         event(11, 4, {"kind": "lifecycle", "phase": "completed"}),
     ]
-    header = {"contract_version": "1.0.0", "pack": pack_payload(), "scenario": scenario_payload(),
-              "replicate_seed": 4021, "population_hash": POPULATION_HASH}
+    header = partition_header_payload(header_overrides.get("scenario"))
     header.update(header_overrides)
     return {"header": header, "events": events}
 

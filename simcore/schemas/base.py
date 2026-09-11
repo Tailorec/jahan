@@ -1,5 +1,6 @@
 """Shared base model, immutable containers, primitives, identifiers, canonical hashing."""
 
+import functools
 import hashlib
 import json
 from datetime import UTC, datetime
@@ -42,6 +43,7 @@ Identifier = Annotated[
 ULID_PATTERN = r"[0-7][0-9a-hjkmnp-tv-z]{25}"
 RunId = Annotated[str, StringConstraints(pattern=rf"^run-{ULID_PATTERN}$")]
 StimulusId = Annotated[str, StringConstraints(pattern=rf"^st-{ULID_PATTERN}$")]
+EventId = Annotated[str, StringConstraints(pattern=rf"^ev-{ULID_PATTERN}$")]
 # The body stays permissive until the dataset's row identifier format has been read.
 PersonaId = Annotated[str, StringConstraints(max_length=128, pattern=r"^p-[A-Za-z0-9][A-Za-z0-9._:-]*$")]
 
@@ -101,6 +103,15 @@ def _is_mutable_container(origin: Any) -> bool:
 def _is_naive_capable_datetime(origin: Any) -> bool:
     # Bare datetime accepts timezone-less values, whose instant is ambiguous; AwareDatetime does not.
     return origin is datetime
+
+
+def _is_schema_model(origin: Any) -> bool:
+    return isinstance(origin, type) and issubclass(origin, BaseModel)
+
+
+@functools.cache
+def _fields_expecting_models(cls: type[BaseModel]) -> frozenset[str]:
+    return frozenset(name for name, field in cls.model_fields.items() if _find_in_annotation(field.annotation, _is_schema_model) is not None)
 
 
 def _find_in_annotation(annotation: Any, predicate: Callable[[Any], bool]) -> Any:
@@ -178,6 +189,19 @@ class SimBaseModel(BaseModel):
                 raise ValueError(f"{name} is computed as {computed!r} but was supplied as {value!r}")
         return model
 
+    @classmethod
+    def model_construct(cls, _fields_set: set[str] | None = None, **values: Any) -> Self:
+        """The unvalidated path for high-volume records. It takes models, never raw mappings, wherever a
+        field expects a model — otherwise the mistake would surface far away, as a dict with no attributes."""
+        expecting_models = _fields_expecting_models(cls)
+        for name, value in values.items():
+            if name not in expecting_models:
+                continue
+            sample = value[0] if isinstance(value, (tuple, list)) and value else value
+            if isinstance(sample, Mapping) and not isinstance(sample, FrozenDict):
+                raise TypeError(f"{cls.__name__}.{name}: the unvalidated path takes models, not mappings; build the model first")
+        return super().model_construct(_fields_set, **values)
+
     def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
         """Copy the model, validating any update; pydantic's own copy bypasses every validator."""
         if not update:
@@ -234,6 +258,11 @@ def _canonical(value: Any, dumped: Any, schema_version: str) -> Any:
 
 def _json_text(payload: Any) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+def hash_payload(payload: Any) -> str:
+    """The hash of plain canonical data — for identities composed from parts rather than from one model."""
+    return hashlib.sha256(_json_text(payload).encode("utf-8")).hexdigest()
 
 
 def canonical_json(model: SimBaseModel, *, schema_version: str | None = None) -> str:

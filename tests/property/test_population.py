@@ -16,7 +16,7 @@ from simcore.schemas import (
     SocialGraph,
     canonical_hash,
 )
-from tests.study_builders import PERSONA_IDS, beliefs_payload, gate_report_payload, persona_payload, population_payload
+from tests.study_builders import PERSONA_IDS, beliefs_payload, gate_report_payload, pack_payload, persona_payload, population_payload
 
 
 def categorical(**overrides):
@@ -163,7 +163,7 @@ def test_social_graph_refuses_a_tie_declared_twice(reverse):
     second = {"u": "p-000002", "v": "p-000001"} if reverse else {"u": "p-000001", "v": "p-000002"}
     with pytest.raises(ValidationError, match="more than once"):
         SocialGraph.model_validate(
-            {"graph_hash": "cd34" * 16, "edges": [{"u": "p-000001", "v": "p-000002", "weight": 0.8}, {**second, "weight": 0.1}]}
+            {"edges": [{"u": "p-000001", "v": "p-000002", "weight": 0.8}, {**second, "weight": 0.1}]}
         )
 
 
@@ -173,7 +173,7 @@ def test_community_requires_members():
 
 
 def test_communities_do_not_appear_on_any_input_type():
-    for model in (schemas.ProductBrief, schemas.BriefPack, schemas.CategoryOntology, schemas.ConceptCard,
+    for model in (schemas.ProductBrief, schemas.BriefPack, schemas.CategoryOntology, schemas.Variant,
                   schemas.Scenario, schemas.SweepGrid, schemas.SweepPlan, schemas.RunConfig):
         assert "Community" not in repr(model.model_fields), f"{model.__name__} references a community"
 
@@ -253,9 +253,8 @@ def test_achieved_mix_must_report_every_declared_audience():
 
 
 def test_brief_without_audiences_accepts_derived_audience_names():
-    payload = population_payload()
-    payload["pack"]["brief"]["audiences"] = []
-    payload["manifest"]["achieved_mix"] = {"women_25_34": 0.5, "men_25_34": 0.5}
+    manifest = {**population_payload()["manifest"], "population_hash": "00" * 32, "achieved_mix": {"women_25_34": 0.5, "men_25_34": 0.5}}
+    payload = population_payload(pack=pack_payload(audiences=[]), manifest=manifest)
     assert set(Population.model_validate(payload).manifest.achieved_mix) == {"women_25_34", "men_25_34"}
 
 
@@ -340,3 +339,48 @@ def test_persona_domain_labels_cannot_be_smuggled_in():
 def test_baseline_beliefs_must_credit_exactly_the_briefs_claims(credence):
     with pytest.raises(ValidationError, match="baseline credence"):
         build(personas=personas_with(2, baseline_beliefs=beliefs_payload(claim_credence=credence)))
+
+
+# --- derived identity -------------------------------------------------------------------------
+
+
+def test_population_hash_is_derived_and_the_manifest_must_state_it():
+    population = build()
+    assert population.population_hash == population.manifest.population_hash
+    assert "population_hash" in Population.model_computed_fields
+    stale = {**population_payload()["manifest"], "population_hash": "ab" * 32}
+    with pytest.raises(ValidationError, match="manifest states population hash"):
+        Population.model_validate(population_payload(manifest=stale))
+
+
+def test_different_populations_never_share_a_hash():
+    changed = build(personas=personas_with(0, attributes={"diet_protein_focus": "low", "spend_band": "5_10"}))
+    assert changed.population_hash != build().population_hash
+    assert build().population_hash == build().population_hash
+
+
+def test_graph_hash_is_derived_from_ties_regardless_of_order_or_direction():
+    edges = population_payload()["graph"]["edges"]
+    forward = SocialGraph.model_validate({"edges": edges})
+    flipped = SocialGraph.model_validate({"edges": [{"u": e["v"], "v": e["u"], "weight": e["weight"]} for e in reversed(edges)]})
+    assert forward.graph_hash == flipped.graph_hash
+    reweighted = SocialGraph.model_validate({"edges": [{**edges[0], "weight": 0.1}, *edges[1:]]})
+    assert reweighted.graph_hash != forward.graph_hash
+    with pytest.raises(ValidationError, match="computed"):
+        SocialGraph.model_validate({"edges": edges, "graph_hash": "cd" * 32})
+
+
+def test_manifest_graph_hash_must_be_this_populations_graph():
+    stale = {**population_payload()["manifest"], "graph_hash": "cd" * 32}
+    with pytest.raises(ValidationError, match="manifest states graph hash"):
+        Population.model_validate(population_payload(manifest=stale))
+    without_graph = {**population_payload()["manifest"], "population_hash": "00" * 32, "graph_hash": None}
+    assert build(graph=None, communities=[], manifest=without_graph).manifest.graph_hash is None
+
+
+def test_unvalidated_graph_construction_takes_edge_models_not_mappings():
+    edges = population_payload()["graph"]["edges"]
+    with pytest.raises(TypeError, match="takes models, not mappings"):
+        SocialGraph.model_construct(edges=tuple(edges))
+    built = SocialGraph.model_construct(edges=tuple(SocialEdge.model_validate(edge) for edge in edges))
+    assert built.graph_hash == SocialGraph.model_validate({"edges": edges}).graph_hash
