@@ -57,3 +57,46 @@ class InferenceRole(StrEnum):
     TIER_B = "tier_b"
     EMBED = "embed"
     SAFETY = "safety"
+
+
+class Channel(StrEnum):
+    """The environment a persona is reached through; each has an exposure budget."""
+
+    SURVEY_ROOM = "survey_room"
+    SOCIAL_FEED = "social_feed"
+    FORUM = "forum"
+    WOM = "wom"
+
+
+class StimulusKind(StrEnum):
+    """What a stimulus is; brand-authored and persona-authored stimuli share the type."""
+
+    CONCEPT = "concept"
+    CLAIM_POST = "claim_post"
+    PEER_POST = "peer_post"
+    PEER_REPLY = "peer_reply"
+    WOM_MESSAGE = "wom_message"
+
+
+class ActionKind(StrEnum):
+    """What a persona did in a turn."""
+
+    ANSWER = "answer"
+    POST = "post"
+    COMMENT = "comment"
+    LIKE = "like"
+    REPOST = "repost"
+    QUOTE = "quote"
+    FOLLOW = "follow"
+    BUY = "buy"
+    ASK_PEER = "ask_peer"
+    REJECT = "reject"
+    COMPLAIN = "complain"
+
+
+class BeliefDim(StrEnum):
+    """The closed set of belief dimensions; per-claim credence travels alongside them."""
+
+    VALUE = "value"
+    FIT = "fit"
+    TRUST = "trust"
