@@ -154,14 +154,15 @@ This is the phase carrying ADR 0003 — a persona reacts to an impression, and a
 ### Acceptance criteria
 
 - [x] A probability mass containing a zero, a non-finite value, or a sum outside tolerance is refused
-- [x] An impression holds at least one exposure and no more than its channel's budget
-- [x] A survey-room impression holds exactly one exposure, using the same type as a feed impression
-- [x] Exposures retain their per-stimulus attention, reason and seen flag when grouped into an impression
-- [x] A reaction references the impression it saw and, separately, the stimulus it is about
-- [x] Belief levels are bounded to the unit interval and deltas to the signed unit interval
-- [x] Per-claim credence keys are refused unless they match the brief's claims exactly
-- [x] A stimulus authored by a persona and one authored by the study are the same type, distinguished by whether an author is present
-- [x] An elicitation result carries the embedding model that produced it, so a mismatch is detectable from the record alone
+- [x] An impression holds at least one exposure, never the same stimulus twice; a survey room impression holds exactly one, using the same type as a feed impression
+- [x] Exposures retain their per-stimulus attention and reason when grouped; the reason is a closed set, and whether a stimulus was noticed is computed from its attention
+- [x] A turn joins an impression with its reaction and refuses a reaction about a stimulus the impression did not show, or engaging with one the persona did not notice
+- [x] A reaction names the stimulus it is about; whose it is and when belong to the impression it answers
+- [x] Text-producing actions need a verbatim; ignoring produces neither a verbatim nor an elicitation; forum replies, votes and ignoring are expressible
+- [x] Belief levels are bounded to the unit interval and changes to the signed unit interval; beliefs carry no claim list of their own
+- [x] Baseline beliefs are refused unless they credit exactly the brief's claims, checked by the population against the brief
+- [x] A stimulus authored by a persona and one authored by the study are the same type; study-authored kinds refuse an author, persona-authored kinds require one, a claim post names its claim, and only a reply names a parent
+- [x] An elicitation result carries its embedding model and anchor set; its headline mass is computed as the mean of at least six reference-set masses and cannot be stated at odds with them
 - [x] There is no field anywhere that accepts a model-emitted numeric rating
 
 ---
@@ -178,16 +179,17 @@ This is the hottest write path in the engine, so the phase also establishes the 
 
 ### Acceptance criteria
 
-- [x] An event whose payload kind disagrees with its declared type is refused
-- [x] Each of the eleven payload kinds has a distinct type, and the union dispatches on the kind alone
-- [x] Events carry no seed field and no contract version field
-- [x] The contract version is recorded once per partition and in the run registry entry
-- [x] A partition written under an earlier contract version loads under a later one without error
-- [x] The strict write path and the lenient read path are separate entry points, and the lenient one is never used to write
-- [x] Events at realistic volume round-trip with ordering preserved by persona, tick and sequence
-- [x] Unvalidated construction is available, documented, and covered by a validated equivalent in continuous integration
-- [x] There is no field capable of storing a full prompt; only its parts and a hash
-- [x] A registry entry pins every hash and model identifier required to reproduce its run
+- [x] Each payload kind is a distinct type that dispatches on its kind alone, and is the only record of what it describes
+- [x] A turn event records the whole turn — the impression as shown, with its grouped exposures, and the reaction — so what a persona saw side by side is recoverable
+- [x] Events carry no seed and no contract version, and are attributed to a persona exactly when they describe one; a turn event must agree with its impression's persona and tick
+- [x] A partition header carries the brief pack, scenario, replicate seed and population hash, and derives the world id; a stated world id contradicting the derivation is refused
+- [x] A partition refuses events from other worlds, repeated event ids, sequence gaps, time going backwards or past the horizon, and stimuli shown, dropped or replied to before they were published
+- [x] A partition refuses claims the brief does not make, impressions over the scenario's exposure budget, unscheduled interventions, and repeated impressions or reactions
+- [x] Events may be stored in any order; sequence order is recovered, and a realistic volume of turn events round-trips fully validated after being sorted by persona and tick
+- [x] A partition from a newer contract, or with no valid contract version, is refused; an older one loads by applying every registered migration newer than its contract, in order; the result is always strict and the input is never mutated
+- [x] Unvalidated construction is available, documented and covered in continuous integration, and refuses raw mappings as payloads
+- [x] There is no field capable of storing a full prompt; a turn records its template id and hashes of its parts
+- [x] A registry entry embeds the run configuration — every hash, seed, model pin, template hash and anchor-set hash — and derives its config hash, under the contract it was registered with, and its world ids
 
 ---
 
@@ -203,14 +205,14 @@ This is where the engine's honesty becomes structural rather than editorial.
 
 ### Acceptance criteria
 
-- [x] A finding without at least one supporting record is refused
-- [x] A finding without a disconfirming test is refused
-- [x] A finding carries no trust level and no provenance — only what varies per finding
-- [x] Trust is stated once per report, not per finding
-- [x] A trust level above uncalibrated without a calibration reference is refused
-- [x] Nothing in the package or repository can produce a calibration reference
+- [x] A finding without at least one distinct supporting record, or without a disconfirming test, is refused
+- [x] A finding carries no trust level and no provenance — only what varies per finding; ranking and risk are finding kinds, and a ranking orders at least two distinct scenarios the report digests
+- [x] Trust is stated once per report; a level above uncalibrated needs a calibration reference whose measured similarity and rank attainment both reach 0.80, and prospective validation needs a prediction registered before its outcome
+- [x] A calibration reference pins its benchmark report and human study by content hash; nothing in the package constructs one, and a scan of the package enforces it
 - [x] Per-finding confidence and run-level trust are separate fields that cannot be conflated
-- [x] An outcome digest carries both audience-level and community-level distributions
+- [x] An outcome digest carries audience masses with shares and community masses with sizes, and computes adoption, polarization and audience divergence from them; stated values contradicting the computation are refused
+- [x] Adoption is share-weighted top-two-box intent; polarization and audience divergence are normalized weighted Jensen–Shannon divergences, independent of insertion order
+- [x] A report embeds its run configuration; every digest describes one scenario of that run, in that scenario's tick unit and audiences, once; anomalies belong to a scenario and fall within its horizon
 - [x] An outcome digest carries its tick unit, and comparing digests across differing units is refused
-- [x] Polarization is defined over communities, with audience-level divergence reported separately
-- [x] Anomaly kinds are a closed set, and an anomaly carries the evidence that produced it
+- [x] Anomaly kinds are a closed set, an anomaly cites distinct evidence, and an objection cluster is at least as large as the distinct sample it cites
+
