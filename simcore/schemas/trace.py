@@ -23,7 +23,7 @@ from .base import (
 from .brief import BriefPack
 from .enums import ActionKind, Channel, DropReason, InferenceRole, InterventionKind, LifecyclePhase, ReflectionTrigger, RunStatus
 from .errors import SchemaVersionError
-from .population import PopulationManifest
+from .population import Population, PopulationManifest
 from .run import PinnedModelId, RunConfig, Scenario, WorldId, check_scenario_against_brief, derive_world_id
 from .sim import BeliefChange, Stimulus, Turn, View
 
@@ -384,6 +384,51 @@ def _check_claims(change: BeliefChange, claims: set[str], where: str) -> None:
     unknown = sorted(set(change.claim_credence) - claims)
     if unknown:
         raise ValueError(f"{where} moves credence in claims the brief does not make: {unknown}")
+
+
+class WorldRecord(SimBaseModel):
+    """A world's partition joined with the population it ran over. A partition carries only the population's
+    manifest, so this is where a view's recorded ties and communities meet the real social graph."""
+
+    population: Population
+    partition: TracePartition
+
+    @model_validator(mode="after")
+    def _partition_ran_over_this_population(self) -> Self:
+        if self.partition.header.population != self.population.manifest:
+            raise ValueError("the partition's population manifest is not this population's")
+        return self
+
+    @model_validator(mode="after")
+    def _views_record_the_real_ties_and_communities(self) -> Self:
+        graph = self.population.graph
+        ties = {frozenset((edge.u, edge.v)): edge.weight for edge in (graph.edges if graph is not None else ())}
+        community_of = {member: community.community_id for community in self.population.communities for member in community.member_ids}
+        authors: dict[str, str | None] = {}
+        for event in self.partition.in_sequence:
+            payload = event.payload
+            if isinstance(payload, StimulusPublished):
+                authors[payload.stimulus.stimulus_id] = payload.stimulus.author
+                continue
+            if not isinstance(payload, TurnRecorded):
+                continue
+            viewer = payload.turn.impression.persona_id
+            for stimulus_id, context in payload.turn.view.contexts.items():
+                author = authors.get(stimulus_id)
+                if author is None or author == viewer:
+                    continue
+                tie = ties.get(frozenset((viewer, author)), 0.0)
+                if context.tie_strength != tie:
+                    raise ValueError(
+                        f"event {event.seq} records tie strength {context.tie_strength} between {viewer} and {author}, but the graph has {tie}"
+                    )
+                shared = community_of.get(viewer) == community_of.get(author) if community_of else None
+                if context.shared_community != shared:
+                    expected = "no communities" if shared is None else ("a shared community" if shared else "different communities")
+                    raise ValueError(
+                        f"event {event.seq} records shared community {context.shared_community} for {viewer} and {author}, but the population has {expected}"
+                    )
+        return self
 
 
 class ContractMigration(NamedTuple):

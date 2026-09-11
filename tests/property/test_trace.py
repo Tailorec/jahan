@@ -18,6 +18,7 @@ from simcore.schemas import (
     TracePartition,
     TracePayload,
     TurnRecorded,
+    WorldRecord,
     canonical_hash,
     derive_world_id,
     read_partition,
@@ -28,6 +29,8 @@ from tests.study_builders import (
     event,
     partition_header_payload,
     partition_payload,
+    persona_payload,
+    population_payload,
     run_config_payload,
     scenario_payload,
     ssr_payload,
@@ -589,3 +592,58 @@ def test_author_relationship_exists_only_for_other_personas_stimuli(role, stimul
     contexts_of(data, role)[stimulus_id(stimulus)].update(change)
     with pytest.raises(ValidationError, match=match):
         TracePartition.model_validate(data)
+
+
+# --- world records ----------------------------------------------------------------------------
+
+
+def world_record_payload() -> dict:
+    return {"population": population_payload(), "partition": partition_payload()}
+
+
+def test_world_record_joins_a_partition_with_its_population():
+    record = WorldRecord.model_validate(world_record_payload())
+    assert record.partition.header.population == record.population.manifest
+    assert WorldRecord.model_validate_json(record.model_dump_json()) == record
+
+
+def test_world_record_refuses_a_population_the_partition_did_not_run_over():
+    other = population_payload(personas=[{**persona_payload(i), "attributes": {"diet_protein_focus": "low", "spend_band": "5_10"}} for i in range(4)])
+    with pytest.raises(ValidationError, match="not this population's"):
+        WorldRecord.model_validate({"population": other, "partition": partition_payload()})
+
+
+@pytest.mark.parametrize(
+    ("role", "stimulus", "change", "match"),
+    [
+        ("third_turn", 4, {"tie_strength": 0.3}, "but the graph has 0.2"),
+        ("third_turn", 3, {"tie_strength": 0.5}, "but the graph has 0.0"),
+        ("second_turn", 3, {"shared_community": False}, "a shared community"),
+        ("third_turn", 4, {"shared_community": True}, "different communities"),
+    ],
+    ids=["wrong-tie", "tie-where-none-exists", "shared-community-denied", "different-communities-claimed-shared"],
+)
+def test_world_record_refuses_views_whose_ties_or_communities_disagree_with_the_population(role, stimulus, change, match):
+    record = world_record_payload()
+    contexts_of(record["partition"], role)[stimulus_id(stimulus)].update(change)
+    TracePartition.model_validate(record["partition"])
+    with pytest.raises(ValidationError, match=match):
+        WorldRecord.model_validate(record)
+
+
+def test_shared_community_is_absent_when_the_population_has_no_communities():
+    population = population_payload(communities=[])
+    manifest = population["manifest"]
+    data = partition_payload()
+    data["header"]["population"] = manifest
+    data["header"]["config"]["population_hash"] = manifest["population_hash"]
+    world = PartitionHeader.model_validate(data["header"]).world_id
+    for record in data["events"]:
+        record["world_id"] = world
+    with pytest.raises(ValidationError, match="no communities"):
+        WorldRecord.model_validate({"population": population, "partition": data})
+    for role in ("second_turn", "third_turn"):
+        for context in contexts_of(data, role).values():
+            if context.get("shared_community") is not None:
+                context["shared_community"] = None
+    assert WorldRecord.model_validate({"population": population, "partition": data}).population.communities == ()

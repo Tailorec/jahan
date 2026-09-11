@@ -144,6 +144,7 @@ from .trace import (
     TracePartition,
     TracePayload,
     TurnRecorded,
+    WorldRecord,
     read_partition,
 )
 
@@ -266,11 +267,12 @@ __all__ = [
     "TrustStatement",
     "Turn",
     "TurnRecorded",
-    "View",
     "UnitInterval",
     "Variant",
     "VariantId",
+    "View",
     "WorldId",
+    "WorldRecord",
     "canonical_hash",
     "canonical_json",
     "canonical_payload",
