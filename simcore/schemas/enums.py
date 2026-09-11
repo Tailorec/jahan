@@ -100,3 +100,27 @@ class BeliefDim(StrEnum):
     VALUE = "value"
     FIT = "fit"
     TRUST = "trust"
+
+
+class ReflectionTrigger(StrEnum):
+    """Why a reflection fired."""
+
+    TICK_CADENCE = "tick_cadence"
+    BELIEF_SHIFT = "belief_shift"
+
+
+class LifecyclePhase(StrEnum):
+    """A world's position in its execution."""
+
+    STARTED = "started"
+    COMPLETED = "completed"
+    PAUSED = "paused"
+
+
+class RunStatus(StrEnum):
+    """A run's registry status; paused runs keep their completed worlds, labeled partial."""
+
+    RUNNING = "running"
+    COMPLETED = "completed"
+    PAUSED = "paused"
+    PARTIAL = "partial"
