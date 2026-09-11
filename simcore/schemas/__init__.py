@@ -70,6 +70,7 @@ from .enums import (
     StimulusKind,
     TickUnit,
     TrustLevel,
+    WorldStatus,
 )
 from .errors import BudgetExhausted, GateFailure, SchemaVersionError, SimError
 from .persona import KNOWN_PERSONA_SOURCES, AttributeValue, EmbeddingRef, Persona, PersonaSource
@@ -85,6 +86,7 @@ from .population import (
     SocialGraph,
     derive_population_hash,
 )
+from .result import RunResult, WorldOutcome
 from .report import (
     Anomaly,
     CalibrationRef,
@@ -260,6 +262,7 @@ __all__ = [
     "RunConfig",
     "RunId",
     "RunRegistryEntry",
+    "RunResult",
     "RunStatus",
     "SCHEMA_VERSION",
     "Scenario",
@@ -292,7 +295,9 @@ __all__ = [
     "View",
     "WorldDelta",
     "WorldId",
+    "WorldOutcome",
     "WorldRecord",
+    "WorldStatus",
     "canonical_hash",
     "canonical_json",
     "canonical_payload",

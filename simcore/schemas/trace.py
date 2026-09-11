@@ -22,7 +22,7 @@ from .base import (
     canonical_hash,
 )
 from .brief import BriefPack
-from .enums import ActionKind, Channel, DegradationRung, DropReason, GuardrailRule, InferenceRole, InferenceRoute, InterventionKind, LifecyclePhase, ReflectionTrigger, RunStatus
+from .enums import ActionKind, Channel, DegradationRung, DropReason, GuardrailRule, InferenceRole, InferenceRoute, InterventionKind, LifecyclePhase, ReflectionTrigger, RUNG_ORDER, RunStatus
 from .errors import SchemaVersionError
 from .population import Population, PopulationManifest
 from .run import PinnedModelId, RunConfig, Scenario, WorldId, check_scenario_against_brief, derive_world_id
@@ -140,13 +140,12 @@ class Degraded(SimBaseModel):
 
     @model_validator(mode="after")
     def _freeze_matches_the_rung(self) -> Self:
-        frozen_from = _RUNG_ORDER.index(DegradationRung.FREEZE_OPTIONAL_TIER_B)
-        if self.tier_b_frozen != (_RUNG_ORDER.index(self.rung) >= frozen_from):
+        frozen_from = RUNG_ORDER.index(DegradationRung.FREEZE_OPTIONAL_TIER_B)
+        if self.tier_b_frozen != (RUNG_ORDER.index(self.rung) >= frozen_from):
             raise ValueError(f"optional tier-B work is frozen from the {DegradationRung.FREEZE_OPTIONAL_TIER_B.value} rung onwards, not at {self.rung.value}")
         return self
 
 
-_RUNG_ORDER = tuple(DegradationRung)
 
 
 class TickClosed(SimBaseModel):
@@ -376,7 +375,7 @@ class TracePartition(SimBaseModel):
                 raise ValueError(f"{where} is recorded while the world is {lifecycle.value}")
             if isinstance(payload, Degraded):
                 if last_degradation is not None:
-                    if _RUNG_ORDER.index(payload.rung) <= _RUNG_ORDER.index(last_degradation.rung):
+                    if RUNG_ORDER.index(payload.rung) <= RUNG_ORDER.index(last_degradation.rung):
                         raise ValueError(f"{where} applies {payload.rung.value} after {last_degradation.rung.value}; degradation only escalates")
                     if payload.activation_rate > last_degradation.activation_rate:
                         raise ValueError(f"{where} raises activation from {last_degradation.activation_rate} to {payload.activation_rate}; degradation never restores it")

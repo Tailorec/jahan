@@ -1,6 +1,7 @@
 """Closed vocabularies shared across domains."""
 
 from enum import StrEnum
+from typing import Final
 
 
 class ClaimSource(StrEnum):
@@ -154,6 +155,15 @@ class RunStatus(StrEnum):
     PARTIAL = "partial"
 
 
+class WorldStatus(StrEnum):
+    """What became of one world by the time its run reported: it reached its horizon, it stopped short, or
+    the budget ran out before it began."""
+
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    NOT_STARTED = "not_started"
+
+
 class TrustLevel(StrEnum):
     """Whether a study's results have been checked against real human data; stated once per run."""
 
@@ -196,6 +206,10 @@ class DegradationRung(StrEnum):
     FREEZE_OPTIONAL_TIER_B = "freeze_optional_tier_b"
     SUBSAMPLE_ACTIVATION = "subsample_activation"
     PAUSE = "pause"
+
+
+# Rungs are declared in escalation order, and degradation only ever climbs them.
+RUNG_ORDER: Final[tuple["DegradationRung", ...]] = tuple(DegradationRung)
 
 
 class GuardrailRule(StrEnum):

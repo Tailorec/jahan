@@ -264,6 +264,35 @@ def partition_run_config(scenario: dict | None = None, **overrides) -> dict:
     return config
 
 
+def registry_payload(**overrides) -> dict:
+    """A registry entry for the representative run configuration."""
+    from simcore.schemas import SCHEMA_VERSION
+
+    payload = {"config": run_config_payload(), "contract_version": SCHEMA_VERSION, "status": "running"}
+    payload.update(overrides)
+    return payload
+
+
+def run_result_payload(**overrides) -> dict:
+    """A finished run: both worlds of the representative configuration reached their horizon, the second
+    after degrading twice."""
+    from simcore.schemas import RunRegistryEntry
+
+    registry = registry_payload(status="completed")
+    final = scenario_payload()["horizon_ticks"] - 1
+    first, second = RunRegistryEntry.model_validate(registry).world_ids
+    payload = {
+        "registry": registry,
+        "outcomes": [
+            {"world_id": first, "status": "completed", "last_closed_tick": final},
+            {"world_id": second, "status": "completed", "last_closed_tick": final,
+             "rungs": ["warn", "freeze_optional_tier_b"]},
+        ],
+    }
+    payload.update(overrides)
+    return payload
+
+
 def event(seq: int, tick: int, payload: dict, persona: str | None = None, world: str | None = None) -> dict:
     return {"event_id": f"ev-{ulid(1000 + seq)}", "world_id": world or world_id_for(), "tick": tick, "seq": seq,
             "persona_id": persona, "payload": payload}
