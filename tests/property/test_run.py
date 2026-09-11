@@ -22,7 +22,7 @@ from simcore.schemas import (
     derive_world_id,
     derive_world_seed,
 )
-from tests.study_builders import pack_payload
+from tests.study_builders import ANCHOR_SET_HASHES, TEMPLATE_HASHES, pack_payload
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POPULATION_HASH = "cc33" * 16
@@ -66,6 +66,8 @@ def run_config_payload(**overrides):
         "population_hash": POPULATION_HASH,
         "scenarios": [scenario_payload()],
         "seeds": [4021, 917731],
+        "template_hashes": TEMPLATE_HASHES,
+        "anchor_set_hashes": ANCHOR_SET_HASHES,
     }
     payload.update(overrides)
     return payload
@@ -269,3 +271,39 @@ def test_sweep_plan_leaves_audience_names_open_when_the_brief_declares_none():
     pack = pack_payload(audiences=[])
     parsed = SweepPlan.model_validate({"pack": pack, "grid": grid_payload(scenarios=[scenario_payload(audience_weights={"women_25_34": 1.0})])})
     assert set(parsed.grid.scenarios[0].audience_weights) == {"women_25_34"}
+
+
+# --- replay pins ------------------------------------------------------------------------------
+
+
+def test_run_config_pins_templates_anchor_sets_and_graph():
+    config = RunConfig.model_validate(run_config_payload(graph_hash="ee55" * 16))
+    assert dict(config.template_hashes) == TEMPLATE_HASHES
+    assert dict(config.anchor_set_hashes) == ANCHOR_SET_HASHES
+    assert config.graph_hash == "ee55" * 16
+
+
+def test_run_config_without_template_hashes_refused():
+    with pytest.raises(ValidationError, match="template"):
+        RunConfig.model_validate(run_config_payload(template_hashes={}))
+    payload = run_config_payload()
+    del payload["template_hashes"]
+    with pytest.raises(ValidationError, match="template_hashes"):
+        RunConfig.model_validate(payload)
+
+
+@pytest.mark.parametrize("field", ["template_hashes", "anchor_set_hashes", "graph_hash"])
+def test_every_replay_pin_moves_the_config_hash(field):
+    base_config = RunConfig.model_validate(run_config_payload())
+    changed = {"template_hashes": {**TEMPLATE_HASHES, "persona_turn": "00" * 32},
+               "anchor_set_hashes": {**ANCHOR_SET_HASHES, "pi-beverage-v1": "11" * 32},
+               "graph_hash": "22" * 32}[field]
+    assert canonical_hash(base_config) != canonical_hash(RunConfig.model_validate(run_config_payload(**{field: changed})))
+
+
+def test_scenario_exposure_budget_defaults_to_three_and_is_a_condition():
+    assert Scenario.model_validate(scenario_payload()).exposure_budget == 3
+    wider = Scenario.model_validate(scenario_payload(exposure_budget=5))
+    assert derive_world_id(wider, 4021, POPULATION_HASH) != derive_world_id(Scenario.model_validate(scenario_payload()), 4021, POPULATION_HASH)
+    with pytest.raises(ValidationError):
+        Scenario.model_validate(scenario_payload(exposure_budget=0))

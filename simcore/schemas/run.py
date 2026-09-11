@@ -12,6 +12,8 @@ from pydantic import AfterValidator, Field, StringConstraints, model_validator
 from .base import (
     BriefHash,
     FrozenDict,
+    GraphHash,
+    HashDigest,
     Identifier,
     NonEmptyStr,
     NonNegativeInt,
@@ -24,7 +26,7 @@ from .base import (
     canonical_hash,
     proportions_sum_to_one,
 )
-from .brief import BriefPack, ClaimId, CurrencyCode, Price
+from .brief import BriefPack, ClaimId, CurrencyCode, Price, ProductBrief
 from .enums import InterventionKind, TickUnit
 
 VariantId = Identifier
@@ -81,6 +83,8 @@ class Scenario(SimBaseModel):
     tick_unit: TickUnit
     horizon_ticks: PositiveInt
     interventions: tuple[Intervention, ...] = ()
+    # Stimuli one persona can be shown per channel per tick; the survey room always shows exactly one.
+    exposure_budget: PositiveInt = 3
 
     @model_validator(mode="after")
     def _audience_weights_sum_to_one(self) -> Self:
@@ -128,12 +132,22 @@ class RunConfig(SimBaseModel):
     brief_hash: BriefHash
     ontology_hash: OntologyHash
     population_hash: PopulationHash
+    graph_hash: GraphHash | None = None
     scenarios: tuple[Scenario, ...] = Field(min_length=1)
     seeds: tuple[NonNegativeInt, ...] = Field(min_length=1)
+    # Replay needs the exact prompt templates and SSR anchor sets, not just the model pins.
+    template_hashes: FrozenDict[Identifier, HashDigest]
+    anchor_set_hashes: FrozenDict[Identifier, HashDigest] = FrozenDict({})
 
     @model_validator(mode="after")
     def _cells_are_distinct_and_comparable(self) -> Self:
         _check_study_cells(self.scenarios, self.seeds)
+        return self
+
+    @model_validator(mode="after")
+    def _templates_are_pinned(self) -> Self:
+        if not self.template_hashes:
+            raise ValueError("a run renders prompts, so it must pin the hash of every template it uses")
         return self
 
 
@@ -157,23 +171,24 @@ class SweepPlan(SimBaseModel):
 
     @model_validator(mode="after")
     def _scenarios_reference_the_brief(self) -> Self:
-        brief = self.pack.brief
-        audiences = {audience.name for audience in brief.audiences}
-        claims = {claim.id for claim in brief.claims}
         for scenario in self.grid.scenarios:
-            variant = scenario.variant.variant_id
-            if audiences:
-                unknown = sorted(set(scenario.audience_weights) - audiences)
-                if unknown:
-                    raise ValueError(f"scenario {variant!r} weights audiences the brief does not declare: {unknown}")
-            unknown_claims = sorted(set(scenario.variant.emphasized_claims) - claims)
-            if unknown_claims:
-                raise ValueError(f"scenario {variant!r} emphasizes claims the brief does not make: {unknown_claims}")
-            if scenario.price.currency != brief.price.currency:
-                raise ValueError(
-                    f"scenario {variant!r} is priced in {scenario.price.currency}, the brief in {brief.price.currency}"
-                )
+            check_scenario_against_brief(scenario, self.pack.brief)
         return self
+
+
+def check_scenario_against_brief(scenario: Scenario, brief: ProductBrief) -> None:
+    """Every name a scenario uses must exist in the brief it tests."""
+    variant = scenario.variant.variant_id
+    audiences = {audience.name for audience in brief.audiences}
+    if audiences:
+        unknown = sorted(set(scenario.audience_weights) - audiences)
+        if unknown:
+            raise ValueError(f"scenario {variant!r} weights audiences the brief does not declare: {unknown}")
+    unknown_claims = sorted(set(scenario.variant.emphasized_claims) - {claim.id for claim in brief.claims})
+    if unknown_claims:
+        raise ValueError(f"scenario {variant!r} emphasizes claims the brief does not make: {unknown_claims}")
+    if scenario.price.currency != brief.price.currency:
+        raise ValueError(f"scenario {variant!r} is priced in {scenario.price.currency}, the brief in {brief.price.currency}")
 
 
 def derive_world_seed(replicate_seed: int, variant_id: str) -> int:

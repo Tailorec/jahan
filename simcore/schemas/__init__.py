@@ -97,6 +97,7 @@ from .run import (
     SweepPlan,
     VariantId,
     WorldId,
+    check_scenario_against_brief,
     derive_world_id,
     derive_world_seed,
 )
@@ -255,6 +256,7 @@ __all__ = [
     "canonical_hash",
     "canonical_json",
     "canonical_payload",
+    "check_scenario_against_brief",
     "derive_world_id",
     "derive_world_seed",
     "ensure_same_tick_unit",
