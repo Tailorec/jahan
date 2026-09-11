@@ -1,10 +1,16 @@
+import json
+
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from simcore.schemas import (
     EventId,
+    PartitionHeader,
+    RunRegistryEntry,
+    SCHEMA_VERSION,
     TraceEvent,
     TracePayload,
+    read_events_lenient,
 )
 
 VALID_ULID = "01j7x9k2m3n4p5q6r7s8t9v0wx"
@@ -157,3 +163,95 @@ def test_events_round_trip_through_json():
     reparsed = [TraceEvent.model_validate(d) for d in dumped]
     assert reparsed == events
     assert [(e.agent_id, e.tick, e.seq) for e in reparsed] == [(e.agent_id, e.tick, e.seq) for e in events]
+
+
+# --- partitions, registry, lenient read path ---------------------------------------------------
+
+
+def test_contract_version_recorded_once_per_partition_and_in_the_registry():
+    header = PartitionHeader(contract_version=SCHEMA_VERSION, world_id="a1b2c3d4e5f6")
+    entry = RunRegistryEntry.model_validate(registry_payload())
+    assert header.contract_version == SCHEMA_VERSION
+    assert entry.contract_version == SCHEMA_VERSION
+    assert "contract_version" not in TraceEvent.model_fields
+
+
+def registry_payload(**overrides):
+    payload = {
+        "run_id": "run-01j7x9k2m3n4p5q6r7s8t9v0wx",
+        "contract_version": SCHEMA_VERSION,
+        "config_hash": "aa11" * 16,
+        "brief_hash": "bb22" * 16,
+        "ontology_hash": "cc33" * 16,
+        "population_hash": "dd44" * 16,
+        "seeds": [4021, 917731],
+        "pins": {
+            "tier_a": "openrouter/camel-ai/persona-8b",
+            "tier_b": "anthropic/claude-sonnet-4-5-20250929",
+            "embed": "openai/text-embedding-3-small",
+        },
+        "world_ids": ["a1b2c3d4e5f6", "b2c3d4e5f6a1"],
+        "status": "running",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_registry_entry_pins_every_hash_and_model_identifier():
+    entry = RunRegistryEntry.model_validate(registry_payload())
+    assert entry.brief_hash and entry.ontology_hash and entry.population_hash and entry.config_hash
+    assert entry.pins.embed == "openai/text-embedding-3-small"
+    assert {world_id for world_id in entry.world_ids} == {"a1b2c3d4e5f6", "b2c3d4e5f6a1"}
+
+
+def test_earlier_contract_partition_loads_under_a_later_one():
+    legacy = event_payload(seed=4021)
+    with pytest.raises(ValidationError):
+        TraceEvent.model_validate(legacy)
+    loaded = read_events_lenient([legacy], "0.9.0")
+    assert loaded[0].event_id == EVENT_ID
+
+
+def test_lenient_path_is_never_used_to_write():
+    legacy = event_payload(seed=4021)
+    loaded = read_events_lenient([legacy], "0.9.0")[0]
+    with pytest.raises(ValidationError, match="seed"):
+        TraceEvent.model_validate(loaded.model_dump(mode="json") | {"seed": 4021})
+
+
+def test_current_contract_partition_loads_unchanged():
+    current = event_payload()
+    assert list(read_events_lenient([current], SCHEMA_VERSION)) == [TraceEvent.model_validate(current)]
+
+
+def test_events_at_realistic_volume_round_trip_with_ordering_preserved():
+    from simcore.schemas import Exposure, ExposureRecorded
+
+    volume = 100_000
+    payload = ExposureRecorded.model_construct(
+        kind="exposure",
+        persona_id="p-000042",
+        exposure=Exposure.model_construct(
+            stimulus_id=f"st-{VALID_ULID}", reason="recsys_rank_2", attention=0.8, seen=True
+        ),
+    )
+    constructed = [
+        TraceEvent.model_construct(
+            event_id=f"ev-{seq:026d}",
+            world_id="a1b2c3d4e5f6",
+            tick=(seq // 2000) % 30,
+            agent_id=f"p-{seq % 2000:06d}",
+            seq=seq,
+            payload=payload,
+        )
+        for seq in range(volume)
+    ]
+    assert len(constructed) == volume
+
+    reparsed_dicts = json.loads(json.dumps([event.model_dump(mode="json") for event in constructed]))
+    assert [(d["agent_id"], d["tick"], d["seq"]) for d in reparsed_dicts] == [
+        (event.agent_id, event.tick, event.seq) for event in constructed
+    ]
+
+    sample = reparsed_dicts[::1000]
+    assert [TraceEvent.model_validate(item) for item in sample] == constructed[::1000]

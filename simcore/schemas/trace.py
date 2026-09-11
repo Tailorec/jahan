@@ -1,20 +1,26 @@
 """The trace domain: the append-only record's contract — typed payloads over eleven kinds,
 strict events, partition versioning with a lenient read path, and the replay-pinning registry."""
 
-from typing import Annotated, Any, Iterable, Literal, Mapping
+from collections.abc import Iterable
+from typing import Annotated, Any, Literal, Mapping
 
 from pydantic import Field, StringConstraints
 
 from .base import (
+    BriefHash,
+    ConfigHash,
     HashDigest,
     Identifier,
     NonEmptyStr,
     NonNegativeInt,
+    OntologyHash,
     PersonaId,
+    PopulationHash,
+    SCHEMA_VERSION,
     SimBaseModel,
     _ULID,
 )
-from .enums import InferenceRole, InterventionKind, LifecyclePhase, ReflectionTrigger
+from .enums import InferenceRole, InterventionKind, LifecyclePhase, ReflectionTrigger, RunStatus
 from .run import ModelPins, PinnedModelId, RunId, VariantId, WorldId
 from .sim import (
     BeliefChange,
@@ -134,3 +140,42 @@ class TraceEvent(SimBaseModel):
     agent_id: PersonaId | None = None
     seq: NonNegativeInt
     payload: TracePayload
+
+
+class PartitionHeader(SimBaseModel):
+    """The metadata written once per partition; the contract version travels here, not per event."""
+
+    contract_version: ContractVersion
+    world_id: WorldId
+
+
+class RunRegistryEntry(SimBaseModel):
+    """Everything needed to reproduce a run: every hash, every seed, every model pin."""
+
+    run_id: RunId
+    contract_version: ContractVersion
+    config_hash: ConfigHash
+    brief_hash: BriefHash
+    ontology_hash: OntologyHash
+    population_hash: PopulationHash
+    seeds: tuple[NonNegativeInt, ...] = Field(min_length=1)
+    pins: ModelPins
+    world_ids: tuple[WorldId, ...] = Field(min_length=1)
+    status: RunStatus
+
+
+_FIELDS_REMOVED_BY_LATER_CONTRACTS = frozenset({"seed"})
+
+
+def read_events_lenient(
+    events: Iterable[Mapping[str, Any]], contract_version: str
+) -> tuple[TraceEvent, ...]:
+    """The lenient read path: a partition written under an earlier contract loads under a
+    later one. Fields removed by later contracts are dropped, never interpreted; the strict
+    write path refuses them. This path reads — it is never used to write."""
+    if contract_version != SCHEMA_VERSION:
+        events = (
+            {key: value for key, value in event.items() if key not in _FIELDS_REMOVED_BY_LATER_CONTRACTS}
+            for event in events
+        )
+    return tuple(TraceEvent.model_validate(event) for event in events)
