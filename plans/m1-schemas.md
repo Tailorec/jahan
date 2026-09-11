@@ -323,8 +323,8 @@ The two contracts the category ontology was missing: an attribute relevance orde
 
 ### Acceptance criteria
 
-- [ ] The ontology's relevance order lists every declared attribute exactly once, and refuses an order in which a conditioning attribute is outranked by a non-conditioning one
-- [ ] The ontology maps each construct to its anchor set
-- [ ] A partition refuses an elicitation scored against any anchor set other than the one its ontology names for that construct
-- [ ] A partition refuses a run configuration that does not pin every anchor set its ontology names
-- [ ] The representative ontology ranks its attributes and names its anchor sets; the replay identities are re-pinned under contract 1.0.0
+- [x] The ontology's relevance order lists every declared attribute exactly once, and refuses an order in which a conditioning attribute is outranked by a non-conditioning one
+- [x] The ontology maps each construct to its anchor set
+- [x] A partition refuses an elicitation scored against any anchor set other than the one its ontology names for that construct
+- [x] A partition refuses a run configuration that does not pin every anchor set its ontology names
+- [x] The representative ontology ranks its attributes and names its anchor sets; the replay identities are re-pinned under contract 1.0.0
