@@ -203,14 +203,14 @@ This is where the engine's honesty becomes structural rather than editorial.
 
 ### Acceptance criteria
 
-- [ ] A finding without at least one supporting record is refused
-- [ ] A finding without a disconfirming test is refused
-- [ ] A finding carries no trust level and no provenance — only what varies per finding
-- [ ] Trust is stated once per report, not per finding
-- [ ] A trust level above uncalibrated without a calibration reference is refused
-- [ ] Nothing in the package or repository can produce a calibration reference
-- [ ] Per-finding confidence and run-level trust are separate fields that cannot be conflated
-- [ ] An outcome digest carries both audience-level and community-level distributions
-- [ ] An outcome digest carries its tick unit, and comparing digests across differing units is refused
-- [ ] Polarization is defined over communities, with audience-level divergence reported separately
-- [ ] Anomaly kinds are a closed set, and an anomaly carries the evidence that produced it
+- [x] A finding without at least one supporting record is refused
+- [x] A finding without a disconfirming test is refused
+- [x] A finding carries no trust level and no provenance — only what varies per finding
+- [x] Trust is stated once per report, not per finding
+- [x] A trust level above uncalibrated without a calibration reference is refused
+- [x] Nothing in the package or repository can produce a calibration reference
+- [x] Per-finding confidence and run-level trust are separate fields that cannot be conflated
+- [x] An outcome digest carries both audience-level and community-level distributions
+- [x] An outcome digest carries its tick unit, and comparing digests across differing units is refused
+- [x] Polarization is defined over communities, with audience-level divergence reported separately
+- [x] Anomaly kinds are a closed set, and an anomaly carries the evidence that produced it
