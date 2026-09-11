@@ -63,11 +63,11 @@ One investigation of a single brief — a population, the scenarios tested again
 _Avoid_: project, experiment, job, campaign
 
 **Variant**:
-One version of the proposition under test — a concept, a price, and an emphasis among the brief's claims.
+One version of the proposition under test — a concept and an emphasis among the brief's claims. The price is not part of a variant, so one variant can be tested at several prices.
 _Avoid_: arm, option, treatment, cell
 
 **Scenario**:
-A variant together with the conditions it faces: which audiences see it, through which channels, and what happens on the way. A scenario describes conditions only; it says nothing about how many times it is run.
+A variant together with the conditions it faces: the price it is offered at, which audiences see it, through which channels, and what happens on the way. A scenario describes conditions only; it says nothing about how many times it is run.
 _Avoid_: config, setup, case
 
 **World**:
