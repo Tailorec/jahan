@@ -122,16 +122,16 @@ The scenario carries no seed. World identity is derived. An unreproducible run c
 
 ### Acceptance criteria
 
-- [ ] A model pin that is empty, wildcarded, or version-floating is refused before anything else validates
-- [ ] The run configuration pins the ontology hash alongside the brief hash, so editing an ontology without bumping its version is detected on replay
-- [ ] A scenario has no seed field, and the same scenario can be paired with different replicate seeds
-- [ ] World identity derives from variant, replicate seed and population hash, and is stable across processes
-- [ ] Two replicates of one variant produce different world identities; the same replicate reproduces the same one
-- [ ] Price appears on the scenario only, typed with its currency, and nowhere else in the run
-- [ ] Audience weights are refused unless they sum to one within tolerance
-- [ ] A scenario declares its tick unit and horizon, and interventions are expressed in ticks against them
-- [ ] Interventions at the same tick compose rather than replacing one another
-- [ ] A representative sweep grid file validates and expands to distinct world identities
+- [x] A model pin that is empty, wildcarded, or version-floating is refused before anything else validates
+- [x] The run configuration pins the ontology hash alongside the brief hash, so editing an ontology without bumping its version is detected on replay
+- [x] A scenario has no seed field, and the same scenario can be paired with different replicate seeds
+- [x] World identity derives from variant, replicate seed and population hash, and is stable across processes
+- [x] Two replicates of one variant produce different world identities; the same replicate reproduces the same one
+- [x] Price appears on the scenario only, typed with its currency, and nowhere else in the run
+- [x] Audience weights are refused unless they sum to one within tolerance
+- [x] A scenario declares its tick unit and horizon, and interventions are expressed in ticks against them
+- [x] Interventions at the same tick compose rather than replacing one another
+- [x] A representative sweep grid file validates and expands to distinct world identities
 
 ---
 
