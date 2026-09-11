@@ -56,6 +56,16 @@ class TurnRecorded(SimBaseModel):
     persona_block_hash: HashDigest
     # A remembered experience is an earlier turn or reflection of the same persona, cited by its event id.
     memory_ids: tuple[EventId, ...] = ()
+    # A turn accepted on its guardrail retry names the prompt it rejected, so a stricter retry is visible.
+    rejected_prompt_hashes: tuple[HashDigest, ...] = ()
+
+    @model_validator(mode="after")
+    def _at_most_one_rejected_attempt(self) -> Self:
+        if len(self.rejected_prompt_hashes) > 1:
+            raise ValueError(f"a turn is retried at most once, but names {len(self.rejected_prompt_hashes)} rejected prompts")
+        if self.prompt_hash in self.rejected_prompt_hashes:
+            raise ValueError("the accepted prompt cannot also be the one rejected before it")
+        return self
 
 
 class ReflectionRecorded(SimBaseModel):

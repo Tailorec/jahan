@@ -269,6 +269,12 @@ def event(seq: int, tick: int, payload: dict, persona: str | None = None, world:
             "persona_id": persona, "payload": payload}
 
 
+def retried(record: dict, rejected: str = "56" * 32) -> dict:
+    """A turn event accepted on its guardrail retry, naming the prompt it rejected."""
+    record["payload"]["rejected_prompt_hashes"] = [rejected]
+    return record
+
+
 def turn_event(seq: int, tick: int, turn: dict, persona: str) -> dict:
     return event(seq, tick, {"kind": "turn", "turn": turn, "template_id": "persona_turn",
                              "prompt_hash": "12" * 32, "persona_block_hash": "34" * 32}, persona)
@@ -329,9 +335,10 @@ def partition_payload(**header_overrides) -> dict:
         event(R["concept"], 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(1), "tick": 0, "kind": "concept", "text": "Clear protein water"}}),
         event(R["claim_post"], 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(2), "tick": 0, "kind": "claim_post", "text": "20g protein, zero sugar", "claim_id": "C1"}}),
         event(R["close_0"], 0, {"kind": "tick_closed"}),
-        turn_event(R["first_turn"], 1, turn_payload("p-000001", 1, [(1, "interest", 0.8), (2, "social_proof", 0.0)], {
+        # The first turn was accepted on its guardrail retry.
+        retried(turn_event(R["first_turn"], 1, turn_payload("p-000001", 1, [(1, "interest", 0.8), (2, "social_proof", 0.0)], {
             "subject_stimulus_id": stimulus_id(1), "action": "comment", "verbatim": "the protein claim would get me",
-            "belief_change": {"dimensions": {"value": 0.1}, "claim_credence": {"C1": 0.2}}, "intent": ssr_payload()}, n=1), "p-000001"),
+            "belief_change": {"dimensions": {"value": 0.1}, "claim_credence": {"C1": 0.2}}, "intent": ssr_payload()}, n=1), "p-000001")),
         event(R["first_turn_cost"], 1, {"kind": "cost", "role": "tier_b", "model_id": "anthropic/claude-sonnet-4-5-20250929",
                      "route": "primary", "input_tokens": 812, "output_tokens": 96, "cost": 0.004}, "p-000001"),
         event(R["drop"], 1, {"kind": "exposure_dropped", "stimulus_id": stimulus_id(2), "channel": "social_feed", "reason": "budget_exhausted"}, "p-000002"),

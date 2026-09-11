@@ -854,3 +854,28 @@ def test_a_billed_model_must_match_its_route(role, change, valid):
     else:
         with pytest.raises(ValidationError, match="but the run pins"):
             TracePartition.model_validate(data)
+
+
+
+# --- guardrail retries ------------------------------------------------------------------------
+
+
+def test_representative_first_turn_was_accepted_on_its_retry():
+    turn = TracePartition.model_validate(partition_payload()).in_sequence[R["first_turn"]].payload
+    assert turn.rejected_prompt_hashes == ("56" * 32,) and turn.prompt_hash not in turn.rejected_prompt_hashes
+
+
+@pytest.mark.parametrize(
+    ("rejected", "match"),
+    [(["56" * 32, "78" * 32], "retried at most once"), (["12" * 32], "cannot also be the one rejected")],
+    ids=["two-rejections", "rejected-is-accepted"],
+)
+def test_a_turn_names_at_most_one_rejected_prompt_distinct_from_the_accepted_one(rejected, match):
+    record = copy.deepcopy(events_of(partition_payload())[R["first_turn"]])
+    record["payload"]["rejected_prompt_hashes"] = rejected
+    with pytest.raises(ValidationError, match=match):
+        TraceEvent.model_validate(record)
+
+
+def test_a_turn_accepted_first_time_names_no_rejected_prompt():
+    assert TracePartition.model_validate(partition_payload()).in_sequence[R["second_turn"]].payload.rejected_prompt_hashes == ()
