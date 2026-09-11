@@ -8,7 +8,7 @@
 Durable across every phase:
 
 - **Leaf rule** — the package imports nothing from the project, and only the validation library plus the standard library from outside. No numeric or dataframe dependency, ever. Enforced by a test, not by convention.
-- **File organization** — one file per domain (base/identifiers, enumerations, errors, brief, persona, population, simulation, run, trace, world, report), with a single curated export surface as the only import path other modules use.
+- **File organization** — one file per domain (base/identifiers, enumerations, errors, brief, persona, population, simulation, run, trace, world, inference, result, report), with a single curated export surface as the only import path other modules use.
 - **Model defaults** — every model rejects unknown fields, is frozen, rejects non-finite floats, and strips surrounding string whitespace. Container fields are tuples, frozensets or `FrozenDict` — list, dict and set annotations are refused when a class is defined, because freezing a model does not freeze a container inside it. Copying a model with updates re-validates the updates.
 - **Canonical hashing** — sorted keys, compact separators, enumerations serialized by value, non-finite values rejected, per-class exclusion of outputs (observed cost, wall-clock timestamps), exclusions and version folding honoured at every nesting level, including inside sequences and mappings; set-valued fields sorted so hash-seed iteration order never leaks in; negative zero normalised so structures that compare equal hash equally; the contract version folded under a reserved key no field can occupy; misspelled or mistyped exclusions refused when a class is defined. Four hashes exist: brief, population, run configuration (which folds in the contract version), and graph.
 - **Identity** — persona identity derives from the dataset row so cross-run joins need no lookup table; persona identity is `p-` followed by the dataset row identifier; run and stimulus identities are `run-` and `st-` followed by a lowercase ULID, so they sort by creation time; world identity derives from the scenario's full content, replicate seed and population hash (ADR 0005), while worlds of one variant share their seed so price points share random draws.
@@ -306,10 +306,10 @@ The contract for what a run returns: its registry entry and one outcome per worl
 
 ### Acceptance criteria
 
-- [ ] A run result carries one outcome per world, and its world ids are exactly the registry's
-- [ ] A not-started world has closed no tick and applied no rung; a completed world has closed the final tick of its scenario's horizon; rungs escalate
-- [ ] The run's status is computed — completed only when every world completed, partial otherwise — and the registry entry's status must agree
-- [ ] There is no separate sweep result type
+- [x] A run result carries one outcome per world, and its world ids are exactly the registry's
+- [x] A not-started world has closed no tick and applied no rung; a completed world has closed the final tick of its scenario's horizon; rungs escalate
+- [x] The run's status is computed — completed only when every world completed, partial otherwise — and the registry entry's status must agree
+- [x] There is no separate sweep result type
 
 ---
 
