@@ -16,6 +16,7 @@ from simcore.schemas import (
     ExposureReason,
     Impression,
     ImpressionId,
+    Presentation,
     MemoryView,
     Reaction,
     SimBaseModel,
@@ -334,3 +335,17 @@ def test_counts_are_non_negative_and_ancestry_cannot_loop():
 def test_view_must_cover_at_least_one_stimulus():
     with pytest.raises(ValidationError, match="at least one"):
         View(impression_id=f"im-{ulid(1)}", contexts={})
+
+
+def test_presentation_pairs_an_impression_with_the_view_that_covers_it():
+    shown = [(1, "interest", 0.8), (2, "random", 0.2)]
+    turn = turn_payload("p-000042", 7, shown, reaction())
+    presentation = Presentation.model_validate({"impression": turn["impression"], "view": turn["view"]})
+    assert set(presentation.view.contexts) == presentation.impression.stimulus_ids
+    assert Presentation.model_validate_json(presentation.model_dump_json()) == presentation
+    uncovered = {"impression": turn["impression"], "view": {**turn["view"], "contexts": {stimulus_id(1): {}}}}
+    with pytest.raises(ValidationError, match="uncovered"):
+        Presentation.model_validate(uncovered)
+    renamed = {"impression": turn["impression"], "view": {**turn["view"], "impression_id": f"im-{ulid(999)}"}}
+    with pytest.raises(ValidationError, match="view names impression"):
+        Presentation.model_validate(renamed)

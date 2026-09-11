@@ -271,6 +271,30 @@ class View(SimBaseModel):
         return self
 
 
+def check_view_covers_impression(view: View, impression: Impression) -> None:
+    """A view names its impression and covers exactly the stimuli that impression shows."""
+    if view.impression_id != impression.impression_id:
+        raise ValueError(f"view names impression {view.impression_id}, but it is paired with {impression.impression_id}")
+    shown = set(impression.stimulus_ids)
+    covered = set(view.contexts)
+    if covered != shown:
+        raise ValueError(
+            f"a view covers exactly the stimuli of its impression: uncovered {sorted(shown - covered)}, extra {sorted(covered - shown)}"
+        )
+
+
+class Presentation(SimBaseModel):
+    """An impression delivered with its view — everything a persona is given to react to in one turn."""
+
+    impression: Impression
+    view: View
+
+    @model_validator(mode="after")
+    def _view_matches_the_impression(self) -> Self:
+        check_view_covers_impression(self.view, self.impression)
+        return self
+
+
 class Turn(SimBaseModel):
     """One persona reacting to one impression; the unit of simulation and of cost. The view
     it was shown travels with the turn, so social proof is part of the record."""
@@ -281,17 +305,7 @@ class Turn(SimBaseModel):
 
     @model_validator(mode="after")
     def _view_matches_the_impression(self) -> Self:
-        if self.view.impression_id != self.impression.impression_id:
-            raise ValueError(
-                f"view names impression {self.view.impression_id}, but the turn shows {self.impression.impression_id}"
-            )
-        shown = {exposure.stimulus_id for exposure in self.impression.exposures}
-        covered = set(self.view.contexts)
-        if covered != shown:
-            raise ValueError(
-                f"a view covers exactly the stimuli of its impression: uncovered {sorted(shown - covered)}, "
-                f"extra {sorted(covered - shown)}"
-            )
+        check_view_covers_impression(self.view, self.impression)
         return self
 
     @model_validator(mode="after")
