@@ -74,7 +74,16 @@ from .population import (
     SocialEdge,
     SocialGraph,
 )
-from .report import CalibrationRef, Finding, TrustStatement
+from .report import (
+    Anomaly,
+    CalibrationRef,
+    Finding,
+    ObjectionCluster,
+    OutcomeDigest,
+    Report,
+    TrustStatement,
+    ensure_same_tick_unit,
+)
 from .run import (
     Budget,
     ConceptCard,
@@ -128,6 +137,7 @@ from .trace import (
 
 __all__ = [
     "KNOWN_PERSONA_SOURCES",
+    "Anomaly",
     "Assumption",
     "ActionKind",
     "AttributeId",
@@ -185,6 +195,7 @@ __all__ = [
     "NonEmptyStr",
     "NonNegativeInt",
     "OntologyHash",
+    "ObjectionCluster",
     "OrdinalBand",
     "OrdinalGateResult",
     "OrdinalScale",
@@ -198,6 +209,7 @@ __all__ = [
     "Population",
     "PopulationHash",
     "PopulationManifest",
+    "OutcomeDigest",
     "PositiveInt",
     "Price",
     "Product",
@@ -206,6 +218,7 @@ __all__ = [
     "ReactionId",
     "ReactionRecorded",
     "ReflectionRecorded",
+    "Report",
     "RetrievedMemory",
     "RunConfig",
     "RunId",
@@ -229,6 +242,7 @@ __all__ = [
     "TickUnit",
     "TraceEvent",
     "TracePayload",
+    "TrustStatement",
     "TurnRecorded",
     "UnitInterval",
     "VariantId",
@@ -238,5 +252,6 @@ __all__ = [
     "canonical_payload",
     "derive_world_id",
     "derive_world_seed",
+    "ensure_same_tick_unit",
     "read_events_lenient",
 ]

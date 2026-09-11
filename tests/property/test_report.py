@@ -2,12 +2,20 @@ import pytest
 from pydantic import ValidationError
 
 from simcore.schemas import (
+    Anomaly,
+    AnomalyKind,
     CalibrationRef,
     Confidence,
     Finding,
     FindingKind,
+    ModelPins,
+    ObjectionCluster,
+    OutcomeDigest,
+    Report,
+    TickUnit,
     TrustLevel,
     TrustStatement,
+    ensure_same_tick_unit,
 )
 
 EVENT_ID = "ev-01j7x9k2m3n4p5q6r7s8t9v0wx"
@@ -93,3 +101,112 @@ def test_nothing_in_the_package_produces_a_calibration_reference():
 def test_trust_statement_round_trips_through_json():
     trust = TrustStatement(level=TrustLevel.UNCALIBRATED, caveats=["engine has never been benchmarked"])
     assert TrustStatement.model_validate(trust.model_dump(mode="json")) == trust
+
+
+# --- anomalies, objection clusters, digests, report ----------------------------------------------
+
+POPULATION_HASH = "dd44" * 16
+
+
+def anomaly_payload(**overrides):
+    payload = {
+        "kind": "herding",
+        "tick": 12,
+        "evidence_trace_ids": [EVENT_ID],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def digest_payload(**overrides):
+    payload = {
+        "scenario_hash": "aa11" * 16,
+        "tick_unit": "day",
+        "adoption": 0.32,
+        "audience_pmfs": {"gym_regulars": (0.05, 0.1, 0.2, 0.3, 0.35)},
+        "community_pmfs": {"community-1": (0.04, 0.1, 0.21, 0.3, 0.35)},
+        "polarization": 0.18,
+        "audience_divergence": 0.09,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def pins_payload():
+    return {
+        "tier_a": "openrouter/camel-ai/persona-8b",
+        "tier_b": "anthropic/claude-sonnet-4-5-20250929",
+        "embed": "openai/text-embedding-3-small",
+    }
+
+
+def report_payload(**overrides):
+    payload = {
+        "run_id": "run-01j7x9k2m3n4p5q6r7s8t9v0wx",
+        "trust": {"level": "uncalibrated", "caveats": ["engine has never been benchmarked"]},
+        "pins": pins_payload(),
+        "seeds": [4021, 917731],
+        "findings": [finding_payload()],
+        "anomalies": [anomaly_payload()],
+        "objection_clusters": [{"label": "aftertaste", "verbatim_trace_ids": [EVENT_ID], "size": 14}],
+        "digests": [digest_payload()],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_anomaly_kinds_are_a_closed_set_and_evidence_is_required():
+    assert {member.value for member in AnomalyKind} == {"herding", "backlash", "flop"}
+    anomaly = Anomaly.model_validate(anomaly_payload())
+    assert anomaly.kind is AnomalyKind.HERDING
+    with pytest.raises(ValidationError):
+        Anomaly.model_validate(anomaly_payload(evidence_trace_ids=[]))
+
+
+def test_objection_cluster_carries_its_verbatims():
+    cluster = ObjectionCluster.model_validate({"label": "aftertaste", "verbatim_trace_ids": [EVENT_ID], "size": 14})
+    assert cluster.size == 14
+    with pytest.raises(ValidationError):
+        ObjectionCluster.model_validate({"label": "aftertaste", "verbatim_trace_ids": [], "size": 0})
+
+
+def test_outcome_digest_carries_both_audience_and_community_distributions():
+    digest = OutcomeDigest.model_validate(digest_payload())
+    assert set(digest.audience_pmfs) == {"gym_regulars"}
+    assert set(digest.community_pmfs) == {"community-1"}
+    with pytest.raises(ValidationError):
+        OutcomeDigest.model_validate(digest_payload(audience_pmfs={}))
+    with pytest.raises(ValidationError):
+        OutcomeDigest.model_validate(digest_payload(community_pmfs={}))
+
+
+def test_digest_polarization_and_audience_divergence_are_separate_fields():
+    digest = OutcomeDigest.model_validate(digest_payload())
+    assert {"polarization", "audience_divergence"} <= set(OutcomeDigest.model_fields)
+    assert digest.polarization != digest.audience_divergence
+
+
+def test_digests_of_differing_tick_units_refuse_comparison():
+    daily = OutcomeDigest.model_validate(digest_payload())
+    weekly = OutcomeDigest.model_validate(digest_payload(tick_unit="week"))
+    ensure_same_tick_unit(daily, daily)
+    with pytest.raises(ValueError, match="not comparable"):
+        ensure_same_tick_unit(daily, weekly)
+
+
+def test_report_states_trust_once_and_keeps_findings_trustless():
+    report = Report.model_validate(report_payload())
+    assert report.trust.level is TrustLevel.UNCALIBRATED
+    assert "trust" not in Finding.model_fields
+    assert len(report.findings) == 1 and len(report.digests) == 1
+
+
+def test_report_round_trips_through_json():
+    report = Report.model_validate(report_payload())
+    assert Report.model_validate(report.model_dump(mode="json")) == report
+    assert Report.model_validate_json(report.model_dump_json()) == report
+
+
+def test_report_refuses_a_digestless_document():
+    with pytest.raises(ValidationError):
+        Report.model_validate(report_payload(digests=[]))
