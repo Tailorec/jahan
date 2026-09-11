@@ -17,7 +17,7 @@ from collections.abc import (
 )
 from typing import Annotated, Any, ClassVar, Literal, Self, get_args, get_origin
 
-from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, StringConstraints, model_validator
 from pydantic_core import CoreSchema, core_schema
 
 SCHEMA_VERSION = "1.0.0"
@@ -158,6 +158,24 @@ class SimBaseModel(BaseModel):
                 raise TypeError(
                     f"{cls.__name__}.{name} uses datetime, which accepts timezone-less values: use AwareDatetime"
                 )
+
+    @model_validator(mode="wrap")
+    @classmethod
+    def _computed_fields_round_trip(cls, data: Any, handler: Callable[[Any], Self]) -> Self:
+        """Accept a computed field on input only when it agrees with what the model computes.
+
+        Computed fields serialize, so a dumped model must re-validate; but a supplied value is never
+        trusted, so a stored verdict cannot contradict the statistics it is derived from.
+        """
+        if not isinstance(data, Mapping) or not cls.model_computed_fields:
+            return handler(data)
+        supplied = {name: data[name] for name in cls.model_computed_fields if name in data}
+        model = handler({key: value for key, value in data.items() if key not in supplied})
+        for name, value in supplied.items():
+            computed = getattr(model, name)
+            if computed != value:
+                raise ValueError(f"{name} is computed as {computed!r} but was supplied as {value!r}")
+        return model
 
     def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
         """Copy the model, validating any update; pydantic's own copy bypasses every validator."""

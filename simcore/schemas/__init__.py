@@ -61,6 +61,7 @@ from .population import (
     GateReport,
     GateResult,
     OrdinalGateResult,
+    Population,
     PopulationManifest,
     SocialEdge,
     SocialGraph,
@@ -82,6 +83,7 @@ from .run import (
 )
 
 __all__ = [
+    "KNOWN_PERSONA_SOURCES",
     "Assumption",
     "AttributeId",
     "AttributeValue",
@@ -114,7 +116,6 @@ __all__ = [
     "InferenceRole",
     "Intervention",
     "InterventionKind",
-    "KNOWN_PERSONA_SOURCES",
     "ModelPins",
     "NonEmptyStr",
     "NonNegativeInt",
@@ -128,6 +129,7 @@ __all__ = [
     "PersonaSource",
     "PinnedModelId",
     "PopulationHash",
+    "Population",
     "PopulationManifest",
     "PositiveInt",
     "Price",
