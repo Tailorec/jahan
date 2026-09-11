@@ -14,6 +14,8 @@ Durable across every phase:
 - **Identity** — persona identity derives from the dataset row so cross-run joins need no lookup table; persona identity is `p-` followed by the dataset row identifier; run and stimulus identities are `run-` and `st-` followed by a lowercase ULID, so they sort by creation time; world identity derives from variant, replicate seed and population hash (ADR 0001).
 - **Two provenance vocabularies** — one for where a brief statement came from, one for where a persona field came from. The second carries an explicit grounded value; grounding is never inferred from an absent key.
 - **Audience versus community** — audiences are declared in inputs and referred to by name; communities are discovered and appear only in outputs. "Segment" and "stratum" are not used.
+- **Ontology is referenced, not embedded** — a brief names its ontology version and takes its category from the product; a brief pack joins the two and refuses a mismatch (ADR 0004). Every attribute the ontology or an audience uses declares its field domain.
+- **Instants are timezone-aware** — bare datetime annotations are refused when a class is defined, and instants render in UTC before hashing.
 - **Validation guards boundaries, not inner loops** — three documented unvalidated-construction paths (trace writes, graph adjacency, per-row decode), fully validated only in continuous integration.
 - **Errors carry exit codes** — the command line distinguishes a failed gate from a crash by exception class, not by string matching.
 - **Test posture** — assert refusals and observable behaviour through the public surface; never reach into private helpers. Whole suite runs with no API key, no network, no dataset download.
@@ -72,6 +74,13 @@ At the end of this phase an actual brief file parses, and reordering its claims 
 - [x] A brief declaring no audiences is valid, and the type records that audiences will be derived
 - [x] The category ontology declares its conditioning set, its completion policy, and its ordinal scales, and refuses a completion policy that lists a demographic attribute
 - [x] Evidence references carry a fetched-at time and content hash when present, and are optional when absent
+- [x] Re-fetching unchanged evidence does not move the brief hash; a changed content hash does
+- [x] Fetch times without a timezone are refused, and the same instant in any offset hashes identically
+- [x] A brief names its ontology version rather than embedding an ontology, and a brief pack refuses an ontology of another category or version
+- [x] Every attribute in the conditioning set or an ordinal scale declares a field domain, so a demographic attribute can be recognised downstream
+- [x] Ordinal scales accept real-unit midpoints, and refuse duplicate band labels or a second scale for the same attribute
+- [x] Audience filters are refused when they name an attribute the ontology does not declare, or a value outside an ordinal attribute's bands
+- [x] Competitors may carry their own claims as text
 
 ---
 
@@ -114,6 +123,7 @@ The scenario carries no seed. World identity is derived. An unreproducible run c
 ### Acceptance criteria
 
 - [ ] A model pin that is empty, wildcarded, or version-floating is refused before anything else validates
+- [ ] The run configuration pins the ontology hash alongside the brief hash, so editing an ontology without bumping its version is detected on replay
 - [ ] A scenario has no seed field, and the same scenario can be paired with different replicate seeds
 - [ ] World identity derives from variant, replicate seed and population hash, and is stable across processes
 - [ ] Two replicates of one variant produce different world identities; the same replicate reproduces the same one
