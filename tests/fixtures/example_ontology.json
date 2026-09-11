@@ -12,6 +12,12 @@
     "sex",
     "exercise_frequency"
   ],
+  "relevance_order": [
+    "age",
+    "sex",
+    "exercise_frequency",
+    "diet_protein_focus"
+  ],
   "completion_policy": {
     "completable_domains": [
       "economic",

@@ -27,6 +27,7 @@ ONTOLOGY = {
         "diet_protein_focus": "psychographic",
     },
     "conditioning_set": ["age", "exercise_frequency"],
+    "relevance_order": ["age", "exercise_frequency", "diet_protein_focus"],
     "completion_policy": {"completable_domains": ["economic", "decision_rule", "media"]},
     "ordinal_scales": [
         {
@@ -67,8 +68,13 @@ def brief_payload(**overrides):
 
 
 def ontology_payload(**overrides):
+    """The representative ontology. Unless a test states its own, the relevance order follows from whatever
+    attributes the payload ends up declaring, so a test that changes the domains is refused for that change."""
     payload = copy.deepcopy(ONTOLOGY)
     payload.update(overrides)
+    if "relevance_order" not in overrides:
+        conditioning = list(payload.get("conditioning_set") or [])
+        payload["relevance_order"] = conditioning + [a for a in payload["attribute_domains"] if a not in conditioning]
     return payload
 
 
@@ -345,6 +351,33 @@ def test_one_ordinal_scale_per_attribute():
     scale = ONTOLOGY["ordinal_scales"][0]
     with pytest.raises(ValidationError, match="more than one ordinal scale"):
         CategoryOntology.model_validate(ontology_payload(ordinal_scales=[scale, scale]))
+
+
+def test_ontology_ranks_every_attribute_with_the_conditioning_set_leading():
+    ontology = CategoryOntology.model_validate(ontology_payload())
+    assert ontology.relevance_order == ("age", "exercise_frequency", "diet_protein_focus")
+    leading = ontology.relevance_order[: len(ontology.conditioning_set)]
+    assert set(leading) == ontology.conditioning_set
+
+
+@pytest.mark.parametrize(
+    ("order", "match"),
+    [
+        (["age", "exercise_frequency"], r"unranked \['diet_protein_focus'\]"),
+        (["age", "exercise_frequency", "diet_protein_focus", "spend_band"], r"undeclared \['spend_band'\]"),
+        (["age", "age", "exercise_frequency", "diet_protein_focus"], r"more than once \['age'\]"),
+    ],
+    ids=["attribute-unranked", "attribute-undeclared", "attribute-ranked-twice"],
+)
+def test_relevance_order_ranks_every_declared_attribute_exactly_once(order, match):
+    with pytest.raises(ValidationError, match=match):
+        CategoryOntology.model_validate(ontology_payload(relevance_order=order))
+
+
+def test_relevance_order_refuses_a_conditioning_attribute_outranked_by_a_non_conditioning_one():
+    order = ["age", "diet_protein_focus", "exercise_frequency"]
+    with pytest.raises(ValidationError, match=r"'exercise_frequency' is outranked by \['diet_protein_focus'\]"):
+        CategoryOntology.model_validate(ontology_payload(relevance_order=order))
 
 
 # --- brief pack ----------------------------------------------------------------------------

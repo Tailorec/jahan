@@ -97,6 +97,8 @@ class CategoryOntology(SimBaseModel):
     conditioning_set: frozenset[AttributeId] = Field(min_length=1)
     completion_policy: CompletionPolicy
     ordinal_scales: tuple[OrdinalScale, ...] = ()
+    # Most relevant first. A prompt cut to a token budget drops from the end, so the conditioning set leads it.
+    relevance_order: tuple[AttributeId, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
     def _referenced_attributes_declare_a_domain(self) -> Self:
@@ -112,6 +114,30 @@ class CategoryOntology(SimBaseModel):
         if len(set(attributes)) != len(attributes):
             duplicated = sorted({name for name in attributes if attributes.count(name) > 1})
             raise ValueError(f"more than one ordinal scale declared for: {duplicated}")
+        return self
+
+
+    @model_validator(mode="after")
+    def _relevance_ranks_every_attribute_once(self) -> Self:
+        ranked, declared = list(self.relevance_order), set(self.attribute_domains)
+        repeated = sorted({name for name in ranked if ranked.count(name) > 1})
+        missing, unknown = sorted(declared - set(ranked)), sorted(set(ranked) - declared)
+        if repeated or missing or unknown:
+            raise ValueError(
+                f"the relevance order ranks every declared attribute exactly once: unranked {missing}, "
+                f"undeclared {unknown}, ranked more than once {repeated}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _conditioning_attributes_lead_the_order(self) -> Self:
+        for rank, attribute in enumerate(self.relevance_order):
+            if attribute in self.conditioning_set and rank >= len(self.conditioning_set):
+                outranking = [name for name in self.relevance_order[:rank] if name not in self.conditioning_set]
+                raise ValueError(
+                    f"conditioning attribute {attribute!r} is outranked by {outranking}; a prompt cut to its "
+                    "budget drops only non-conditioning attributes, so the conditioning set leads the order"
+                )
         return self
 
 

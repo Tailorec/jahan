@@ -20,6 +20,7 @@ def ontology_payload() -> dict:
     """The example ontology, extended with an economic attribute that completion may synthesize."""
     ontology = load_fixture("example_ontology.json")
     ontology["attribute_domains"]["spend_band"] = "economic"
+    ontology["relevance_order"] = [*ontology["relevance_order"], "spend_band"]
     return ontology
 
 
