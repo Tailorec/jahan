@@ -1,0 +1,48 @@
+{
+  "scenarios": [
+    {
+      "variant": {
+        "variant_id": "v1baseline",
+        "name": "Baseline",
+        "description": "Baseline concept at the brief price",
+        "emphasized_claims": ["C1", "C2"]
+      },
+      "price": {"amount": 2.49, "currency": "USD"},
+      "audience_weights": {"gym_regulars": 0.6, "protein_dieters": 0.4},
+      "tick_unit": "day",
+      "horizon_ticks": 30,
+      "interventions": [{"tick": 3, "kind": "launch"}]
+    },
+    {
+      "variant": {
+        "variant_id": "v2premium",
+        "name": "Premium",
+        "description": "Same concept faced at a higher price"
+      },
+      "price": {"amount": 2.99, "currency": "USD"},
+      "audience_weights": {"gym_regulars": 0.6, "protein_dieters": 0.4},
+      "tick_unit": "day",
+      "horizon_ticks": 30,
+      "interventions": [{"tick": 3, "kind": "launch"}, {"tick": 14, "kind": "promotion"}]
+    },
+    {
+      "variant": {
+        "variant_id": "v3fitnessemphasis",
+        "name": "Fitness emphasis",
+        "description": "Leads with the performance claim",
+        "emphasized_claims": ["C1"]
+      },
+      "price": {"amount": 2.49, "currency": "USD"},
+      "audience_weights": {"gym_regulars": 0.75, "protein_dieters": 0.25},
+      "tick_unit": "day",
+      "horizon_ticks": 30
+    }
+  ],
+  "seeds": [4021, 917731],
+  "budget": {"max_cost": 42.0, "currency": "USD"},
+  "pins": {
+    "tier_a": "openrouter/camel-ai/persona-8b",
+    "tier_b": "anthropic/claude-sonnet-4.5",
+    "embed": "openai/text-embedding-3-small"
+  }
+}
