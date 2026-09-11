@@ -153,6 +153,7 @@ from .trace import (
     read_partition,
 )
 
+from .inference import Completion
 from .world import DroppedExposure, WorldDelta
 
 __all__ = [
@@ -180,6 +181,7 @@ __all__ = [
     "ClaimSource",
     "Community",
     "Competitor",
+    "Completion",
     "CompletionPolicy",
     "Confidence",
     "ConfigHash",

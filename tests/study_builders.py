@@ -378,3 +378,8 @@ def digest_payload(scenario: dict | None = None, **overrides) -> dict:
     }
     payload.update(overrides)
     return payload
+
+
+def events_of_representative_cost() -> dict:
+    """The representative partition's first billed call."""
+    return copy.deepcopy(partition_payload()["events"][R["first_turn_cost"]]["payload"])
