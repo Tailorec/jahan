@@ -26,11 +26,13 @@ from .base import (
     canonical_json,
     canonical_payload,
 )
+from .enums import ClaimSource, PersonaFieldDomain
 from .errors import BudgetExhausted, GateFailure, SchemaVersionError, SimError
 
 __all__ = [
     "BudgetExhausted",
     "BriefHash",
+    "ClaimSource",
     "ConfigHash",
     "FrozenDict",
     "GateFailure",
@@ -39,6 +41,7 @@ __all__ = [
     "Identifier",
     "NonEmptyStr",
     "NonNegativeInt",
+    "PersonaFieldDomain",
     "PersonaId",
     "PopulationHash",
     "PositiveInt",
