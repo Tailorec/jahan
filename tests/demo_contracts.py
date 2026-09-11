@@ -9,6 +9,7 @@ any real type is written against them.
 from typing import Any, ClassVar
 
 from simcore.schemas import (
+    FrozenDict,
     HashDigest,
     NonEmptyStr,
     NonNegativeInt,
@@ -23,8 +24,8 @@ class DemoBrief(SimBaseModel):
 
     title: NonEmptyStr
     claims: tuple[NonEmptyStr, ...]
-    target_filters: dict[str, str]
-    audience_mix: dict[str, UnitInterval]
+    target_filters: FrozenDict[str, str]
+    audience_mix: FrozenDict[str, UnitInterval]
     fetched_at: str
 
 

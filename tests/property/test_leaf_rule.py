@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 SCHEMAS_DIR = Path(__file__).resolve().parents[2] / "simcore" / "schemas"
-ALLOWED_THIRD_PARTY = {"pydantic"}
+# pydantic-core is pydantic's own validation engine, pinned by pydantic itself.
+ALLOWED_THIRD_PARTY = {"pydantic", "pydantic_core"}
 
 
 def package_imports():

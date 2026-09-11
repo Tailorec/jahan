@@ -1,10 +1,22 @@
-"""Shared base model, bounded primitives, identifiers, hashes, canonical hashing."""
+"""Shared base model, immutable containers, primitives, identifiers, canonical hashing."""
 
 import hashlib
 import json
-from typing import Annotated, Any, ClassVar
+from collections.abc import (
+    Collection,
+    Iterable,
+    Iterator,
+    Mapping,
+    MutableMapping,
+    MutableSequence,
+    MutableSet,
+    Sequence,
+    Set,
+)
+from typing import Annotated, Any, ClassVar, Literal, Self, get_args, get_origin
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, StringConstraints
+from pydantic_core import CoreSchema, core_schema
 
 SCHEMA_VERSION = "1.0.0"
 
@@ -31,6 +43,62 @@ ConfigHash = HashDigest
 GraphHash = HashDigest
 
 
+class FrozenDict[K, V](Mapping[K, V]):
+    """Immutable mapping for model fields: freezing a model does not freeze a dict inside it."""
+
+    __slots__ = ("_data",)
+
+    def __init__(self, data: Mapping[K, V] | Iterable[tuple[K, V]] = ()) -> None:
+        self._data: dict[K, V] = dict(data)
+
+    def __getitem__(self, key: K) -> V:
+        return self._data[key]
+
+    def __iter__(self) -> Iterator[K]:
+        return iter(self._data)
+
+    def __len__(self) -> int:
+        return len(self._data)
+
+    def __hash__(self) -> int:
+        return hash(frozenset(self._data.items()))
+
+    def __repr__(self) -> str:
+        return f"FrozenDict({self._data!r})"
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
+        key_type, value_type = get_args(source) or (Any, Any)
+        dict_schema = handler.generate_schema(dict[key_type, value_type])
+        return core_schema.no_info_after_validator_function(
+            cls,
+            dict_schema,
+            serialization=core_schema.plain_serializer_function_ser_schema(dict, return_schema=dict_schema),
+        )
+
+
+_MUTABLE_CONTAINERS = (list, dict, set, bytearray, MutableSequence, MutableMapping, MutableSet)
+# Read-only abstract types that pydantic nonetheless validates into a mutable list, dict or set.
+_MUTABLE_WHEN_VALIDATED = (Sequence, Mapping, Set, Collection, Iterable)
+
+
+def _mutable_container(annotation: Any) -> Any:
+    origin = get_origin(annotation) or annotation
+    if origin is Literal:
+        return None
+    if origin is Annotated:
+        return _mutable_container(get_args(annotation)[0])
+    if any(origin is abstract for abstract in _MUTABLE_WHEN_VALIDATED) or (
+        isinstance(origin, type) and issubclass(origin, _MUTABLE_CONTAINERS)
+    ):
+        return origin
+    for arg in get_args(annotation):
+        found = _mutable_container(arg)
+        if found is not None:
+            return found
+    return None
+
+
 class SimBaseModel(BaseModel):
     """Base for every type crossing a module boundary.
 
@@ -48,6 +116,32 @@ class SimBaseModel(BaseModel):
 
     _hash_exclude_: ClassVar[frozenset[str]] = frozenset()
     _hash_version_: ClassVar[bool] = False
+
+    @classmethod
+    def __pydantic_init_subclass__(cls, **kwargs: Any) -> None:
+        super().__pydantic_init_subclass__(**kwargs)
+        exclude = cls._hash_exclude_
+        if not isinstance(exclude, frozenset) or not all(isinstance(name, str) for name in exclude):
+            raise TypeError(f"{cls.__name__}._hash_exclude_ must be a frozenset of field names")
+        unknown = exclude - set(cls.model_fields) - set(cls.model_computed_fields)
+        if unknown:
+            raise TypeError(f"{cls.__name__}._hash_exclude_ names fields that do not exist: {sorted(unknown)}")
+        if not isinstance(cls._hash_version_, bool):
+            raise TypeError(f"{cls.__name__}._hash_version_ must be a bool")
+        for name, field in cls.model_fields.items():
+            found = _mutable_container(field.annotation)
+            if found is not None:
+                raise TypeError(
+                    f"{cls.__name__}.{name} uses mutable container {getattr(found, '__name__', found)}: "
+                    "use tuple, frozenset or FrozenDict so the model cannot change after it is hashed"
+                )
+
+    def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
+        """Copy the model, validating any update; pydantic's own copy bypasses every validator."""
+        if not update:
+            return super().model_copy(deep=deep)
+        current = {name: getattr(self, name) for name in type(self).model_fields}
+        return self.model_validate({**current, **update})
 
 
 def canonical_payload(model: SimBaseModel) -> dict[str, Any]:
