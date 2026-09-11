@@ -21,6 +21,7 @@ from simcore.schemas import (
     TraceEvent,
     TracePartition,
     TracePayload,
+    GuardrailViolation,
     TurnRecorded,
     WorldRecord,
     canonical_hash,
@@ -43,6 +44,7 @@ from tests.study_builders import (
     turn_event,
     turn_payload,
     ulid,
+    violation_event,
     world_id_for,
 )
 
@@ -63,7 +65,7 @@ def with_event(index: int, replacement: dict) -> dict:
 def test_payload_kinds_are_distinct_types_that_dispatch_on_kind_alone():
     adapter = TypeAdapter(TracePayload)
     kinds = {adapter.validate_python(e["payload"]).kind: type(adapter.validate_python(e["payload"])) for e in events_of(partition_payload())}
-    assert set(kinds) == {"lifecycle", "stimulus_published", "turn", "cost", "exposure_dropped", "intervention", "reflection", "tick_closed", "degraded"}
+    assert set(kinds) == {"lifecycle", "stimulus_published", "turn", "cost", "exposure_dropped", "intervention", "reflection", "tick_closed", "degraded", "guardrail_violation"}
     assert len(set(kinds.values())) == len(kinds)
 
 
@@ -516,6 +518,7 @@ def test_paused_world_may_resume_and_events_after_completion_are_refused():
     data["events"][R["reflection"]] = event(R["reflection"], 3, {"kind": "lifecycle", "phase": "started"})
     data["events"][R["second_turn"]] = event(R["second_turn"], 3, {"kind": "intervention", "intervention_kind": "launch"})
     data["events"][R["third_turn"]] = event(R["third_turn"], 4, COST_AT_TICK)
+    data["events"][R["violation"]] = event(R["violation"], 4, COST_AT_TICK)
     assert TracePartition.model_validate(data).in_sequence[R["reflection"]].payload.phase.value == "started"
     data = partition_payload()
     data["events"].append(event(len(data["events"]), 5, COST_AT_TICK))
@@ -531,7 +534,8 @@ COST_AT_TICK = {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-
 
 
 def contexts_of(data: dict, role: str) -> dict:
-    return data["events"][R[role]]["payload"]["turn"]["view"]["contexts"]
+    payload = data["events"][R[role]]["payload"]
+    return payload.get("turn", payload)["view"]["contexts"]
 
 
 def with_turn_before_completion(data: dict, tick: int, turn: dict, persona: str) -> dict:
@@ -656,7 +660,7 @@ def test_shared_community_is_absent_when_the_population_has_no_communities():
         record["world_id"] = world
     with pytest.raises(ValidationError, match="no communities"):
         WorldRecord.model_validate({"population": population, "partition": data})
-    for role in ("second_turn", "third_turn"):
+    for role in ("second_turn", "third_turn", "violation"):
         for context in contexts_of(data, role).values():
             if context.get("shared_community") is not None:
                 context["shared_community"] = None
@@ -879,3 +883,66 @@ def test_a_turn_names_at_most_one_rejected_prompt_distinct_from_the_accepted_one
 
 def test_a_turn_accepted_first_time_names_no_rejected_prompt():
     assert TracePartition.model_validate(partition_payload()).in_sequence[R["second_turn"]].payload.rejected_prompt_hashes == ()
+
+
+# --- guardrail violations ---------------------------------------------------------------------
+
+
+def violation_record() -> dict:
+    return copy.deepcopy(events_of(partition_payload())[R["violation"]])
+
+
+def test_representative_violation_records_what_was_presented_and_no_reaction():
+    partition = TracePartition.model_validate(partition_payload())
+    violation = partition.in_sequence[R["violation"]].payload
+    assert isinstance(violation, GuardrailViolation)
+    assert violation.rule.value == "references_unshown_stimulus"
+    assert violation.prompt_hashes == ("9a" * 32, "9b" * 32)
+    assert violation.view.impression_id == violation.impression.impression_id
+    assert set(GuardrailViolation.model_fields) == {"kind", "impression", "view", "prompt_hashes", "rule"}
+    assert TracePartition.model_validate_json(partition.model_dump_json()) == partition
+
+
+@pytest.mark.parametrize(
+    ("change", "match"),
+    [
+        (lambda p: p.update(prompt_hashes=["9a" * 32, "9a" * 32]), "two rejected prompts differ"),
+        (lambda p: p.update(prompt_hashes=["9a" * 32]), "prompt_hashes"),
+        (lambda p: p.update(prompt_hashes=["9a" * 32, "9b" * 32, "9c" * 32]), "prompt_hashes"),
+        (lambda p: p.update(rule="invented_rule"), "rule"),
+        (lambda p: p.update(reaction={"reaction_id": f"rc-{ulid(305)}", "subject_stimulus_id": stimulus_id(3), "action": "like"}), "reaction"),
+        (lambda p: p["view"]["contexts"].pop(stimulus_id(4)), "a view covers exactly the stimuli of its impression"),
+    ],
+    ids=["same-prompt-twice", "one-attempt", "three-attempts", "unknown-rule", "with-a-reaction", "view-misses-a-stimulus"],
+)
+def test_a_violation_carries_two_distinct_rejected_prompts_a_known_rule_and_no_reaction(change, match):
+    record = violation_record()
+    change(record["payload"])
+    with pytest.raises(ValidationError, match=match):
+        TraceEvent.model_validate(record)
+
+
+@pytest.mark.parametrize(
+    ("change", "match"),
+    [({"persona_id": "p-000003"}, "shown to p-000004"), ({"tick": 3}, "impression from tick 4"), ({"persona_id": None}, "must name it")],
+    ids=["other-persona", "other-tick", "unattributed"],
+)
+def test_a_violation_belongs_to_its_impressions_persona_and_tick(change, match):
+    with pytest.raises(ValidationError, match=match):
+        TraceEvent.model_validate({**violation_record(), **change})
+
+
+def test_an_impression_is_either_a_turn_or_a_violation_never_both():
+    data = partition_payload()
+    third = data["events"][R["third_turn"]]["payload"]["turn"]["impression"]["impression_id"]
+    violation = data["events"][R["violation"]]["payload"]
+    violation["impression"]["impression_id"] = violation["view"]["impression_id"] = third
+    with pytest.raises(ValidationError, match=f"repeats impression {third}"):
+        TracePartition.model_validate(data)
+
+
+def test_a_violation_shows_only_published_stimuli_within_the_budget():
+    data = partition_payload()
+    data["events"][R["violation"]] = violation_event(R["violation"], 4, [(3, "wom", 0.4), (9, "forum", 0.4)], "p-000004", n=5)
+    with pytest.raises(ValidationError, match="never published"):
+        TracePartition.model_validate(data)

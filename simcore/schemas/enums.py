@@ -196,3 +196,9 @@ class DegradationRung(StrEnum):
     FREEZE_OPTIONAL_TIER_B = "freeze_optional_tier_b"
     SUBSAMPLE_ACTIVATION = "subsample_activation"
     PAUSE = "pause"
+
+
+class GuardrailRule(StrEnum):
+    """The rule a guardrail violation broke."""
+
+    REFERENCES_UNSHOWN_STIMULUS = "references_unshown_stimulus"

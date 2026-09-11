@@ -280,6 +280,14 @@ def turn_event(seq: int, tick: int, turn: dict, persona: str) -> dict:
                              "prompt_hash": "12" * 32, "persona_block_hash": "34" * 32}, persona)
 
 
+def violation_event(seq: int, tick: int, shown: list[tuple[int, str, float]], persona: str, contexts: dict | None = None, n: int = 0) -> dict:
+    """A guardrail violation: what the persona was presented, with no reaction, after both attempts were rejected."""
+    presented = turn_payload(persona, tick, shown, {}, contexts, n)
+    return event(seq, tick, {"kind": "guardrail_violation", "impression": presented["impression"], "view": presented["view"],
+                             "prompt_hashes": ["9a" * 32, "9b" * 32],
+                             "rule": "references_unshown_stimulus"}, persona)
+
+
 def resequence(data: dict) -> dict:
     """Renumber a partition's events by their list order, for tests that insert or remove events."""
     for seq, record in enumerate(data["events"]):
@@ -321,6 +329,7 @@ PARTITION_ROLES = (
     "second_turn_cost",
     "close_3",
     "third_turn",
+    "violation",
     "close_4",
     "completed",
 )
@@ -364,6 +373,12 @@ def partition_payload(**header_overrides) -> dict:
             contexts={3: {"likes": 1, "replies": 1, "tie_strength": 0.0, "shared_community": False},
                       4: {"ancestry": [stimulus_id(3)], "tie_strength": 0.2, "shared_community": False}},
             n=3), "p-000003"),
+        # The fourth persona's response referred to something it was never shown, twice, so it did not react.
+        # Its view is verified like a turn's: the third turn's upvote, from this same tick, is not yet visible.
+        violation_event(R["violation"], 4, [(3, "wom", 0.4), (4, "forum", 0.4)], "p-000004",
+                        contexts={3: {"likes": 1, "replies": 1, "tie_strength": 0.0, "shared_community": False},
+                                  4: {"ancestry": [stimulus_id(3)], "tie_strength": 0.0, "shared_community": False}},
+                        n=5),
         event(R["close_4"], 4, {"kind": "tick_closed"}),
         event(R["completed"], 4, {"kind": "lifecycle", "phase": "completed"}),
     ]

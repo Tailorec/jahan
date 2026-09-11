@@ -22,11 +22,11 @@ from .base import (
     canonical_hash,
 )
 from .brief import BriefPack
-from .enums import ActionKind, Channel, DegradationRung, DropReason, InferenceRole, InferenceRoute, InterventionKind, LifecyclePhase, ReflectionTrigger, RunStatus
+from .enums import ActionKind, Channel, DegradationRung, DropReason, GuardrailRule, InferenceRole, InferenceRoute, InterventionKind, LifecyclePhase, ReflectionTrigger, RunStatus
 from .errors import SchemaVersionError
 from .population import Population, PopulationManifest
 from .run import PinnedModelId, RunConfig, Scenario, WorldId, check_scenario_against_brief, derive_world_id
-from .sim import BeliefChange, Stimulus, Turn, View
+from .sim import BeliefChange, Impression, Stimulus, Turn, View, check_view_covers_impression
 
 ContractVersion = Annotated[str, StringConstraints(pattern=r"^\d+\.\d+\.\d+$")]
 
@@ -65,6 +65,29 @@ class TurnRecorded(SimBaseModel):
             raise ValueError(f"a turn is retried at most once, but names {len(self.rejected_prompt_hashes)} rejected prompts")
         if self.prompt_hash in self.rejected_prompt_hashes:
             raise ValueError("the accepted prompt cannot also be the one rejected before it")
+        return self
+
+
+class GuardrailViolation(SimBaseModel):
+    """A persona's response that referred to something it was never shown, even after a stricter retry. Recorded in
+    place of a reaction — the persona does not react that tick — with what it was presented, both rejected prompts
+    and the rule broken."""
+
+    kind: Literal["guardrail_violation"]
+    impression: Impression
+    view: View
+    prompt_hashes: tuple[HashDigest, HashDigest]
+    rule: GuardrailRule
+
+    @model_validator(mode="after")
+    def _view_matches_the_impression(self) -> Self:
+        check_view_covers_impression(self.view, self.impression)
+        return self
+
+    @model_validator(mode="after")
+    def _two_distinct_attempts(self) -> Self:
+        if self.prompt_hashes[0] == self.prompt_hashes[1]:
+            raise ValueError("a violation follows a retry, so its two rejected prompts differ")
         return self
 
 
@@ -142,6 +165,7 @@ TracePayload = Annotated[
     StimulusPublished
     | ExposureDropped
     | TurnRecorded
+    | GuardrailViolation
     | ReflectionRecorded
     | CostRecorded
     | InterventionApplied
@@ -151,8 +175,17 @@ TracePayload = Annotated[
     Field(discriminator="kind"),
 ]
 
-_PERSONA_EVENTS = frozenset({"exposure_dropped", "turn", "reflection"})
+_PERSONA_EVENTS = frozenset({"exposure_dropped", "turn", "guardrail_violation", "reflection"})
 _WORLD_EVENTS = frozenset({"stimulus_published", "intervention", "degraded", "tick_closed", "lifecycle"})
+
+
+def _presented(payload: object) -> tuple[Impression, View] | None:
+    """The impression and view a record says a persona was presented: a turn's, or a guardrail violation's."""
+    if isinstance(payload, TurnRecorded):
+        return payload.turn.impression, payload.turn.view
+    if isinstance(payload, GuardrailViolation):
+        return payload.impression, payload.view
+    return None
 
 
 class TraceEvent(SimBaseModel):
@@ -177,12 +210,13 @@ class TraceEvent(SimBaseModel):
             raise ValueError(f"a {kind} event belongs to a persona and must name it")
         if kind in _WORLD_EVENTS and self.persona_id is not None:
             raise ValueError(f"a {kind} event belongs to the world, not to a persona")
-        if isinstance(self.payload, TurnRecorded):
-            impression = self.payload.turn.impression
+        presented = _presented(self.payload)
+        if presented is not None:
+            impression = presented[0]
             if impression.persona_id != self.persona_id:
-                raise ValueError(f"turn event for {self.persona_id} records an impression shown to {impression.persona_id}")
+                raise ValueError(f"{kind} event for {self.persona_id} records an impression shown to {impression.persona_id}")
             if impression.tick != self.tick:
-                raise ValueError(f"turn event at tick {self.tick} records an impression from tick {impression.tick}")
+                raise ValueError(f"{kind} event at tick {self.tick} records an impression from tick {impression.tick}")
         if isinstance(self.payload, StimulusPublished) and self.payload.stimulus.tick != self.tick:
             raise ValueError(f"stimulus published at tick {self.tick} is dated tick {self.payload.stimulus.tick}")
         return self
@@ -290,8 +324,8 @@ class TracePartition(SimBaseModel):
             elif isinstance(payload, ExposureDropped):
                 if payload.stimulus_id not in published:
                     raise ValueError(f"{where} drops {payload.stimulus_id}, which was never published before it")
-            elif isinstance(payload, TurnRecorded):
-                impression, reaction = payload.turn.impression, payload.turn.reaction
+            elif (presented := _presented(payload)) is not None:
+                impression = presented[0]
                 unpublished = sorted(impression.stimulus_ids - published)
                 if unpublished:
                     raise ValueError(f"{where} shows stimuli never published before it: {unpublished}")
@@ -299,11 +333,15 @@ class TracePartition(SimBaseModel):
                     raise ValueError(
                         f"{where} shows {len(impression.exposures)} stimuli, over the scenario's budget of {scenario.exposure_budget}"
                     )
-                if impression.impression_id in impressions or reaction.reaction_id in reactions:
-                    raise ValueError(f"{where} repeats impression {impression.impression_id} or reaction {reaction.reaction_id}")
+                if impression.impression_id in impressions:
+                    raise ValueError(f"{where} repeats impression {impression.impression_id}; each is either a turn or a violation, once")
                 impressions.add(impression.impression_id)
-                reactions.add(reaction.reaction_id)
-                _check_claims(reaction.belief_change, claims, where)
+                if isinstance(payload, TurnRecorded):
+                    reaction = payload.turn.reaction
+                    if reaction.reaction_id in reactions:
+                        raise ValueError(f"{where} repeats reaction {reaction.reaction_id}")
+                    reactions.add(reaction.reaction_id)
+                    _check_claims(reaction.belief_change, claims, where)
             elif isinstance(payload, ReflectionRecorded):
                 _check_claims(payload.change, claims, where)
             elif isinstance(payload, InterventionApplied):
