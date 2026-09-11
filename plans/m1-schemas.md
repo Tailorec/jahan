@@ -64,14 +64,14 @@ At the end of this phase an actual brief file parses, and reordering its claims 
 
 ### Acceptance criteria
 
-- [ ] A representative brief file validates, and one with an unknown key is refused
-- [ ] Claim identifiers are assigned automatically, are contiguous, and duplicates are refused
-- [ ] Reordering claims changes the brief hash; reformatting whitespace or comments does not
-- [ ] Price carries its currency and refuses a non-positive amount
-- [ ] Audiences are declared by name and can be referenced by name without a population existing
-- [ ] A brief declaring no audiences is valid, and the type records that audiences will be derived
-- [ ] The category ontology declares its conditioning set, its completion policy, and its ordinal scales, and refuses a completion policy that lists a demographic attribute
-- [ ] Evidence references carry a fetched-at time and content hash when present, and are optional when absent
+- [x] A representative brief file validates, and one with an unknown key is refused
+- [x] Claim identifiers are assigned automatically, are contiguous, and duplicates are refused
+- [x] Reordering claims changes the brief hash; reformatting whitespace or comments does not
+- [x] Price carries its currency and refuses a non-positive amount
+- [x] Audiences are declared by name and can be referenced by name without a population existing
+- [x] A brief declaring no audiences is valid, and the type records that audiences will be derived
+- [x] The category ontology declares its conditioning set, its completion policy, and its ordinal scales, and refuses a completion policy that lists a demographic attribute
+- [x] Evidence references carry a fetched-at time and content hash when present, and are optional when absent
 
 ---
 
