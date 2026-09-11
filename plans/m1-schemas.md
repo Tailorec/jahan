@@ -11,7 +11,7 @@ Durable across every phase:
 - **File organization** — one file per domain (base/identifiers, enumerations, errors, brief, persona, population, simulation, run, trace, report), with a single curated export surface as the only import path other modules use.
 - **Model defaults** — every model rejects unknown fields, is frozen, rejects non-finite floats, and strips surrounding string whitespace. Container fields are tuples, frozensets or `FrozenDict` — list, dict and set annotations are refused when a class is defined, because freezing a model does not freeze a container inside it. Copying a model with updates re-validates the updates.
 - **Canonical hashing** — sorted keys, compact separators, enumerations serialized by value, non-finite values rejected, per-class exclusion of outputs (observed cost, wall-clock timestamps), exclusions and version folding honoured at every nesting level, including inside sequences and mappings; set-valued fields sorted so hash-seed iteration order never leaks in; negative zero normalised so structures that compare equal hash equally; the contract version folded under a reserved key no field can occupy; misspelled or mistyped exclusions refused when a class is defined. Four hashes exist: brief, population, run configuration (which folds in the contract version), and graph.
-- **Identity** — persona identity derives from the dataset row so cross-run joins need no lookup table; persona identity is `p-` followed by the dataset row identifier; run and stimulus identities are `run-` and `st-` followed by a lowercase ULID, so they sort by creation time; world identity derives from variant, replicate seed and population hash (ADR 0001).
+- **Identity** — persona identity derives from the dataset row so cross-run joins need no lookup table; persona identity is `p-` followed by the dataset row identifier; run and stimulus identities are `run-` and `st-` followed by a lowercase ULID, so they sort by creation time; world identity derives from the scenario's full content, replicate seed and population hash (ADR 0005), while worlds of one variant share their seed so price points share random draws.
 - **Two provenance vocabularies** — one for where a brief statement came from, one for where a persona field came from. The second carries an explicit grounded value; grounding is never inferred from an absent key.
 - **Audience versus community** — audiences are declared in inputs and referred to by name; communities are discovered and appear only in outputs. "Segment" and "stratum" are not used.
 - **Ontology is referenced, not embedded** — a brief names its ontology version and takes its category from the product; a brief pack joins the two and refuses a mismatch (ADR 0004). Every attribute the ontology or an audience uses declares its field domain.
@@ -90,23 +90,26 @@ At the end of this phase an actual brief file parses, and reordering its claims 
 
 ### What to build
 
-The contract for who is in a study: field origin stated on every projected field, persona source as a validated value, the persona split between the conditioning attributes its category requires and everything else, the distribution gate as a tagged union over categorical and ordinal tests, the gate report with its source mix, the population manifest, and the graph with its discovered communities.
+The contract for who is in a study: field origin stated on every projected field, persona source as a validated value, the persona split between the conditioning attributes its category requires and everything else, the distribution gate as a tagged union over categorical and ordinal tests, the gate report with its source mix, the population manifest, the graph with its discovered communities, and the population that joins them with the brief and ontology they were built for.
 
 This is the phase where the engine's central invariant becomes structural: a persona that cannot be conditioned, or one whose demographics were invented, cannot be constructed.
 
 ### Acceptance criteria
 
-- [x] A persona missing any attribute in its category's conditioning set is refused at construction
-- [x] A persona whose field origin marks a demographic or psychographic as synthesized is refused
+- [x] A persona conditioned on anything other than its category's conditioning set is refused when the population is joined with the ontology
+- [x] A persona whose field origin marks a demographic or psychographic as synthesized is refused, judged by the ontology's field domains — a persona carries no domain labels of its own to relabel
 - [x] Every projected field states an origin; grounding is never represented by an absent key
 - [x] A gate result declares which test produced it rather than leaving the other test's fields null
 - [x] The ordinal gate exposes both the raw statistic and the similarity derived from it, named so the pass direction cannot be misread
-- [x] A gate result over an attribute whose origin is synthesized is refused
-- [x] Overall gate status is computed from its results and cannot be set directly
-- [x] The gate report carries the population's source mix alongside its distributions
+- [x] A gate over an attribute that is not grounded for every persona carrying it is refused, as is a gate on an undeclared attribute, on an attribute no persona carries, or of the wrong kind for the ontology's scales
+- [x] Each gate's verdict is computed from its statistic and its carried threshold, and the overall status from those verdicts; both serialize, and a supplied verdict that contradicts the computation is refused
+- [x] A gate report needs at least one result and at most one per attribute
+- [x] The gate report carries the population's source mix, which must match the personas' own sources; sources are a validated string that warns on unrecognised corpora rather than refusing them
 - [x] The population manifest records an achieved mix keyed by audience, and carries no stratum concept
 - [x] Communities appear only in output types and cannot be referenced from any input type
-- [x] Persona embeddings are referenced by position rather than stored inline, keeping the numeric library out of the package
+- [x] Persona embeddings are referenced by position rather than stored inline, keeping the numeric library out of the package; positions are distinct and share one model and dimension
+- [x] Personas are exactly the manifest's persona ids, sampled once each; the achieved mix reports every declared audience
+- [x] The social graph ties only members of the population, each tie once; communities require a graph and partition the population
 
 ---
 
@@ -122,16 +125,19 @@ The scenario carries no seed. World identity is derived. An unreproducible run c
 
 ### Acceptance criteria
 
-- [x] A model pin that is empty, wildcarded, or version-floating is refused before anything else validates
+- [x] A model pin that is empty, wildcarded, or version-floating — including `-latest`, `:latest` and `@latest` suffixes — is refused
 - [x] The run configuration pins the ontology hash alongside the brief hash, so editing an ontology without bumping its version is detected on replay
 - [x] A scenario has no seed field, and the same scenario can be paired with different replicate seeds
-- [x] World identity derives from variant, replicate seed and population hash, and is stable across processes
-- [x] Two replicates of one variant produce different world identities; the same replicate reproduces the same one
+- [x] World identity derives from the scenario's full content, replicate seed and population hash, and is stable across processes; changing any condition of a scenario changes it
+- [x] Two replicates of one variant produce different world identities; the same replicate reproduces the same one; price points of one variant share their world seed
+- [x] The run id is excluded from the configuration hash, so identical configurations hash identically
+- [x] A run or grid refuses repeated seeds, repeated scenarios, a variant id naming two concept cards, and mixed tick units
 - [x] Price appears on the scenario only, typed with its currency, and nowhere else in the run
 - [x] Audience weights are refused unless they sum to one within tolerance
 - [x] A scenario declares its tick unit and horizon, and interventions are expressed in ticks against them
 - [x] Interventions at the same tick compose rather than replacing one another
-- [x] A representative sweep grid file validates and expands to distinct world identities
+- [x] A representative sweep grid file validates and expands to distinct world identities, including a price sweep over a single concept
+- [x] A sweep plan refuses a scenario weighting an audience the brief does not declare, emphasizing a claim it does not make, or priced in another currency
 
 ---
 
