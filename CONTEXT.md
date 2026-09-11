@@ -76,6 +76,14 @@ _Avoid_: run (a run is the whole study execution), simulation, trial, replicate
 
 ### Grounding and conditioning
 
+**Category Ontology**:
+The shared, versioned description of a product category — which attributes matter, what kind of information each holds, which must be present for conditioning, which may be synthesized, and how ordered attributes are scaled. A brief names the version it is read against; it never carries its own copy.
+_Avoid_: schema, taxonomy, category config, codebook (the codebook is the dataset's, not the category's)
+
+**Field Domain**:
+The kind of information a persona field holds — demographic, psychographic, category behaviour, economic, decision rule, or media. Demographic and psychographic fields are never synthesized.
+_Avoid_: field type, section, attribute group
+
 **Conditioning Set**:
 The attributes a persona must have populated to be usable in a given category — the demographic and category-behaviour fields the elicitation method depends on. Declared per category; personas lacking any of them are excluded from the candidate pool before sampling, never dropped afterwards.
 _Avoid_: required fields, minimum profile, completeness threshold

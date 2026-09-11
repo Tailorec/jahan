@@ -110,6 +110,8 @@ Every model rejects unknown fields, is frozen, rejects non-finite floats, and st
 
 **Personas require a conditioning set.** A category's ontology declares the attributes a persona must have populated to be usable. The persona type separates that required conditioning mapping from its remaining attributes, so an unconditionable persona cannot be constructed. The gate report gains a source mix so any skew this induces is visible. Recorded as ADR 0002.
 
+**Briefs reference their ontology.** A brief names the ontology version it is read against and takes its category from the product; a brief pack joins the brief with that ontology and refuses a mismatch. The ontology declares a field domain for every attribute it uses — including category behaviour, which the conditioning set depends on — so demographic fields can be recognised when personas are built. Audience filters are checked against the ontology at pack time. Recorded as ADR 0004.
+
 **Gate results become a tagged union.** A categorical arm carries a chi-squared statistic, degrees of freedom and a p-value; an ordinal arm carries both the raw statistic and a similarity value derived from it, named so the pass direction cannot be misread. The overall status is computed from the results rather than settable. Ordinal attributes and their band scales are declared in the ontology, so nothing is treated as ordered by guess. A validator refuses gate results over synthesized attributes.
 
 **Time is declared.** A scenario states its tick unit and horizon in ticks. Outcome digests carry the unit forward so a report can label an axis and analysis can refuse to compare digests across differing units. The second, undefined "world-day" unit is removed.

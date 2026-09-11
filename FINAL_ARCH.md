@@ -56,7 +56,7 @@ Twelve modules. Every one is either a leaf contract, a deep behavioral module, o
 | # | Module | Owns | Hides | Interface |
 |---|---|---|---|---|
 | 1 | `schemas` | every type crossing a module boundary | nothing (leaf, zero logic) | types + validators |
-| 2 | `brief` | intake, category ontology, assumption ledger | YAML parsing, evidence fetching, ontology versioning | `load_brief(path) -> BriefPack` |
+| 2 | `brief` | intake, category ontology, assumption ledger | YAML parsing, evidence fetching, ontology versioning | `load_brief(path, ontology_dir) -> BriefPack` |
 | 3 | `population` | who is in this study and how they are connected | 4-bit decode, conditioning filter, postings filter, audience-proportional sampling, distribution gates, sparse completion, graph generation, Leiden community detection | `build(brief, n, population_seed) -> Population` |
 | 4 | `inference` | every model call in the system | provider routing, retries, coalescing, caching, token accounting, model pinning, fake mode | `chat(role, msgs) -> Completion`, `embed(texts) -> Vectors` |
 | 5 | `elicitation` | free text → Likert PMF (SSR) | anchor sets, reference-set averaging, τ, non-collapse checks | `score(text) -> SsrResult` |
@@ -170,7 +170,7 @@ Each spec states what the module **owns**, what it **hides**, its **interface**,
 
 **Interface:** `load_brief(path: Path, ontology_dir: Path) -> BriefPack`
 
-**Internals:** `yaml.safe_load` → `ProductBrief.model_validate` (unknown keys rejected); claim IDs auto-assigned `C1..Cn`; evidence URLs fetched and SHA-256'd at ingest; category ontology loaded as versioned JSON supplying `attr_relevance` (which of the 1,290 attributes matter, ranked), `stimulus_types`, `anchor_set_ref`, and `completion_policy` (which persona fields may be synthesized — economics, decision rules, media yes; demographics, psychographics never); assumption ledger built so every assumption is a first-class record surfaced in the report.
+**Internals:** `yaml.safe_load` → `ProductBrief.model_validate` (unknown keys rejected); claim IDs auto-assigned `C1..Cn`; evidence URLs fetched and SHA-256'd at ingest; the brief names an ontology version and the category ontology is loaded as versioned JSON from `ontology_dir` — never embedded in the brief (ADR 0004) — then joined into a `BriefPack` that refuses a category or version mismatch and checks audience filters against the ontology; the ontology declares a field domain for every attribute it uses, and supplies `attr_relevance` (which of the 1,290 attributes matter, ranked), `stimulus_types`, `anchor_set_ref`, and `completion_policy` (which persona fields may be synthesized — economics, decision rules, media yes; demographics, psychographics never); assumption ledger built so every assumption is a first-class record surfaced in the report.
 
 **Gotcha to encode:** claims are the atomic stimulus unit — feed cards, forum posts and report findings all reference `Claim.id`. Reordering claims mid-study silently breaks comparability, which is why `brief_hash` covers claim order and the runner refuses to resume a run whose `brief_hash` moved.
 
