@@ -149,6 +149,8 @@ from .trace import (
     read_partition,
 )
 
+from .world import DroppedExposure, WorldDelta
+
 __all__ = [
     "ActionKind",
     "Anomaly",
@@ -182,6 +184,7 @@ __all__ = [
     "CostRecorded",
     "CurrencyCode",
     "DropReason",
+    "DroppedExposure",
     "EmbeddingRef",
     "EventId",
     "Evidence",
@@ -273,6 +276,7 @@ __all__ = [
     "Variant",
     "VariantId",
     "View",
+    "WorldDelta",
     "WorldId",
     "WorldRecord",
     "canonical_hash",
