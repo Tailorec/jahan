@@ -6,6 +6,7 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from simcore.schemas import (
+    TickClosed,
     SCHEMA_VERSION,
     ContractMigration,
     CostRecorded,
@@ -30,6 +31,7 @@ from tests.study_builders import (
     partition_header_payload,
     partition_payload,
     persona_payload,
+    resequence,
     population_payload,
     run_config_payload,
     scenario_payload,
@@ -58,7 +60,7 @@ def with_event(index: int, replacement: dict) -> dict:
 def test_payload_kinds_are_distinct_types_that_dispatch_on_kind_alone():
     adapter = TypeAdapter(TracePayload)
     kinds = {adapter.validate_python(e["payload"]).kind: type(adapter.validate_python(e["payload"])) for e in events_of(partition_payload())}
-    assert set(kinds) == {"lifecycle", "stimulus_published", "turn", "cost", "exposure_dropped", "intervention", "reflection"}
+    assert set(kinds) == {"lifecycle", "stimulus_published", "turn", "cost", "exposure_dropped", "intervention", "reflection", "tick_closed"}
     assert len(set(kinds.values())) == len(kinds)
 
 
@@ -83,7 +85,7 @@ def test_events_carry_no_seed_and_no_contract_version_field():
 
 @pytest.mark.parametrize(
     ("index", "persona", "match"),
-    [(3, None, "must name it"), (5, None, "must name it"), (1, "p-000001", "belongs to the world"), (8, "p-000001", "belongs to the world")],
+    [(R["first_turn"], None, "must name it"), (R["drop"], None, "must name it"), (R["concept"], "p-000001", "belongs to the world"), (R["launch"], "p-000001", "belongs to the world")],
     ids=["turn-unattributed", "drop-unattributed", "stimulus-attributed", "intervention-attributed"],
 )
 def test_events_are_attributed_to_personas_exactly_when_they_describe_one(index, persona, match):
@@ -245,7 +247,7 @@ def test_impressions_and_reactions_are_recorded_once():
     data = partition_payload()
     repeat = copy.deepcopy(data["events"][R["first_turn"]])
     repeat["payload"]["turn"]["impression"]["tick"] = 3
-    repeat.update(seq=10, tick=3, event_id=data["events"][R["second_turn"]]["event_id"])
+    repeat.update(seq=R["second_turn"], tick=3, event_id=data["events"][R["second_turn"]]["event_id"])
     data["events"][R["second_turn"]] = repeat
     with pytest.raises(ValidationError, match="repeats impression"):
         TracePartition.model_validate(data)
@@ -509,12 +511,15 @@ def test_paused_world_may_resume_and_events_after_completion_are_refused():
     data["events"][R["launch"]] = event(R["launch"], 3, {"kind": "lifecycle", "phase": "paused"})
     data["events"][R["reflection"]] = event(R["reflection"], 3, {"kind": "lifecycle", "phase": "started"})
     data["events"][R["second_turn"]] = event(R["second_turn"], 3, {"kind": "intervention", "intervention_kind": "launch"})
-    data["events"][R["third_turn"]] = event(R["third_turn"], 4, {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-ai/persona-8b", "input_tokens": 1, "output_tokens": 1, "cache_hit": True, "cost": 0.0})
+    data["events"][R["third_turn"]] = event(R["third_turn"], 4, COST_AT_TICK)
     assert TracePartition.model_validate(data).in_sequence[R["reflection"]].payload.phase.value == "started"
     data = partition_payload()
-    data["events"][R["completed"]], data["events"][R["second_turn"]] = event(R["second_turn"], 4, {"kind": "lifecycle", "phase": "completed"}), event(R["completed"], 4, {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-ai/persona-8b", "input_tokens": 1, "output_tokens": 1, "cache_hit": True, "cost": 0.0})
+    data["events"].append(event(len(data["events"]), 5, COST_AT_TICK))
     with pytest.raises(ValidationError, match="while the world is completed"):
         TracePartition.model_validate(data)
+
+
+COST_AT_TICK = {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-ai/persona-8b", "input_tokens": 1, "output_tokens": 1, "cache_hit": True, "cost": 0.0}
 
 
 # --- views ------------------------------------------------------------------------------------
@@ -552,8 +557,12 @@ def test_view_counts_must_equal_engagement_visible_from_earlier_ticks(likes):
 
 def test_engagement_from_the_same_tick_is_not_yet_visible():
     data = partition_payload()
-    second = data["events"][R["second_turn"]]
-    second["tick"] = second["payload"]["turn"]["impression"]["tick"] = 4
+    third = data["events"][R["third_turn"]]
+    third["tick"] = third["payload"]["turn"]["impression"]["tick"] = 3
+    close_3 = data["events"].pop(R["close_3"])
+    data["events"].insert(R["third_turn"], close_3)
+    data["events"].pop(R["close_4"])
+    resequence(data)
     with pytest.raises(ValidationError, match="shows 1 likes .* but 0 were visible"):
         TracePartition.model_validate(data)
 
@@ -647,3 +656,49 @@ def test_shared_community_is_absent_when_the_population_has_no_communities():
             if context.get("shared_community") is not None:
                 context["shared_community"] = None
     assert WorldRecord.model_validate({"population": population, "partition": data}).population.communities == ()
+
+
+
+# --- closed ticks -----------------------------------------------------------------------------
+
+
+def test_representative_partition_closes_every_tick_in_order():
+    partition = TracePartition.model_validate(partition_payload())
+    closes = [e.tick for e in partition.in_sequence if isinstance(e.payload, TickClosed)]
+    assert closes == [0, 1, 2, 3, 4]
+
+
+@pytest.mark.parametrize(
+    ("close", "tick", "match"),
+    [("close_1", 2, "closes tick 2, but ticks close in order and the next is 1"), ("close_0", 1, "the next is 0")],
+    ids=["skipping-a-tick", "not-starting-at-zero"],
+)
+def test_ticks_close_in_order(close, tick, match):
+    data = partition_payload()
+    data["events"][R[close]]["tick"] = tick
+    with pytest.raises(ValidationError, match=match):
+        TracePartition.model_validate(data)
+
+
+def test_nothing_is_recorded_for_a_tick_after_it_closed():
+    data = partition_payload()
+    late_drop = data["events"].pop(R["drop"])
+    data["events"].insert(R["close_1"], late_drop)
+    resequence(data)
+    with pytest.raises(ValidationError, match="recorded for tick 1 after that tick closed"):
+        TracePartition.model_validate(data)
+
+
+def test_closing_a_tick_twice_is_refused():
+    data = partition_payload()
+    data["events"].insert(R["close_1"] + 1, copy.deepcopy(data["events"][R["close_1"]]))
+    resequence(data)
+    with pytest.raises(ValidationError, match="closes tick 1, but ticks close in order and the next is 2"):
+        TracePartition.model_validate(data)
+
+
+def test_a_tick_close_belongs_to_the_world_not_a_persona():
+    record = copy.deepcopy(events_of(partition_payload())[R["close_0"]])
+    record["persona_id"] = "p-000001"
+    with pytest.raises(ValidationError, match="belongs to the world"):
+        TraceEvent.model_validate(record)

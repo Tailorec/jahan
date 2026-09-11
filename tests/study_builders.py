@@ -272,6 +272,14 @@ def turn_event(seq: int, tick: int, turn: dict, persona: str) -> dict:
                              "prompt_hash": "12" * 32, "persona_block_hash": "34" * 32}, persona)
 
 
+def resequence(data: dict) -> dict:
+    """Renumber a partition's events by their list order, for tests that insert or remove events."""
+    for seq, record in enumerate(data["events"]):
+        record["seq"] = seq
+        record["event_id"] = f"ev-{ulid(1000 + seq)}"
+    return data
+
+
 def partition_header_payload(scenario: dict | None = None, persona_ids: list[str] | None = None) -> dict:
     """A header whose run configuration pins exactly the pack, population and scenario it carries. Given persona
     ids, it describes a stand-in population of those personas instead of the representative one."""
@@ -290,15 +298,20 @@ PARTITION_ROLES = (
     "started",
     "concept",
     "claim_post",
+    "close_0",
     "first_turn",
     "first_turn_cost",
     "drop",
+    "close_1",
     "peer_post",
     "peer_reply",
+    "close_2",
     "launch",
     "reflection",
     "second_turn",
+    "close_3",
     "third_turn",
+    "close_4",
     "completed",
 )
 R = {name: seq for seq, name in enumerate(PARTITION_ROLES)}
@@ -311,14 +324,17 @@ def partition_payload(**header_overrides) -> dict:
         event(R["started"], 0, {"kind": "lifecycle", "phase": "started"}),
         event(R["concept"], 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(1), "tick": 0, "kind": "concept", "text": "Clear protein water"}}),
         event(R["claim_post"], 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(2), "tick": 0, "kind": "claim_post", "text": "20g protein, zero sugar", "claim_id": "C1"}}),
+        event(R["close_0"], 0, {"kind": "tick_closed"}),
         turn_event(R["first_turn"], 1, turn_payload("p-000001", 1, [(1, "interest", 0.8), (2, "social_proof", 0.0)], {
             "subject_stimulus_id": stimulus_id(1), "action": "comment", "verbatim": "the protein claim would get me",
             "belief_change": {"dimensions": {"value": 0.1}, "claim_credence": {"C1": 0.2}}, "intent": ssr_payload()}, n=1), "p-000001"),
         event(R["first_turn_cost"], 1, {"kind": "cost", "role": "tier_b", "model_id": "anthropic/claude-sonnet-4-5-20250929",
                      "input_tokens": 812, "output_tokens": 96, "cache_hit": False, "cost": 0.004}, "p-000001"),
         event(R["drop"], 1, {"kind": "exposure_dropped", "stimulus_id": stimulus_id(2), "channel": "social_feed", "reason": "budget_exhausted"}, "p-000002"),
+        event(R["close_1"], 1, {"kind": "tick_closed"}),
         event(R["peer_post"], 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(3), "tick": 2, "author": "p-000001", "kind": "peer_post", "text": "tried it after the gym"}}),
         event(R["peer_reply"], 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(4), "tick": 2, "author": "p-000002", "kind": "peer_reply", "text": "how was the taste?", "in_reply_to": stimulus_id(3)}}),
+        event(R["close_2"], 2, {"kind": "tick_closed"}),
         event(R["launch"], 3, {"kind": "intervention", "intervention_kind": "launch"}),
         event(R["reflection"], 3, {"kind": "reflection", "trigger": "tick_cadence", "change": {"claim_credence": {"C2": -0.1}}}, "p-000001"),
         # Views count only engagement from earlier ticks: st4's reply (tick 2) is visible here, and this
@@ -327,11 +343,13 @@ def partition_payload(**header_overrides) -> dict:
             "subject_stimulus_id": stimulus_id(3), "action": "like"},
             contexts={3: {"replies": 1, "tie_strength": 0.8, "shared_community": True}, 4: {"ancestry": [stimulus_id(3)]}},
             n=2), "p-000002"),
+        event(R["close_3"], 3, {"kind": "tick_closed"}),
         turn_event(R["third_turn"], 4, turn_payload("p-000003", 4, [(3, "wom", 0.5), (4, "forum", 0.3)], {
             "subject_stimulus_id": stimulus_id(4), "action": "upvote"},
             contexts={3: {"likes": 1, "replies": 1, "tie_strength": 0.0, "shared_community": False},
                       4: {"ancestry": [stimulus_id(3)], "tie_strength": 0.2, "shared_community": False}},
             n=3), "p-000003"),
+        event(R["close_4"], 4, {"kind": "tick_closed"}),
         event(R["completed"], 4, {"kind": "lifecycle", "phase": "completed"}),
     ]
     header = partition_header_payload(header_overrides.get("scenario"))

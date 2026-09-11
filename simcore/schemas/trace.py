@@ -82,6 +82,13 @@ class InterventionApplied(SimBaseModel):
     intervention_kind: InterventionKind
 
 
+class TickClosed(SimBaseModel):
+    """Marks the event's tick as fully recorded. Nothing more is recorded for it, and resume discards anything
+    after the last closed tick (ADR 0011)."""
+
+    kind: Literal["tick_closed"]
+
+
 class LifecycleRecorded(SimBaseModel):
     kind: Literal["lifecycle"]
     phase: LifecyclePhase
@@ -94,12 +101,13 @@ TracePayload = Annotated[
     | ReflectionRecorded
     | CostRecorded
     | InterventionApplied
+    | TickClosed
     | LifecycleRecorded,
     Field(discriminator="kind"),
 ]
 
 _PERSONA_EVENTS = frozenset({"exposure_dropped", "turn", "reflection"})
-_WORLD_EVENTS = frozenset({"stimulus_published", "intervention", "lifecycle"})
+_WORLD_EVENTS = frozenset({"stimulus_published", "intervention", "tick_closed", "lifecycle"})
 
 
 class TraceEvent(SimBaseModel):
@@ -207,6 +215,7 @@ class TracePartition(SimBaseModel):
         impressions: set[str] = set()
         reactions: set[str] = set()
         last_tick = 0
+        last_closed: int | None = None
         for event in self.in_sequence:
             where = f"event {event.seq} ({event.payload.kind})"
             if event.tick < last_tick:
@@ -215,6 +224,15 @@ class TracePartition(SimBaseModel):
                 raise ValueError(f"{where} at tick {event.tick} is beyond the scenario horizon of {scenario.horizon_ticks}")
             last_tick = event.tick
             payload = event.payload
+            if isinstance(payload, TickClosed):
+                next_to_close = 0 if last_closed is None else last_closed + 1
+                if event.tick != next_to_close:
+                    raise ValueError(f"{where} closes tick {event.tick}, but ticks close in order and the next is {next_to_close}")
+                last_closed = event.tick
+                continue
+            # A world completes, pauses or resumes after a tick closes; every other record belongs to an open tick.
+            if last_closed is not None and event.tick <= last_closed and not isinstance(payload, LifecycleRecorded):
+                raise ValueError(f"{where} is recorded for tick {event.tick} after that tick closed")
             if isinstance(payload, StimulusPublished):
                 stimulus = payload.stimulus
                 if stimulus.stimulus_id in published:
