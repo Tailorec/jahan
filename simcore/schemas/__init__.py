@@ -47,15 +47,19 @@ from .brief import (
 )
 from .enums import (
     ActionKind,
+    AnomalyKind,
     BeliefDim,
     Channel,
     ClaimSource,
+    Confidence,
     FieldOrigin,
+    FindingKind,
     InferenceRole,
     InterventionKind,
     PersonaFieldDomain,
     StimulusKind,
     TickUnit,
+    TrustLevel,
 )
 from .errors import BudgetExhausted, GateFailure, SchemaVersionError, SimError
 from .persona import KNOWN_PERSONA_SOURCES, AttributeValue, EmbeddingRef, Persona, PersonaSource
@@ -70,6 +74,7 @@ from .population import (
     SocialEdge,
     SocialGraph,
 )
+from .report import CalibrationRef, Finding, TrustStatement
 from .run import (
     Budget,
     ConceptCard,
@@ -138,6 +143,7 @@ __all__ = [
     "BriefHash",
     "CategoricalGateResult",
     "CategoryOntology",
+    "CalibrationRef",
     "Channel",
     "Claim",
     "ClaimId",
@@ -145,6 +151,7 @@ __all__ = [
     "Community",
     "CompletionPolicy",
     "ConceptCard",
+    "Confidence",
     "Competitor",
     "ConfigHash",
     "ContractVersion",
@@ -157,6 +164,8 @@ __all__ = [
     "ExposureDropped",
     "ExposureRecorded",
     "FieldOrigin",
+    "Finding",
+    "FindingKind",
     "FrozenDict",
     "GateFailure",
     "GateReport",
@@ -170,7 +179,6 @@ __all__ = [
     "Intervention",
     "InterventionApplied",
     "InterventionKind",
-    "KNOWN_PERSONA_SOURCES",
     "LifecycleRecorded",
     "MemoryView",
     "ModelPins",

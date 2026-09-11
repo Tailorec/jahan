@@ -124,3 +124,36 @@ class RunStatus(StrEnum):
     COMPLETED = "completed"
     PAUSED = "paused"
     PARTIAL = "partial"
+
+
+class TrustLevel(StrEnum):
+    """Whether a study's results have been checked against real human data; stated once per run."""
+
+    UNCALIBRATED = "uncalibrated"
+    CATEGORY_BENCHMARKED = "category_benchmarked"
+    PROSPECTIVELY_VALIDATED = "prospectively_validated"
+
+
+class Confidence(StrEnum):
+    """How strongly the evidence supports one finding; independent of engine calibration."""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class FindingKind(StrEnum):
+    """What a finding is; a recommendation is one kind of finding."""
+
+    OBJECTION = "objection"
+    BELIEF_SHIFT = "belief_shift"
+    WOM_PATH = "wom_path"
+    RECOMMENDATION = "recommendation"
+
+
+class AnomalyKind(StrEnum):
+    """The closed set of rule-based anomaly flags."""
+
+    HERDING = "herding"
+    BACKLASH = "backlash"
+    FLOP = "flop"
