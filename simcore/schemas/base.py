@@ -166,6 +166,12 @@ class SimBaseModel(BaseModel):
         return self.model_validate({**current, **update})
 
 
+def proportions_sum_to_one(mapping: Mapping[Any, float], *, tolerance: float = 1e-3) -> None:
+    total = sum(mapping.values())
+    if not mapping or abs(total - 1.0) > tolerance:
+        raise ValueError(f"proportions must sum to one within {tolerance}, got {total}")
+
+
 def canonical_payload(model: SimBaseModel) -> dict[str, Any]:
     """The JSON-ready structure a hash is computed over.
 
