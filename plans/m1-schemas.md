@@ -286,13 +286,13 @@ A provider outage now substitutes only a model the configuration names, and a re
 
 ### Acceptance criteria
 
-- [ ] A completion carries its text, template id, prompt hash, latency and the cost record it produced
-- [ ] A cost record names its route — primary, fallback or cache — and whether the cache served it is computed from the route
-- [ ] Model pins accept an optional fallback per role, and refuse a fallback for the embedding role or one identical to its primary
-- [ ] A partition accepts a billed model only as the primary on the primary route, the pinned fallback on the fallback route, or either on the cache route
-- [ ] A turn record lists at most one rejected prompt hash, distinct from the accepted one
-- [ ] A guardrail-violation record carries its impression, view, two distinct rejected prompt hashes and a rule from a closed set, and no reaction; it belongs to its impression's persona and tick, and its impression may not also appear in a turn
-- [ ] A partition verifies a violation's view as it verifies a turn's
+- [x] A completion carries its text, template id, prompt hash, latency and the cost record it produced
+- [x] A cost record names its route — primary, fallback or cache — and whether the cache served it is computed from the route
+- [x] Model pins accept an optional fallback per role, and refuse a fallback for the embedding role or one identical to its primary
+- [x] A partition accepts a billed model only as the primary on the primary route, the pinned fallback on the fallback route, or either on the cache route
+- [x] A turn record lists at most one rejected prompt hash, distinct from the accepted one
+- [x] A guardrail-violation record carries its impression, view, two distinct rejected prompt hashes and a rule from a closed set, and no reaction; it belongs to its impression's persona and tick, and its impression may not also appear in a turn
+- [x] A partition verifies a violation's view as it verifies a turn's
 
 ---
 
