@@ -20,6 +20,9 @@ from pydantic_core import CoreSchema, core_schema
 
 SCHEMA_VERSION = "1.0.0"
 
+# Pydantic refuses field names with a leading underscore, so no field can collide with this key.
+_VERSION_KEY = "_schema_version"
+
 
 UnitInterval = Annotated[float, Field(ge=0.0, le=1.0)]
 SignedUnitInterval = Annotated[float, Field(ge=-1.0, le=1.0)]
@@ -103,8 +106,8 @@ class SimBaseModel(BaseModel):
     """Base for every type crossing a module boundary.
 
     `_hash_exclude_` names fields that are outputs (observed cost, wall-clock
-    timestamps) and must not move a hash. `_hash_version_` folds
-    SCHEMA_VERSION into the hash; only the run configuration opts in.
+    timestamps) and must not move a hash, at whatever depth the model is nested.
+    `_hash_version_` folds SCHEMA_VERSION into the hash; only the run configuration opts in.
     """
 
     model_config = ConfigDict(
@@ -145,19 +148,47 @@ class SimBaseModel(BaseModel):
 
 
 def canonical_payload(model: SimBaseModel) -> dict[str, Any]:
-    payload = model.model_dump(mode="json", exclude=set(model._hash_exclude_))
-    if model._hash_version_:
-        payload = {"schema_version": SCHEMA_VERSION, **payload}
-    return payload
+    """The JSON-ready structure a hash is computed over.
+
+    Exclusions and version folding apply at every nesting level, set-valued fields are
+    sorted, and negative zero is normalised, so structures that compare equal hash equally.
+    """
+    return _canonical(model, model.model_dump(mode="json"))
+
+
+def _canonical(value: Any, dumped: Any) -> Any:
+    if isinstance(value, SimBaseModel) and isinstance(dumped, dict):
+        cls = type(value)
+        payload = {
+            name: _canonical(getattr(value, name), item)
+            for name, item in dumped.items()
+            if name not in cls._hash_exclude_
+        }
+        if cls._hash_version_:
+            payload[_VERSION_KEY] = SCHEMA_VERSION
+        return payload
+    if isinstance(value, Mapping) and isinstance(dumped, dict):
+        # Serialization preserves iteration order, so values align even where keys were rewritten for JSON.
+        return {
+            key: _canonical(item_value, item)
+            for (key, item), item_value in zip(dumped.items(), value.values(), strict=True)
+        }
+    if isinstance(value, (set, frozenset)) and isinstance(dumped, list):
+        items = [_canonical(item_value, item) for item_value, item in zip(value, dumped, strict=True)]
+        return sorted(items, key=_json_text)
+    if isinstance(value, (tuple, list)) and isinstance(dumped, list):
+        return [_canonical(item_value, item) for item_value, item in zip(value, dumped, strict=True)]
+    if isinstance(dumped, float) and dumped == 0.0:
+        return 0.0
+    return dumped
+
+
+def _json_text(payload: Any) -> str:
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
 def canonical_json(model: SimBaseModel) -> str:
-    return json.dumps(
-        canonical_payload(model),
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    )
+    return _json_text(canonical_payload(model))
 
 
 def canonical_hash(model: SimBaseModel) -> str:

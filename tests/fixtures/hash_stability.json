@@ -19,8 +19,18 @@
       "title": "Protein water"
     }
   },
+  "demo_policy": {
+    "hash": "d982f459ed6f85903129de73b7cd0c4fb5cb0683b617520f432f71bd2841cdb5",
+    "payload": {
+      "completable": [
+        "economics",
+        "media",
+        "decision_rules"
+      ]
+    }
+  },
   "demo_run_config": {
-    "hash": "732c328961d9ef192065ddca2fd25f730b722c1b45acafe44cfe56fa2b9ca887",
+    "hash": "2fcd068205e87c8b560eddc64121154efae0d596cd028df639304da8caf29cff",
     "payload": {
       "brief": {
         "audience_mix": {

@@ -29,6 +29,10 @@ class DemoBrief(SimBaseModel):
     fetched_at: str
 
 
+class DemoPolicy(SimBaseModel):
+    completable: frozenset[NonEmptyStr]
+
+
 class DemoRunConfig(SimBaseModel):
     _hash_exclude_: ClassVar[frozenset[str]] = frozenset({"observed_cost"})
     _hash_version_: ClassVar[bool] = True

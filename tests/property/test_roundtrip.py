@@ -1,7 +1,7 @@
 from hypothesis import given
 from hypothesis import strategies as st
 
-from tests.demo_contracts import DemoBrief, DemoRunConfig
+from tests.demo_contracts import DemoBrief, DemoPolicy, DemoRunConfig
 
 word = st.from_regex(r"[a-z][a-z0-9_]{0,15}", fullmatch=True)
 hex_digest = st.from_regex(r"[0-9a-f]{64}", fullmatch=True)
@@ -54,3 +54,10 @@ def test_demo_run_config_round_trips_over_generated_values(
     )
     assert DemoRunConfig.model_validate(config.model_dump(mode="json")) == config
     assert DemoRunConfig.model_validate_json(config.model_dump_json()) == config
+
+
+@given(completable=st.frozensets(word, max_size=6))
+def test_demo_policy_round_trips_over_generated_values(completable):
+    policy = DemoPolicy(completable=completable)
+    assert DemoPolicy.model_validate(policy.model_dump(mode="json")) == policy
+    assert DemoPolicy.model_validate_json(policy.model_dump_json()) == policy
