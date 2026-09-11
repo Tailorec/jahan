@@ -58,7 +58,7 @@ def make_brief_payload(**overrides: Any) -> dict[str, Any]:
 
 def make_run_config_payload(**overrides: Any) -> dict[str, Any]:
     payload: dict[str, Any] = {
-        "run_id": "run20260911a",
+        "run_id": "run-01j7x9k2m3n4p5q6r7s8t9v0wx",
         "brief": make_brief_payload(),
         "population_hash": "ab12" * 16,
         "seeds": (4021, 917731),

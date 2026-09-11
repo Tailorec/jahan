@@ -35,9 +35,13 @@ Identifier = Annotated[
     StringConstraints(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"),
 ]
 
-RunId = Annotated[str, StringConstraints(min_length=8, max_length=64, pattern=r"^[0-9a-z]+$")]
-StimulusId = Annotated[str, StringConstraints(min_length=8, max_length=64, pattern=r"^[0-9a-z]+$")]
-PersonaId = Identifier
+# Lowercase Crockford-base32 ULID, so identifiers sort by creation time. The first character
+# is at most 7 because 26 base32 characters carry 130 bits and a ULID uses 128.
+_ULID = r"[0-7][0-9a-hjkmnp-tv-z]{25}"
+RunId = Annotated[str, StringConstraints(pattern=rf"^run-{_ULID}$")]
+StimulusId = Annotated[str, StringConstraints(pattern=rf"^st-{_ULID}$")]
+# The body stays permissive until the dataset's row identifier format has been read.
+PersonaId = Annotated[str, StringConstraints(max_length=128, pattern=r"^p-[A-Za-z0-9][A-Za-z0-9._:-]*$")]
 
 HashDigest = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 BriefHash = HashDigest

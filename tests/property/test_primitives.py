@@ -68,17 +68,33 @@ def test_identifier_rules():
             adapter.validate_python(bad)
 
 
-def test_run_and_stimulus_ids_are_lowercase_alnum_and_sortable():
-    assert TypeAdapter(RunId).validate_python("run20260911a")
-    assert TypeAdapter(StimulusId).validate_python("stim00000001")
-    run_id = TypeAdapter(RunId)
-    for bad in ("RUN20260911A", "short", "with-dash", "x" * 65):
+VALID_ULID = "01j7x9k2m3n4p5q6r7s8t9v0wx"
+
+
+@pytest.mark.parametrize(("id_type", "prefix", "other_prefix"), [(RunId, "run-", "st-"), (StimulusId, "st-", "run-")])
+def test_run_and_stimulus_ids_are_prefixed_lowercase_ulids(id_type, prefix, other_prefix):
+    adapter = TypeAdapter(id_type)
+    assert adapter.validate_python(f"{prefix}{VALID_ULID}")
+    for bad in (
+        VALID_ULID,
+        f"{other_prefix}{VALID_ULID}",
+        f"{prefix.rstrip('-')}_{VALID_ULID}",
+        f"{prefix}{VALID_ULID.upper()}",
+        f"{prefix}{VALID_ULID[:-1]}",
+        f"{prefix}8{VALID_ULID[1:]}",
+        f"{prefix}{VALID_ULID[:-1]}u",
+    ):
         with pytest.raises(ValidationError):
-            run_id.validate_python(bad)
+            adapter.validate_python(bad)
 
 
-def test_persona_id_accepts_dataset_row_identifier():
-    assert TypeAdapter(PersonaId).validate_python("matraix.row:000042")
+def test_persona_id_is_prefixed_dataset_row_identifier():
+    adapter = TypeAdapter(PersonaId)
+    assert adapter.validate_python("p-000042")
+    assert adapter.validate_python("p-gss:1988:041")
+    for bad in ("000042", "q-000042", "p-", "p-has space", "p--leading-dash"):
+        with pytest.raises(ValidationError):
+            adapter.validate_python(bad)
 
 
 def test_hash_digest_is_64_lowercase_hex_chars():

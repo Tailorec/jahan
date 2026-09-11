@@ -5,7 +5,7 @@ from tests.demo_contracts import DemoBrief, DemoPolicy, DemoRunConfig
 
 word = st.from_regex(r"[a-z][a-z0-9_]{0,15}", fullmatch=True)
 hex_digest = st.from_regex(r"[0-9a-f]{64}", fullmatch=True)
-run_identifier = st.from_regex(r"[0-9a-z]{8,16}", fullmatch=True)
+run_identifier = st.from_regex(r"run-[0-7][0-9a-hjkmnp-tv-z]{25}", fullmatch=True)
 unit = st.floats(min_value=0.0, max_value=1.0, allow_nan=False, allow_infinity=False)
 
 
