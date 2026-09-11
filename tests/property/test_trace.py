@@ -522,7 +522,7 @@ def test_paused_world_may_resume_and_events_after_completion_are_refused():
 
 
 PAUSE_RUNG = {"kind": "degraded", "rung": "pause", "activation_rate": 0.40, "tier_b_frozen": True}
-COST_AT_TICK = {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-ai/persona-8b", "input_tokens": 1, "output_tokens": 1, "cache_hit": True, "cost": 0.0}
+COST_AT_TICK = {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-ai/persona-8b", "route": "cache", "input_tokens": 1, "output_tokens": 1, "cost": 0.0}
 
 
 # --- views ------------------------------------------------------------------------------------
@@ -767,3 +767,31 @@ def test_degradation_belongs_to_the_world_not_a_persona():
     record["persona_id"] = "p-000001"
     with pytest.raises(ValidationError, match="belongs to the world"):
         TraceEvent.model_validate(record)
+
+
+
+# --- routes -----------------------------------------------------------------------------------
+
+
+def cost(**overrides) -> dict:
+    return {**events_of(partition_payload())[R["first_turn_cost"]]["payload"], **overrides}
+
+
+@pytest.mark.parametrize(("route", "cached"), [("primary", False), ("fallback", False), ("cache", True)])
+def test_a_cost_names_its_route_and_cache_service_follows_from_it(route, cached):
+    record = CostRecorded.model_validate(cost(route=route, cost=0.0))
+    assert record.cache_hit is cached
+    assert "cache_hit" not in CostRecorded.model_fields
+    assert CostRecorded.model_validate_json(record.model_dump_json()) == record
+
+
+def test_a_stated_cache_hit_contradicting_the_route_is_refused():
+    with pytest.raises(ValidationError, match="computed"):
+        CostRecorded.model_validate({**cost(route="primary"), "cache_hit": True})
+    with pytest.raises(ValidationError):
+        CostRecorded.model_validate({k: v for k, v in cost().items() if k != "route"})
+
+
+def test_a_call_served_from_the_cache_bills_nothing():
+    with pytest.raises(ValidationError, match="bills nothing"):
+        CostRecorded.model_validate(cost(route="cache", cost=0.004))

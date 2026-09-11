@@ -98,6 +98,14 @@ class ActionKind(StrEnum):
     IGNORE = "ignore"
 
 
+class InferenceRoute(StrEnum):
+    """What served a model call: the pinned primary model, the role's pinned fallback, or the cache."""
+
+    PRIMARY = "primary"
+    FALLBACK = "fallback"
+    CACHE = "cache"
+
+
 class ExposureReason(StrEnum):
     """Why a stimulus got through to a persona; the random arm separates filter-driven from organic reach."""
 

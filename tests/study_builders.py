@@ -330,7 +330,7 @@ def partition_payload(**header_overrides) -> dict:
             "subject_stimulus_id": stimulus_id(1), "action": "comment", "verbatim": "the protein claim would get me",
             "belief_change": {"dimensions": {"value": 0.1}, "claim_credence": {"C1": 0.2}}, "intent": ssr_payload()}, n=1), "p-000001"),
         event(R["first_turn_cost"], 1, {"kind": "cost", "role": "tier_b", "model_id": "anthropic/claude-sonnet-4-5-20250929",
-                     "input_tokens": 812, "output_tokens": 96, "cache_hit": False, "cost": 0.004}, "p-000001"),
+                     "route": "primary", "input_tokens": 812, "output_tokens": 96, "cost": 0.004}, "p-000001"),
         event(R["drop"], 1, {"kind": "exposure_dropped", "stimulus_id": stimulus_id(2), "channel": "social_feed", "reason": "budget_exhausted"}, "p-000002"),
         event(R["close_1"], 1, {"kind": "tick_closed"}),
         event(R["peer_post"], 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(3), "tick": 2, "author": "p-000001", "kind": "peer_post", "text": "tried it after the gym"}}),

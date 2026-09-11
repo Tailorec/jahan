@@ -22,7 +22,7 @@ from .base import (
     canonical_hash,
 )
 from .brief import BriefPack
-from .enums import ActionKind, Channel, DegradationRung, DropReason, InferenceRole, InterventionKind, LifecyclePhase, ReflectionTrigger, RunStatus
+from .enums import ActionKind, Channel, DegradationRung, DropReason, InferenceRole, InferenceRoute, InterventionKind, LifecyclePhase, ReflectionTrigger, RunStatus
 from .errors import SchemaVersionError
 from .population import Population, PopulationManifest
 from .run import PinnedModelId, RunConfig, Scenario, WorldId, check_scenario_against_brief, derive_world_id
@@ -67,13 +67,26 @@ class ReflectionRecorded(SimBaseModel):
 
 
 class CostRecorded(SimBaseModel):
+    """What one model call billed, and which route served it; whether the cache served it follows from the route."""
+
     kind: Literal["cost"]
     role: InferenceRole
     model_id: PinnedModelId
+    route: InferenceRoute
     input_tokens: NonNegativeInt
     output_tokens: NonNegativeInt
-    cache_hit: bool
     cost: Annotated[float, Field(ge=0.0)]
+
+    @model_validator(mode="after")
+    def _cached_calls_bill_nothing(self) -> Self:
+        if self.route is InferenceRoute.CACHE and self.cost != 0.0:
+            raise ValueError(f"a call served from the cache bills nothing, but this one bills {self.cost}")
+        return self
+
+    @computed_field
+    @property
+    def cache_hit(self) -> bool:
+        return self.route is InferenceRoute.CACHE
 
 
 class InterventionApplied(SimBaseModel):
