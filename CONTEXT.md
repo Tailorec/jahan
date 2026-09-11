@@ -76,6 +76,10 @@ _Avoid_: run (a run is the whole study execution), simulation, trial, replicate
 
 ### Grounding and conditioning
 
+**Degradation**:
+A budget-driven reduction in how fully a world is simulated — optional reflections frozen, fewer personas activated per tick, or the world paused. A degraded world is not comparable to one that ran in full, so degradation is recorded where it happens.
+_Avoid_: throttling, fallback, downgrade
+
 **Category Ontology**:
 The shared, versioned description of a product category — which attributes matter, what kind of information each holds, which must be present for conditioning, which may be synthesized, and how ordered attributes are scaled. A brief names the version it is read against; it never carries its own copy.
 _Avoid_: schema, taxonomy, category config, codebook (the codebook is the dataset's, not the category's)
@@ -124,15 +128,39 @@ _Avoid_: impression (an impression is the whole set), view, delivery
 Everything one persona is shown on one channel in one tick. Personas react to an impression rather than to each stimulus separately, because seeing two things side by side is not the same as seeing each alone. A survey room impression holds exactly one exposure.
 _Avoid_: batch, feed, screen, exposure set
 
+**View**:
+The public context around what a persona is shown: how others have engaged with each stimulus, the thread it belongs to, and the persona's relationship to its author. A view covers exactly the stimuli in the impression, and never reveals other personas' private state or how the study is turning out.
+_Avoid_: world state, snapshot, context (context also includes the persona's own memories)
+
+**Social Proof**:
+Other personas' visible engagement with a stimulus — the counts a persona sees beside it. Social proof only works through what is visible, so it is part of the view rather than of the stimulus. Engagement becomes visible from the tick after it happens, never within the same tick.
+_Avoid_: popularity, virality, trending
+
+**Presentation**:
+An impression together with its view — everything a persona is given to react to in one turn.
+_Avoid_: prompt, input, context
+
 **Turn**:
 One persona reacting to one impression. The unit of simulation and the unit of cost.
 _Avoid_: step, tick (a tick contains many turns), call, action
+
+**Guardrail Violation**:
+A persona's response that referred to something it was never shown, even after being asked again with a stricter instruction. It is recorded in place of a reaction, so the persona does not react that tick.
+_Avoid_: hallucination, error, invalid response
 
 **Reaction**:
 What a persona produced from an impression — what they said, what they did, how their beliefs moved, and which stimulus they were responding to.
 _Avoid_: response, answer, output
 
 ### Belief and evidence
+
+**Construct**:
+The quantity a persona's free-text response is scored on, such as purchase intent.
+_Avoid_: metric, measure, question
+
+**Anchor Set**:
+Reference statements for each point of a construct's five-point scale, which a response is compared against to become a response distribution. Each category names the anchor set it uses for each construct.
+_Avoid_: rubric, scale labels, prompt examples
 
 **Adoption**:
 The probability that a respondent answers 4 or 5 on the five-point purchase-intent scale, weighted across audiences by their share — the headline measure of whether a variant would be bought.
