@@ -153,16 +153,16 @@ This is the phase carrying ADR 0003 — a persona reacts to an impression, and a
 
 ### Acceptance criteria
 
-- [ ] A probability mass containing a zero, a non-finite value, or a sum outside tolerance is refused
-- [ ] An impression holds at least one exposure and no more than its channel's budget
-- [ ] A survey-room impression holds exactly one exposure, using the same type as a feed impression
-- [ ] Exposures retain their per-stimulus attention, reason and seen flag when grouped into an impression
-- [ ] A reaction references the impression it saw and, separately, the stimulus it is about
-- [ ] Belief levels are bounded to the unit interval and deltas to the signed unit interval
-- [ ] Per-claim credence keys are refused unless they match the brief's claims exactly
-- [ ] A stimulus authored by a persona and one authored by the study are the same type, distinguished by whether an author is present
-- [ ] An elicitation result carries the embedding model that produced it, so a mismatch is detectable from the record alone
-- [ ] There is no field anywhere that accepts a model-emitted numeric rating
+- [x] A probability mass containing a zero, a non-finite value, or a sum outside tolerance is refused
+- [x] An impression holds at least one exposure and no more than its channel's budget
+- [x] A survey-room impression holds exactly one exposure, using the same type as a feed impression
+- [x] Exposures retain their per-stimulus attention, reason and seen flag when grouped into an impression
+- [x] A reaction references the impression it saw and, separately, the stimulus it is about
+- [x] Belief levels are bounded to the unit interval and deltas to the signed unit interval
+- [x] Per-claim credence keys are refused unless they match the brief's claims exactly
+- [x] A stimulus authored by a persona and one authored by the study are the same type, distinguished by whether an author is present
+- [x] An elicitation result carries the embedding model that produced it, so a mismatch is detectable from the record alone
+- [x] There is no field anywhere that accepts a model-emitted numeric rating
 
 ---
 
