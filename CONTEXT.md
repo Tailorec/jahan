@@ -117,11 +117,11 @@ Something a persona can be shown — a concept, a claim rendered as a post, anot
 _Avoid_: content, post (a post is one kind of stimulus), item, ad
 
 **Exposure**:
-One stimulus reaching one persona, with the reason it got through and how much attention it drew.
+One stimulus shown to one persona, with the reason it got through and how much attention it drew. A stimulus can be shown without being noticed; noticing is drawing any attention at all.
 _Avoid_: impression (an impression is the whole set), view, delivery
 
 **Impression**:
-Everything one persona sees on one channel in one tick. Personas react to an impression rather than to each stimulus separately, because seeing two things side by side is not the same as seeing each alone. A survey room impression holds exactly one exposure.
+Everything one persona is shown on one channel in one tick. Personas react to an impression rather than to each stimulus separately, because seeing two things side by side is not the same as seeing each alone. A survey room impression holds exactly one exposure.
 _Avoid_: batch, feed, screen, exposure set
 
 **Turn**:
@@ -133,6 +133,14 @@ What a persona produced from an impression — what they said, what they did, ho
 _Avoid_: response, answer, output
 
 ### Belief and evidence
+
+**Adoption**:
+The probability that a respondent answers 4 or 5 on the five-point purchase-intent scale, weighted across audiences by their share — the headline measure of whether a variant would be bought.
+_Avoid_: purchase rate, conversion, mean intent, score
+
+**Polarization**:
+How far communities' purchase-intent responses diverge from one another, weighted by community size — whether social dynamics split the population into camps. Divergence between audiences is reported separately, because camps and target-market splits are different findings.
+_Avoid_: disagreement, variance, spread, controversy
 
 **Belief**:
 What a persona currently holds to be true about the proposition — how much they credit each individual claim, and where they stand on value, personal fit, and trust. Beliefs move as personas encounter stimuli and each other.
