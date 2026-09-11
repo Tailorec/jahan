@@ -298,6 +298,7 @@ PARTITION_ROLES = (
     "launch",
     "reflection",
     "second_turn",
+    "third_turn",
     "completed",
 )
 R = {name: seq for seq, name in enumerate(PARTITION_ROLES)}
@@ -320,8 +321,17 @@ def partition_payload(**header_overrides) -> dict:
         event(R["peer_reply"], 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(4), "tick": 2, "author": "p-000002", "kind": "peer_reply", "text": "how was the taste?", "in_reply_to": stimulus_id(3)}}),
         event(R["launch"], 3, {"kind": "intervention", "intervention_kind": "launch"}),
         event(R["reflection"], 3, {"kind": "reflection", "trigger": "tick_cadence", "change": {"claim_credence": {"C2": -0.1}}}, "p-000001"),
+        # Views count only engagement from earlier ticks: st4's reply (tick 2) is visible here, and this
+        # turn's like is visible to the third turn. Ties follow the representative graph and communities.
         turn_event(R["second_turn"], 3, turn_payload("p-000002", 3, [(3, "wom", 0.6), (4, "forum", 0.4)], {
-            "subject_stimulus_id": stimulus_id(3), "action": "like"}, n=2), "p-000002"),
+            "subject_stimulus_id": stimulus_id(3), "action": "like"},
+            contexts={3: {"replies": 1, "tie_strength": 0.8, "shared_community": True}, 4: {"ancestry": [stimulus_id(3)]}},
+            n=2), "p-000002"),
+        turn_event(R["third_turn"], 4, turn_payload("p-000003", 4, [(3, "wom", 0.5), (4, "forum", 0.3)], {
+            "subject_stimulus_id": stimulus_id(4), "action": "upvote"},
+            contexts={3: {"likes": 1, "replies": 1, "tie_strength": 0.0, "shared_community": False},
+                      4: {"ancestry": [stimulus_id(3)], "tie_strength": 0.2, "shared_community": False}},
+            n=3), "p-000003"),
         event(R["completed"], 4, {"kind": "lifecycle", "phase": "completed"}),
     ]
     header = partition_header_payload(header_overrides.get("scenario"))

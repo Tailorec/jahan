@@ -21,11 +21,11 @@ from .base import (
     canonical_hash,
 )
 from .brief import BriefPack
-from .enums import Channel, DropReason, InferenceRole, InterventionKind, LifecyclePhase, ReflectionTrigger, RunStatus
+from .enums import ActionKind, Channel, DropReason, InferenceRole, InterventionKind, LifecyclePhase, ReflectionTrigger, RunStatus
 from .errors import SchemaVersionError
 from .population import PopulationManifest
 from .run import PinnedModelId, RunConfig, Scenario, WorldId, check_scenario_against_brief, derive_world_id
-from .sim import BeliefChange, Stimulus, Turn
+from .sim import BeliefChange, Stimulus, Turn, View
 
 ContractVersion = Annotated[str, StringConstraints(pattern=r"^\d+\.\d+\.\d+$")]
 
@@ -297,6 +297,79 @@ class TracePartition(SimBaseModel):
         if lifecycle is None:
             raise ValueError("a partition opens with a started event")
         return self
+
+
+    # Runs after every other check: a view is verified only once the events it describes are known to be sound.
+    @model_validator(mode="after")
+    def _views_show_what_was_visible(self) -> Self:
+        authors: dict[str, str | None] = {}
+        parents: dict[str, str | None] = {}
+        visible: dict[str, Counter[str]] = {}
+        pending: dict[str, Counter[str]] = {}
+        current_tick = 0
+        for event in self.in_sequence:
+            if event.tick > current_tick:
+                for stimulus_id, counts in pending.items():
+                    visible.setdefault(stimulus_id, Counter()).update(counts)
+                pending, current_tick = {}, event.tick
+            payload = event.payload
+            if isinstance(payload, StimulusPublished):
+                stimulus = payload.stimulus
+                authors[stimulus.stimulus_id] = stimulus.author
+                parents[stimulus.stimulus_id] = stimulus.in_reply_to
+                if stimulus.in_reply_to is not None:
+                    pending.setdefault(stimulus.in_reply_to, Counter())["replies"] += 1
+            elif isinstance(payload, TurnRecorded):
+                where = f"event {event.seq} (turn)"
+                turn = payload.turn
+                _check_view(turn.view, turn.impression.persona_id, authors, parents, visible, where)
+                counted = _ENGAGEMENT.get(turn.reaction.action)
+                if counted is not None:
+                    pending.setdefault(turn.reaction.subject_stimulus_id, Counter())[counted] += 1
+        return self
+
+
+# Which count a reaction adds to the stimulus it is about; reposts count quotes too.
+_ENGAGEMENT: dict[ActionKind, str] = {
+    ActionKind.LIKE: "likes",
+    ActionKind.REPOST: "reposts",
+    ActionKind.QUOTE: "reposts",
+    ActionKind.UPVOTE: "upvotes",
+    ActionKind.DOWNVOTE: "downvotes",
+}
+_COUNTS = ("likes", "reposts", "replies", "upvotes", "downvotes")
+
+
+def _check_view(
+    view: View,
+    viewer: str,
+    authors: Mapping[str, str | None],
+    parents: Mapping[str, str | None],
+    visible: Mapping[str, Counter[str]],
+    where: str,
+) -> None:
+    """A view must show exactly what was visible: engagement from earlier ticks, the stimulus's reply chain,
+    and an author relationship only where one can exist."""
+    for stimulus_id, context in view.contexts.items():
+        seen = visible.get(stimulus_id, Counter())
+        for name in _COUNTS:
+            if getattr(context, name) != seen[name]:
+                raise ValueError(
+                    f"{where} shows {getattr(context, name)} {name} on {stimulus_id}, but {seen[name]} were visible from earlier ticks"
+                )
+        chain, parent = [], parents.get(stimulus_id)
+        while parent is not None:
+            chain.append(parent)
+            parent = parents.get(parent)
+        if list(context.ancestry) != chain:
+            raise ValueError(f"{where} shows ancestry {list(context.ancestry)} for {stimulus_id}, but its reply chain is {chain}")
+        author = authors.get(stimulus_id)
+        if author is None or author == viewer:
+            if context.tie_strength is not None or context.shared_community is not None:
+                whose = "the study's" if author is None else "the viewer's own"
+                raise ValueError(f"{where} records an author relationship for {stimulus_id}, which is {whose}")
+        elif context.tie_strength is None:
+            raise ValueError(f"{where} records no tie strength to {author}, the author of {stimulus_id}")
 
 
 _LIFECYCLE_TRANSITIONS: dict[LifecyclePhase | None, frozenset[LifecyclePhase]] = {

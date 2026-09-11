@@ -155,7 +155,7 @@ def test_events_from_another_world_refused():
         TracePartition.model_validate(with_event(R["completed"], record))
 
 
-@pytest.mark.parametrize(("seq", "match"), [(12, "without gaps"), (3, "without gaps")], ids=["gap", "repeat"])
+@pytest.mark.parametrize(("seq", "match"), [(len(PARTITION_ROLES), "without gaps"), (3, "without gaps")], ids=["gap", "repeat"])
 def test_sequence_must_be_gapless(seq, match):
     record = copy.deepcopy(events_of(partition_payload())[R["completed"]])
     record["seq"] = seq
@@ -219,7 +219,8 @@ def test_claims_named_anywhere_in_the_trace_must_be_the_briefs(index, replacemen
 
 def test_impressions_are_bounded_by_the_scenarios_exposure_budget():
     four = [(1, "interest", 0.8), (2, "random", 0.1), (3, "wom", 0.2), (4, "forum", 0.3)]
-    crowded = turn_event(R["second_turn"], 3, turn_payload("p-000002", 3, four, {"subject_stimulus_id": stimulus_id(1), "action": "like"}, n=2), "p-000002")
+    views = {3: {"replies": 1, "tie_strength": 0.8, "shared_community": True}, 4: {"ancestry": [stimulus_id(3)]}}
+    crowded = turn_event(R["second_turn"], 3, turn_payload("p-000002", 3, four, {"subject_stimulus_id": stimulus_id(3), "action": "like"}, contexts=views, n=2), "p-000002")
     with pytest.raises(ValidationError, match="budget of 3"):
         TracePartition.model_validate(with_event(R["second_turn"], crowded))
     wide_scenario = scenario_payload(exposure_budget=5)
@@ -468,6 +469,9 @@ def test_turns_recall_only_earlier_turns_or_reflections_of_the_same_persona():
     data["events"][R["second_turn"]]["payload"]["turn"]["impression"]["persona_id"] = "p-000001"
     data["events"][R["second_turn"]]["persona_id"] = "p-000001"
     data["events"][R["second_turn"]]["payload"]["memory_ids"] = [own_turn, own_reflection]
+    contexts = data["events"][R["second_turn"]]["payload"]["turn"]["view"]["contexts"]
+    contexts[stimulus_id(3)].update(tie_strength=None, shared_community=None)
+    contexts[stimulus_id(4)].update(tie_strength=0.8, shared_community=True)
     assert TracePartition.model_validate(data).in_sequence[R["second_turn"]].payload.memory_ids == (own_turn, own_reflection)
 
 
@@ -502,8 +506,86 @@ def test_paused_world_may_resume_and_events_after_completion_are_refused():
     data["events"][R["launch"]] = event(R["launch"], 3, {"kind": "lifecycle", "phase": "paused"})
     data["events"][R["reflection"]] = event(R["reflection"], 3, {"kind": "lifecycle", "phase": "started"})
     data["events"][R["second_turn"]] = event(R["second_turn"], 3, {"kind": "intervention", "intervention_kind": "launch"})
+    data["events"][R["third_turn"]] = event(R["third_turn"], 4, {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-ai/persona-8b", "input_tokens": 1, "output_tokens": 1, "cache_hit": True, "cost": 0.0})
     assert TracePartition.model_validate(data).in_sequence[R["reflection"]].payload.phase.value == "started"
     data = partition_payload()
     data["events"][R["completed"]], data["events"][R["second_turn"]] = event(R["second_turn"], 4, {"kind": "lifecycle", "phase": "completed"}), event(R["completed"], 4, {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-ai/persona-8b", "input_tokens": 1, "output_tokens": 1, "cache_hit": True, "cost": 0.0})
     with pytest.raises(ValidationError, match="while the world is completed"):
+        TracePartition.model_validate(data)
+
+
+# --- views ------------------------------------------------------------------------------------
+
+
+def contexts_of(data: dict, role: str) -> dict:
+    return data["events"][R[role]]["payload"]["turn"]["view"]["contexts"]
+
+
+def with_turn_before_completion(data: dict, tick: int, turn: dict, persona: str) -> dict:
+    completed = data["events"].pop(R["completed"])
+    data["events"].append(turn_event(R["completed"], tick, turn, persona))
+    completed.update(seq=R["completed"] + 1, tick=tick, event_id=f"ev-{ulid(5000)}")
+    data["events"].append(completed)
+    return data
+
+
+def test_representative_views_count_engagement_from_the_partitions_own_earlier_turns():
+    partition = TracePartition.model_validate(partition_payload())
+    second = partition.in_sequence[R["second_turn"]].payload.turn.view.contexts[stimulus_id(3)]
+    third = partition.in_sequence[R["third_turn"]].payload.turn.view.contexts
+    assert (second.likes, second.replies) == (0, 1)
+    assert (third[stimulus_id(3)].likes, third[stimulus_id(3)].replies) == (1, 1)
+    assert third[stimulus_id(4)].ancestry == (stimulus_id(3),)
+    assert TracePartition.model_validate_json(partition.model_dump_json()) == partition
+
+
+@pytest.mark.parametrize("likes", [0, 2])
+def test_view_counts_must_equal_engagement_visible_from_earlier_ticks(likes):
+    data = partition_payload()
+    contexts_of(data, "third_turn")[stimulus_id(3)]["likes"] = likes
+    with pytest.raises(ValidationError, match="1 were visible from earlier ticks"):
+        TracePartition.model_validate(data)
+
+
+def test_engagement_from_the_same_tick_is_not_yet_visible():
+    data = partition_payload()
+    second = data["events"][R["second_turn"]]
+    second["tick"] = second["payload"]["turn"]["impression"]["tick"] = 4
+    with pytest.raises(ValidationError, match="shows 1 likes .* but 0 were visible"):
+        TracePartition.model_validate(data)
+
+
+@pytest.mark.parametrize(("upvotes", "downvotes", "valid"), [(1, 0, True), (0, 1, False), (0, 0, False)])
+def test_upvotes_and_downvotes_are_counted_separately(upvotes, downvotes, valid):
+    viewer_turn = turn_payload("p-000004", 5, [(4, "forum", 0.7)], {"subject_stimulus_id": stimulus_id(4), "action": "downvote"},
+                               contexts={4: {"upvotes": upvotes, "downvotes": downvotes, "ancestry": [stimulus_id(3)], "tie_strength": 0.0}}, n=4)
+    data = with_turn_before_completion(partition_payload(), 5, viewer_turn, "p-000004")
+    if valid:
+        assert TracePartition.model_validate(data).in_sequence[R["completed"]].payload.turn.view.contexts[stimulus_id(4)].upvotes == 1
+    else:
+        with pytest.raises(ValidationError, match="were visible from earlier ticks"):
+            TracePartition.model_validate(data)
+
+
+@pytest.mark.parametrize("ancestry", [[], [stimulus_id(1)], [stimulus_id(3), stimulus_id(1)]], ids=["missing-parent", "wrong-parent", "extra-ancestor"])
+def test_view_ancestry_must_follow_the_reply_chain(ancestry):
+    data = partition_payload()
+    contexts_of(data, "third_turn")[stimulus_id(4)]["ancestry"] = ancestry
+    with pytest.raises(ValidationError, match="its reply chain is"):
+        TracePartition.model_validate(data)
+
+
+@pytest.mark.parametrize(
+    ("role", "stimulus", "change", "match"),
+    [
+        ("first_turn", 1, {"tie_strength": 0.3}, "which is the study's"),
+        ("second_turn", 4, {"shared_community": True}, "which is the viewer's own"),
+        ("third_turn", 3, {"tie_strength": None}, "records no tie strength"),
+    ],
+    ids=["study-authored", "viewers-own", "peer-authored-without-tie"],
+)
+def test_author_relationship_exists_only_for_other_personas_stimuli(role, stimulus, change, match):
+    data = partition_payload()
+    contexts_of(data, role)[stimulus_id(stimulus)].update(change)
+    with pytest.raises(ValidationError, match=match):
         TracePartition.model_validate(data)
