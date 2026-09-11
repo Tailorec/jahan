@@ -24,12 +24,43 @@ def load_brief(path: Path, ontology_dir: Path) -> BriefPack:
     return _validate(BriefPack, {"brief": brief, "ontology": ontology}, path)
 
 
+class _RefuseDuplicateKeys(yaml.SafeLoader):
+    """`safe_load` keeps the last of a repeated key, so a brief with two `claims:` blocks would
+    silently lose one — and its hash would pin the truncated study."""
+
+
+def _mapping_without_duplicates(loader: _RefuseDuplicateKeys, node: yaml.MappingNode, deep: bool = False) -> dict:
+    mapping: dict = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise yaml.constructor.ConstructorError(
+                "while reading a mapping", node.start_mark, f"the key {key!r} is given more than once", key_node.start_mark
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_RefuseDuplicateKeys.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _mapping_without_duplicates)
+
+
 def _read_yaml(path: Path) -> Any:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as error:
         raise GateFailure(f"{path}: cannot be read ({error.strerror or error})") from error
-    return yaml.safe_load(text)
+    try:
+        payload = yaml.load(text, _RefuseDuplicateKeys)
+    except yaml.constructor.ConstructorError as error:
+        where = f" (line {error.problem_mark.line + 1})" if error.problem_mark is not None else ""
+        raise GateFailure(f"{path}: {error.problem}{where}") from error
+    except yaml.YAMLError as error:
+        raise GateFailure(f"{path}: is not valid YAML\n{error}") from error
+    if payload is None:
+        raise GateFailure(f"{path}: is empty")
+    if not isinstance(payload, dict):
+        raise GateFailure(f"{path}: must be a mapping of fields at its top level, not {_describe(payload)}")
+    return payload
 
 
 def _read_ontology(ontology_dir: Path, category: str, version: str) -> CategoryOntology:
@@ -76,3 +107,9 @@ def _got(problem: dict) -> str:
     if isinstance(value, (dict, list)) or value is None:
         return ""
     return f" (got {value!r})"
+
+
+def _describe(payload: Any) -> str:
+    return {list: "a list", str: "text", int: "a number", float: "a number", bool: "a true/false value"}.get(
+        type(payload), type(payload).__name__
+    )
