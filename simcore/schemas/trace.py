@@ -338,9 +338,18 @@ class TracePartition(SimBaseModel):
             if isinstance(payload, StimulusPublished) and payload.stimulus.author is not None and payload.stimulus.author not in members:
                 raise ValueError(f"{where} is authored by {payload.stimulus.author}, who is not in this population")
             if isinstance(payload, CostRecorded):
-                pinned = getattr(config.pins, payload.role.value)
-                if payload.model_id != pinned:
-                    raise ValueError(f"{where} bills {payload.model_id} for {payload.role.value}, but the run pins {pinned}")
+                primary = getattr(config.pins, payload.role.value)
+                fallback = config.pins.fallbacks.get(payload.role)
+                allowed = {
+                    InferenceRoute.PRIMARY: {primary},
+                    InferenceRoute.FALLBACK: {fallback} - {None},
+                    InferenceRoute.CACHE: {primary, fallback} - {None},
+                }[payload.route]
+                if payload.model_id not in allowed:
+                    pinned = f"primary {primary}" + (f" and fallback {fallback}" if fallback else " and no fallback")
+                    raise ValueError(
+                        f"{where} bills {payload.model_id} for {payload.role.value} on the {payload.route.value} route, but the run pins {pinned}"
+                    )
             if isinstance(payload, TurnRecorded):
                 if payload.template_id not in config.template_hashes:
                     raise ValueError(f"{where} renders template {payload.template_id!r}, which the run does not pin")

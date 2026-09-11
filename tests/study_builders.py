@@ -39,6 +39,7 @@ def beliefs_payload(**overrides) -> dict:
     return payload
 
 
+TIER_A_FALLBACK = "openrouter/qwen/qwen-2.5-7b-instruct"
 TEMPLATE_HASHES = {"persona_turn": "ab" * 32, "reflection": "cd" * 32}
 ANCHOR_SET_HASHES = {"pi-beverage-v1": "ef" * 32}
 
@@ -174,6 +175,7 @@ def run_config_payload(**overrides) -> dict:
             "tier_a": "openrouter/camel-ai/persona-8b",
             "tier_b": "anthropic/claude-sonnet-4-5-20250929",
             "embed": "openai/text-embedding-3-small",
+            "fallbacks": {"tier_a": TIER_A_FALLBACK},
         },
         "budget": {"max_cost": 20.0, "currency": "USD"},
         "brief_hash": "aa11" * 16,
@@ -310,6 +312,7 @@ PARTITION_ROLES = (
     "launch",
     "reflection",
     "second_turn",
+    "second_turn_cost",
     "close_3",
     "third_turn",
     "close_4",
@@ -345,6 +348,9 @@ def partition_payload(**header_overrides) -> dict:
             "subject_stimulus_id": stimulus_id(3), "action": "like"},
             contexts={3: {"replies": 1, "tie_strength": 0.8, "shared_community": True}, 4: {"ancestry": [stimulus_id(3)]}},
             n=2), "p-000002"),
+        # The second turn was served by tier A's pinned fallback.
+        event(R["second_turn_cost"], 3, {"kind": "cost", "role": "tier_a", "model_id": TIER_A_FALLBACK,
+                                         "route": "fallback", "input_tokens": 540, "output_tokens": 41, "cost": 0.0002}, "p-000002"),
         event(R["close_3"], 3, {"kind": "tick_closed"}),
         turn_event(R["third_turn"], 4, turn_payload("p-000003", 4, [(3, "wom", 0.5), (4, "forum", 0.3)], {
             "subject_stimulus_id": stimulus_id(4), "action": "upvote"},

@@ -27,7 +27,7 @@ from .base import (
     proportions_sum_to_one,
 )
 from .brief import BriefPack, ClaimId, CurrencyCode, Price, ProductBrief
-from .enums import InterventionKind, TickUnit
+from .enums import InferenceRole, InterventionKind, TickUnit
 
 VariantId = Identifier
 WorldId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{12}$")]
@@ -49,10 +49,26 @@ PinnedModelId = Annotated[
 
 
 class ModelPins(SimBaseModel):
+    """The model every role resolves to, and at most one pinned fallback per role. Embedding never falls back:
+    anchors and responses scored with different embedding models are not comparable (ADR 0012)."""
+
     tier_a: PinnedModelId
     tier_b: PinnedModelId
     embed: PinnedModelId
     safety: PinnedModelId | None = None
+    fallbacks: FrozenDict[InferenceRole, PinnedModelId] = FrozenDict({})
+
+    @model_validator(mode="after")
+    def _fallbacks_are_real_alternatives(self) -> Self:
+        if InferenceRole.EMBED in self.fallbacks:
+            raise ValueError("the embedding role never falls back: responses must be scored in the anchors' embedding space")
+        for role, fallback in self.fallbacks.items():
+            primary = getattr(self, role.value)
+            if primary is None:
+                raise ValueError(f"{role.value} has a fallback but no primary model")
+            if fallback == primary:
+                raise ValueError(f"{role.value}'s fallback {fallback} is its primary model")
+        return self
 
 
 class Budget(SimBaseModel):

@@ -6,6 +6,8 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from simcore.schemas import (
+    InferenceRole,
+    ModelPins,
     Degraded,
     TickClosed,
     SCHEMA_VERSION,
@@ -795,3 +797,60 @@ def test_a_stated_cache_hit_contradicting_the_route_is_refused():
 def test_a_call_served_from_the_cache_bills_nothing():
     with pytest.raises(ValidationError, match="bills nothing"):
         CostRecorded.model_validate(cost(route="cache", cost=0.004))
+
+
+# --- fallbacks --------------------------------------------------------------------------------
+
+
+def pins(**overrides) -> dict:
+    return {**run_config_payload()["pins"], **overrides}
+
+
+def test_pins_accept_one_fallback_per_role():
+    parsed = ModelPins.model_validate(pins(fallbacks={"tier_a": "openrouter/qwen/qwen-2.5-7b-instruct", "tier_b": "openai/gpt-4o-2024-08-06"}))
+    assert dict(parsed.fallbacks) == {InferenceRole.TIER_A: "openrouter/qwen/qwen-2.5-7b-instruct", InferenceRole.TIER_B: "openai/gpt-4o-2024-08-06"}
+    assert ModelPins.model_validate(pins(fallbacks={})).fallbacks == {}
+
+
+@pytest.mark.parametrize(
+    ("fallbacks", "overrides", "match"),
+    [
+        ({"embed": "openai/text-embedding-3-large"}, {}, "never falls back"),
+        ({"tier_a": "openrouter/camel-ai/persona-8b"}, {}, "is its primary model"),
+        ({"safety": "openai/omni-moderation-2024-09-26"}, {"safety": None}, "no primary model"),
+        ({"tier_a": "openrouter/qwen/qwen-latest"}, {}, "floating"),
+    ],
+    ids=["embedding-fallback", "fallback-is-primary", "fallback-without-primary", "floating-fallback"],
+)
+def test_pins_refuse_fallbacks_that_are_not_real_pinned_alternatives(fallbacks, overrides, match):
+    with pytest.raises(ValidationError, match=match):
+        ModelPins.model_validate(pins(fallbacks=fallbacks, **overrides))
+
+
+def test_representative_partition_bills_a_fallback_served_turn():
+    billed = TracePartition.model_validate(partition_payload()).in_sequence[R["second_turn_cost"]].payload
+    assert (billed.route.value, billed.model_id) == ("fallback", "openrouter/qwen/qwen-2.5-7b-instruct")
+
+
+@pytest.mark.parametrize(
+    ("role", "change", "valid"),
+    [
+        ("first_turn_cost", {"route": "primary", "model_id": "anthropic/claude-sonnet-4-5-20250929"}, True),
+        ("first_turn_cost", {"route": "fallback", "model_id": "anthropic/claude-sonnet-4-5-20250929"}, False),
+        ("second_turn_cost", {"route": "primary", "model_id": "openrouter/qwen/qwen-2.5-7b-instruct"}, False),
+        ("second_turn_cost", {"route": "cache", "model_id": "openrouter/qwen/qwen-2.5-7b-instruct", "cost": 0.0}, True),
+        ("second_turn_cost", {"route": "cache", "model_id": "openrouter/camel-ai/persona-8b", "cost": 0.0}, True),
+        ("second_turn_cost", {"route": "cache", "model_id": "openai/gpt-4o-2024-08-06", "cost": 0.0}, False),
+        ("second_turn_cost", {"route": "fallback", "model_id": "openrouter/camel-ai/persona-8b"}, False),
+    ],
+    ids=["primary-on-primary", "tier-b-without-fallback", "fallback-on-primary-route", "cached-fallback",
+         "cached-primary", "cached-unpinned", "primary-on-fallback-route"],
+)
+def test_a_billed_model_must_match_its_route(role, change, valid):
+    data = partition_payload()
+    data["events"][R[role]]["payload"].update(change)
+    if valid:
+        assert TracePartition.model_validate(data).in_sequence[R[role]].payload.route.value == change["route"]
+    else:
+        with pytest.raises(ValidationError, match="but the run pins"):
+            TracePartition.model_validate(data)
