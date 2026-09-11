@@ -11,12 +11,11 @@ from pydantic import Field, StringConstraints, computed_field, model_validator
 
 from . import base
 from .base import (
-    ULID_PATTERN,
+    EventId,
     HashDigest,
     Identifier,
     NonNegativeInt,
     PersonaId,
-    PopulationHash,
     SimBaseModel,
     StimulusId,
     canonical_hash,
@@ -24,10 +23,10 @@ from .base import (
 from .brief import BriefPack
 from .enums import Channel, DropReason, InferenceRole, InterventionKind, LifecyclePhase, ReflectionTrigger, RunStatus
 from .errors import SchemaVersionError
+from .population import PopulationManifest
 from .run import PinnedModelId, RunConfig, Scenario, WorldId, check_scenario_against_brief, derive_world_id
 from .sim import BeliefChange, Stimulus, Turn
 
-EventId = Annotated[str, StringConstraints(pattern=rf"^ev-{ULID_PATTERN}$")]
 ContractVersion = Annotated[str, StringConstraints(pattern=r"^\d+\.\d+\.\d+$")]
 
 
@@ -54,7 +53,8 @@ class TurnRecorded(SimBaseModel):
     template_id: Identifier
     prompt_hash: HashDigest
     persona_block_hash: HashDigest
-    memory_ids: tuple[Identifier, ...] = ()
+    # A remembered experience is an earlier turn or reflection of the same persona, cited by its event id.
+    memory_ids: tuple[EventId, ...] = ()
 
 
 class ReflectionRecorded(SimBaseModel):
@@ -117,12 +117,6 @@ class TraceEvent(SimBaseModel):
     persona_id: PersonaId | None = None
     payload: TracePayload
 
-    @classmethod
-    def model_construct(cls, _fields_set: set[str] | None = None, **values: Any) -> Self:
-        if isinstance(values.get("payload"), Mapping):
-            raise TypeError("the unvalidated path takes payload models, not mappings; build the payload model first")
-        return super().model_construct(_fields_set, **values)
-
     @model_validator(mode="after")
     def _attributed_to_the_right_persona(self) -> Self:
         kind = self.payload.kind
@@ -142,24 +136,40 @@ class TraceEvent(SimBaseModel):
 
 
 class PartitionHeader(SimBaseModel):
-    """Written once per partition: the contract it was written under, and everything that identifies its
-    world. The world id is derived from the scenario, replicate seed and population, never stated."""
+    """Written once per partition: the contract it was written under, the run it belongs to, and everything
+    that identifies its world. Every pin the run configuration states is verified here against the object it
+    pins — the brief, the ontology, the population and its graph, the scenario and the replicate seed — and the
+    world id is derived from them, never stated."""
 
     contract_version: ContractVersion
+    config: RunConfig
     pack: BriefPack
+    population: PopulationManifest
     scenario: Scenario
     replicate_seed: NonNegativeInt
-    population_hash: PopulationHash
 
     @model_validator(mode="after")
-    def _scenario_tests_the_packed_brief(self) -> Self:
+    def _run_pins_are_the_objects_carried(self) -> Self:
+        config = self.config
+        if canonical_hash(self.pack.brief) != config.brief_hash:
+            raise ValueError("the run pins a different brief than this partition carries")
+        if canonical_hash(self.pack.ontology) != config.ontology_hash:
+            raise ValueError("the run pins a different ontology than this partition carries")
+        if self.population.population_hash != config.population_hash:
+            raise ValueError("the run pins a different population than this partition carries")
+        if self.population.graph_hash != config.graph_hash:
+            raise ValueError("the run pins a different social graph than this partition's population has")
+        if canonical_hash(self.scenario) not in {canonical_hash(scenario) for scenario in config.scenarios}:
+            raise ValueError("this partition's scenario is not one the run configures")
+        if self.replicate_seed not in config.seeds:
+            raise ValueError(f"replicate seed {self.replicate_seed} is not one of the run's seeds {list(config.seeds)}")
         check_scenario_against_brief(self.scenario, self.pack.brief)
         return self
 
     @computed_field
     @property
     def world_id(self) -> str:
-        return derive_world_id(self.scenario, self.replicate_seed, self.population_hash)
+        return derive_world_id(self.scenario, self.replicate_seed, self.population.population_hash)
 
 
 class TracePartition(SimBaseModel):
@@ -239,6 +249,62 @@ class TracePartition(SimBaseModel):
                     raise ValueError(f"{where} applies a {payload.intervention_kind.value} the scenario does not schedule at tick {event.tick}")
                 scheduled[key] -= 1
         return self
+
+
+    @model_validator(mode="after")
+    def _events_honour_the_run_and_its_population(self) -> Self:
+        config, members = self.header.config, set(self.header.population.persona_ids)
+        category = self.header.pack.brief.product.category
+        lifecycle: LifecyclePhase | None = None
+        remembered: dict[str, str] = {}
+        for event in self.in_sequence:
+            where = f"event {event.seq} ({event.payload.kind})"
+            payload = event.payload
+            if lifecycle is None and not isinstance(payload, LifecycleRecorded):
+                raise ValueError(f"{where} precedes the world starting; a partition opens with a started event")
+            if isinstance(payload, LifecycleRecorded):
+                allowed = _LIFECYCLE_TRANSITIONS[lifecycle]
+                if payload.phase not in allowed:
+                    raise ValueError(f"{where} moves the world from {lifecycle.value if lifecycle else 'nothing'} to {payload.phase.value}")
+                lifecycle = payload.phase
+                continue
+            if lifecycle is not LifecyclePhase.STARTED:
+                raise ValueError(f"{where} is recorded while the world is {lifecycle.value}")
+            if event.persona_id is not None and event.persona_id not in members:
+                raise ValueError(f"{where} belongs to {event.persona_id}, who is not in this population")
+            if isinstance(payload, StimulusPublished) and payload.stimulus.author is not None and payload.stimulus.author not in members:
+                raise ValueError(f"{where} is authored by {payload.stimulus.author}, who is not in this population")
+            if isinstance(payload, CostRecorded):
+                pinned = getattr(config.pins, payload.role.value)
+                if payload.model_id != pinned:
+                    raise ValueError(f"{where} bills {payload.model_id} for {payload.role.value}, but the run pins {pinned}")
+            if isinstance(payload, TurnRecorded):
+                if payload.template_id not in config.template_hashes:
+                    raise ValueError(f"{where} renders template {payload.template_id!r}, which the run does not pin")
+                for memory in payload.memory_ids:
+                    if remembered.get(memory) != event.persona_id:
+                        raise ValueError(f"{where} recalls {memory}, which is not an earlier turn or reflection of {event.persona_id}")
+                intent = payload.turn.reaction.intent
+                if intent is not None:
+                    if intent.embed_model_id != config.pins.embed:
+                        raise ValueError(f"{where} elicited with {intent.embed_model_id}, but the run pins {config.pins.embed} for every embedding")
+                    if intent.anchor_set_id not in config.anchor_set_hashes:
+                        raise ValueError(f"{where} scored against anchor set {intent.anchor_set_id!r}, which the run does not pin")
+                    if intent.category != category:
+                        raise ValueError(f"{where} scored against {intent.category!r} anchors for a {category!r} brief")
+            if isinstance(payload, (TurnRecorded, ReflectionRecorded)):
+                remembered[event.event_id] = event.persona_id
+        if lifecycle is None:
+            raise ValueError("a partition opens with a started event")
+        return self
+
+
+_LIFECYCLE_TRANSITIONS: dict[LifecyclePhase | None, frozenset[LifecyclePhase]] = {
+    None: frozenset({LifecyclePhase.STARTED}),
+    LifecyclePhase.STARTED: frozenset({LifecyclePhase.PAUSED, LifecyclePhase.COMPLETED}),
+    LifecyclePhase.PAUSED: frozenset({LifecyclePhase.STARTED}),
+    LifecyclePhase.COMPLETED: frozenset(),
+}
 
 
 def _check_claims(change: BeliefChange, claims: set[str], where: str) -> None:

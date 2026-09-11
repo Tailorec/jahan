@@ -10,7 +10,7 @@ from pydantic import ValidationError
 import simcore.schemas.base as base_module
 from simcore.schemas import (
     Budget,
-    ConceptCard,
+    Variant,
     Intervention,
     ModelPins,
     RunConfig,
@@ -147,7 +147,7 @@ def test_repeated_scenarios_refused(model):
 
 def test_one_variant_id_naming_two_concept_cards_refused():
     other = scenario_payload(variant={"variant_id": "v1baseline", "name": "Something else", "description": "d"}, price={"amount": 2.99, "currency": "USD"})
-    with pytest.raises(ValidationError, match="two different concept cards"):
+    with pytest.raises(ValidationError, match="two different variants"):
         SweepGrid.model_validate(grid_payload(scenarios=[scenario_payload(), other]))
 
 
@@ -217,7 +217,7 @@ def test_price_sweep_over_one_concept_expands_to_distinct_world_identities():
 
 
 def test_price_appears_on_the_scenario_only():
-    for model in (ConceptCard, Intervention, ModelPins, Budget, RunConfig, SweepGrid):
+    for model in (Variant, Intervention, ModelPins, Budget, RunConfig, SweepGrid):
         assert "Price" not in repr(model.model_fields), f"{model.__name__} carries a price"
 
 

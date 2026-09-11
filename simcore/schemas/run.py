@@ -60,7 +60,7 @@ class Budget(SimBaseModel):
     currency: CurrencyCode
 
 
-class ConceptCard(SimBaseModel):
+class Variant(SimBaseModel):
     """One version of the proposition under test; the price it faces lives on the scenario."""
 
     variant_id: VariantId
@@ -77,7 +77,7 @@ class Intervention(SimBaseModel):
 class Scenario(SimBaseModel):
     """One variant together with the conditions it faces; it describes no random draw."""
 
-    variant: ConceptCard
+    variant: Variant
     price: Price
     audience_weights: FrozenDict[Identifier, UnitInterval]
     tick_unit: TickUnit
@@ -115,7 +115,7 @@ def _check_study_cells(scenarios: Iterable[Scenario], seeds: Iterable[int]) -> N
     for scenario in scenarios:
         card = canonical_hash(scenario.variant)
         if cards.setdefault(scenario.variant.variant_id, card) != card:
-            raise ValueError(f"variant {scenario.variant.variant_id!r} names two different concept cards")
+            raise ValueError(f"variant {scenario.variant.variant_id!r} names two different variants")
     units = {scenario.tick_unit for scenario in scenarios}
     if len(units) > 1:
         raise ValueError(f"scenarios in one run must share a tick unit to be comparable, got {sorted(units)}")

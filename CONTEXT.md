@@ -142,6 +142,10 @@ _Avoid_: purchase rate, conversion, mean intent, score
 How far communities' purchase-intent responses diverge from one another, weighted by community size — whether social dynamics split the population into camps. Divergence between audiences is reported separately, because camps and target-market splits are different findings.
 _Avoid_: disagreement, variance, spread, controversy
 
+**Memory**:
+A persona's recollection of something it already experienced — an earlier turn or reflection of its own. A memory is never new information; it is a pointer back into what happened.
+_Avoid_: context, history, knowledge
+
 **Belief**:
 What a persona currently holds to be true about the proposition — how much they credit each individual claim, and where they stand on value, personal fit, and trust. Beliefs move as personas encounter stimuli and each other.
 _Avoid_: attitude, opinion, sentiment, score

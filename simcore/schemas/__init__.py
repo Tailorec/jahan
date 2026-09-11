@@ -5,9 +5,9 @@ plus the standard library from outside.
 """
 
 from .base import (
-    SCHEMA_VERSION,
     BriefHash,
     ConfigHash,
+    EventId,
     FrozenDict,
     GraphHash,
     HashDigest,
@@ -19,6 +19,7 @@ from .base import (
     PopulationHash,
     PositiveInt,
     RunId,
+    SCHEMA_VERSION,
     SignedUnitInterval,
     SimBaseModel,
     StimulusId,
@@ -26,6 +27,7 @@ from .base import (
     canonical_hash,
     canonical_json,
     canonical_payload,
+    hash_payload,
 )
 from .brief import (
     Assumption,
@@ -78,13 +80,14 @@ from .population import (
     PopulationManifest,
     SocialEdge,
     SocialGraph,
+    derive_population_hash,
 )
 from .report import (
-    MIN_DISTRIBUTION_SIMILARITY,
-    MIN_RANK_ATTAINMENT,
     Anomaly,
     CalibrationRef,
     Finding,
+    MIN_DISTRIBUTION_SIMILARITY,
+    MIN_RANK_ATTAINMENT,
     ObjectionCluster,
     OutcomeDigest,
     Report,
@@ -93,7 +96,6 @@ from .report import (
 )
 from .run import (
     Budget,
-    ConceptCard,
     Intervention,
     ModelPins,
     PinnedModelId,
@@ -101,6 +103,7 @@ from .run import (
     Scenario,
     SweepGrid,
     SweepPlan,
+    Variant,
     VariantId,
     WorldId,
     check_scenario_against_brief,
@@ -108,12 +111,12 @@ from .run import (
     derive_world_seed,
 )
 from .sim import (
-    MIN_REFERENCE_SETS,
     BeliefChange,
     Beliefs,
     Exposure,
     Impression,
     ImpressionId,
+    MIN_REFERENCE_SETS,
     MemoryView,
     PMF5,
     Reaction,
@@ -128,7 +131,6 @@ from .trace import (
     ContractMigration,
     ContractVersion,
     CostRecorded,
-    EventId,
     ExposureDropped,
     InterventionApplied,
     LifecycleRecorded,
@@ -169,7 +171,6 @@ __all__ = [
     "Community",
     "Competitor",
     "CompletionPolicy",
-    "ConceptCard",
     "Confidence",
     "ConfigHash",
     "ContractMigration",
@@ -263,14 +264,17 @@ __all__ = [
     "Turn",
     "TurnRecorded",
     "UnitInterval",
+    "Variant",
     "VariantId",
     "WorldId",
     "canonical_hash",
     "canonical_json",
     "canonical_payload",
     "check_scenario_against_brief",
+    "derive_population_hash",
     "derive_world_id",
     "derive_world_seed",
     "ensure_same_tick_unit",
+    "hash_payload",
     "read_partition",
 ]

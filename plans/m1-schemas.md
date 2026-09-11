@@ -51,6 +51,8 @@ The demonstration is deliberately narrow — one small model defined purely to e
 - [x] A misspelled or mistyped hash exclusion, or a field that could displace the folded contract version, is refused or made impossible
 - [x] Copying a model with updates re-validates those updates
 - [x] Run, stimulus and persona identifiers enforce their documented prefixed formats
+- [x] Unvalidated construction refuses raw mappings wherever a field expects a model
+- [x] The representative study's population, graph and configuration hashes and world ids are pinned per contract version, so a hashed shape cannot change without a version bump
 
 ---
 
@@ -110,6 +112,7 @@ This is the phase where the engine's central invariant becomes structural: a per
 - [x] Persona embeddings are referenced by position rather than stored inline, keeping the numeric library out of the package; positions are distinct and share one model and dimension
 - [x] Personas are exactly the manifest's persona ids, sampled once each; the achieved mix reports every declared audience
 - [x] The social graph ties only members of the population, each tie once; communities require a graph and partition the population
+- [x] A population's hash is derived from its brief, ontology, seed, personas, graph and communities, and a graph's hash from its ties regardless of order or direction; a manifest stating other hashes is refused
 
 ---
 
@@ -190,6 +193,10 @@ This is the hottest write path in the engine, so the phase also establishes the 
 - [x] Unvalidated construction is available, documented and covered in continuous integration, and refuses raw mappings as payloads
 - [x] There is no field capable of storing a full prompt; a turn records its template id and hashes of its parts
 - [x] A registry entry embeds the run configuration — every hash, seed, model pin, template hash and anchor-set hash — and derives its config hash, under the contract it was registered with, and its world ids
+- [x] A partition header carries the run configuration and population manifest, and refuses a run whose brief, ontology, population, graph, scenario or seed pins disagree with what the partition carries
+- [x] Events belong to personas in the population, render only pinned templates, elicit only with the pinned embedding model and anchor sets against the brief's category, and bill only pinned models
+- [x] A turn's memories cite earlier turns or reflections of the same persona by event id
+- [x] A partition opens with the world starting, moves only through started, paused and completed, and records nothing while paused or after completion
 
 ---
 

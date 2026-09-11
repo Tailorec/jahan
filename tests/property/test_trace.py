@@ -10,6 +10,7 @@ from simcore.schemas import (
     ContractMigration,
     CostRecorded,
     EventId,
+    PartitionHeader,
     RunConfig,
     RunRegistryEntry,
     SchemaVersionError,
@@ -23,6 +24,7 @@ from simcore.schemas import (
 )
 from tests.study_builders import (
     event,
+    partition_header_payload,
     partition_payload,
     run_config_payload,
     scenario_payload,
@@ -114,7 +116,7 @@ def test_event_id_format():
 
 def test_unvalidated_construction_takes_payload_models_not_mappings():
     record = events_of(partition_payload())[4]
-    with pytest.raises(TypeError, match="payload models"):
+    with pytest.raises(TypeError, match="takes models, not mappings"):
         TraceEvent.model_construct(**record)
     built = TraceEvent.model_construct(**{**record, "payload": CostRecorded.model_validate(record["payload"])})
     assert built.payload.kind == "cost"
@@ -132,7 +134,7 @@ def test_representative_partition_validates_and_round_trips():
 
 def test_world_id_is_derived_by_the_header_never_stated():
     partition = TracePartition.model_validate(partition_payload())
-    assert partition.header.world_id == derive_world_id(partition.header.scenario, 4021, partition.header.population_hash)
+    assert partition.header.world_id == derive_world_id(partition.header.scenario, 4021, partition.header.population.population_hash)
     data = partition_payload()
     data["header"]["world_id"] = "ffffffffffff"
     with pytest.raises(ValidationError, match="computed"):
@@ -251,7 +253,8 @@ def test_turn_inside_a_partition_still_refuses_a_subject_not_shown():
 
 def test_events_at_realistic_volume_round_trip_fully_validated_in_any_stored_order():
     turns = 20_000
-    world = world_id_for()
+    header = partition_header_payload(persona_ids=[f"p-{i:06d}" for i in range(2000)])
+    world = PartitionHeader.model_validate(header).world_id
     constructed = [TraceEvent.model_validate(event(0, 0, {"kind": "lifecycle", "phase": "started"}, world=world))]
     for s in range(1, 51):
         constructed.append(TraceEvent.model_validate(event(len(constructed), 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(s), "tick": 0, "kind": "concept", "text": f"copy {s}"}}, world=world)))
@@ -267,7 +270,6 @@ def test_events_at_realistic_volume_round_trip_fully_validated_in_any_stored_ord
         constructed.append(TraceEvent.model_construct(event_id=f"ev-{ulid(10_000 + t)}", world_id=world, tick=tick, seq=len(constructed), persona_id=persona, payload=payload))
 
     stored = sorted((json.loads(json.dumps(e.model_dump(mode="json"))) for e in constructed), key=lambda e: (e["persona_id"] or "", e["tick"], e["seq"]))
-    header = partition_payload()["header"]
     partition = TracePartition.model_validate({"header": header, "events": stored})
     assert len(partition.events) == len(constructed)
     assert list(partition.in_sequence) == constructed
@@ -394,3 +396,110 @@ def test_registry_entry_keeps_the_hash_it_was_registered_under():
 def test_registry_entry_cannot_repeat_seeds_or_worlds():
     with pytest.raises(ValidationError, match="seeds repeated"):
         RunRegistryEntry.model_validate(registry_payload(config=run_config_payload(seeds=[4021, 4021])))
+
+
+# --- the run and population a partition belongs to --------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("config_override", "match"),
+    [
+        ({"brief_hash": "00" * 32}, "different brief"),
+        ({"ontology_hash": "00" * 32}, "different ontology"),
+        ({"population_hash": "00" * 32}, "different population"),
+        ({"graph_hash": None}, "different social graph"),
+        ({"seeds": [1, 2]}, "not one of the run's seeds"),
+    ],
+    ids=["brief", "ontology", "population", "graph", "seed"],
+)
+def test_header_verifies_every_pin_against_the_object_it_pins(config_override, match):
+    header = partition_header_payload()
+    header["config"].update(config_override)
+    with pytest.raises(ValidationError, match=match):
+        PartitionHeader.model_validate(header)
+
+
+def test_header_scenario_must_be_one_the_run_configures():
+    header = partition_header_payload()
+    header["config"]["scenarios"] = [scenario_payload(horizon_ticks=60)]
+    with pytest.raises(ValidationError, match="not one the run configures"):
+        PartitionHeader.model_validate(header)
+
+
+def with_payload_change(index: int, change) -> dict:
+    data = partition_payload()
+    change(data["events"][index])
+    return data
+
+
+@pytest.mark.parametrize(
+    ("index", "change", "match"),
+    [
+        (10, lambda e: e.update(persona_id="p-999999") or e["payload"]["turn"]["impression"].update(persona_id="p-999999"), "not in this population"),
+        (6, lambda e: e["payload"]["stimulus"].update(author="p-999999"), "not in this population"),
+        (3, lambda e: e["payload"].update(template_id="unpinned_template"), "does not pin"),
+        (3, lambda e: e["payload"]["turn"]["reaction"]["intent"].update(embed_model_id="voyage/voyage-3-large"), "pins openai/text-embedding-3-small for every embedding"),
+        (3, lambda e: e["payload"]["turn"]["reaction"]["intent"].update(anchor_set_id="pi-snacks-v9"), "does not pin"),
+        (3, lambda e: e["payload"]["turn"]["reaction"]["intent"].update(category="snack_bar"), "anchors for a 'beverage_protein' brief"),
+        (4, lambda e: e["payload"].update(model_id="openai/gpt-4o-2024-08-06"), "but the run pins"),
+    ],
+    ids=["turn-by-stranger", "stimulus-by-stranger", "unpinned-template", "other-embedding-model", "unpinned-anchor-set", "foreign-category", "unpinned-cost-model"],
+)
+def test_events_must_honour_the_run_and_its_population(index, change, match):
+    with pytest.raises(ValidationError, match=match):
+        TracePartition.model_validate(with_payload_change(index, change))
+
+
+def test_turns_recall_only_earlier_turns_or_reflections_of_the_same_persona():
+    data = partition_payload()
+    own_turn, own_reflection = data["events"][3]["event_id"], data["events"][9]["event_id"]
+    data["events"][10]["payload"]["memory_ids"] = [data["events"][3]["event_id"]]
+    with pytest.raises(ValidationError, match="not an earlier turn or reflection of p-000002"):
+        TracePartition.model_validate(data)
+    data = partition_payload()
+    data["events"][3]["payload"]["memory_ids"] = [data["events"][9]["event_id"]]
+    with pytest.raises(ValidationError, match="not an earlier turn or reflection"):
+        TracePartition.model_validate(data)
+    data = partition_payload()
+    data["events"][10]["payload"]["turn"]["impression"]["persona_id"] = "p-000001"
+    data["events"][10]["persona_id"] = "p-000001"
+    data["events"][10]["payload"]["memory_ids"] = [own_turn, own_reflection]
+    assert TracePartition.model_validate(data).in_sequence[10].payload.memory_ids == (own_turn, own_reflection)
+
+
+@pytest.mark.parametrize(
+    ("phases", "match"),
+    [
+        ({0: "completed"}, "moves the world from nothing to completed"),
+        ({11: "started"}, "moves the world from started to started"),
+        ({8: "paused"}, "recorded while the world is paused"),
+    ],
+    ids=["completed-first", "started-twice", "events-while-paused"],
+)
+def test_lifecycle_moves_through_valid_phases_and_nothing_happens_while_stopped(phases, match):
+    data = partition_payload()
+    for index, phase in phases.items():
+        data["events"][index] = event(index, data["events"][index]["tick"], {"kind": "lifecycle", "phase": phase})
+    with pytest.raises(ValidationError, match=match):
+        TracePartition.model_validate(data)
+
+
+def test_partition_must_open_with_the_world_starting():
+    data = partition_payload()
+    data["events"] = [e for e in data["events"] if e["seq"] != 0]
+    for record in data["events"]:
+        record["seq"] -= 1
+    with pytest.raises(ValidationError, match="precedes the world starting"):
+        TracePartition.model_validate(data)
+
+
+def test_paused_world_may_resume_and_events_after_completion_are_refused():
+    data = partition_payload()
+    data["events"][8] = event(8, 3, {"kind": "lifecycle", "phase": "paused"})
+    data["events"][9] = event(9, 3, {"kind": "lifecycle", "phase": "started"})
+    data["events"][10] = event(10, 3, {"kind": "intervention", "intervention_kind": "launch"})
+    assert TracePartition.model_validate(data).in_sequence[9].payload.phase.value == "started"
+    data = partition_payload()
+    data["events"][11], data["events"][10] = event(10, 4, {"kind": "lifecycle", "phase": "completed"}), event(11, 4, {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-ai/persona-8b", "input_tokens": 1, "output_tokens": 1, "cache_hit": True, "cost": 0.0})
+    with pytest.raises(ValidationError, match="while the world is completed"):
+        TracePartition.model_validate(data)
