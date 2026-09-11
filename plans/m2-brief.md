@@ -32,13 +32,13 @@ Claims carry no evidence yet — that path arrives in phase 5 — so this slice 
 
 ### Acceptance criteria
 
-- [ ] A brief authored as YAML loads into a `BriefPack` whose brief, ontology and audiences are the ones the file describes
-- [ ] Loading opens no socket and reads no clock, and the suite's existing isolation proves it
-- [ ] The shipped ontology is loaded from `ontologies/`, and the example brief from `examples/`, by the same call a user would make
-- [ ] A brief naming an ontology version that does not exist raises `GateFailure`, not a file-not-found traceback
-- [ ] A brief the contract refuses — an unknown key, a missing required field, a malformed price — raises `GateFailure`
-- [ ] The module's public surface is one function; nothing else is importable from it yet
-- [ ] `pyyaml` is a declared dependency
+- [x] A brief authored as YAML loads into a `BriefPack` whose brief, ontology and audiences are the ones the file describes
+- [x] Loading opens no socket and reads no clock, and the suite's existing isolation proves it
+- [x] The shipped ontology is loaded from `ontologies/`, and the example brief from `examples/`, by the same call a user would make
+- [x] A brief naming an ontology version that does not exist raises `GateFailure`, not a file-not-found traceback
+- [x] A brief the contract refuses — an unknown key, a missing required field, a malformed price — raises `GateFailure`
+- [x] The module's public surface is one function; nothing else is importable from it yet
+- [x] `pyyaml` is a declared dependency
 
 ---
 
