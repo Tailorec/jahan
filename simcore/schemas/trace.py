@@ -249,6 +249,9 @@ class PartitionHeader(SimBaseModel):
             raise ValueError("this partition's scenario is not one the run configures")
         if self.replicate_seed not in config.seeds:
             raise ValueError(f"replicate seed {self.replicate_seed} is not one of the run's seeds {list(config.seeds)}")
+        unpinned = sorted(set(self.pack.ontology.anchor_sets.values()) - set(config.anchor_set_hashes))
+        if unpinned:
+            raise ValueError(f"the run does not pin anchor sets this partition's ontology names: {unpinned}")
         check_scenario_against_brief(self.scenario, self.pack.brief)
         return self
 
@@ -354,7 +357,7 @@ class TracePartition(SimBaseModel):
     @model_validator(mode="after")
     def _events_honour_the_run_and_its_population(self) -> Self:
         config, members = self.header.config, set(self.header.population.persona_ids)
-        category = self.header.pack.brief.product.category
+        category, ontology = self.header.pack.brief.product.category, self.header.pack.ontology
         lifecycle: LifecyclePhase | None = None
         last_degradation: Degraded | None = None
         remembered: dict[str, str] = {}
@@ -409,6 +412,13 @@ class TracePartition(SimBaseModel):
                         raise ValueError(f"{where} elicited with {intent.embed_model_id}, but the run pins {config.pins.embed} for every embedding")
                     if intent.anchor_set_id not in config.anchor_set_hashes:
                         raise ValueError(f"{where} scored against anchor set {intent.anchor_set_id!r}, which the run does not pin")
+                    named = ontology.anchor_sets.get(intent.construct_id)
+                    if named is None:
+                        raise ValueError(f"{where} scores {intent.construct_id!r}, which the ontology names no anchor set for")
+                    if intent.anchor_set_id != named:
+                        raise ValueError(
+                            f"{where} scored against anchor set {intent.anchor_set_id!r}, but the ontology names {named!r} for {intent.construct_id!r}"
+                        )
                     if intent.category != category:
                         raise ValueError(f"{where} scored against {intent.category!r} anchors for a {category!r} brief")
             if isinstance(payload, (TurnRecorded, ReflectionRecorded)):

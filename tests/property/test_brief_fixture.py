@@ -46,10 +46,11 @@ def test_representative_brief_hash_is_pinned():
     assert canonical_hash(ProductBrief.model_validate(load("example_brief.json"))) == pinned("example_brief")
 
 
-def test_representative_ontology_ranks_its_attributes():
+def test_representative_ontology_ranks_its_attributes_and_names_its_anchor_sets():
     ontology = CategoryOntology.model_validate(load("example_ontology.json"))
     assert ontology.relevance_order[: len(ontology.conditioning_set)] == ("age", "sex", "exercise_frequency")
     assert set(ontology.relevance_order) == set(ontology.attribute_domains)
+    assert ontology.anchor_sets == {"purchase_intent": "pi-beverage-v1"}
 
 
 def test_representative_ontology_hash_is_pinned():

@@ -9,6 +9,7 @@ from .base import FrozenDict, HashDigest, Identifier, NonEmptyStr, SimBaseModel
 from .enums import ClaimSource, PersonaFieldDomain
 
 ClaimId = Annotated[str, StringConstraints(pattern=r"^C[1-9][0-9]*$")]
+ConstructId = Identifier
 CurrencyCode = Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]
 AttributeId = Identifier
 
@@ -99,6 +100,8 @@ class CategoryOntology(SimBaseModel):
     ordinal_scales: tuple[OrdinalScale, ...] = ()
     # Most relevant first. A prompt cut to a token budget drops from the end, so the conditioning set leads it.
     relevance_order: tuple[AttributeId, ...] = Field(min_length=1)
+    # The anchor set each construct is scored against, so a study cannot be scored against another category's.
+    anchor_sets: FrozenDict[ConstructId, Identifier] = Field(min_length=1)
 
     @model_validator(mode="after")
     def _referenced_attributes_declare_a_domain(self) -> Self:

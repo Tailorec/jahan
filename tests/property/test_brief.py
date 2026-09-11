@@ -28,6 +28,7 @@ ONTOLOGY = {
     },
     "conditioning_set": ["age", "exercise_frequency"],
     "relevance_order": ["age", "exercise_frequency", "diet_protein_focus"],
+    "anchor_sets": {"purchase_intent": "pi-beverage-v1"},
     "completion_policy": {"completable_domains": ["economic", "decision_rule", "media"]},
     "ordinal_scales": [
         {
@@ -378,6 +379,24 @@ def test_relevance_order_refuses_a_conditioning_attribute_outranked_by_a_non_con
     order = ["age", "diet_protein_focus", "exercise_frequency"]
     with pytest.raises(ValidationError, match=r"'exercise_frequency' is outranked by \['diet_protein_focus'\]"):
         CategoryOntology.model_validate(ontology_payload(relevance_order=order))
+
+
+def test_ontology_names_the_anchor_set_for_each_construct():
+    ontology = CategoryOntology.model_validate(ontology_payload())
+    assert ontology.anchor_sets["purchase_intent"] == "pi-beverage-v1"
+    assert CategoryOntology.model_validate(
+        ontology_payload(anchor_sets={"purchase_intent": "pi-beverage-v1", "brand_trust": "bt-beverage-v2"})
+    ).anchor_sets["brand_trust"] == "bt-beverage-v2"
+
+
+@pytest.mark.parametrize("field", ["relevance_order", "anchor_sets"])
+def test_an_ontology_that_ranks_nothing_or_names_no_anchors_is_refused(field):
+    payload = ontology_payload()
+    del payload[field]
+    with pytest.raises(ValidationError, match=field):
+        CategoryOntology.model_validate(payload)
+    with pytest.raises(ValidationError, match=field):
+        CategoryOntology.model_validate(ontology_payload(**{field: [] if field == "relevance_order" else {}}))
 
 
 # --- brief pack ----------------------------------------------------------------------------

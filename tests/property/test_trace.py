@@ -33,6 +33,7 @@ from tests.study_builders import (
     R,
     event,
     partition_header_payload,
+    partition_run_config,
     partition_payload,
     persona_payload,
     resequence,
@@ -434,6 +435,12 @@ def test_header_verifies_every_pin_against_the_object_it_pins(config_override, m
         PartitionHeader.model_validate(header)
 
 
+def test_header_refuses_a_run_that_does_not_pin_an_anchor_set_its_ontology_names():
+    config = partition_run_config(anchor_set_hashes={"pi-snacks-v9": "ef" * 32})
+    with pytest.raises(ValidationError, match=r"does not pin anchor sets this partition's ontology names: \['pi-beverage-v1'\]"):
+        PartitionHeader.model_validate({**partition_header_payload(), "config": config})
+
+
 def test_header_scenario_must_be_one_the_run_configures():
     header = partition_header_payload()
     header["config"]["scenarios"] = [scenario_payload(horizon_ticks=60)]
@@ -456,13 +463,23 @@ def with_payload_change(index: int, change) -> dict:
         (R["first_turn"], lambda e: e["payload"]["turn"]["reaction"]["intent"].update(embed_model_id="voyage/voyage-3-large"), "pins openai/text-embedding-3-small for every embedding"),
         (R["first_turn"], lambda e: e["payload"]["turn"]["reaction"]["intent"].update(anchor_set_id="pi-snacks-v9"), "does not pin"),
         (R["first_turn"], lambda e: e["payload"]["turn"]["reaction"]["intent"].update(category="snack_bar"), "anchors for a 'beverage_protein' brief"),
+        (R["first_turn"], lambda e: e["payload"]["turn"]["reaction"]["intent"].update(construct_id="brand_trust"), "which the ontology names no anchor set for"),
         (R["first_turn_cost"], lambda e: e["payload"].update(model_id="openai/gpt-4o-2024-08-06"), "but the run pins"),
     ],
-    ids=["turn-by-stranger", "stimulus-by-stranger", "unpinned-template", "other-embedding-model", "unpinned-anchor-set", "foreign-category", "unpinned-cost-model"],
+    ids=["turn-by-stranger", "stimulus-by-stranger", "unpinned-template", "other-embedding-model", "unpinned-anchor-set", "foreign-category", "unnamed-construct", "unpinned-cost-model"],
 )
 def test_events_must_honour_the_run_and_its_population(index, change, match):
     with pytest.raises(ValidationError, match=match):
         TracePartition.model_validate(with_payload_change(index, change))
+
+
+def test_an_elicitation_is_scored_against_the_anchor_set_its_ontology_names():
+    data = partition_payload()
+    # The run pins both anchor sets, so only the ontology decides which one purchase intent is scored against.
+    data["header"]["config"] = partition_run_config(anchor_set_hashes={"pi-beverage-v1": "ef" * 32, "pi-snacks-v9": "ab" * 32})
+    data["events"][R["first_turn"]]["payload"]["turn"]["reaction"]["intent"]["anchor_set_id"] = "pi-snacks-v9"
+    with pytest.raises(ValidationError, match="but the ontology names 'pi-beverage-v1' for 'purchase_intent'"):
+        TracePartition.model_validate(data)
 
 
 def test_turns_recall_only_earlier_turns_or_reflections_of_the_same_persona():

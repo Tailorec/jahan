@@ -18,6 +18,9 @@
     "exercise_frequency",
     "diet_protein_focus"
   ],
+  "anchor_sets": {
+    "purchase_intent": "pi-beverage-v1"
+  },
   "completion_policy": {
     "completable_domains": [
       "economic",
