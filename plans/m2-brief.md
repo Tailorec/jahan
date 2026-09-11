@@ -54,12 +54,12 @@ This phase also closes a silent-data-loss hole the schema cannot see: `safe_load
 
 ### Acceptance criteria
 
-- [ ] A validation failure names the file and the field path, with list indices matching the file's own order
-- [ ] Several failures in one file are reported together, capped, with the number omitted stated
-- [ ] A repeated YAML key is refused, naming the key
-- [ ] A file that is not a mapping at its top level, or is empty, is refused as such
-- [ ] Malformed YAML is refused with a `GateFailure` rather than a parser traceback
-- [ ] Every refusal chains its cause, so the original error survives for a debugger while the message stays one line
+- [x] A validation failure names the file and the field path, with list indices matching the file's own order
+- [x] Several failures in one file are reported together, capped, with the number omitted stated
+- [x] A repeated YAML key is refused, naming the key
+- [x] A file that is not a mapping at its top level, or is empty, is refused as such
+- [x] Malformed YAML is refused with a `GateFailure` rather than a parser traceback
+- [x] Every refusal chains its cause, so the original error survives for a debugger while the message stays one line
 
 ---
 
