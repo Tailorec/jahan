@@ -1,0 +1,41 @@
+{
+  "category": "beverage_protein",
+  "version": "1.0.0",
+  "attribute_domains": {
+    "age": "demographic",
+    "sex": "demographic",
+    "exercise_frequency": "category_behaviour",
+    "diet_protein_focus": "psychographic"
+  },
+  "conditioning_set": [
+    "age",
+    "sex",
+    "exercise_frequency"
+  ],
+  "completion_policy": {
+    "completable_domains": [
+      "economic",
+      "decision_rule",
+      "media"
+    ]
+  },
+  "ordinal_scales": [
+    {
+      "attribute": "exercise_frequency",
+      "bands": [
+        {
+          "label": "rarely",
+          "midpoint": 0.25
+        },
+        {
+          "label": "weekly",
+          "midpoint": 1.0
+        },
+        {
+          "label": "3_plus_weekly",
+          "midpoint": 4.0
+        }
+      ]
+    }
+  ]
+}

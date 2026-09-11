@@ -38,7 +38,10 @@
       "price": {
         "amount": 2.99,
         "currency": "USD"
-      }
+      },
+      "claims": [
+        "Shooter format, 25g protein"
+      ]
     },
     {
       "name": "Electrolyte water"
@@ -65,22 +68,5 @@
       "source": "user_asserted"
     }
   ],
-  "ontology": {
-    "category": "beverage_protein",
-    "version": "1.0.0",
-    "conditioning_set": ["age", "sex", "exercise_frequency"],
-    "completion_policy": {
-      "completable_domains": ["economic", "decision_rule", "media"]
-    },
-    "ordinal_scales": [
-      {
-        "attribute": "exercise_frequency",
-        "bands": [
-          {"label": "rarely", "midpoint": 0.1},
-          {"label": "weekly", "midpoint": 0.5},
-          {"label": "daily", "midpoint": 0.9}
-        ]
-      }
-    ]
-  }
+  "ontology_version": "1.0.0"
 }

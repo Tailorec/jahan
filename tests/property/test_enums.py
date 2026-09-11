@@ -12,6 +12,7 @@ def test_persona_field_domain_is_closed():
     assert {member.value for member in PersonaFieldDomain} == {
         "demographic",
         "psychographic",
+        "category_behaviour",
         "economic",
         "decision_rule",
         "media",

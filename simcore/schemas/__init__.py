@@ -28,7 +28,9 @@ from .base import (
 )
 from .brief import (
     Assumption,
+    AttributeId,
     Audience,
+    BriefPack,
     CategoryOntology,
     Claim,
     ClaimId,
@@ -47,9 +49,11 @@ from .errors import BudgetExhausted, GateFailure, SchemaVersionError, SimError
 
 __all__ = [
     "Assumption",
+    "AttributeId",
     "Audience",
     "BudgetExhausted",
     "BriefHash",
+    "BriefPack",
     "CategoryOntology",
     "Claim",
     "ClaimId",

@@ -59,6 +59,9 @@
     }
   },
   "example_brief": {
-    "hash": "2f6630cee65bae6a489f1cfb11f20508e9b945f9f24039fab26505a61bbe138a"
+    "hash": "addd3f9d6c340d18fa73fceae8215b34f2d35a945515f3c4f5e58f3e4f2d5f98"
+  },
+  "example_ontology": {
+    "hash": "086856fb0aded195f7a2c30c9d7467f161fc58a913400b7a98c706fecc624bcb"
   }
 }

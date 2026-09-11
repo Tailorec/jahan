@@ -1,15 +1,16 @@
-"""The brief domain: the study's inputs — product, claims, price, competitors,
-target market, audiences, assumptions, and the category ontology that travels with them."""
+"""The brief domain: the study's inputs — product, claims, price, competitors, target market,
+audiences, assumptions — and the category ontology a brief is read against."""
 
 from typing import Annotated, Any, ClassVar, Self
 
 from pydantic import AwareDatetime, Field, HttpUrl, StringConstraints, field_validator, model_validator
 
-from .base import FrozenDict, HashDigest, Identifier, NonEmptyStr, SimBaseModel, UnitInterval
+from .base import FrozenDict, HashDigest, Identifier, NonEmptyStr, SimBaseModel
 from .enums import ClaimSource, PersonaFieldDomain
 
 ClaimId = Annotated[str, StringConstraints(pattern=r"^C[1-9][0-9]*$")]
 CurrencyCode = Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]
+AttributeId = Identifier
 
 
 class Evidence(SimBaseModel):
@@ -36,11 +37,12 @@ class Price(SimBaseModel):
 class Competitor(SimBaseModel):
     name: NonEmptyStr
     price: Price | None = None
+    claims: tuple[NonEmptyStr, ...] = ()
 
 
 class Audience(SimBaseModel):
     name: Identifier
-    attribute_filters: FrozenDict[str, str]
+    attribute_filters: FrozenDict[AttributeId, NonEmptyStr]
 
 
 class Assumption(SimBaseModel):
@@ -50,17 +52,21 @@ class Assumption(SimBaseModel):
 
 class OrdinalBand(SimBaseModel):
     label: NonEmptyStr
-    midpoint: UnitInterval
+    midpoint: float
 
 
 class OrdinalScale(SimBaseModel):
-    attribute: Identifier
+    attribute: AttributeId
     bands: tuple[OrdinalBand, ...]
 
     @model_validator(mode="after")
-    def _bands_ascending(self) -> Self:
+    def _bands_distinct_and_ascending(self) -> Self:
         if len(self.bands) < 2:
             raise ValueError("an ordinal scale needs at least two bands")
+        labels = [band.label for band in self.bands]
+        if len(set(labels)) != len(labels):
+            duplicated = sorted({label for label in labels if labels.count(label) > 1})
+            raise ValueError(f"ordinal band labels duplicated: {duplicated}")
         midpoints = [band.midpoint for band in self.bands]
         if any(lower >= upper for lower, upper in zip(midpoints, midpoints[1:])):
             raise ValueError("ordinal bands must be strictly ascending by midpoint")
@@ -83,11 +89,30 @@ class CompletionPolicy(SimBaseModel):
 
 
 class CategoryOntology(SimBaseModel):
+    """The shared, versioned description of a category; a brief refers to it, never embeds it."""
+
     category: Identifier
     version: Identifier
-    conditioning_set: frozenset[Identifier] = Field(min_length=1)
+    attribute_domains: FrozenDict[AttributeId, PersonaFieldDomain]
+    conditioning_set: frozenset[AttributeId] = Field(min_length=1)
     completion_policy: CompletionPolicy
     ordinal_scales: tuple[OrdinalScale, ...] = ()
+
+    @model_validator(mode="after")
+    def _referenced_attributes_declare_a_domain(self) -> Self:
+        referenced = set(self.conditioning_set) | {scale.attribute for scale in self.ordinal_scales}
+        undeclared = referenced - set(self.attribute_domains)
+        if undeclared:
+            raise ValueError(f"attributes used by the ontology have no declared domain: {sorted(undeclared)}")
+        return self
+
+    @model_validator(mode="after")
+    def _one_scale_per_attribute(self) -> Self:
+        attributes = [scale.attribute for scale in self.ordinal_scales]
+        if len(set(attributes)) != len(attributes):
+            duplicated = sorted({name for name in attributes if attributes.count(name) > 1})
+            raise ValueError(f"more than one ordinal scale declared for: {duplicated}")
+        return self
 
 
 class Product(SimBaseModel):
@@ -104,14 +129,12 @@ class ProductBrief(SimBaseModel):
     target_market: NonEmptyStr
     audiences: tuple[Audience, ...] = ()
     assumptions: tuple[Assumption, ...] = ()
-    ontology: CategoryOntology
+    ontology_version: Identifier
 
     @field_validator("claims", mode="before")
     @classmethod
     def _assign_claim_ids(cls, value: Any) -> Any:
-        if isinstance(value, (list, tuple)) and value and all(
-            isinstance(item, dict) and not item.get("id") for item in value
-        ):
+        if isinstance(value, (list, tuple)) and all(isinstance(item, dict) and "id" not in item for item in value):
             return [{**item, "id": f"C{index + 1}"} for index, item in enumerate(value)]
         return value
 
@@ -134,15 +157,38 @@ class ProductBrief(SimBaseModel):
             raise ValueError(f"audience names duplicated: {duplicated}")
         return self
 
-    @model_validator(mode="after")
-    def _ontology_matches_product_category(self) -> Self:
-        if self.ontology.category != self.product.category:
-            raise ValueError(
-                f"ontology declares category {self.ontology.category!r} "
-                f"but the product is {self.product.category!r}"
-            )
-        return self
-
     @property
     def audiences_declared(self) -> bool:
         return bool(self.audiences)
+
+
+class BriefPack(SimBaseModel):
+    """A brief joined with the ontology it names: what the population module consumes."""
+
+    brief: ProductBrief
+    ontology: CategoryOntology
+
+    @model_validator(mode="after")
+    def _ontology_is_the_one_the_brief_names(self) -> Self:
+        named = (self.brief.product.category, self.brief.ontology_version)
+        packed = (self.ontology.category, self.ontology.version)
+        if packed != named:
+            raise ValueError(f"brief is read against ontology {named} but was packed with {packed}")
+        return self
+
+    @model_validator(mode="after")
+    def _audience_filters_use_declared_attributes(self) -> Self:
+        bands = {scale.attribute: {band.label for band in scale.bands} for scale in self.ontology.ordinal_scales}
+        for audience in self.brief.audiences:
+            for attribute, value in audience.attribute_filters.items():
+                if attribute not in self.ontology.attribute_domains:
+                    raise ValueError(
+                        f"audience {audience.name!r} filters on {attribute!r}, "
+                        f"which ontology {self.ontology.category}@{self.ontology.version} does not declare"
+                    )
+                if attribute in bands and value not in bands[attribute]:
+                    raise ValueError(
+                        f"audience {audience.name!r} filters {attribute!r} on {value!r}, "
+                        f"which is not one of its bands {sorted(bands[attribute])}"
+                    )
+        return self

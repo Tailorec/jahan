@@ -20,6 +20,7 @@ class PersonaFieldDomain(StrEnum):
 
     DEMOGRAPHIC = "demographic"
     PSYCHOGRAPHIC = "psychographic"
+    CATEGORY_BEHAVIOUR = "category_behaviour"
     ECONOMIC = "economic"
     DECISION_RULE = "decision_rule"
     MEDIA = "media"
