@@ -92,6 +92,19 @@ class ActionKind(StrEnum):
     ASK_PEER = "ask_peer"
     REJECT = "reject"
     COMPLAIN = "complain"
+    REPLY = "reply"
+    VOTE = "vote"
+    IGNORE = "ignore"
+
+
+class ExposureReason(StrEnum):
+    """Why a stimulus got through to a persona; the random arm separates filter-driven from organic reach."""
+
+    INTEREST = "interest"
+    SOCIAL_PROOF = "social_proof"
+    RANDOM = "random"
+    WOM = "wom"
+    FORUM = "forum"
 
 
 class BeliefDim(StrEnum):

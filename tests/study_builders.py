@@ -28,6 +28,20 @@ def pack_payload(**brief_overrides) -> dict:
     return {"brief": brief, "ontology": ontology_payload()}
 
 
+def beliefs_payload(**overrides) -> dict:
+    """Baseline beliefs crediting every claim of the representative brief."""
+    payload = {
+        "dimensions": {"value": 0.6, "fit": 0.4, "trust": 0.7},
+        "claim_credence": {"C1": 0.8, "C2": 0.3, "C3": 0.5},
+    }
+    payload.update(overrides)
+    return payload
+
+
+TEMPLATE_HASHES = {"persona_turn": "ab" * 32, "reflection": "cd" * 32}
+ANCHOR_SET_HASHES = {"pi-beverage-v1": "ef" * 32}
+
+
 def persona_payload(index: int = 0, **overrides) -> dict:
     payload = {
         "persona_id": PERSONA_IDS[index],
@@ -42,6 +56,7 @@ def persona_payload(index: int = 0, **overrides) -> dict:
             "spend_band": "synthesized",
         },
         "embedding": {"model_id": "text-embedding-3-small", "dim": 1536, "index": index},
+        "baseline_beliefs": beliefs_payload(),
     }
     payload.update(overrides)
     return payload
@@ -84,4 +99,157 @@ def population_payload(**overrides) -> dict:
         ],
     }
     payload.update(copy.deepcopy(overrides))
+    return payload
+
+
+# --- runs, turns and traces ------------------------------------------------------------------
+
+_CROCKFORD = "0123456789abcdefghjkmnpqrstvwxyz"
+POPULATION_HASH = "ab12" * 16
+
+
+def ulid(n: int) -> str:
+    """A valid lowercase ULID body, distinct for each n."""
+    digits = []
+    for _ in range(26):
+        n, remainder = divmod(n, 32)
+        digits.append(_CROCKFORD[remainder])
+    return "".join(reversed(digits))
+
+
+def scenario_payload(**overrides) -> dict:
+    payload = {
+        "variant": {
+            "variant_id": "v1baseline",
+            "name": "Baseline",
+            "description": "Baseline concept at the brief price",
+            "emphasized_claims": ["C1"],
+        },
+        "price": {"amount": 2.49, "currency": "USD"},
+        "audience_weights": {"gym_regulars": 0.6, "protein_dieters": 0.4},
+        "tick_unit": "day",
+        "horizon_ticks": 30,
+        "interventions": [{"tick": 3, "kind": "launch"}],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def run_config_payload(**overrides) -> dict:
+    payload = {
+        "run_id": f"run-{ulid(1)}",
+        "pins": {
+            "tier_a": "openrouter/camel-ai/persona-8b",
+            "tier_b": "anthropic/claude-sonnet-4-5-20250929",
+            "embed": "openai/text-embedding-3-small",
+        },
+        "budget": {"max_cost": 20.0, "currency": "USD"},
+        "brief_hash": "aa11" * 16,
+        "ontology_hash": "bb22" * 16,
+        "population_hash": POPULATION_HASH,
+        "scenarios": [scenario_payload()],
+        "seeds": [4021, 917731],
+        "template_hashes": TEMPLATE_HASHES,
+        "anchor_set_hashes": ANCHOR_SET_HASHES,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def ssr_payload(**overrides) -> dict:
+    sets = [
+        (0.05, 0.10, 0.20, 0.30, 0.35),
+        (0.06, 0.10, 0.19, 0.30, 0.35),
+        (0.04, 0.11, 0.20, 0.30, 0.35),
+        (0.05, 0.09, 0.21, 0.30, 0.35),
+        (0.05, 0.10, 0.20, 0.31, 0.34),
+        (0.05, 0.10, 0.20, 0.29, 0.36),
+    ]
+    payload = {
+        "response_text": "I would probably try it after training.",
+        "per_set_pmfs": sets,
+        "construct_id": "purchase_intent",
+        "category": "beverage_protein",
+        "anchor_set_id": "pi-beverage-v1",
+        "anchor_version": "1.0.0",
+        "embed_model_id": "openai/text-embedding-3-small",
+        "tau": 0.42,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def stimulus_id(n: int) -> str:
+    return f"st-{ulid(100 + n)}"
+
+
+def turn_payload(persona: str, tick: int, shown: list[tuple[int, str, float]], reaction: dict, n: int = 0) -> dict:
+    """A whole turn: the impression (stimulus number, reason, attention) and the reaction to it."""
+    return {
+        "impression": {
+            "impression_id": f"im-{ulid(200 + n)}",
+            "persona_id": persona,
+            "channel": "social_feed",
+            "tick": tick,
+            "exposures": [{"stimulus_id": stimulus_id(s), "reason": reason, "attention": attention} for s, reason, attention in shown],
+        },
+        "reaction": {"reaction_id": f"rc-{ulid(300 + n)}", **reaction},
+    }
+
+
+def world_id_for(scenario: dict | None = None, seed: int = 4021) -> str:
+    from simcore.schemas import Scenario, derive_world_id
+
+    return derive_world_id(Scenario.model_validate(scenario or scenario_payload()), seed, POPULATION_HASH)
+
+
+def event(seq: int, tick: int, payload: dict, persona: str | None = None, world: str | None = None) -> dict:
+    return {"event_id": f"ev-{ulid(1000 + seq)}", "world_id": world or world_id_for(), "tick": tick, "seq": seq,
+            "persona_id": persona, "payload": payload}
+
+
+def turn_event(seq: int, tick: int, turn: dict, persona: str) -> dict:
+    return event(seq, tick, {"kind": "turn", "turn": turn, "template_id": "persona_turn",
+                             "prompt_hash": "12" * 32, "persona_block_hash": "34" * 32}, persona)
+
+
+def partition_payload(**header_overrides) -> dict:
+    """A small but complete world: study stimuli, whole turns, a drop, a reply thread, an intervention,
+    a reflection and lifecycle bookends — every reference resolving within the partition."""
+    events = [
+        event(0, 0, {"kind": "lifecycle", "phase": "started"}),
+        event(1, 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(1), "tick": 0, "kind": "concept", "text": "Clear protein water"}}),
+        event(2, 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(2), "tick": 0, "kind": "claim_post", "text": "20g protein, zero sugar", "claim_id": "C1"}}),
+        turn_event(3, 1, turn_payload("p-000001", 1, [(1, "interest", 0.8), (2, "social_proof", 0.0)], {
+            "subject_stimulus_id": stimulus_id(1), "action": "comment", "verbatim": "the protein claim would get me",
+            "belief_change": {"dimensions": {"value": 0.1}, "claim_credence": {"C1": 0.2}}, "intent": ssr_payload()}, n=1), "p-000001"),
+        event(4, 1, {"kind": "cost", "role": "tier_b", "model_id": "anthropic/claude-sonnet-4-5-20250929",
+                     "input_tokens": 812, "output_tokens": 96, "cache_hit": False, "cost": 0.004}, "p-000001"),
+        event(5, 1, {"kind": "exposure_dropped", "stimulus_id": stimulus_id(2), "channel": "social_feed", "reason": "budget_exhausted"}, "p-000002"),
+        event(6, 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(3), "tick": 2, "author": "p-000001", "kind": "peer_post", "text": "tried it after the gym"}}),
+        event(7, 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(4), "tick": 2, "author": "p-000002", "kind": "peer_reply", "text": "how was the taste?", "in_reply_to": stimulus_id(3)}}),
+        event(8, 3, {"kind": "intervention", "intervention_kind": "launch"}),
+        event(9, 3, {"kind": "reflection", "trigger": "tick_cadence", "change": {"claim_credence": {"C2": -0.1}}}, "p-000001"),
+        turn_event(10, 3, turn_payload("p-000002", 3, [(3, "wom", 0.6), (4, "forum", 0.4)], {
+            "subject_stimulus_id": stimulus_id(3), "action": "like"}, n=2), "p-000002"),
+        event(11, 4, {"kind": "lifecycle", "phase": "completed"}),
+    ]
+    header = {"contract_version": "1.0.0", "pack": pack_payload(), "scenario": scenario_payload(),
+              "replicate_seed": 4021, "population_hash": POPULATION_HASH}
+    header.update(header_overrides)
+    return {"header": header, "events": events}
+
+
+def digest_payload(scenario: dict | None = None, **overrides) -> dict:
+    from simcore.schemas import Scenario, canonical_hash
+
+    payload = {
+        "scenario_hash": canonical_hash(Scenario.model_validate(scenario or scenario_payload())),
+        "tick_unit": "day",
+        "audience_pmfs": {"gym_regulars": (0.05, 0.10, 0.20, 0.30, 0.35), "protein_dieters": (0.10, 0.20, 0.30, 0.25, 0.15)},
+        "audience_shares": {"gym_regulars": 0.6, "protein_dieters": 0.4},
+        "community_pmfs": {"community-1": (0.04, 0.10, 0.21, 0.30, 0.35), "community-2": (0.30, 0.25, 0.20, 0.15, 0.10)},
+        "community_sizes": {"community-1": 120, "community-2": 80},
+    }
+    payload.update(overrides)
     return payload

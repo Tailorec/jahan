@@ -100,3 +100,13 @@ value = st.one_of(
 def test_persona_attribute_values_round_trip_over_generated_values(spend, focus):
     persona = Persona.model_validate(persona_payload(attributes={"diet_protein_focus": focus, "spend_band": spend}))
     assert Persona.model_validate(persona.model_dump(mode="json")) == persona
+
+
+def test_persona_carries_complete_baseline_beliefs_without_a_claim_list_of_its_own():
+    persona = Persona.model_validate(persona_payload())
+    assert set(persona.baseline_beliefs.claim_credence) == {"C1", "C2", "C3"}
+    assert "claim_ids" not in type(persona.baseline_beliefs).model_fields
+    payload = persona_payload()
+    del payload["baseline_beliefs"]
+    with pytest.raises(ValidationError, match="baseline_beliefs"):
+        Persona.model_validate(payload)

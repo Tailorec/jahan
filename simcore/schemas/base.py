@@ -18,7 +18,7 @@ from collections.abc import (
 from typing import Annotated, Any, ClassVar, Literal, Self, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, StringConstraints, model_validator
-from pydantic_core import CoreSchema, core_schema
+from pydantic_core import CoreSchema, core_schema, to_jsonable_python
 
 SCHEMA_VERSION = "1.0.0"
 
@@ -39,9 +39,9 @@ Identifier = Annotated[
 
 # Lowercase Crockford-base32 ULID, so identifiers sort by creation time. The first character
 # is at most 7 because 26 base32 characters carry 130 bits and a ULID uses 128.
-_ULID = r"[0-7][0-9a-hjkmnp-tv-z]{25}"
-RunId = Annotated[str, StringConstraints(pattern=rf"^run-{_ULID}$")]
-StimulusId = Annotated[str, StringConstraints(pattern=rf"^st-{_ULID}$")]
+ULID_PATTERN = r"[0-7][0-9a-hjkmnp-tv-z]{25}"
+RunId = Annotated[str, StringConstraints(pattern=rf"^run-{ULID_PATTERN}$")]
+StimulusId = Annotated[str, StringConstraints(pattern=rf"^st-{ULID_PATTERN}$")]
 # The body stays permissive until the dataset's row identifier format has been read.
 PersonaId = Annotated[str, StringConstraints(max_length=128, pattern=r"^p-[A-Za-z0-9][A-Za-z0-9._:-]*$")]
 
@@ -172,8 +172,9 @@ class SimBaseModel(BaseModel):
         supplied = {name: data[name] for name in cls.model_computed_fields if name in data}
         model = handler({key: value for key, value in data.items() if key not in supplied})
         for name, value in supplied.items():
-            computed = getattr(model, name)
-            if computed != value:
+            # Compare in JSON form: a dumped tuple comes back as a list, a dumped enum as its value.
+            computed = to_jsonable_python(getattr(model, name))
+            if computed != to_jsonable_python(value):
                 raise ValueError(f"{name} is computed as {computed!r} but was supplied as {value!r}")
         return model
 
@@ -191,38 +192,39 @@ def proportions_sum_to_one(mapping: Mapping[Any, float], *, tolerance: float = 1
         raise ValueError(f"proportions must sum to one within {tolerance}, got {total}")
 
 
-def canonical_payload(model: SimBaseModel) -> dict[str, Any]:
+def canonical_payload(model: SimBaseModel, *, schema_version: str | None = None) -> dict[str, Any]:
     """The JSON-ready structure a hash is computed over.
 
     Exclusions and version folding apply at every nesting level, set-valued fields are
     sorted, instants are rendered in UTC, and negative zero is normalised, so structures
-    that compare equal hash equally.
+    that compare equal hash equally. `schema_version` recomputes a hash as it was under an earlier
+    contract; by default the current contract version is folded.
     """
-    return _canonical(model, model.model_dump(mode="json"))
+    return _canonical(model, model.model_dump(mode="json"), schema_version or SCHEMA_VERSION)
 
 
-def _canonical(value: Any, dumped: Any) -> Any:
+def _canonical(value: Any, dumped: Any, schema_version: str) -> Any:
     if isinstance(value, SimBaseModel) and isinstance(dumped, dict):
         cls = type(value)
         payload = {
-            name: _canonical(getattr(value, name), item)
+            name: _canonical(getattr(value, name), item, schema_version)
             for name, item in dumped.items()
             if name not in cls._hash_exclude_
         }
         if cls._hash_version_:
-            payload[_VERSION_KEY] = SCHEMA_VERSION
+            payload[_VERSION_KEY] = schema_version
         return payload
     if isinstance(value, Mapping) and isinstance(dumped, dict):
         # Serialization preserves iteration order, so values align even where keys were rewritten for JSON.
         return {
-            key: _canonical(item_value, item)
+            key: _canonical(item_value, item, schema_version)
             for (key, item), item_value in zip(dumped.items(), value.values(), strict=True)
         }
     if isinstance(value, (set, frozenset)) and isinstance(dumped, list):
-        items = [_canonical(item_value, item) for item_value, item in zip(value, dumped, strict=True)]
+        items = [_canonical(item_value, item, schema_version) for item_value, item in zip(value, dumped, strict=True)]
         return sorted(items, key=_json_text)
     if isinstance(value, (tuple, list)) and isinstance(dumped, list):
-        return [_canonical(item_value, item) for item_value, item in zip(value, dumped, strict=True)]
+        return [_canonical(item_value, item, schema_version) for item_value, item in zip(value, dumped, strict=True)]
     if isinstance(value, datetime) and value.tzinfo is not None:
         return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
     if isinstance(dumped, float) and dumped == 0.0:
@@ -234,9 +236,9 @@ def _json_text(payload: Any) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
-def canonical_json(model: SimBaseModel) -> str:
-    return _json_text(canonical_payload(model))
+def canonical_json(model: SimBaseModel, *, schema_version: str | None = None) -> str:
+    return _json_text(canonical_payload(model, schema_version=schema_version))
 
 
-def canonical_hash(model: SimBaseModel) -> str:
-    return hashlib.sha256(canonical_json(model).encode("utf-8")).hexdigest()
+def canonical_hash(model: SimBaseModel, *, schema_version: str | None = None) -> str:
+    return hashlib.sha256(canonical_json(model, schema_version=schema_version).encode("utf-8")).hexdigest()

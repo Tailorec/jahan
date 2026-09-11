@@ -18,7 +18,7 @@ from .base import (
     PopulationHash,
     SCHEMA_VERSION,
     SimBaseModel,
-    _ULID,
+    ULID_PATTERN,
 )
 from .enums import InferenceRole, InterventionKind, LifecyclePhase, ReflectionTrigger, RunStatus
 from .run import ModelPins, PinnedModelId, RunId, VariantId, WorldId
@@ -32,7 +32,7 @@ from .sim import (
     Stimulus,
 )
 
-EventId = Annotated[str, StringConstraints(pattern=rf"^ev-{_ULID}$")]
+EventId = Annotated[str, StringConstraints(pattern=rf"^ev-{ULID_PATTERN}$")]
 ContractVersion = Annotated[str, StringConstraints(pattern=r"^\d+\.\d+\.\d+$")]
 
 

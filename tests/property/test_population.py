@@ -16,7 +16,7 @@ from simcore.schemas import (
     SocialGraph,
     canonical_hash,
 )
-from tests.study_builders import PERSONA_IDS, gate_report_payload, persona_payload, population_payload
+from tests.study_builders import PERSONA_IDS, beliefs_payload, gate_report_payload, persona_payload, population_payload
 
 
 def categorical(**overrides):
@@ -330,3 +330,13 @@ def test_community_ids_must_be_unique():
 def test_persona_domain_labels_cannot_be_smuggled_in():
     with pytest.raises(ValidationError, match="attribute_domains"):
         Persona.model_validate({**persona_payload(), "attribute_domains": {"age": "economic"}})
+
+
+@pytest.mark.parametrize(
+    "credence",
+    [{"C1": 0.8, "C2": 0.3}, {"C1": 0.8, "C2": 0.3, "C3": 0.5, "C4": 0.1}],
+    ids=["missing-a-claim", "claim-the-brief-does-not-make"],
+)
+def test_baseline_beliefs_must_credit_exactly_the_briefs_claims(credence):
+    with pytest.raises(ValidationError, match="baseline credence"):
+        build(personas=personas_with(2, baseline_beliefs=beliefs_payload(claim_credence=credence)))

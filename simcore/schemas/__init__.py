@@ -52,6 +52,7 @@ from .enums import (
     Channel,
     ClaimSource,
     Confidence,
+    ExposureReason,
     FieldOrigin,
     FindingKind,
     InferenceRole,
@@ -100,7 +101,7 @@ from .run import (
     derive_world_seed,
 )
 from .sim import (
-    CHANNEL_EXPOSURE_BUDGETS,
+    MIN_REFERENCE_SETS,
     BeliefChange,
     Beliefs,
     Exposure,
@@ -113,6 +114,7 @@ from .sim import (
     RetrievedMemory,
     SsrResult,
     Stimulus,
+    Turn,
 )
 from .trace import (
     BeliefDeltaRecorded,
@@ -171,6 +173,7 @@ __all__ = [
     "Evidence",
     "EventId",
     "Exposure",
+    "ExposureReason",
     "ExposureDropped",
     "ExposureRecorded",
     "FieldOrigin",
@@ -191,6 +194,7 @@ __all__ = [
     "InterventionKind",
     "LifecycleRecorded",
     "MemoryView",
+    "MIN_REFERENCE_SETS",
     "ModelPins",
     "NonEmptyStr",
     "NonNegativeInt",
@@ -243,6 +247,7 @@ __all__ = [
     "TraceEvent",
     "TracePayload",
     "TrustStatement",
+    "Turn",
     "TurnRecorded",
     "UnitInterval",
     "VariantId",

@@ -8,6 +8,7 @@ from pydantic import AfterValidator, StringConstraints, model_validator
 from .base import FrozenDict, Identifier, NonNegativeInt, PersonaId, PositiveInt, SimBaseModel
 from .brief import AttributeId
 from .enums import FieldOrigin
+from .sim import Beliefs
 
 AttributeValue = str | int | float
 
@@ -50,6 +51,7 @@ class Persona(SimBaseModel):
     attributes: FrozenDict[AttributeId, AttributeValue]
     origins: FrozenDict[AttributeId, FieldOrigin]
     embedding: EmbeddingRef
+    baseline_beliefs: Beliefs
 
     @model_validator(mode="after")
     def _conditioning_is_present(self) -> Self:

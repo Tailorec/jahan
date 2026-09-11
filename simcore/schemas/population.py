@@ -180,6 +180,18 @@ class Population(SimBaseModel):
         return self
 
     @model_validator(mode="after")
+    def _baseline_beliefs_credit_every_claim_of_the_brief(self) -> Self:
+        claims = {claim.id for claim in self.pack.brief.claims}
+        for persona in self.personas:
+            held = set(persona.baseline_beliefs.claim_credence)
+            if held != claims:
+                raise ValueError(
+                    f"{persona.persona_id} must hold baseline credence for exactly the brief's claims "
+                    f"{sorted(claims)}, got {sorted(held)}"
+                )
+        return self
+
+    @model_validator(mode="after")
     def _embeddings_are_distinct_positions_in_one_space(self) -> Self:
         spaces = {(persona.embedding.model_id, persona.embedding.dim) for persona in self.personas}
         if len(spaces) > 1:

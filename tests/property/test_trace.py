@@ -23,9 +23,8 @@ def exposure_payload():
         "persona_id": "p-000042",
         "exposure": {
             "stimulus_id": f"st-{VALID_ULID}",
-            "reason": "recsys_rank_2",
+            "reason": "interest",
             "attention": 0.8,
-            "seen": True,
         },
     }
 
@@ -81,26 +80,24 @@ def test_each_payload_kind_is_a_distinct_type_and_dispatches_on_kind_alone():
         "reaction": {
             "reaction": {
                 "reaction_id": f"rc-{VALID_ULID}",
-                "persona_id": "p-000042",
-                "impression_id": f"im-{VALID_ULID}",
                 "subject_stimulus_id": f"st-{VALID_ULID}",
-                "tick": 7,
                 "action": "comment",
                 "verbatim": "the protein claim lands",
-                "belief_change": {"claim_ids": ["C1"], "dimensions": {}, "claim_credence": {"C1": 0.2}},
+                "belief_change": {"dimensions": {}, "claim_credence": {"C1": 0.2}},
             }
         },
         "belief_delta": {
             "persona_id": "p-000042",
-            "change": {"claim_ids": ["C1"], "dimensions": {}, "claim_credence": {"C1": 0.2}},
+            "change": {"dimensions": {}, "claim_credence": {"C1": 0.2}},
             "trigger": "belief_shift",
         },
         "reflection": {"persona_id": "p-000042", "trigger": "tick_cadence"},
         "ssr": {
             "result": {
                 "response_text": "I would try it.",
-                "pmf": (0.05, 0.1, 0.2, 0.3, 0.35),
-                "per_set_pmfs": [(0.05, 0.1, 0.2, 0.3, 0.35)],
+                "per_set_pmfs": [(0.05, 0.1, 0.2, 0.3, 0.35), (0.05, 0.1, 0.2, 0.3, 0.35),
+                                 (0.05, 0.1, 0.2, 0.3, 0.35), (0.05, 0.1, 0.2, 0.3, 0.35),
+                                 (0.05, 0.1, 0.2, 0.3, 0.35), (0.05, 0.1, 0.2, 0.3, 0.35)],
                 "construct_id": "purchase_intent",
                 "category": "beverage_protein",
                 "anchor_set_id": "pi-beverage-v1",
@@ -232,7 +229,7 @@ def test_events_at_realistic_volume_round_trip_with_ordering_preserved():
         kind="exposure",
         persona_id="p-000042",
         exposure=Exposure.model_construct(
-            stimulus_id=f"st-{VALID_ULID}", reason="recsys_rank_2", attention=0.8, seen=True
+            stimulus_id=f"st-{VALID_ULID}", reason="interest", attention=0.8
         ),
     )
     constructed = [
