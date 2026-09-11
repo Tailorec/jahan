@@ -96,17 +96,17 @@ This is the phase where the engine's central invariant becomes structural: a per
 
 ### Acceptance criteria
 
-- [ ] A persona missing any attribute in its category's conditioning set is refused at construction
-- [ ] A persona whose field origin marks a demographic or psychographic as synthesized is refused
-- [ ] Every projected field states an origin; grounding is never represented by an absent key
-- [ ] A gate result declares which test produced it rather than leaving the other test's fields null
-- [ ] The ordinal gate exposes both the raw statistic and the similarity derived from it, named so the pass direction cannot be misread
-- [ ] A gate result over an attribute whose origin is synthesized is refused
-- [ ] Overall gate status is computed from its results and cannot be set directly
-- [ ] The gate report carries the population's source mix alongside its distributions
-- [ ] The population manifest records an achieved mix keyed by audience, and carries no stratum concept
-- [ ] Communities appear only in output types and cannot be referenced from any input type
-- [ ] Persona embeddings are referenced by position rather than stored inline, keeping the numeric library out of the package
+- [x] A persona missing any attribute in its category's conditioning set is refused at construction
+- [x] A persona whose field origin marks a demographic or psychographic as synthesized is refused
+- [x] Every projected field states an origin; grounding is never represented by an absent key
+- [x] A gate result declares which test produced it rather than leaving the other test's fields null
+- [x] The ordinal gate exposes both the raw statistic and the similarity derived from it, named so the pass direction cannot be misread
+- [x] A gate result over an attribute whose origin is synthesized is refused
+- [x] Overall gate status is computed from its results and cannot be set directly
+- [x] The gate report carries the population's source mix alongside its distributions
+- [x] The population manifest records an achieved mix keyed by audience, and carries no stratum concept
+- [x] Communities appear only in output types and cannot be referenced from any input type
+- [x] Persona embeddings are referenced by position rather than stored inline, keeping the numeric library out of the package
 
 ---
 
