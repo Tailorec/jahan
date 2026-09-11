@@ -241,14 +241,14 @@ This phase makes social proof auditable: what a persona saw beside a stimulus is
 
 ### Acceptance criteria
 
-- [ ] A view covers exactly the stimuli of its impression, and names that impression
-- [ ] A view carries no field for another persona's attributes, beliefs or private reactions, nor any aggregate outcome
-- [ ] Tie strength and shared community are absent for study-authored stimuli and the viewer's own; tie strength is zero where no tie exists; shared community is absent when the population has no communities
-- [ ] The vote action is replaced by upvote and downvote, and both are counted separately
-- [ ] A turn record carries its view, and a partition refuses a view whose counts disagree with engagement recorded at earlier ticks — including a like from the same tick
-- [ ] A partition refuses a view whose reply ancestry does not follow the reply chain from nearest parent to root
-- [ ] A world record joining a partition with its population refuses a manifest that is not that population's, and a view whose tie strength or shared community disagrees with the graph and communities
-- [ ] The representative partition records views with non-zero counts drawn from its own earlier turns, and round-trips
+- [x] A view covers exactly the stimuli of its impression, and names that impression
+- [x] A view carries no field for another persona's attributes, beliefs or private reactions, nor any aggregate outcome
+- [x] Tie strength and shared community are absent for study-authored stimuli and the viewer's own; tie strength is zero where no tie exists; shared community is absent when the population has no communities
+- [x] The vote action is replaced by upvote and downvote, and both are counted separately
+- [x] A turn record carries its view, and a partition refuses a view whose counts disagree with engagement recorded at earlier ticks — including a like from the same tick
+- [x] A partition refuses a view whose reply ancestry does not follow the reply chain from nearest parent to root
+- [x] A world record joining a partition with its population refuses a manifest that is not that population's, and a view whose tie strength or shared community disagrees with the graph and communities
+- [x] The representative partition records views with non-zero counts drawn from its own earlier turns, and round-trips
 
 ---
 
