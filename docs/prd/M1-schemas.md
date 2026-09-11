@@ -42,7 +42,7 @@ The module also fixes the vocabulary. A companion glossary now distinguishes an 
 
 9. As an engine developer, I want separate vocabularies for where a brief statement came from and where a persona field came from, so that a type cannot express a combination that means nothing.
 10. As an engine developer, I want every projected persona field to state its origin explicitly, so that "this value is grounded" is an assertion rather than an inference from a missing key.
-11. As a maintainer, I want a persona to be unconstructible without the attributes its category requires for conditioning, so that the elicitation method's core requirement is guaranteed by the type rather than checked at simulation time.
+11. As a maintainer, I want a population to refuse any persona lacking the attributes its category requires for conditioning, so that the elicitation method's core requirement is guaranteed by the type rather than checked at simulation time.
 12. As an analyst, I want a population's source mix reported alongside its distributions, so that I can see whether the conditioning requirement skewed the sample toward the dataset's complete synthetic rows.
 13. As a maintainer, I want distribution gates to refuse attributes whose values were synthesized, so that the engine cannot validate its own output against a target it also produced.
 
@@ -67,7 +67,7 @@ The module also fixes the vocabulary. A companion glossary now distinguishes an 
 24. As a maintainer, I want hashing to be canonical and order-independent, so that a dictionary's insertion order never changes a run's identity.
 25. As a maintainer, I want the schema version folded into the run hash, so that a change to the contracts invalidates cross-run comparability rather than producing a false match.
 26. As a maintainer, I want outputs like observed cost and wall-clock timestamps excluded from hashes, so that identical inputs hash identically regardless of when they ran.
-27. As an engine developer, I want a world's identity derived from its variant, replicate and population, so that resuming a crashed run is idempotent and I can tell whether a sweep cell has already been computed.
+27. As an engine developer, I want a world's identity derived from its whole scenario, replicate and population, so that resuming a crashed run is idempotent and I can tell whether a sweep cell has already been computed.
 28. As an engine developer, I want trace event payloads typed per event kind, so that the writer can fan events into typed columns instead of an opaque blob.
 29. As a maintainer, I want traces written under an older contract version to remain readable under a newer one, so that replaying an old run is a real capability rather than a claim.
 30. As an engine developer, I want the version recorded once per partition rather than on every event, so that a constant fact is not stored hundreds of thousands of times on the hottest write path.
@@ -174,3 +174,100 @@ The architecture document still describes the pre-grilling design in roughly ele
 One dependency sits outside this module but constrains it: the persona dataset's actual source values are unverified, which is why that field is a validated string rather than an enumeration. Freezing it is a small follow-up once the dataset card can be read, and it should not block this work.
 
 The glossary is a living document. Terms resolved while building later modules belong there as they are settled, not batched at the end — and the words listed under each term as ones to avoid are as load-bearing as the definitions, because most of the nine defects found were caused by one word quietly meaning several things.
+
+---
+
+# Addendum — Phase 8: the remaining boundary contracts
+
+## Problem Statement
+
+Phases 1–7 delivered every contract their plan named, but a completeness check against the architecture found that module 1 still does not own every type crossing a module boundary. The inference, world and runner modules cannot be built against a contract, because what a model call returns, what a persona may see of the world, what a world step produces, and what a run returns were never designed. Two ontology fields the architecture relies on were also missing: an order of attribute relevance, and which anchor set a category uses for each construct.
+
+Designing those types exposed three places where the engine would already have produced a trace it cannot defend. Fallback models would have failed every trace under the pin check, or silently switched a world's model mid-run. Budget degradation changed a world's fidelity mid-run without leaving any record, making degraded and full worlds look comparable and making replay impossible. Guardrail retries and violations had nowhere to go, so "never silently kept" held only by convention.
+
+## Solution
+
+Eight decisions, reached in a grilling session and recorded in ADRs 0010–0012 and the glossary, close the gap.
+
+A persona's **view** is the public context of exactly what it is shown — engagement counts, reply ancestry, and its relationship to each author — never another persona's private state or any aggregate outcome. The view is recorded with the turn and verified against the trace, and engagement becomes visible only from the tick after it happens.
+
+A **world step** takes the previous tick's turns and returns a delta built from the trace's own vocabulary, plus a presentation for each activated persona. The runner is the only writer of a partition. No world state crosses the boundary: a world resumes by replaying its recorded turns up to the last closed tick, and budget **degradation** is recorded so replay reproduces it and degraded worlds are never compared silently with full ones.
+
+A **model call** returns its text, prompt hash, latency and the exact cost event it produced. Fallback models must be pinned, every call records whether the primary model, the fallback or the cache served it, and embedding never falls back. **Guardrail** retries are recorded on the turn they rescued, and a turn that fails its retry is recorded as a violation in place of a reaction.
+
+A **run** returns its registry entry and one outcome per world, with the run's status computed from its worlds; a sweep is a plan expanded into a run, not a separate result. The **category ontology** ranks its attributes with the conditioning set first and names the anchor set for each construct.
+
+## User Stories
+
+**What a persona sees**
+
+43. As an agent developer, I want a persona's view to cover exactly the stimuli it is shown, so that "context" for the guardrail is closed and well defined.
+44. As a methodologist, I want no view ever to reveal another persona's attributes, beliefs or private reactions, so that one persona's behaviour is never conditioned on another's private data.
+45. As a methodologist, I want no view to reveal an aggregate outcome such as running adoption, so that herding emerges from the simulation rather than being built in by showing personas the result being measured.
+46. As an analyst, I want the social proof each persona saw recorded with its turn, so that a reaction to a post with 400 likes is distinguishable from one to a post with 3.
+47. As a maintainer, I want a recorded view whose counts or thread disagree with the trace to be refused, so that the counting rule lives in one place and "what did this persona see" has one answer.
+48. As a methodologist, I want engagement to become visible only from the tick after it happens, so that the order of turns within a tick never changes what a persona sees.
+49. As an analyst, I want upvotes and downvotes counted separately, so that forum ranking and its herding can be reconstructed.
+50. As a methodologist, I want a view to record the viewer's tie strength and shared community with each author, verified against the population, so that word-of-mouth effects can be attributed to real ties.
+
+**What a world step produces**
+
+51. As a world developer, I want a step to take the previous tick's turns and return a delta in the trace's own vocabulary, so that no translation layer can make the trace and the world disagree.
+52. As a runner developer, I want to be the only writer of a partition, so that one gapless sequence covers world events, turns and costs without two writers coordinating.
+53. As a runner developer, I want each activated persona's impression and view delivered together as one presentation, so that an agent always receives both halves of its context.
+54. As a maintainer, I want a crashed world to resume by replaying its recorded turns, so that no second copy of world state can disagree with the trace.
+55. As a maintainer, I want every fully recorded tick marked as closed, so that resume can tell a complete tick from a crash partway through one.
+56. As an analyst, I want budget degradation recorded in every affected world at the tick it applies, so that a world that ran half its horizon at reduced activation is never compared silently with one that ran in full.
+57. As a maintainer, I want degradation to only escalate and a pause to follow the pause rung, so that the recorded ladder is the one the runner can actually apply.
+
+**What a model call returns**
+
+58. As a runner developer, I want a model call to return the exact cost event it produced, so that cost has one source and is appended without translation.
+59. As a maintainer, I want fallback models pinned in the run configuration, so that a provider outage substitutes a model the configuration names rather than failing the trace or switching silently.
+60. As an analyst, I want every cost event to record whether the primary model, the pinned fallback or the cache served it, so that turns served by a fallback can be found and set aside.
+61. As a methodologist, I want the embedding role never to fall back, so that anchors and responses are always compared in one embedding space.
+62. As an analyst, I want a turn accepted on a guardrail retry to record the prompt it rejected, so that a stricter retry instruction's influence on the answer is visible.
+63. As a maintainer, I want a turn whose retry also fails recorded as a guardrail violation in place of a reaction, so that violations are counted from the trace rather than kept only in logs.
+
+**What a run returns**
+
+64. As a CLI developer, I want a run to return its registry entry and one outcome per world, so that a paused budget run reports exactly which worlds are complete and which are partial.
+65. As a maintainer, I want a run's status computed from its worlds and a completed world to have closed every tick of its horizon, so that a run cannot claim completion it did not reach.
+66. As an engine developer, I want a sweep to be an ordinary run over an expanded plan, so that there is one result type and one code path for both.
+
+**The category ontology**
+
+67. As an agent developer, I want the ontology to rank every attribute by relevance with the conditioning set first, so that a tight token budget cuts only non-conditioning attributes.
+68. As a methodologist, I want the ontology to name the anchor set for each construct, and every elicitation to be scored against it, so that a beverage study cannot be scored against another category's anchors.
+69. As a maintainer, I want the run to pin every anchor set its ontology names, so that the anchors a study depends on are part of what replay reproduces.
+
+## Implementation Decisions
+
+**The view.** A view names its impression and maps each shown stimulus — exactly those, no more and no fewer — to its public context: like, repost, reply, upvote and downvote counts; the reply ancestry from nearest parent to root; the viewer's tie strength to the author; and whether the two share a community. Reposts count both reposts and quotes; replies count published replies. Tie strength and shared community are absent for study-authored stimuli and for the viewer's own; tie strength is zero where no tie exists; shared community is absent when the population has no communities. Counts include only engagement recorded at earlier ticks. The vote action splits into upvote and downvote. The turn record carries its view, and a new guardrail-violation record carries one too. A partition verifies each recorded view's keys, counts and ancestry against its own earlier events. Tie strength and community are verified by a new join of a world's partition with its population, which also checks that the partition's population manifest is that population's.
+
+**The world step.** A world delta names its tick and carries the stimuli published, the interventions applied, the exposures dropped with the persona each was dropped for, and one presentation — an impression with its view — per activated persona and channel. Every dated element of a delta shares the delta's tick; a presentation's view must match its impression. There is no world-state type; the opening delta is tick zero. A new tick-closed record marks each fully recorded tick: a partition refuses any record for a tick after that tick is closed, and requires ticks to close in order. A new degraded record carries the rung applied — warn, freeze optional tier-B work, subsample activation, pause — with the activation rate and tier-B freeze now in force; a partition requires rungs to escalate, and a paused lifecycle record to follow the pause rung.
+
+**Model calls.** A completion carries its text, the template it rendered, its prompt hash, its latency and the cost record it produced. The cost record gains its route — primary, fallback or cache — and whether the cache served it becomes computed from the route rather than stated alongside it. Model pins gain an optional pinned fallback per role; a fallback for the embedding role, or a fallback identical to its primary, is refused. A partition accepts a billed model only if it is the primary for its role on the primary route, the pinned fallback on the fallback route, or either of the two on the cache route.
+
+**Guardrails.** A turn record lists at most one prompt hash it rejected before accepting, distinct from the accepted one. A guardrail-violation record carries the impression, the view, the two rejected prompt hashes and the rule broken, and no reaction; it belongs to the impression's persona and tick, and its impression may not also appear in a turn. Rules are a closed set, starting with references to an unshown stimulus.
+
+**Run results.** A run result carries the registry entry and one outcome per world. An outcome states its world, its status — completed, partial or not started — the last tick it closed, and the degradation rungs applied. Outcome world ids must be exactly the registry's; a not-started world has closed no tick and applied no rung; a completed world has closed the final tick of its scenario's horizon; rungs escalate. The run's status is computed — completed only when every world completed, partial otherwise — and the registry entry's status must agree. There is no sweep result.
+
+**The ontology.** The ontology gains an attribute relevance order listing every declared attribute exactly once, with the conditioning set occupying the leading positions, and a mapping from each construct to its anchor set. A partition refuses an elicitation scored against any anchor set other than the one its ontology names for that construct, and refuses a run configuration that does not pin every anchor set the ontology names. The architecture's per-category stimulus types are dropped; stimulus kinds remain one closed set.
+
+**Contract version.** Contract 1.0.0 has not been released: no trace or registry entry has been stored. Phase 8 lands within it and re-pins the representative identities under 1.0.0. The first stored run releases the contract, after which ADR 0009's rule binds — a hashed shape change requires a version bump and new pins.
+
+## Testing Decisions
+
+The same posture holds: assert refusals and observable behaviour through the public surface, with builders producing valid data and each test breaking one thing. Prior art now exists for every shape these contracts take — the study builders, the partition tests' single-change mutations, computed-value round-trips, and the per-version replay pins.
+
+The representative partition grows to exercise each new record: views with non-zero counts drawn from its own earlier turns, a reply thread, a closed tick, a degradation rung, a guardrail retry and a violation, and a fallback-routed cost. Refusal tests cover each verification — a view counting a same-tick like, an ancestry skipping a parent, a record after its tick closed, a rung de-escalating, a billed fallback that is not pinned, an embedding fallback, a violation reusing a turn's impression, a completed world short of its horizon, a relevance order with a conditioning attribute outranked, and an elicitation scored against another construct's anchors. The replay pins are regenerated deliberately under 1.0.0 as the contract is still unreleased.
+
+## Out of Scope
+
+The world, runner and inference implementations themselves: recommender ranking, activation, the resume procedure, the cost ledger and degrade ladder's triggering, provider routing and caching. Expanding a sweep plan into a run configuration. How a view is rendered into a prompt, and how a relevance order is cut to a token budget — only the order and the guarantee that conditioning attributes lead it are contracts.
+
+## Further Notes
+
+Three ADRs record the decisions most likely to be questioned later: 0010 (recorded, verified views with next-tick visibility), 0011 (replayed resume, the runner as sole writer, and recorded degradation) and 0012 (pinned fallbacks and recorded routes). The glossary gained View, Social Proof, Presentation, Degradation, Guardrail Violation, Construct and Anchor Set.
+

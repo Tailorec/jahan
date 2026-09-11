@@ -18,6 +18,10 @@ Durable across every phase:
 - **Instants are timezone-aware** — bare datetime annotations are refused when a class is defined, and instants render in UTC before hashing.
 - **Validation guards boundaries, not inner loops** — three documented unvalidated-construction paths (trace writes, graph adjacency, per-row decode), fully validated only in continuous integration.
 - **Errors carry exit codes** — the command line distinguishes a failed gate from a crash by exception class, not by string matching.
+- **Views are recorded and verified** — a persona sees the public context of exactly what it is shown, recorded with its turn and checked against the trace; engagement is visible only from the next tick (ADR 0010).
+- **The runner is a partition's only writer; worlds replay** — world steps return deltas in the trace's own vocabulary, no world state crosses the boundary, and degradation is recorded so replay reproduces it (ADR 0011).
+- **Fallbacks are pinned and routes recorded** — a fallback model must be pinned for its role, every cost records its route, and embedding never falls back (ADR 0012).
+- **Contract 1.0.0 is unreleased until phase 8 lands** — identities are re-pinned under 1.0.0; the first stored run releases it, after which a hashed shape change needs a version bump.
 - **Test posture** — assert refusals and observable behaviour through the public surface; never reach into private helpers. Whole suite runs with no API key, no network, no dataset download.
 
 ---
@@ -223,3 +227,104 @@ This is where the engine's honesty becomes structural rather than editorial.
 - [x] An outcome digest carries its tick unit, and comparing digests across differing units is refused
 - [x] Anomaly kinds are a closed set, an anomaly cites distinct evidence, and an objection cluster is at least as large as the distinct sample it cites
 
+---
+
+## Phase 8: The view
+
+**User stories**: 43, 44, 45, 46, 47, 48, 49, 50
+
+### What to build
+
+The contract for what a persona may see beyond its impression: a view mapping each shown stimulus to its public context — engagement counts, reply ancestry, and the viewer's relationship to its author — recorded with the turn and verified against the trace. Votes split into upvotes and downvotes, and a world's partition joined with its population verifies the ties and communities a view records.
+
+This phase makes social proof auditable: what a persona saw beside a stimulus is part of the record, and has exactly one correct value.
+
+### Acceptance criteria
+
+- [ ] A view covers exactly the stimuli of its impression, and names that impression
+- [ ] A view carries no field for another persona's attributes, beliefs or private reactions, nor any aggregate outcome
+- [ ] Tie strength and shared community are absent for study-authored stimuli and the viewer's own; tie strength is zero where no tie exists; shared community is absent when the population has no communities
+- [ ] The vote action is replaced by upvote and downvote, and both are counted separately
+- [ ] A turn record carries its view, and a partition refuses a view whose counts disagree with engagement recorded at earlier ticks — including a like from the same tick
+- [ ] A partition refuses a view whose reply ancestry does not follow the reply chain from nearest parent to root
+- [ ] A world record joining a partition with its population refuses a manifest that is not that population's, and a view whose tie strength or shared community disagrees with the graph and communities
+- [ ] The representative partition records views with non-zero counts drawn from its own earlier turns, and round-trips
+
+---
+
+## Phase 9: The world step
+
+**User stories**: 51, 52, 53, 54, 55, 56, 57
+
+### What to build
+
+The contract for what a world step produces and how a world's record survives a crash: a delta built from the trace's own record types, carrying one presentation per activated persona; a closed-tick record marking every fully recorded tick; and a degradation record for each budget rung applied to a world.
+
+The world never numbers events and no world state crosses the boundary, so replaying recorded turns is the only way to rebuild a world.
+
+### Acceptance criteria
+
+- [ ] A world delta carries the stimuli published, interventions applied, exposures dropped with the persona each was dropped for, and one presentation per activated persona and channel
+- [ ] Every dated element of a delta shares its tick, and a presentation's view must match its impression
+- [ ] No world-state type exists; the opening delta is the delta for tick zero
+- [ ] A partition requires ticks to close in order and refuses any record for a tick after that tick is closed
+- [ ] A degradation record carries its rung and the activation rate and tier-B freeze now in force; a partition refuses a rung that does not escalate
+- [ ] A paused lifecycle record must follow the pause rung
+- [ ] The representative partition closes its ticks and applies a degradation rung, and round-trips
+
+---
+
+## Phase 10: Model calls and guardrails
+
+**User stories**: 58, 59, 60, 61, 62, 63
+
+### What to build
+
+The contract for what a model call returns and how its failures are recorded: a completion carrying its text, prompt hash, latency and the exact cost record it produced; cost records naming the route that served them; pinned fallback models; and guardrail retries and violations recorded in the trace.
+
+A provider outage now substitutes only a model the configuration names, and a response that referred to something unshown is counted rather than logged.
+
+### Acceptance criteria
+
+- [ ] A completion carries its text, template id, prompt hash, latency and the cost record it produced
+- [ ] A cost record names its route — primary, fallback or cache — and whether the cache served it is computed from the route
+- [ ] Model pins accept an optional fallback per role, and refuse a fallback for the embedding role or one identical to its primary
+- [ ] A partition accepts a billed model only as the primary on the primary route, the pinned fallback on the fallback route, or either on the cache route
+- [ ] A turn record lists at most one rejected prompt hash, distinct from the accepted one
+- [ ] A guardrail-violation record carries its impression, view, two distinct rejected prompt hashes and a rule from a closed set, and no reaction; it belongs to its impression's persona and tick, and its impression may not also appear in a turn
+- [ ] A partition verifies a violation's view as it verifies a turn's
+
+---
+
+## Phase 11: Run results
+
+**User stories**: 64, 65, 66
+
+### What to build
+
+The contract for what a run returns: its registry entry and one outcome per world, each stating whether the world completed, is partial, or never started, the last tick it closed, and the degradation it underwent. The run's status is computed from its worlds. A sweep returns the same result.
+
+### Acceptance criteria
+
+- [ ] A run result carries one outcome per world, and its world ids are exactly the registry's
+- [ ] A not-started world has closed no tick and applied no rung; a completed world has closed the final tick of its scenario's horizon; rungs escalate
+- [ ] The run's status is computed — completed only when every world completed, partial otherwise — and the registry entry's status must agree
+- [ ] There is no separate sweep result type
+
+---
+
+## Phase 12: The ontology
+
+**User stories**: 67, 68, 69
+
+### What to build
+
+The two contracts the category ontology was missing: an attribute relevance order with the conditioning set first, so token budgets cut only non-conditioning attributes, and a mapping from each construct to its anchor set, so every elicitation is scored against the anchors its category names.
+
+### Acceptance criteria
+
+- [ ] The ontology's relevance order lists every declared attribute exactly once, and refuses an order in which a conditioning attribute is outranked by a non-conditioning one
+- [ ] The ontology maps each construct to its anchor set
+- [ ] A partition refuses an elicitation scored against any anchor set other than the one its ontology names for that construct
+- [ ] A partition refuses a run configuration that does not pin every anchor set its ontology names
+- [ ] The representative ontology ranks its attributes and names its anchor sets; the replay identities are re-pinned under contract 1.0.0
