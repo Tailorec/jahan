@@ -30,6 +30,12 @@ ONTOLOGY = {
     ],
 }
 
+EVIDENCE = {
+    "url": "https://example.com/study",
+    "fetched_at": "2026-09-01T00:00:00Z",
+    "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+}
+
 
 def brief_payload(**overrides):
     payload = {
@@ -268,22 +274,14 @@ def test_evidence_is_optional_and_typed_when_present():
     brief = ProductBrief.model_validate(
         brief_payload(
             claims=[
-                {
-                    "text": "clinically tested hydration",
-                    "source": "public_source",
-                    "evidence": {
-                        "url": "https://example.com/study",
-                        "fetched_at": "2026-09-01T00:00:00Z",
-                        "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-                    },
-                },
+                {"text": "clinically tested hydration", "source": "public_source", "evidence": EVIDENCE},
                 {"text": "no evidence claim", "source": "assumed"},
             ]
         )
     )
     evidenced, bare = brief.claims
-    assert evidenced.evidence is not None
     assert evidenced.evidence.fetched_at.year == 2026
+    assert evidenced.evidence.fetched_at.tzinfo is not None
     assert len(evidenced.evidence.content_hash) == 64
     assert bare.evidence is None
 
@@ -291,20 +289,34 @@ def test_evidence_is_optional_and_typed_when_present():
 def test_evidence_refuses_content_hash_that_is_not_sha256_hex():
     with pytest.raises(ValidationError):
         ProductBrief.model_validate(
+            brief_payload(claims=[{"text": "claim", "source": "public_source", "evidence": {**EVIDENCE, "content_hash": "deadbeef"}}])
+        )
+
+
+def test_evidence_fetch_time_must_carry_a_timezone():
+    with pytest.raises(ValidationError):
+        ProductBrief.model_validate(
             brief_payload(
-                claims=[
-                    {
-                        "text": "claim",
-                        "source": "public_source",
-                        "evidence": {
-                            "url": "https://example.com/study",
-                            "fetched_at": "2026-09-01T00:00:00Z",
-                            "content_hash": "deadbeef",
-                        },
-                    }
-                ]
+                claims=[{"text": "claim", "source": "public_source", "evidence": {**EVIDENCE, "fetched_at": "2026-09-01T00:00:00"}}]
             )
         )
+
+
+def evidenced_brief(fetched_at: str) -> ProductBrief:
+    return ProductBrief.model_validate(
+        brief_payload(claims=[{"text": "claim", "source": "public_source", "evidence": {**EVIDENCE, "fetched_at": fetched_at}}])
+    )
+
+
+def test_refetching_unchanged_evidence_does_not_move_brief_hash():
+    assert canonical_hash(evidenced_brief("2026-09-01T00:00:00Z")) == canonical_hash(evidenced_brief("2026-09-02T09:30:00Z"))
+
+
+def test_changed_evidence_content_moves_brief_hash():
+    changed = brief_payload(
+        claims=[{"text": "claim", "source": "public_source", "evidence": {**EVIDENCE, "content_hash": "ab" * 32}}]
+    )
+    assert canonical_hash(evidenced_brief("2026-09-01T00:00:00Z")) != canonical_hash(ProductBrief.model_validate(changed))
 
 
 def test_every_claim_source_value_is_usable_in_a_brief():

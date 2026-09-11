@@ -2,7 +2,9 @@
 
 import hashlib
 import json
+from datetime import UTC, datetime
 from collections.abc import (
+    Callable,
     Collection,
     Iterable,
     Iterator,
@@ -89,18 +91,27 @@ _MUTABLE_CONTAINERS = (list, dict, set, bytearray, MutableSequence, MutableMappi
 _MUTABLE_WHEN_VALIDATED = (Sequence, Mapping, Set, Collection, Iterable)
 
 
-def _mutable_container(annotation: Any) -> Any:
+def _is_mutable_container(origin: Any) -> bool:
+    return any(origin is abstract for abstract in _MUTABLE_WHEN_VALIDATED) or (
+        isinstance(origin, type) and issubclass(origin, _MUTABLE_CONTAINERS)
+    )
+
+
+def _is_naive_capable_datetime(origin: Any) -> bool:
+    # Bare datetime accepts timezone-less values, whose instant is ambiguous; AwareDatetime does not.
+    return origin is datetime
+
+
+def _find_in_annotation(annotation: Any, predicate: Callable[[Any], bool]) -> Any:
     origin = get_origin(annotation) or annotation
     if origin is Literal:
         return None
     if origin is Annotated:
-        return _mutable_container(get_args(annotation)[0])
-    if any(origin is abstract for abstract in _MUTABLE_WHEN_VALIDATED) or (
-        isinstance(origin, type) and issubclass(origin, _MUTABLE_CONTAINERS)
-    ):
+        return _find_in_annotation(get_args(annotation)[0], predicate)
+    if predicate(origin):
         return origin
     for arg in get_args(annotation):
-        found = _mutable_container(arg)
+        found = _find_in_annotation(arg, predicate)
         if found is not None:
             return found
     return None
@@ -136,11 +147,15 @@ class SimBaseModel(BaseModel):
         if not isinstance(cls._hash_version_, bool):
             raise TypeError(f"{cls.__name__}._hash_version_ must be a bool")
         for name, field in cls.model_fields.items():
-            found = _mutable_container(field.annotation)
+            found = _find_in_annotation(field.annotation, _is_mutable_container)
             if found is not None:
                 raise TypeError(
                     f"{cls.__name__}.{name} uses mutable container {getattr(found, '__name__', found)}: "
                     "use tuple, frozenset or FrozenDict so the model cannot change after it is hashed"
+                )
+            if _find_in_annotation(field.annotation, _is_naive_capable_datetime) is not None:
+                raise TypeError(
+                    f"{cls.__name__}.{name} uses datetime, which accepts timezone-less values: use AwareDatetime"
                 )
 
     def model_copy(self, *, update: Mapping[str, Any] | None = None, deep: bool = False) -> Self:
@@ -155,7 +170,8 @@ def canonical_payload(model: SimBaseModel) -> dict[str, Any]:
     """The JSON-ready structure a hash is computed over.
 
     Exclusions and version folding apply at every nesting level, set-valued fields are
-    sorted, and negative zero is normalised, so structures that compare equal hash equally.
+    sorted, instants are rendered in UTC, and negative zero is normalised, so structures
+    that compare equal hash equally.
     """
     return _canonical(model, model.model_dump(mode="json"))
 
@@ -182,6 +198,8 @@ def _canonical(value: Any, dumped: Any) -> Any:
         return sorted(items, key=_json_text)
     if isinstance(value, (tuple, list)) and isinstance(dumped, list):
         return [_canonical(item_value, item) for item_value, item in zip(value, dumped, strict=True)]
+    if isinstance(value, datetime) and value.tzinfo is not None:
+        return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
     if isinstance(dumped, float) and dumped == 0.0:
         return 0.0
     return dumped

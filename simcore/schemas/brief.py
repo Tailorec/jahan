@@ -1,10 +1,9 @@
 """The brief domain: the study's inputs — product, claims, price, competitors,
 target market, audiences, assumptions, and the category ontology that travels with them."""
 
-from datetime import datetime
-from typing import Annotated, Any, Self
+from typing import Annotated, Any, ClassVar, Self
 
-from pydantic import Field, HttpUrl, StringConstraints, field_validator, model_validator
+from pydantic import AwareDatetime, Field, HttpUrl, StringConstraints, field_validator, model_validator
 
 from .base import FrozenDict, HashDigest, Identifier, NonEmptyStr, SimBaseModel, UnitInterval
 from .enums import ClaimSource, PersonaFieldDomain
@@ -14,8 +13,11 @@ CurrencyCode = Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]
 
 
 class Evidence(SimBaseModel):
+    # The content hash is the evidence's identity; when it was fetched is provenance and must not move a hash.
+    _hash_exclude_: ClassVar[frozenset[str]] = frozenset({"fetched_at"})
+
     url: HttpUrl
-    fetched_at: datetime
+    fetched_at: AwareDatetime
     content_hash: HashDigest
 
 

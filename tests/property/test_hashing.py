@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import ClassVar
 
 from hypothesis import given
+from pydantic import AwareDatetime
 from hypothesis import strategies as st
 
 import simcore.schemas.base as base_module
@@ -167,3 +168,22 @@ def test_set_field_hash_independent_of_process_hash_seed():
     )
     hashes = {hash_in_subprocess(code, hash_seed=seed) for seed in ("0", "1", "2", "3", "4")}
     assert len(hashes) == 1
+
+
+class Stamped(SimBaseModel):
+    at: AwareDatetime
+
+
+def test_same_instant_in_different_offsets_hashes_identically():
+    utc = Stamped(at="2026-09-01T00:00:00Z")
+    shifted = Stamped(at="2026-09-01T05:30:00+05:30")
+    assert utc == shifted
+    assert canonical_hash(utc) == canonical_hash(shifted)
+
+
+def test_different_instants_hash_differently():
+    assert canonical_hash(Stamped(at="2026-09-01T00:00:00Z")) != canonical_hash(Stamped(at="2026-09-01T00:00:01Z"))
+
+
+def test_instants_render_in_utc_in_the_payload():
+    assert canonical_payload(Stamped(at="2026-09-01T05:30:00.250000+05:30"))["at"] == "2026-09-01T00:00:00.250000Z"

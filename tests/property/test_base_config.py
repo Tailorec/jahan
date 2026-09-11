@@ -1,9 +1,10 @@
 import pickle
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import Annotated, Any, ClassVar
 
 import pytest
-from pydantic import ValidationError, create_model
+from pydantic import AwareDatetime, ValidationError, create_model
 
 from simcore.schemas import FrozenDict, SimBaseModel
 from tests.demo_contracts import DemoBrief, make_brief_payload
@@ -121,3 +122,16 @@ def test_models_with_mapping_fields_cross_processes_and_live_in_sets():
     brief = DemoBrief.model_validate(make_brief_payload())
     assert pickle.loads(pickle.dumps(brief)) == brief
     assert len({brief, DemoBrief.model_validate(make_brief_payload())}) == 1
+
+
+@pytest.mark.parametrize("annotation", [datetime, datetime | None, tuple[datetime, ...]], ids=str)
+def test_timezone_less_datetime_annotation_refused_at_class_definition(annotation):
+    with pytest.raises(TypeError, match="AwareDatetime"):
+        create_model("Ambiguous", __base__=SimBaseModel, field=(annotation, ...))
+
+
+def test_aware_datetime_annotation_allowed_and_naive_values_refused():
+    stamped = create_model("Stamped", __base__=SimBaseModel, at=(AwareDatetime, ...))
+    assert stamped(at="2026-09-01T00:00:00Z").at.tzinfo is not None
+    with pytest.raises(ValidationError):
+        stamped(at="2026-09-01T00:00:00")
