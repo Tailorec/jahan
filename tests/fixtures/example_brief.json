@@ -1,0 +1,86 @@
+{
+  "product": {
+    "name": "Protein water",
+    "category": "beverage_protein",
+    "description": "Clear protein-infused water with 20g whey isolate"
+  },
+  "price": {
+    "amount": 2.49,
+    "currency": "USD"
+  },
+  "claims": [
+    {
+      "text": "20g protein with zero sugar",
+      "source": "user_asserted",
+      "evidence": {
+        "url": "https://example.com/nutrition-panel",
+        "fetched_at": "2026-09-01T00:00:00Z",
+        "content_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "text": "Hydrates like water, not milk",
+      "source": "assumed"
+    },
+    {
+      "text": "Preferred over milky shakes after workouts",
+      "source": "public_source",
+      "evidence": {
+        "url": "https://example.com/category-report",
+        "fetched_at": "2026-08-15T00:00:00Z",
+        "content_hash": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb"
+      }
+    }
+  ],
+  "competitors": [
+    {
+      "name": "Clear whey shooter",
+      "price": {
+        "amount": 2.99,
+        "currency": "USD"
+      }
+    },
+    {
+      "name": "Electrolyte water"
+    }
+  ],
+  "target_market": "US urban adults 25-40 who train at least weekly",
+  "audiences": [
+    {
+      "name": "gym_regulars",
+      "attribute_filters": {
+        "exercise_frequency": "3_plus_weekly"
+      }
+    },
+    {
+      "name": "protein_dieters",
+      "attribute_filters": {
+        "diet_protein_focus": "high"
+      }
+    }
+  ],
+  "assumptions": [
+    {
+      "text": "Respondents distinguish clear from milky protein formats",
+      "source": "user_asserted"
+    }
+  ],
+  "ontology": {
+    "category": "beverage_protein",
+    "version": "1.0.0",
+    "conditioning_set": ["age", "sex", "exercise_frequency"],
+    "completion_policy": {
+      "completable_domains": ["economic", "decision_rule", "media"]
+    },
+    "ordinal_scales": [
+      {
+        "attribute": "exercise_frequency",
+        "bands": [
+          {"label": "rarely", "midpoint": 0.1},
+          {"label": "weekly", "midpoint": 0.5},
+          {"label": "daily", "midpoint": 0.9}
+        ]
+      }
+    ]
+  }
+}
