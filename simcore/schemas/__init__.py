@@ -44,16 +44,18 @@ from .brief import (
     Product,
     ProductBrief,
 )
-from .enums import ClaimSource, PersonaFieldDomain
+from .enums import ClaimSource, FieldOrigin, PersonaFieldDomain
 from .errors import BudgetExhausted, GateFailure, SchemaVersionError, SimError
+from .persona import AttributeValue, EmbeddingRef, Persona, PersonaSource
 
 __all__ = [
     "Assumption",
     "AttributeId",
+    "AttributeValue",
     "Audience",
+    "BriefPack",
     "BudgetExhausted",
     "BriefHash",
-    "BriefPack",
     "CategoryOntology",
     "Claim",
     "ClaimId",
@@ -62,7 +64,9 @@ __all__ = [
     "Competitor",
     "ConfigHash",
     "CurrencyCode",
+    "EmbeddingRef",
     "Evidence",
+    "FieldOrigin",
     "FrozenDict",
     "GateFailure",
     "GraphHash",
@@ -72,8 +76,10 @@ __all__ = [
     "NonNegativeInt",
     "OrdinalBand",
     "OrdinalScale",
+    "Persona",
     "PersonaFieldDomain",
     "PersonaId",
+    "PersonaSource",
     "PopulationHash",
     "PositiveInt",
     "Price",

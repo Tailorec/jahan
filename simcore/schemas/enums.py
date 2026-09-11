@@ -24,3 +24,11 @@ class PersonaFieldDomain(StrEnum):
     ECONOMIC = "economic"
     DECISION_RULE = "decision_rule"
     MEDIA = "media"
+
+
+class FieldOrigin(StrEnum):
+    """Where a persona field's value came from; grounding is stated, never inferred."""
+
+    GROUNDED = "grounded"
+    SYNTHESIZED = "synthesized"
+    CALIBRATED = "calibrated"
