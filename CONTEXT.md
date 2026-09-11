@@ -18,6 +18,14 @@ _Avoid_: message, benefit, feature, statement
 Something the brief takes as true without evidence. Assumptions are recorded rather than resolved, and surface in every report.
 _Avoid_: guess, hypothesis
 
+**Evidence**:
+What a claim points at, identified by the content hash of what was actually retrieved rather than by its address. A URL says where to look; only the hash says what was seen.
+_Avoid_: source (that is Claim Source), citation, reference, proof
+
+**Assumption Ledger**:
+The full set of things a study takes as true without evidence — the brief's stated assumptions, the claims it marks as assumed, and what it leaves unstated, such as an undeclared target market. Gathered rather than stored, and surfaced in every report.
+_Avoid_: caveats, limitations, disclaimer, risks
+
 **Claim Source**:
 Where a claim or assumption in the brief came from — asserted by the user, drawn from a public source, or assumed. A property of statements in the brief only; it never describes persona data or simulation output.
 _Avoid_: provenance (too broad — that word covers three unrelated things), origin
