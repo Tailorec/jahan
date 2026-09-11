@@ -1,254 +1,396 @@
+import copy
 import json
+import random
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from simcore.schemas import (
-    EventId,
-    PartitionHeader,
-    RunRegistryEntry,
     SCHEMA_VERSION,
+    ContractMigration,
+    CostRecorded,
+    EventId,
+    RunConfig,
+    RunRegistryEntry,
+    SchemaVersionError,
     TraceEvent,
+    TracePartition,
     TracePayload,
-    read_events_lenient,
+    TurnRecorded,
+    canonical_hash,
+    derive_world_id,
+    read_partition,
+)
+from tests.study_builders import (
+    event,
+    partition_payload,
+    run_config_payload,
+    scenario_payload,
+    ssr_payload,
+    stimulus_id,
+    turn_event,
+    turn_payload,
+    ulid,
+    world_id_for,
 )
 
-VALID_ULID = "01j7x9k2m3n4p5q6r7s8t9v0wx"
-EVENT_ID = f"ev-{VALID_ULID}"
+
+def events_of(data: dict) -> list[dict]:
+    return data["events"]
 
 
-def exposure_payload():
-    return {
-        "kind": "exposure",
-        "persona_id": "p-000042",
-        "exposure": {
-            "stimulus_id": f"st-{VALID_ULID}",
-            "reason": "interest",
-            "attention": 0.8,
-        },
-    }
+def with_event(index: int, replacement: dict) -> dict:
+    data = partition_payload()
+    data["events"][index] = replacement
+    return data
 
 
-def event_payload(**overrides):
-    payload = {
-        "event_id": EVENT_ID,
-        "world_id": "a1b2c3d4e5f6",
-        "tick": 7,
-        "agent_id": "p-000042",
-        "seq": 3,
-        "payload": exposure_payload(),
-    }
-    payload.update(overrides)
-    return payload
+# --- events -----------------------------------------------------------------------------------
 
 
-def payload_of(kind: str, **fields):
-    fields.pop("kind", None)
-    return event_with_payload(kind, fields)
+def test_payload_kinds_are_distinct_types_that_dispatch_on_kind_alone():
+    adapter = TypeAdapter(TracePayload)
+    kinds = {adapter.validate_python(e["payload"]).kind: type(adapter.validate_python(e["payload"])) for e in events_of(partition_payload())}
+    assert set(kinds) == {"lifecycle", "stimulus_published", "turn", "cost", "exposure_dropped", "intervention", "reflection"}
+    assert len(set(kinds.values())) == len(kinds)
 
 
-def event_with_payload(kind: str, fields: dict) -> dict:
-    body = {key: value for key, value in fields.items() if key != "kind"}
-    return event_payload(payload={"kind": kind, **body})
+def test_each_kind_is_the_only_record_of_what_it_describes():
+    assert not {"exposure", "reaction", "ssr", "belief_delta"} & {TypeAdapter(TracePayload).validate_python(e["payload"]).kind for e in events_of(partition_payload())}
+    turn = TracePartition.model_validate(partition_payload()).in_sequence[3].payload
+    assert isinstance(turn, TurnRecorded)
+    assert turn.turn.impression.exposures and turn.turn.reaction.intent is not None
 
 
-def test_event_with_mismatched_payload_kind_refused():
+def test_event_with_a_payload_that_does_not_fit_its_kind_refused():
+    bad = event(4, 1, {"kind": "cost", "stimulus_id": stimulus_id(1)}, "p-000001")
     with pytest.raises(ValidationError):
-        TraceEvent.model_validate(payload_of("cost", stimulus_id=f"st-{VALID_ULID}"))
-
-
-def test_each_payload_kind_is_a_distinct_type_and_dispatches_on_kind_alone():
-    cases = {
-        "stimulus_published": {
-            "stimulus": {
-                "stimulus_id": f"st-{VALID_ULID}",
-                "tick": 1,
-                "kind": "claim_post",
-                "text": "20g protein, zero sugar",
-                "claim_id": "C1",
-            }
-        },
-        "exposure": exposure_payload(),
-        "exposure_dropped": {"persona_id": "p-000042", "stimulus_id": f"st-{VALID_ULID}", "reason": "budget_exhausted"},
-        "turn": {
-            "persona_id": "p-000042",
-            "impression_id": f"im-{VALID_ULID}",
-            "reaction_id": f"rc-{VALID_ULID}",
-            "prompt_hash": "ab12" * 16,
-            "persona_block_hash": "cd34" * 16,
-        },
-        "reaction": {
-            "reaction": {
-                "reaction_id": f"rc-{VALID_ULID}",
-                "subject_stimulus_id": f"st-{VALID_ULID}",
-                "action": "comment",
-                "verbatim": "the protein claim lands",
-                "belief_change": {"dimensions": {}, "claim_credence": {"C1": 0.2}},
-            }
-        },
-        "belief_delta": {
-            "persona_id": "p-000042",
-            "change": {"dimensions": {}, "claim_credence": {"C1": 0.2}},
-            "trigger": "belief_shift",
-        },
-        "reflection": {"persona_id": "p-000042", "trigger": "tick_cadence"},
-        "ssr": {
-            "result": {
-                "response_text": "I would try it.",
-                "per_set_pmfs": [(0.05, 0.1, 0.2, 0.3, 0.35), (0.05, 0.1, 0.2, 0.3, 0.35),
-                                 (0.05, 0.1, 0.2, 0.3, 0.35), (0.05, 0.1, 0.2, 0.3, 0.35),
-                                 (0.05, 0.1, 0.2, 0.3, 0.35), (0.05, 0.1, 0.2, 0.3, 0.35)],
-                "construct_id": "purchase_intent",
-                "category": "beverage_protein",
-                "anchor_set_id": "pi-beverage-v1",
-                "anchor_version": "1.0.0",
-                "embed_model_id": "openai/text-embedding-3-small",
-                "tau": 0.42,
-            }
-        },
-        "cost": {
-            "role": "tier_a",
-            "model_id": "openrouter/camel-ai/persona-8b",
-            "input_tokens": 812,
-            "output_tokens": 96,
-            "cache_hit": False,
-            "cost": 0.0004,
-        },
-        "intervention": {"variant_id": "v1baseline", "intervention_kind": "launch"},
-        "lifecycle": {"phase": "started"},
-    }
-    assert len(cases) == 11
-    for kind, fields in cases.items():
-        event = TraceEvent.model_validate(event_with_payload(kind, fields))
-        assert event.payload.kind == kind
+        TraceEvent.model_validate(bad)
 
 
 def test_events_carry_no_seed_and_no_contract_version_field():
-    assert "seed" not in TraceEvent.model_fields
-    assert "world_seed" not in TraceEvent.model_fields
-    assert "contract_version" not in TraceEvent.model_fields
+    assert not {"seed", "world_seed", "contract_version", "schema_version", "agent_id"} & set(TraceEvent.model_fields)
     with pytest.raises(ValidationError):
-        TraceEvent.model_validate(event_payload(seed=4021))
+        TraceEvent.model_validate({**events_of(partition_payload())[0], "seed": 4021})
 
 
-def test_turn_payload_stores_only_parts_and_a_hash():
-    turn = payload_of(
-        "turn",
-        persona_id="p-000042",
-        impression_id=f"im-{VALID_ULID}",
-        reaction_id=f"rc-{VALID_ULID}",
-        prompt_hash="ab12" * 16,
-        persona_block_hash="cd34" * 16,
-    )
-    parsed = TraceEvent.model_validate(turn).payload
-    assert parsed.prompt_hash == "ab12" * 16
-    assert "prompt" not in type(parsed).model_fields
-    assert "context" not in type(parsed).model_fields
-    assert "prompt_text" not in type(parsed).model_fields
+@pytest.mark.parametrize(
+    ("index", "persona", "match"),
+    [(3, None, "must name it"), (5, None, "must name it"), (1, "p-000001", "belongs to the world"), (8, "p-000001", "belongs to the world")],
+    ids=["turn-unattributed", "drop-unattributed", "stimulus-attributed", "intervention-attributed"],
+)
+def test_events_are_attributed_to_personas_exactly_when_they_describe_one(index, persona, match):
+    record = copy.deepcopy(events_of(partition_payload())[index])
+    record["persona_id"] = persona
+    with pytest.raises(ValidationError, match=match):
+        TraceEvent.model_validate(record)
+
+
+def test_turn_event_must_agree_with_the_impression_it_records():
+    record = copy.deepcopy(events_of(partition_payload())[3])
+    with pytest.raises(ValidationError, match="shown to"):
+        TraceEvent.model_validate({**record, "persona_id": "p-000099"})
+    with pytest.raises(ValidationError, match="impression from tick"):
+        TraceEvent.model_validate({**record, "tick": 2})
+
+
+def test_stimulus_event_must_agree_with_the_stimulus_date():
+    with pytest.raises(ValidationError, match="dated tick"):
+        TraceEvent.model_validate({**events_of(partition_payload())[1], "tick": 5})
+
+
+def test_turn_records_template_and_hashes_but_never_a_full_prompt():
+    fields = set(TurnRecorded.model_fields)
+    assert {"template_id", "prompt_hash", "persona_block_hash"} <= fields
+    assert not {"prompt", "prompt_text", "context", "messages"} & fields
 
 
 def test_event_id_format():
-    assert TypeAdapter(EventId).validate_python(EVENT_ID)
-    for bad in (VALID_ULID, f"st-{VALID_ULID}", f"ev-{VALID_ULID.upper()}"):
+    assert TypeAdapter(EventId).validate_python(f"ev-{ulid(1)}")
+    for bad in (ulid(1), f"st-{ulid(1)}", f"ev-{ulid(10**9).upper()}"):
         with pytest.raises(ValidationError):
             TypeAdapter(EventId).validate_python(bad)
 
 
-def test_events_round_trip_through_json():
-    events = [TraceEvent.model_validate(event_payload(event_id=f"ev-{VALID_ULID[:-1]}{c}", seq=n)) for n, c in enumerate("0123456789a")]
-    dumped = [event.model_dump(mode="json") for event in events]
-    reparsed = [TraceEvent.model_validate(d) for d in dumped]
-    assert reparsed == events
-    assert [(e.agent_id, e.tick, e.seq) for e in reparsed] == [(e.agent_id, e.tick, e.seq) for e in events]
+def test_unvalidated_construction_takes_payload_models_not_mappings():
+    record = events_of(partition_payload())[4]
+    with pytest.raises(TypeError, match="payload models"):
+        TraceEvent.model_construct(**record)
+    built = TraceEvent.model_construct(**{**record, "payload": CostRecorded.model_validate(record["payload"])})
+    assert built.payload.kind == "cost"
+    assert TraceEvent.model_validate(built.model_dump(mode="json")) == built
 
 
-# --- partitions, registry, lenient read path ---------------------------------------------------
+# --- partitions -------------------------------------------------------------------------------
 
 
-def test_contract_version_recorded_once_per_partition_and_in_the_registry():
-    header = PartitionHeader(contract_version=SCHEMA_VERSION, world_id="a1b2c3d4e5f6")
-    entry = RunRegistryEntry.model_validate(registry_payload())
-    assert header.contract_version == SCHEMA_VERSION
-    assert entry.contract_version == SCHEMA_VERSION
-    assert "contract_version" not in TraceEvent.model_fields
+def test_representative_partition_validates_and_round_trips():
+    partition = TracePartition.model_validate(partition_payload())
+    assert [e.seq for e in partition.in_sequence] == list(range(12))
+    assert TracePartition.model_validate_json(partition.model_dump_json()) == partition
+
+
+def test_world_id_is_derived_by_the_header_never_stated():
+    partition = TracePartition.model_validate(partition_payload())
+    assert partition.header.world_id == derive_world_id(partition.header.scenario, 4021, partition.header.population_hash)
+    data = partition_payload()
+    data["header"]["world_id"] = "ffffffffffff"
+    with pytest.raises(ValidationError, match="computed"):
+        TracePartition.model_validate(data)
+
+
+def test_header_scenario_must_test_the_packed_brief():
+    with pytest.raises(ValidationError, match="does not declare"):
+        TracePartition.model_validate(partition_payload(scenario=scenario_payload(audience_weights={"gym_regular": 1.0})))
+
+
+def test_events_from_another_world_refused():
+    record = copy.deepcopy(events_of(partition_payload())[11])
+    record["world_id"] = "ffffffffffff"
+    with pytest.raises(ValidationError, match="other worlds"):
+        TracePartition.model_validate(with_event(11, record))
+
+
+@pytest.mark.parametrize(("seq", "match"), [(12, "without gaps"), (3, "without gaps")], ids=["gap", "repeat"])
+def test_sequence_must_be_gapless(seq, match):
+    record = copy.deepcopy(events_of(partition_payload())[11])
+    record["seq"] = seq
+    with pytest.raises(ValidationError, match=match):
+        TracePartition.model_validate(with_event(11, record))
+
+
+def test_repeated_event_ids_refused():
+    record = copy.deepcopy(events_of(partition_payload())[11])
+    record["event_id"] = events_of(partition_payload())[0]["event_id"]
+    with pytest.raises(ValidationError, match="event ids repeated"):
+        TracePartition.model_validate(with_event(11, record))
+
+
+def test_events_cannot_go_back_in_time_or_past_the_horizon():
+    back = copy.deepcopy(events_of(partition_payload())[9])
+    back["tick"] = 2
+    with pytest.raises(ValidationError, match="back in time"):
+        TracePartition.model_validate(with_event(9, back))
+    late = copy.deepcopy(events_of(partition_payload())[11])
+    late["tick"] = 30
+    with pytest.raises(ValidationError, match="beyond the scenario horizon"):
+        TracePartition.model_validate(with_event(11, late))
+
+
+def test_stored_order_does_not_matter_but_sequence_order_is_recovered():
+    data = partition_payload()
+    random.Random(7).shuffle(data["events"])
+    partition = TracePartition.model_validate(data)
+    assert [e.seq for e in partition.in_sequence] == list(range(12))
+
+
+@pytest.mark.parametrize(
+    ("index", "replacement", "match"),
+    [
+        (3, turn_event(3, 1, turn_payload("p-000001", 1, [(7, "interest", 0.8)], {"subject_stimulus_id": stimulus_id(7), "action": "like"}, n=1), "p-000001"), "never published"),
+        (5, event(5, 1, {"kind": "exposure_dropped", "stimulus_id": stimulus_id(8), "channel": "social_feed", "reason": "budget_exhausted"}, "p-000002"), "never published"),
+        (7, event(7, 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(4), "tick": 2, "author": "p-000002", "kind": "peer_reply", "text": "?", "in_reply_to": stimulus_id(9)}}), "never published"),
+        (6, event(6, 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(1), "tick": 2, "author": "p-000001", "kind": "peer_post", "text": "again"}}), "republishes"),
+    ],
+    ids=["turn-shows-unpublished", "drop-of-unpublished", "reply-to-unpublished", "republished"],
+)
+def test_stimuli_must_be_published_before_they_are_shown_dropped_or_replied_to(index, replacement, match):
+    with pytest.raises(ValidationError, match=match):
+        TracePartition.model_validate(with_event(index, replacement))
+
+
+@pytest.mark.parametrize(
+    ("index", "replacement"),
+    [
+        (2, event(2, 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(2), "tick": 0, "kind": "claim_post", "text": "x", "claim_id": "C9"}})),
+        (9, event(9, 3, {"kind": "reflection", "trigger": "belief_shift", "change": {"claim_credence": {"C9": 0.2}}}, "p-000001")),
+        (10, turn_event(10, 3, turn_payload("p-000002", 3, [(3, "wom", 0.6)], {"subject_stimulus_id": stimulus_id(3), "action": "like", "belief_change": {"claim_credence": {"C9": 0.1}}}, n=2), "p-000002")),
+    ],
+    ids=["stimulus-claim", "reflection-change", "turn-change"],
+)
+def test_claims_named_anywhere_in_the_trace_must_be_the_briefs(index, replacement):
+    with pytest.raises(ValidationError, match="brief does not make"):
+        TracePartition.model_validate(with_event(index, replacement))
+
+
+def test_impressions_are_bounded_by_the_scenarios_exposure_budget():
+    four = [(1, "interest", 0.8), (2, "random", 0.1), (3, "wom", 0.2), (4, "forum", 0.3)]
+    crowded = turn_event(10, 3, turn_payload("p-000002", 3, four, {"subject_stimulus_id": stimulus_id(1), "action": "like"}, n=2), "p-000002")
+    with pytest.raises(ValidationError, match="budget of 3"):
+        TracePartition.model_validate(with_event(10, crowded))
+    wide_scenario = scenario_payload(exposure_budget=5)
+    data = partition_payload(scenario=wide_scenario)
+    world = world_id_for(wide_scenario)
+    data["events"][10] = crowded
+    for record in data["events"]:
+        record["world_id"] = world
+    assert TracePartition.model_validate(data).header.scenario.exposure_budget == 5
+
+
+def test_only_scheduled_interventions_are_applied():
+    promo = event(8, 3, {"kind": "intervention", "intervention_kind": "promotion"})
+    with pytest.raises(ValidationError, match="does not schedule"):
+        TracePartition.model_validate(with_event(8, promo))
+
+
+def test_impressions_and_reactions_are_recorded_once():
+    data = partition_payload()
+    repeat = copy.deepcopy(data["events"][3])
+    repeat["payload"]["turn"]["impression"]["tick"] = 3
+    repeat.update(seq=10, tick=3, event_id=data["events"][10]["event_id"])
+    data["events"][10] = repeat
+    with pytest.raises(ValidationError, match="repeats impression"):
+        TracePartition.model_validate(data)
+
+
+def test_turn_inside_a_partition_still_refuses_a_subject_not_shown():
+    wrong = turn_event(10, 3, turn_payload("p-000002", 3, [(3, "wom", 0.6)], {"subject_stimulus_id": stimulus_id(1), "action": "like"}, n=2), "p-000002")
+    with pytest.raises(ValidationError, match="did not show"):
+        TracePartition.model_validate(with_event(10, wrong))
+
+
+def test_events_at_realistic_volume_round_trip_fully_validated_in_any_stored_order():
+    turns = 20_000
+    world = world_id_for()
+    constructed = [TraceEvent.model_validate(event(0, 0, {"kind": "lifecycle", "phase": "started"}, world=world))]
+    for s in range(1, 51):
+        constructed.append(TraceEvent.model_validate(event(len(constructed), 0, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(s), "tick": 0, "kind": "concept", "text": f"copy {s}"}}, world=world)))
+    template = TurnRecorded.model_validate(turn_event(0, 1, turn_payload("p-000000", 1, [(1, "interest", 0.7)], {"subject_stimulus_id": stimulus_id(1), "action": "like"}), "p-000000")["payload"])
+    for t in range(turns):
+        tick, persona = 1 + (t * 29) // turns, f"p-{t % 2000:06d}"
+        impression = template.turn.impression.model_construct(
+            impression_id=f"im-{ulid(10_000 + t)}", persona_id=persona, channel=template.turn.impression.channel, tick=tick,
+            exposures=template.turn.impression.exposures,
+        )
+        reaction = template.turn.reaction.model_construct(**{**dict(template.turn.reaction), "reaction_id": f"rc-{ulid(10_000 + t)}"})
+        payload = template.model_construct(**{**dict(template), "turn": template.turn.model_construct(impression=impression, reaction=reaction)})
+        constructed.append(TraceEvent.model_construct(event_id=f"ev-{ulid(10_000 + t)}", world_id=world, tick=tick, seq=len(constructed), persona_id=persona, payload=payload))
+
+    stored = sorted((json.loads(json.dumps(e.model_dump(mode="json"))) for e in constructed), key=lambda e: (e["persona_id"] or "", e["tick"], e["seq"]))
+    header = partition_payload()["header"]
+    partition = TracePartition.model_validate({"header": header, "events": stored})
+    assert len(partition.events) == len(constructed)
+    assert list(partition.in_sequence) == constructed
+
+
+# --- read path --------------------------------------------------------------------------------
+
+
+def dumped_partition(version: str = SCHEMA_VERSION) -> dict:
+    data = json.loads(TracePartition.model_validate(partition_payload()).model_dump_json())
+    data["header"]["contract_version"] = version
+    return data
+
+
+def test_current_contract_partition_loads_unchanged():
+    assert read_partition(dumped_partition()) == TracePartition.model_validate(partition_payload())
+
+
+@pytest.mark.parametrize("version", ["1.0.1", "2.0.0"])
+def test_partition_from_a_newer_contract_is_refused_not_guessed_at(version):
+    with pytest.raises(SchemaVersionError, match="newer than this engine"):
+        read_partition(dumped_partition(version))
+
+
+@pytest.mark.parametrize("version", ["banana", "1.0", None])
+def test_partition_without_a_valid_contract_version_refused(version):
+    data = dumped_partition()
+    data["header"]["contract_version"] = version
+    with pytest.raises(SchemaVersionError, match="not a contract version"):
+        read_partition(data)
+
+
+def legacy_partition() -> dict:
+    """A partition in an imagined 0.9.0 shape: each event carried its seed and called the persona an agent."""
+    data = dumped_partition("0.9.0")
+    for record in data["events"]:
+        record["seed"] = 4021
+        record["agent_id"] = record.pop("persona_id")
+    return data
+
+
+def to_1_0_0(raw: dict) -> dict:
+    for record in raw["events"]:
+        record.pop("seed", None)
+        record["persona_id"] = record.pop("agent_id", None)
+    return raw
+
+
+def test_earlier_contract_partition_loads_through_its_registered_migration():
+    legacy = legacy_partition()
+    with pytest.raises(ValidationError):
+        TracePartition.model_validate(legacy)
+    loaded = read_partition(legacy, migrations=[ContractMigration("1.0.0", to_1_0_0)])
+    assert loaded.header.contract_version == "0.9.0"
+    assert [e.persona_id for e in loaded.in_sequence] == [e.persona_id for e in TracePartition.model_validate(partition_payload()).in_sequence]
+
+
+def test_migrations_apply_in_order_and_only_past_the_written_contract():
+    applied = []
+
+    def step(name):
+        def migrate(raw):
+            applied.append(name)
+            return to_1_0_0(raw) if name == "1.0.0" else raw
+        return migrate
+
+    migrations = [ContractMigration("1.0.0", step("1.0.0")), ContractMigration("0.9.0", step("0.9.0")), ContractMigration("0.5.0", step("0.5.0"))]
+    read_partition(legacy_partition(), migrations=migrations)
+    assert applied == ["1.0.0"]
+    applied.clear()
+    data = legacy_partition()
+    data["header"]["contract_version"] = "0.4.0"
+    read_partition(data, migrations=migrations)
+    assert applied == ["0.5.0", "0.9.0", "1.0.0"]
+
+
+def test_read_path_never_mutates_its_input_and_never_writes_a_legacy_shape():
+    legacy = legacy_partition()
+    before = copy.deepcopy(legacy)
+    loaded = read_partition(legacy, migrations=[ContractMigration("1.0.0", to_1_0_0)])
+    assert legacy == before
+    rewritten = json.loads(loaded.model_dump_json())
+    assert all("seed" not in e and "agent_id" not in e for e in rewritten["events"])
+
+
+# --- registry ---------------------------------------------------------------------------------
 
 
 def registry_payload(**overrides):
-    payload = {
-        "run_id": "run-01j7x9k2m3n4p5q6r7s8t9v0wx",
-        "contract_version": SCHEMA_VERSION,
-        "config_hash": "aa11" * 16,
-        "brief_hash": "bb22" * 16,
-        "ontology_hash": "cc33" * 16,
-        "population_hash": "dd44" * 16,
-        "seeds": [4021, 917731],
-        "pins": {
-            "tier_a": "openrouter/camel-ai/persona-8b",
-            "tier_b": "anthropic/claude-sonnet-4-5-20250929",
-            "embed": "openai/text-embedding-3-small",
-        },
-        "world_ids": ["a1b2c3d4e5f6", "b2c3d4e5f6a1"],
-        "status": "running",
-    }
+    payload = {"config": run_config_payload(), "contract_version": SCHEMA_VERSION, "status": "running"}
     payload.update(overrides)
     return payload
 
 
-def test_registry_entry_pins_every_hash_and_model_identifier():
+def test_registry_entry_derives_config_hash_and_world_ids_from_its_configuration():
     entry = RunRegistryEntry.model_validate(registry_payload())
-    assert entry.brief_hash and entry.ontology_hash and entry.population_hash and entry.config_hash
-    assert entry.pins.embed == "openai/text-embedding-3-small"
-    assert {world_id for world_id in entry.world_ids} == {"a1b2c3d4e5f6", "b2c3d4e5f6a1"}
+    config = RunConfig.model_validate(run_config_payload())
+    assert entry.config_hash == canonical_hash(config)
+    assert set(entry.world_ids) == {derive_world_id(s, seed, config.population_hash) for s in config.scenarios for seed in config.seeds}
+    assert RunRegistryEntry.model_validate_json(entry.model_dump_json()) == entry
 
 
-def test_earlier_contract_partition_loads_under_a_later_one():
-    legacy = event_payload(seed=4021)
-    with pytest.raises(ValidationError):
-        TraceEvent.model_validate(legacy)
-    loaded = read_events_lenient([legacy], "0.9.0")
-    assert loaded[0].event_id == EVENT_ID
+def test_registry_entry_pins_everything_replay_needs():
+    entry = RunRegistryEntry.model_validate(registry_payload())
+    config = entry.config
+    assert config.pins and config.seeds and config.template_hashes and config.brief_hash and config.ontology_hash and config.population_hash
+    assert "anchor_set_hashes" in RunConfig.model_fields and "graph_hash" in RunConfig.model_fields
 
 
-def test_lenient_path_is_never_used_to_write():
-    legacy = event_payload(seed=4021)
-    loaded = read_events_lenient([legacy], "0.9.0")[0]
-    with pytest.raises(ValidationError, match="seed"):
-        TraceEvent.model_validate(loaded.model_dump(mode="json") | {"seed": 4021})
+@pytest.mark.parametrize("field", ["config_hash", "world_ids"])
+def test_registry_entry_refuses_a_stated_value_contradicting_its_configuration(field):
+    stated = {"config_hash": "00" * 32, "world_ids": ["ffffffffffff"]}[field]
+    with pytest.raises(ValidationError, match="computed"):
+        RunRegistryEntry.model_validate({**registry_payload(), field: stated})
 
 
-def test_current_contract_partition_loads_unchanged():
-    current = event_payload()
-    assert list(read_events_lenient([current], SCHEMA_VERSION)) == [TraceEvent.model_validate(current)]
+def test_registry_entry_keeps_the_hash_it_was_registered_under():
+    old = RunRegistryEntry.model_validate(registry_payload(contract_version="0.9.0"))
+    assert old.config_hash == canonical_hash(old.config, schema_version="0.9.0")
+    assert old.config_hash != RunRegistryEntry.model_validate(registry_payload()).config_hash
+    assert RunRegistryEntry.model_validate(json.loads(old.model_dump_json())) == old
 
 
-def test_events_at_realistic_volume_round_trip_with_ordering_preserved():
-    from simcore.schemas import Exposure, ExposureRecorded
-
-    volume = 100_000
-    payload = ExposureRecorded.model_construct(
-        kind="exposure",
-        persona_id="p-000042",
-        exposure=Exposure.model_construct(
-            stimulus_id=f"st-{VALID_ULID}", reason="interest", attention=0.8
-        ),
-    )
-    constructed = [
-        TraceEvent.model_construct(
-            event_id=f"ev-{seq:026d}",
-            world_id="a1b2c3d4e5f6",
-            tick=(seq // 2000) % 30,
-            agent_id=f"p-{seq % 2000:06d}",
-            seq=seq,
-            payload=payload,
-        )
-        for seq in range(volume)
-    ]
-    assert len(constructed) == volume
-
-    reparsed_dicts = json.loads(json.dumps([event.model_dump(mode="json") for event in constructed]))
-    assert [(d["agent_id"], d["tick"], d["seq"]) for d in reparsed_dicts] == [
-        (event.agent_id, event.tick, event.seq) for event in constructed
-    ]
-
-    sample = reparsed_dicts[::1000]
-    assert [TraceEvent.model_validate(item) for item in sample] == constructed[::1000]
+def test_registry_entry_cannot_repeat_seeds_or_worlds():
+    with pytest.raises(ValidationError, match="seeds repeated"):
+        RunRegistryEntry.model_validate(registry_payload(config=run_config_payload(seeds=[4021, 4021])))

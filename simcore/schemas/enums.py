@@ -107,6 +107,12 @@ class ExposureReason(StrEnum):
     FORUM = "forum"
 
 
+class DropReason(StrEnum):
+    """Why a stimulus that could have reached a persona did not."""
+
+    BUDGET_EXHAUSTED = "budget_exhausted"
+
+
 class BeliefDim(StrEnum):
     """The closed set of belief dimensions; per-claim credence travels alongside them."""
 
