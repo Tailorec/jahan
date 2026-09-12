@@ -5,6 +5,7 @@ so the same files always produce the same study, and therefore the same brief ha
 machine. Nothing here opens a socket or reads a clock (ADR 0013).
 """
 
+from ._fetch import fetch_evidence
 from ._intake import load_brief
 
-__all__ = ["load_brief"]
+__all__ = ["fetch_evidence", "load_brief"]
