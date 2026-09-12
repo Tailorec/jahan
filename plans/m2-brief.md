@@ -137,14 +137,14 @@ The only part of the module that reaches the network, and the reason it can stay
 
 ### Acceptance criteria
 
-- [ ] The port's whole surface is retrieving bytes for a URL; hashing, timestamping and writing live in the module
-- [ ] Fetching writes a sidecar entry per cited URL, keyed by the URL the author cited
-- [ ] A run where some URLs fail writes the successes, reports the failures, and can be re-run to complete
-- [ ] A second run skips URLs already recorded, and leaves their hashes untouched
-- [ ] An explicit re-fetch replaces an entry, and a changed hash is visible in what the run reports
-- [ ] An interrupted write never leaves a partial sidecar behind
-- [ ] The retrieved bytes are hashed as received, and the body itself is not stored
-- [ ] No core module imports a concrete adapter
+- [x] The port's whole surface is retrieving bytes for a URL; hashing, timestamping and writing live in the module
+- [x] Fetching writes a sidecar entry per cited URL, keyed by the URL the author cited
+- [x] A run where some URLs fail writes the successes, reports the failures, and can be re-run to complete
+- [x] A second run skips URLs already recorded, and leaves their hashes untouched
+- [x] An explicit re-fetch replaces an entry, and a changed hash is visible in what the run reports
+- [x] An interrupted write never leaves a partial sidecar behind
+- [x] The retrieved bytes are hashed as received, and the body itself is not stored
+- [x] No core module imports a concrete adapter
 
 ---
 
