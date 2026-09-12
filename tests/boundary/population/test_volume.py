@@ -61,7 +61,9 @@ def test_rewiring_candidate_sampling_keeps_graph_generation_from_growing_with_th
         calls.clear()
         _graph.build_graph(pack_, personas[:count], population_seed=4021)
         measured[count] = len(calls)
-    assert measured[400] < 4 * measured[200]  # linear in the population, not quadratic
+    # Doubling the population doubles the comparisons (measured 2.01x); quadratic growth would quadruple
+    # them, and a bound of 4x would have let a near-quadratic 3.9x pass.
+    assert measured[400] < 2.5 * measured[200]
 
 
 def test_graph_gates_hold_across_twenty_seeds():
