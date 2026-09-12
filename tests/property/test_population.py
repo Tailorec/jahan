@@ -145,6 +145,15 @@ def test_report_source_mix_sums_to_one():
         GateReport.model_validate(gate_report_payload(source_mix={"gss": 0.7, "synthetic": 0.2}))
 
 
+def test_gate_report_records_an_achieved_mix_that_sums_to_one():
+    recorded = GateReport.model_validate(
+        gate_report_payload(achieved_mix={"gym_regulars": 0.6, "protein_dieters": 0.4})
+    )
+    assert dict(recorded.achieved_mix) == {"gym_regulars": 0.6, "protein_dieters": 0.4}
+    with pytest.raises(ValidationError, match="sum to one"):
+        GateReport.model_validate(gate_report_payload(achieved_mix={"gym_regulars": 0.6, "protein_dieters": 0.5}))
+
+
 def test_result_order_is_part_of_the_report_hash():
     first = GateReport.model_validate(gate_report_payload())
     flipped = gate_report_payload(results=list(reversed(gate_report_payload()["results"])))
