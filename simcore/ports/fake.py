@@ -13,6 +13,8 @@ import hashlib
 import json
 from collections.abc import Callable, Sequence
 
+import numpy as np
+
 from simcore.schemas import Completion, CostRecorded, InferenceRole, InferenceRoute
 
 from .chat import ChatMessage
@@ -79,3 +81,19 @@ def _request(messages: Sequence[ChatMessage]) -> dict:
             return {}
         return parsed if isinstance(parsed, dict) else {}
     return {}
+
+
+class FakeEmbed:
+    """Deterministic vectors: the same text always maps to the same row, so a rebuild matches it."""
+
+    def __init__(self, *, dim: int = 16, model_id: str = "fake-embed") -> None:
+        self.model_id = model_id
+        self._dim = dim
+
+    def embed(self, texts: Sequence[str]) -> np.ndarray:
+        return np.asarray([self._vector(text) for text in texts], dtype=np.float32)
+
+    def _vector(self, text: str) -> list[float]:
+        digest = hashlib.sha256(text.encode("utf-8")).digest()
+        return [digest[index % len(digest)] / 255.0 for index in range(self._dim)]
+

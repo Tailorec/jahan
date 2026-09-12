@@ -7,6 +7,8 @@ concrete adapter (FINAL_ARCH §4).
 
 from .chat import ChatPort
 from .coreset import CoresetSource
+from .embed import EmbedPort
 from .evidence import EvidencePort
+from .patch import NullPatchSource, PersonaPatchSource
 
-__all__ = ["ChatPort", "CoresetSource", "EvidencePort"]
+__all__ = ["ChatPort", "CoresetSource", "EmbedPort", "EvidencePort", "NullPatchSource", "PersonaPatchSource"]
