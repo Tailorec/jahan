@@ -13,24 +13,25 @@ from collections.abc import Sequence
 import igraph as ig
 import leidenalg
 
-from simcore.schemas import Community, Persona, SocialGraph
-
-# A partition qualifies only when it is substantial: a modularity floor, a count band, and a size
-# floor expressed as a share so the floor scales with the study rather than fixing a count.
-MODULARITY_FLOOR = 0.4
-COMMUNITY_SHARE_FLOOR = 0.05
-MIN_COMMUNITIES = 4
-MAX_COMMUNITIES = 8
-RESOLUTIONS = (0.5, 0.75, 1.0, 1.25, 1.5)
+from simcore.schemas import Community, CommunityThresholds, Persona, SocialGraph
 
 
-def detect(personas: Sequence[Persona], graph: SocialGraph, *, population_seed: int) -> tuple[Community, ...]:
-    """The qualifying partition with the highest modularity across the resolution search, or none."""
+def detect(
+    personas: Sequence[Persona],
+    graph: SocialGraph,
+    *,
+    population_seed: int,
+    thresholds: CommunityThresholds = CommunityThresholds(),
+) -> tuple[Community, ...]:
+    """The qualifying partition with the highest modularity across the resolution search, or none.
+
+    What counts as substantial — the modularity floor, the community band, the share floor and the
+    resolutions searched — is the study's to tune, and the defaults are what the engine used before."""
     network = _network(personas, graph)
     best: tuple[float, list[int]] | None = None
-    for gamma in RESOLUTIONS:
+    for gamma in thresholds.resolutions:
         modularity, membership = _partition(network, gamma, population_seed)
-        if not _qualifies(modularity, membership, len(personas)):
+        if not _qualifies(modularity, membership, len(personas), thresholds):
             continue
         if best is None or modularity > best[0] + 1e-12:
             best = (modularity, membership)
@@ -54,12 +55,14 @@ def _partition(network: ig.Graph, gamma: float, seed: int) -> tuple[float, list[
     return float(network.modularity(membership, weights="weight")), membership
 
 
-def _qualifies(modularity: float, membership: Sequence[int], size: int) -> bool:
+def _qualifies(
+    modularity: float, membership: Sequence[int], size: int, thresholds: CommunityThresholds = CommunityThresholds()
+) -> bool:
     sizes = Counter(membership)
     return (
-        modularity >= MODULARITY_FLOOR
-        and MIN_COMMUNITIES <= len(sizes) <= MAX_COMMUNITIES
-        and all(count >= COMMUNITY_SHARE_FLOOR * size for count in sizes.values())
+        modularity >= thresholds.modularity_floor
+        and thresholds.min_communities <= len(sizes) <= thresholds.max_communities
+        and all(count >= thresholds.share_floor * size for count in sizes.values())
     )
 
 

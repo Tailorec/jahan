@@ -5,6 +5,7 @@ import pytest
 from simcore.population import _communities
 from simcore.schemas import (
     Beliefs,
+    CommunityThresholds,
     FrozenDict,
     OutcomeDigest,
     Persona,
@@ -99,6 +100,29 @@ def test_the_resolution_search_selects_the_qualifying_partition_with_the_highest
 def test_a_partition_qualifies_only_when_it_is_substantial(modularity, sizes, qualifies):
     membership = [community for community, size in enumerate(sizes) for _ in range(size)]
     assert _communities._qualifies(modularity, membership, sum(sizes)) is qualifies
+
+
+def test_community_selection_follows_its_tuned_thresholds():
+    people = personas()
+    graph = clustered_graph(people)
+    default = _communities.detect(people, graph, population_seed=4021)
+    tuned = CommunityThresholds(min_communities=2, share_floor=0.2)
+    found = _communities.detect(people, graph, population_seed=4021, thresholds=tuned)
+    assert found != default
+    assert all(len(community.member_ids) >= 0.2 * len(people) for community in found)
+
+
+def test_the_resolution_search_covers_exactly_the_tuned_resolutions(monkeypatch):
+    people = personas()
+    searched: list[float] = []
+
+    def recording(network, gamma, seed):
+        searched.append(gamma)
+        return 0.0, [0] * len(people)
+
+    monkeypatch.setattr(_communities, "_partition", recording)
+    _communities.detect(people, clustered_graph(people), population_seed=4021, thresholds=CommunityThresholds(resolutions=(0.3, 0.9)))
+    assert searched == [0.3, 0.9]
 
 
 def test_a_graph_with_no_qualifying_partition_produces_no_communities():
