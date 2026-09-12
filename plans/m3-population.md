@@ -148,13 +148,13 @@ Every rung is recorded, so a reader can reconstruct what was asked for, what was
 
 ### Acceptance criteria
 
-- [ ] A quota that cannot be filled widens its ordinal predicate by one band and records the rung
-- [ ] A widened predicate that still cannot fill drops the least relevant non-conditioning filter, chosen by the ontology's relevance order
-- [ ] A quota that still cannot fill is accepted short, and the achieved mix shows what was really drawn
-- [ ] An audience matching no rows at all is refused, naming its filters and the counts at each rung
-- [ ] No rung ever loosens the conditioning set
-- [ ] Relaxations do not change the gate report's verdict
-- [ ] A study whose audiences all fill records no relaxations
+- [x] A quota that cannot be filled widens its ordinal predicate by one band and records the rung
+- [x] A widened predicate that still cannot fill drops the least relevant non-conditioning filter, chosen by the ontology's relevance order
+- [x] A quota that still cannot fill is accepted short, and the achieved mix shows what was really drawn
+- [x] An audience matching no rows at all is refused, naming its filters and the counts at each rung
+- [x] No rung ever loosens the conditioning set
+- [x] Relaxations do not change the gate report's verdict
+- [x] A study whose audiences all fill records no relaxations
 
 ---
 
