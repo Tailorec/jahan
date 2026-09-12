@@ -33,13 +33,13 @@ Graph gates become a third kind of gate result, keyed by the check they performe
 
 ### Acceptance criteria
 
-- [ ] A relaxation records its audience, its rung, the filter as authored and as applied, the rows matched before and after, and the share achieved
-- [ ] A gate report carries relaxations alongside its results, and a relaxation does not change the report's verdict
-- [ ] A graph gate result names its check, its measured value and its threshold, and computes whether it passed
-- [ ] One report holds distribution and graph results together, refuses two results for the same subject, and computes its overall verdict from all of them
-- [ ] A population carrying a graph is refused when any persona has no tie
-- [ ] A digest can state that polarization was not measurable, and a stated polarization that contradicts the communities it reports is refused
-- [ ] The pinned identities are unchanged by this phase, or deliberately re-pinned with the change noted
+- [x] A relaxation records its audience, its rung, the filter as authored and as applied, the rows matched before and after, and the share achieved
+- [x] A gate report carries relaxations alongside its results, and a relaxation does not change the report's verdict
+- [x] A graph gate result names its check, its measured value and its threshold, and computes whether it passed
+- [x] One report holds distribution and graph results together, refuses two results for the same subject, and computes its overall verdict from all of them
+- [x] A population carrying a graph is refused when any persona has no tie
+- [x] A digest can state that polarization was not measurable, and a stated polarization that contradicts the communities it reports is refused
+- [x] The pinned identities are unchanged by this phase, or deliberately re-pinned with the change noted
 
 ---
 
