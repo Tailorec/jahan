@@ -125,14 +125,14 @@ Gates then judge the sample: categorical marginals by chi-squared, ordinal attri
 
 ### Acceptance criteria
 
-- [ ] A row missing any conditioning attribute never reaches the candidate pool, whatever its other attributes say
-- [ ] Sampling fills each audience's quota from its own eligible pool, and the achieved mix is recorded
-- [ ] The source mix of the sample is reported, so skew induced by the conditioning filter is visible
-- [ ] A skewed categorical marginal fails its gate, and a faithful one passes
-- [ ] An ordinal attribute is judged on its declared bands, and a shifted distribution fails
-- [ ] Gates read grounded attributes only
-- [ ] Any failing gate rejects the population
-- [ ] Assessing calls no model and opens no socket, and the same seed assesses identically twice
+- [x] A row missing any conditioning attribute never reaches the candidate pool, whatever its other attributes say
+- [x] Sampling fills each audience's quota from its own eligible pool, and the achieved mix is recorded
+- [x] The source mix of the sample is reported, so skew induced by the conditioning filter is visible
+- [x] A skewed categorical marginal fails its gate, and a faithful one passes
+- [x] An ordinal attribute is judged on its declared bands, and a shifted distribution fails
+- [x] Gates read grounded attributes only
+- [x] Any failing gate rejects the population
+- [x] Assessing calls no model and opens no socket, and the same seed assesses identically twice
 
 ---
 
