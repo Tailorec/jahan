@@ -4,9 +4,18 @@ audiences, assumptions — and the category ontology a brief is read against."""
 import re
 from typing import Annotated, Any, ClassVar, Self
 
-from pydantic import AfterValidator, AwareDatetime, Field, HttpUrl, StringConstraints, field_validator, model_validator
+from pydantic import (
+    AfterValidator,
+    AwareDatetime,
+    BeforeValidator,
+    Field,
+    HttpUrl,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
-from .base import FrozenDict, HashDigest, Identifier, NonEmptyStr, SimBaseModel
+from .base import FrozenDict, HashDigest, Identifier, NonEmptyStr, SimBaseModel, UnitInterval
 from .enums import ClaimSource, PersonaFieldDomain
 
 ClaimId = Annotated[str, StringConstraints(pattern=r"^C[1-9][0-9]*$")]
@@ -64,9 +73,49 @@ class Competitor(SimBaseModel):
     claims: tuple[NonEmptyStr, ...] = ()
 
 
+FilterValue = str | int | float
+
+
+class Exactly(SimBaseModel):
+    """A filter matches one attribute value."""
+
+    value: FilterValue
+
+
+class OneOf(SimBaseModel):
+    """A filter matches any of several attribute values."""
+
+    values: tuple[FilterValue, ...] = Field(min_length=1)
+
+
+class BandRange(SimBaseModel):
+    """A filter matches the ordinal bands from `first` to `last`, inclusive, in declared band order."""
+
+    first: NonEmptyStr
+    last: NonEmptyStr
+
+
+def _as_predicate(value: Any) -> Any:
+    """Read an authored filter: an exact scalar, a list of alternatives, or `range: [first, last]`."""
+    if isinstance(value, (list, tuple)):
+        return {"values": list(value)}
+    if isinstance(value, dict) and set(value) == {"range"}:
+        bounds = value["range"]
+        if isinstance(bounds, (list, tuple)) and len(bounds) == 2:
+            return {"first": bounds[0], "last": bounds[1]}
+    if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+        return {"value": value}
+    return value
+
+
+AttributeFilter = Annotated[Exactly | OneOf | BandRange, BeforeValidator(_as_predicate)]
+
+
 class Audience(SimBaseModel):
     name: Identifier
-    attribute_filters: FrozenDict[AttributeId, NonEmptyStr]
+    # All audiences of a brief declare a share or none do; the brief checks that and the total.
+    share: UnitInterval | None = None
+    attribute_filters: FrozenDict[AttributeId, AttributeFilter]
 
 
 class Assumption(SimBaseModel):
@@ -224,9 +273,28 @@ class ProductBrief(SimBaseModel):
             raise ValueError(f"audience names duplicated: {duplicated}")
         return self
 
+    @model_validator(mode="after")
+    def _audience_shares_are_all_or_nothing(self) -> Self:
+        declared = [audience.share is not None for audience in self.audiences]
+        if not any(declared):
+            return self
+        if not all(declared):
+            raise ValueError("either every audience declares a share or none does")
+        total = sum(audience.share for audience in self.audiences)
+        if abs(total - 1.0) > 1e-3:
+            raise ValueError(f"audience shares must sum to one, got {total}")
+        return self
+
     @property
     def audiences_declared(self) -> bool:
         return bool(self.audiences)
+
+    @property
+    def audience_shares(self) -> FrozenDict[Identifier, UnitInterval] | None:
+        """The shares the study asked for, or nothing when the brief declares no shares."""
+        if any(audience.share is None for audience in self.audiences):
+            return None
+        return FrozenDict({audience.name: audience.share for audience in self.audiences})
 
 
 class BriefPack(SimBaseModel):
@@ -245,17 +313,43 @@ class BriefPack(SimBaseModel):
 
     @model_validator(mode="after")
     def _audience_filters_use_declared_attributes(self) -> Self:
-        bands = {scale.attribute: {band.label for band in scale.bands} for scale in self.ontology.ordinal_scales}
+        bands = {scale.attribute: [band.label for band in scale.bands] for scale in self.ontology.ordinal_scales}
         for audience in self.brief.audiences:
-            for attribute, value in audience.attribute_filters.items():
+            for attribute, predicate in audience.attribute_filters.items():
                 if attribute not in self.ontology.attribute_domains:
                     raise ValueError(
                         f"audience {audience.name!r} filters on {attribute!r}, "
                         f"which ontology {self.ontology.category}@{self.ontology.version} does not declare"
                     )
-                if attribute in bands and value not in bands[attribute]:
+                labels = bands.get(attribute)
+                if isinstance(predicate, BandRange):
+                    if labels is None:
+                        raise ValueError(
+                            f"audience {audience.name!r} filters {attribute!r} by band range, "
+                            f"but the ontology does not scale it"
+                        )
+                    for label in (predicate.first, predicate.last):
+                        if label not in labels:
+                            raise ValueError(
+                                f"audience {audience.name!r} names band {label!r} of {attribute!r}, "
+                                f"which is not one of its bands {sorted(labels)}"
+                            )
+                    if labels.index(predicate.first) > labels.index(predicate.last):
+                        raise ValueError(
+                            f"audience {audience.name!r} ranges {attribute!r} from {predicate.first!r} to "
+                            f"{predicate.last!r}, which runs backwards in band order"
+                        )
+                elif isinstance(predicate, OneOf):
+                    if labels is not None:
+                        unknown = [value for value in predicate.values if value not in labels]
+                        if unknown:
+                            raise ValueError(
+                                f"audience {audience.name!r} filters {attribute!r} on {unknown}, "
+                                f"which are not among its bands {sorted(labels)}"
+                            )
+                elif labels is not None and predicate.value not in labels:
                     raise ValueError(
-                        f"audience {audience.name!r} filters {attribute!r} on {value!r}, "
-                        f"which is not one of its bands {sorted(bands[attribute])}"
+                        f"audience {audience.name!r} filters {attribute!r} on {predicate.value!r}, "
+                        f"which is not one of its bands {sorted(labels)}"
                     )
         return self
