@@ -95,7 +95,8 @@ class Scenario(SimBaseModel):
 
     variant: Variant
     price: Price
-    audience_weights: FrozenDict[Identifier, UnitInterval]
+    # Omitted weights inherit the brief's declared audience shares; stated ones must sum to one.
+    audience_weights: FrozenDict[Identifier, UnitInterval] | None = None
     tick_unit: TickUnit
     horizon_ticks: PositiveInt
     interventions: tuple[Intervention, ...] = ()
@@ -104,7 +105,8 @@ class Scenario(SimBaseModel):
 
     @model_validator(mode="after")
     def _audience_weights_sum_to_one(self) -> Self:
-        proportions_sum_to_one(self.audience_weights)
+        if self.audience_weights is not None:
+            proportions_sum_to_one(self.audience_weights)
         return self
 
     @model_validator(mode="after")
@@ -192,12 +194,26 @@ class SweepPlan(SimBaseModel):
         return self
 
 
+def resolve_audience_weights(
+    scenario: Scenario, brief: ProductBrief
+) -> FrozenDict[Identifier, UnitInterval] | None:
+    """The weights a scenario runs with: its own if it states any, else the brief's declared shares."""
+    if scenario.audience_weights is not None:
+        return scenario.audience_weights
+    return brief.audience_shares
+
+
 def check_scenario_against_brief(scenario: Scenario, brief: ProductBrief) -> None:
-    """Every name a scenario uses must exist in the brief it tests."""
+    """Every name a scenario uses must exist in the brief it tests; omitted weights inherit its shares."""
     variant = scenario.variant.variant_id
     audiences = {audience.name for audience in brief.audiences}
+    weights = resolve_audience_weights(scenario, brief)
     if audiences:
-        unknown = sorted(set(scenario.audience_weights) - audiences)
+        if weights is None:
+            raise ValueError(
+                f"scenario {variant!r} states no audience weights and the brief declares no shares to inherit"
+            )
+        unknown = sorted(set(weights) - audiences)
         if unknown:
             raise ValueError(f"scenario {variant!r} weights audiences the brief does not declare: {unknown}")
     unknown_claims = sorted(set(scenario.variant.emphasized_claims) - {claim.id for claim in brief.claims})

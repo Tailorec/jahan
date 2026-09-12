@@ -253,7 +253,7 @@ class Report(SimBaseModel):
                 raise ValueError(f"digest for scenario {digest.scenario_hash}, which this run does not configure")
             if digest.tick_unit is not scenario.tick_unit:
                 raise ValueError(f"digest in {digest.tick_unit.value} ticks for a scenario run in {scenario.tick_unit.value}")
-            if set(digest.audience_pmfs) != set(scenario.audience_weights):
+            if scenario.audience_weights is not None and set(digest.audience_pmfs) != set(scenario.audience_weights):
                 raise ValueError(f"digest audiences {sorted(digest.audience_pmfs)} differ from the scenario's {sorted(scenario.audience_weights)}")
         ensure_same_tick_unit(*self.digests)
         return self
