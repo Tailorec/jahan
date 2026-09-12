@@ -185,8 +185,8 @@ class OutcomeDigest(SimBaseModel):
 
     @model_validator(mode="after")
     def _weights_cover_exactly_the_masses(self) -> Self:
-        if not self.audience_pmfs or not self.community_pmfs:
-            raise ValueError("a digest reports response masses for at least one audience and one community")
+        if not self.audience_pmfs:
+            raise ValueError("a digest reports response masses for at least one audience")
         if set(self.audience_shares) != set(self.audience_pmfs):
             raise ValueError("every audience with a response mass needs a share, and only those")
         if set(self.community_sizes) != set(self.community_pmfs):
@@ -205,8 +205,12 @@ class OutcomeDigest(SimBaseModel):
 
     @computed_field
     @property
-    def polarization(self) -> float:
-        """Size-weighted divergence between communities' response masses: whether social dynamics created camps."""
+    def polarization(self) -> float | None:
+        """Size-weighted divergence between communities' response masses: whether social dynamics created
+        camps. A population that formed fewer than two communities has no polarization to measure, so it is
+        reported as not measurable rather than as a measured zero."""
+        if len(self.community_pmfs) < 2:
+            return None
         names = sorted(self.community_pmfs)
         return _normalized_divergence([self.community_pmfs[n] for n in names], [float(self.community_sizes[n]) for n in names])
 
