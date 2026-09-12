@@ -110,7 +110,7 @@ def test_claim_ids_assigned_automatically_and_contiguous():
     assert [claim.id for claim in brief.claims] == ["C1", "C2"]
 
     three = brief_payload()
-    three["claims"] = three["claims"] + [{"text": "third", "source": "public_source"}]
+    three["claims"] = three["claims"] + [{"text": "third", "source": "public_source", "evidence": EVIDENCE}]
     assert [claim.id for claim in ProductBrief.model_validate(three).claims] == ["C1", "C2", "C3"]
 
 
@@ -232,6 +232,27 @@ def test_claim_id_format():
             claim_id.validate_python(bad)
 
 
+def test_a_public_source_claim_must_carry_evidence():
+    with pytest.raises(ValidationError, match="public source must carry the evidence"):
+        ProductBrief.model_validate(brief_payload(claims=[{"text": "marketing copy", "source": "public_source"}]))
+
+
+def test_an_assumed_claim_must_not_carry_evidence():
+    with pytest.raises(ValidationError, match=r"assumed claim.*cannot carry evidence"):
+        ProductBrief.model_validate(
+            brief_payload(claims=[{"text": "taken on faith", "source": "assumed", "evidence": EVIDENCE}])
+        )
+
+
+def test_a_user_asserted_claim_may_carry_evidence_or_not():
+    bare = ProductBrief.model_validate(brief_payload(claims=[{"text": "our own claim", "source": "user_asserted"}]))
+    evidenced = ProductBrief.model_validate(
+        brief_payload(claims=[{"text": "our own claim", "source": "user_asserted", "evidence": EVIDENCE}])
+    )
+    assert bare.claims[0].evidence is None
+    assert evidenced.claims[0].evidence is not None
+
+
 def test_evidence_is_optional_and_typed_when_present():
     brief = ProductBrief.model_validate(
         brief_payload(
@@ -282,8 +303,10 @@ def test_changed_evidence_content_moves_brief_hash():
 
 def test_every_claim_source_value_is_usable_in_a_brief():
     for source in ClaimSource:
-        payload = brief_payload(claims=[{"text": "claim", "source": source.value}])
-        assert ProductBrief.model_validate(payload).claims[0].source is source
+        claim = {"text": "claim", "source": source.value}
+        if source is ClaimSource.PUBLIC_SOURCE:
+            claim["evidence"] = EVIDENCE
+        assert ProductBrief.model_validate(brief_payload(claims=[claim])).claims[0].source is source
 
 
 # --- ontology ------------------------------------------------------------------------------
@@ -463,7 +486,10 @@ def test_pack_round_trips_over_generated_values(
     brief = brief_payload(
         product={"name": product_name, "category": "beverage_protein", "description": "description"},
         price={"amount": price_amount, "currency": "USD"},
-        claims=[{"text": text, "source": source} for text, source in claim_pairs],
+        claims=[
+            {"text": text, "source": source, **({"evidence": EVIDENCE} if source == ClaimSource.PUBLIC_SOURCE.value else {})}
+            for text, source in claim_pairs
+        ],
         competitors=[{"name": "rival", "claims": competitor_claims}],
         audiences=[{"name": name, "attribute_filters": {"diet_protein_focus": name}} for name in audience_names],
         assumptions=[{"text": text, "source": "assumed"} for text in assumption_texts],
