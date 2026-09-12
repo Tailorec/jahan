@@ -8,10 +8,12 @@ from simcore.schemas import (
     CategoricalGateResult,
     Community,
     GateReport,
+    GraphGateResult,
     OrdinalGateResult,
     Persona,
     Population,
     PopulationManifest,
+    Relaxation,
     SocialEdge,
     SocialGraph,
     canonical_hash,
@@ -25,6 +27,24 @@ def categorical(**overrides):
 
 def ordinal(**overrides):
     return {"kind": "ordinal", "attribute": "exercise_frequency", "ks_statistic": 0.1, "ks_similarity": 0.9, **overrides}
+
+
+def graph(**overrides):
+    return {"kind": "graph", "check": "clustering", "measured": 0.5, "threshold": 0.3, **overrides}
+
+
+def relaxation(**overrides):
+    return {
+        "audience": "gym_regulars",
+        "rung": "widen_ordinal",
+        "attribute": "exercise_frequency",
+        "authored": "3_plus_weekly",
+        "applied": "weekly",
+        "rows_before": 10,
+        "rows_after": 30,
+        "share_achieved": 0.8,
+        **overrides,
+    }
 
 
 # --- gate results ----------------------------------------------------------------------------
@@ -129,6 +149,61 @@ def test_result_order_is_part_of_the_report_hash():
     first = GateReport.model_validate(gate_report_payload())
     flipped = gate_report_payload(results=list(reversed(gate_report_payload()["results"])))
     assert canonical_hash(first) != canonical_hash(GateReport.model_validate(flipped))
+
+
+# --- graph gates and relaxations -------------------------------------------------------------
+
+
+def test_graph_gate_result_names_its_check_and_computes_its_verdict():
+    passing = GraphGateResult.model_validate(graph(check="clustering", measured=0.42, threshold=0.30))
+    assert (passing.check.value, passing.passed) == ("clustering", True)
+    assert GraphGateResult.model_validate(graph(check="connectivity", measured=0.90, threshold=0.98)).passed is False
+    with pytest.raises(ValidationError, match="computed"):
+        GraphGateResult.model_validate(graph(measured=0.1, passed=True))
+
+
+@pytest.mark.parametrize("measured", [0.3, 0.29], ids=["at-target", "below"])
+def test_graph_gate_threshold_decides_the_verdict(measured):
+    assert GraphGateResult.model_validate(graph(measured=measured, threshold=0.3)).passed is (measured >= 0.3)
+
+
+def test_report_holds_distribution_and_graph_results_and_keys_each_subject_once():
+    report = GateReport.model_validate(gate_report_payload(results=[ordinal(), categorical(), graph()]))
+    assert report.overall is True
+    with pytest.raises(ValidationError, match="more than one gate result"):
+        GateReport.model_validate(gate_report_payload(results=[ordinal(), categorical(), graph(), graph(measured=0.1)]))
+    collision = gate_report_payload(results=[categorical(attribute="clustering"), graph(check="clustering")])
+    assert GateReport.model_validate(collision).overall is True
+
+
+def test_a_relaxation_records_the_filter_as_authored_and_as_applied():
+    relaxed = Relaxation.model_validate(relaxation())
+    assert (relaxed.audience, relaxed.rung.value) == ("gym_regulars", "widen_ordinal")
+    assert (relaxed.authored, relaxed.applied) == ("3_plus_weekly", "weekly")
+    assert Relaxation.model_validate(relaxation(rung="drop_filter", applied=None)).applied is None
+    short = Relaxation.model_validate(relaxation(rung="accept_shortfall", attribute=None, authored=None, applied=None))
+    assert short.attribute is None
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [
+        ({"rung": "drop_filter"}, "applying nothing"),
+        ({"rung": "accept_shortfall"}, "changes no filter"),
+        ({"rows_after": 5}, "never shrinks"),
+        ({"rung": "widen_ordinal", "applied": None}, "as applied"),
+    ],
+    ids=["drop-with-applied", "shortfall-with-filter", "shrinking", "widen-without-applied"],
+)
+def test_a_relaxation_refuses_a_shape_its_rung_does_not_have(overrides, match):
+    with pytest.raises(ValidationError, match=match):
+        Relaxation.model_validate(relaxation(**overrides))
+
+
+def test_a_relaxation_caveats_the_sample_without_moving_the_verdict():
+    assert GateReport.model_validate(gate_report_payload(relaxations=[relaxation()])).overall is True
+    failing = gate_report_payload(results=[categorical(p_value=0.01)], relaxations=[relaxation()])
+    assert GateReport.model_validate(failing).overall is False
 
 
 # --- manifest, graph, communities ------------------------------------------------------------
@@ -291,6 +366,13 @@ def test_graph_tying_a_persona_outside_the_population_refused():
     graph["edges"].append({"u": "p-000004", "v": "p-000099", "weight": 0.3})
     with pytest.raises(ValidationError, match="outside the population"):
         build(graph=graph)
+
+
+def test_population_with_a_graph_refuses_an_isolated_persona():
+    graph = {"edges": [{"u": "p-000001", "v": "p-000002", "weight": 0.8},
+                       {"u": "p-000002", "v": "p-000003", "weight": 0.2}]}
+    with pytest.raises(ValidationError, match="isolated"):
+        build(graph=graph, communities=[])
 
 
 def test_communities_require_a_graph():

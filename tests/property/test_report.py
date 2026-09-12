@@ -201,9 +201,15 @@ def test_digest_carries_both_distributions_with_their_weights():
     for overrides, match in (({"audience_shares": {"gym_regulars": 1.0}}, "needs a share"),
                              ({"community_sizes": {"community-1": 120}}, "needs a size"),
                              ({"audience_shares": {"gym_regulars": 0.5, "protein_dieters": 0.4}}, "sum to one"),
-                             ({"community_pmfs": {}, "community_sizes": {}}, "at least one")):
+                             ({"audience_pmfs": {}, "audience_shares": {}}, "at least one audience")):
         with pytest.raises(ValidationError, match=match):
             OutcomeDigest.model_validate(digest_payload(**overrides))
+
+
+def test_a_digest_with_no_communities_is_valid_and_reports_polarization_as_not_measurable():
+    digest = OutcomeDigest.model_validate(digest_payload(community_pmfs={}, community_sizes={}))
+    assert digest.polarization is None
+    assert digest.model_dump(mode="json")["polarization"] is None
 
 
 def test_adoption_is_share_weighted_top_two_box_purchase_intent():
@@ -219,7 +225,7 @@ def test_polarization_is_computed_over_communities_and_divergence_over_audiences
                                                                           "community-2": (0.025, 0.025, 0.025, 0.025, 0.9)}))
     assert opposite.polarization > 0.5 > calm.polarization
     single = OutcomeDigest.model_validate(digest_payload(community_pmfs={"community-1": same}, community_sizes={"community-1": 200}))
-    assert single.polarization == 0.0
+    assert single.polarization is None
     assert 0.0 <= opposite.audience_divergence <= 1.0
     assert not {"adoption", "polarization", "audience_divergence"} & set(OutcomeDigest.model_fields)
 
@@ -229,6 +235,12 @@ def test_stated_digest_numbers_contradicting_the_masses_refused():
         stated = {**digest_payload(community_pmfs={"community-1": (0.9, 0.025, 0.025, 0.025, 0.025), "community-2": (0.025, 0.025, 0.025, 0.025, 0.9)}), field: value}
         with pytest.raises(ValidationError, match="computed"):
             OutcomeDigest.model_validate(stated)
+
+
+def test_a_stated_polarization_for_no_communities_is_refused():
+    impossible = digest_payload(community_pmfs={}, community_sizes={}, polarization=0.0)
+    with pytest.raises(ValidationError, match="computed"):
+        OutcomeDigest.model_validate(impossible)
 
 
 def test_digest_numbers_and_hash_do_not_depend_on_insertion_order():
