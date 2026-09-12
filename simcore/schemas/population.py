@@ -12,7 +12,6 @@ from .base import (
     GraphHash,
     HashDigest,
     Identifier,
-    NonEmptyStr,
     NonNegativeInt,
     PersonaId,
     PopulationHash,
@@ -23,7 +22,7 @@ from .base import (
     hash_payload,
     proportions_sum_to_one,
 )
-from .brief import AttributeId, BriefPack
+from .brief import AttributeFilter, AttributeId, BriefPack
 from .enums import FieldOrigin, GraphCheck, PersonaFieldDomain, RelaxationRung
 from .persona import Persona, PersonaSource
 from .run import PinnedModelId
@@ -94,8 +93,8 @@ class Relaxation(SimBaseModel):
     audience: Identifier
     rung: RelaxationRung
     attribute: AttributeId | None = None
-    authored: NonEmptyStr | None = None
-    applied: NonEmptyStr | None = None
+    authored: AttributeFilter | None = None
+    applied: AttributeFilter | None = None
     rows_before: NonNegativeInt
     rows_after: NonNegativeInt
     share_achieved: UnitInterval
