@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 import simcore.schemas.base as base_module
 from simcore.schemas import (
+    BriefPack,
     Budget,
     Variant,
     Intervention,
@@ -19,8 +20,10 @@ from simcore.schemas import (
     SweepPlan,
     TickUnit,
     canonical_hash,
+    check_scenario_against_brief,
     derive_world_id,
     derive_world_seed,
+    resolve_audience_weights,
 )
 from tests.study_builders import ANCHOR_SET_HASHES, TEMPLATE_HASHES, pack_payload
 
@@ -271,6 +274,23 @@ def test_sweep_plan_leaves_audience_names_open_when_the_brief_declares_none():
     pack = pack_payload(audiences=[])
     parsed = SweepPlan.model_validate({"pack": pack, "grid": grid_payload(scenarios=[scenario_payload(audience_weights={"women_25_34": 1.0})])})
     assert set(parsed.grid.scenarios[0].audience_weights) == {"women_25_34"}
+
+
+def test_a_scenario_that_omits_weights_is_read_as_the_briefs_shares():
+    brief = BriefPack.model_validate(pack_payload()).brief
+    scenario = Scenario.model_validate(scenario_payload(audience_weights=None))
+    assert scenario.audience_weights is None
+    assert dict(resolve_audience_weights(scenario, brief)) == {"gym_regulars": 0.6, "protein_dieters": 0.4}
+    assert len(plan(scenarios=[scenario_payload(audience_weights=None)]).grid.scenarios) == 1
+
+
+def test_a_scenario_omitting_weights_needs_the_brief_to_declare_shares():
+    shareless = BriefPack.model_validate(
+        pack_payload(audiences=[{"name": "gym_regulars", "attribute_filters": {"exercise_frequency": "3_plus_weekly"}}])
+    )
+    scenario = Scenario.model_validate(scenario_payload(audience_weights=None))
+    with pytest.raises(ValueError, match="no shares to inherit"):
+        check_scenario_against_brief(scenario, shareless.brief)
 
 
 # --- replay pins ------------------------------------------------------------------------------

@@ -30,6 +30,20 @@ def test_claims_are_identified_in_the_order_they_were_authored(example_brief, on
     assert [claim.id for claim in load_brief(example_brief, ontologies).brief.claims] == ["C1", "C2", "C3"]
 
 
+def test_the_authored_yaml_expresses_shares_and_every_predicate_form(example_brief, authored):
+    payload = brief_payload(example_brief)
+    payload["audiences"] = [
+        {"name": "exact", "share": 0.25, "attribute_filters": {"diet_protein_focus": "high"}},
+        {"name": "one_of", "share": 0.25, "attribute_filters": {"exercise_frequency": ["weekly", "3_plus_weekly"]}},
+        {"name": "range", "share": 0.5, "attribute_filters": {"exercise_frequency": {"range": ["rarely", "3_plus_weekly"]}}},
+    ]
+    path, ontology_dir = authored(payload, load_ontology())
+    pack = load_brief(path, ontology_dir)
+    assert dict(pack.brief.audience_shares) == {"exact": 0.25, "one_of": 0.25, "range": 0.5}
+    forms = {audience.name: type(next(iter(audience.attribute_filters.values()))).__name__ for audience in pack.brief.audiences}
+    assert forms == {"exact": "Exactly", "one_of": "OneOf", "range": "BandRange"}
+
+
 def test_a_brief_naming_an_ontology_version_that_does_not_exist_is_refused(example_brief, ontologies, tmp_path):
     with pytest.raises(GateFailure, match="no ontology for category 'beverage_protein' at version '1.0.0'"):
         load_brief(example_brief, tmp_path / "empty")

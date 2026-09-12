@@ -460,6 +460,69 @@ def test_pack_accepts_free_values_on_non_ordinal_attributes():
     assert pack(brief=brief).brief.audiences[0].name == "protein_dieters"
 
 
+def test_audience_shares_are_all_or_nothing_and_sum_to_one():
+    shared = ProductBrief.model_validate(
+        brief_payload(
+            audiences=[
+                {"name": "gym_regulars", "share": 0.6, "attribute_filters": {"exercise_frequency": "3_plus_weekly"}},
+                {"name": "protein_dieters", "share": 0.4, "attribute_filters": {"diet_protein_focus": "high"}},
+            ]
+        )
+    )
+    assert dict(shared.audience_shares) == {"gym_regulars": 0.6, "protein_dieters": 0.4}
+
+    mixed = brief_payload(audiences=[{"name": "gym_regulars", "share": 0.6, "attribute_filters": {}},
+                                     {"name": "protein_dieters", "attribute_filters": {}}])
+    with pytest.raises(ValidationError, match="every audience declares a share or none does"):
+        ProductBrief.model_validate(mixed)
+
+    over_one = brief_payload(audiences=[{"name": "gym_regulars", "share": 0.6, "attribute_filters": {}},
+                                        {"name": "protein_dieters", "share": 0.5, "attribute_filters": {}}])
+    with pytest.raises(ValidationError, match="sum to one"):
+        ProductBrief.model_validate(over_one)
+
+
+def test_a_filter_may_be_an_exact_value_a_one_of_set_or_a_band_range():
+    brief = ProductBrief.model_validate(
+        brief_payload(
+            audiences=[
+                {"name": "exact", "attribute_filters": {"exercise_frequency": "weekly"}},
+                {"name": "one_of", "attribute_filters": {"exercise_frequency": ["weekly", "3_plus_weekly"]}},
+                {"name": "range", "attribute_filters": {"exercise_frequency": {"range": ["weekly", "3_plus_weekly"]}}},
+            ]
+        )
+    )
+    forms = {audience.name: type(next(iter(audience.attribute_filters.values()))).__name__ for audience in brief.audiences}
+    assert forms == {"exact": "Exactly", "one_of": "OneOf", "range": "BandRange"}
+
+
+def test_a_range_over_a_non_ordinal_attribute_is_refused():
+    brief = brief_payload(
+        audiences=[{"name": "gym_regulars", "attribute_filters": {"diet_protein_focus": {"range": ["high", "low"]}}}]
+    )
+    with pytest.raises(ValidationError, match="does not scale it"):
+        pack(brief=brief)
+
+
+@pytest.mark.parametrize(
+    ("predicate", "match"),
+    [({"range": ["weekly", "daily"]}, "not one of its bands"), (["weekly", "daily"], "not among its bands")],
+    ids=["range", "one-of"],
+)
+def test_a_range_or_set_naming_a_value_that_is_not_a_band_is_refused(predicate, match):
+    brief = brief_payload(audiences=[{"name": "gym_regulars", "attribute_filters": {"exercise_frequency": predicate}}])
+    with pytest.raises(ValidationError, match=match):
+        pack(brief=brief)
+
+
+def test_a_band_range_runs_in_declared_band_order():
+    backwards = brief_payload(
+        audiences=[{"name": "gym_regulars", "attribute_filters": {"exercise_frequency": {"range": ["3_plus_weekly", "weekly"]}}}]
+    )
+    with pytest.raises(ValidationError, match="runs backwards"):
+        pack(brief=backwards)
+
+
 def test_ontology_edits_move_the_ontology_hash_not_the_brief_hash():
     before, after = pack(), pack(ontology=ontology_payload(conditioning_set=["age"]))
     assert canonical_hash(before.brief) == canonical_hash(after.brief)
