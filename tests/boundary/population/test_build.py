@@ -3,14 +3,16 @@
 import numpy as np
 import pytest
 
-from simcore.population import BuiltPopulation, build
+from simcore.population import BuiltPopulation, assess, build
 from simcore.population._streams import spawn
 from simcore.ports.fake import FakeChat, FakeEmbed
 from simcore.ports.synthetic import AttributeShape, SyntheticCoresetSource, SyntheticShape
 from simcore.schemas import (
     BriefPack,
     CommunityThresholds,
+    DistributionThresholds,
     FieldOrigin,
+    GateFailure,
     GraphParameters,
     Population,
     PopulationParameters,
@@ -124,10 +126,56 @@ def test_a_patch_is_applied_and_marked_calibrated():
     assert result.population.personas[0].conditioning["age"] == "45_54"
 
 
-def test_a_gate_on_a_completed_attribute_is_dropped_rather_than_judged():
+def starved(rows: int = 4000, seed: int = 11) -> SyntheticCoresetSource:
+    """Almost nobody trains, so the gym audience cannot fill; spend_band is sparse, so building would complete it."""
+    return SyntheticCoresetSource(
+        SyntheticShape(
+            {
+                "age": AttributeShape(("18_24", "25_34", "35_44", "45_54")),
+                "sex": AttributeShape(("female", "male")),
+                "exercise_frequency": AttributeShape(("rarely", "weekly", "3_plus_weekly"), weights=(0.97, 0.02, 0.01)),
+                "diet_protein_focus": AttributeShape(("low", "medium", "high")),
+                "spend_band": AttributeShape(("5_10", "10_20"), populated=0.5),
+            },
+            rows=rows,
+        ),
+        seed=seed,
+    )
+
+
+def test_a_failing_draw_is_refused_before_any_model_is_called():
+    """A starved study once made ten completion calls, built its graph and found its communities before
+    being refused on gates its draw had already failed."""
+    fake = FakeChat()
+    with pytest.raises(GateFailure, match="before any model was called"):
+        build(pack(), 1000, 4021, coreset=starved(), inference=fake)
+    assert fake.calls == []
+
+
+def test_assess_and_build_agree_about_the_same_draw():
+    assert assess(pack(), 1000, 4021, coreset=starved()).overall is False
+    with pytest.raises(GateFailure):
+        build(pack(), 1000, 4021, coreset=starved(), inference=FakeChat())
+
+
+def test_completion_cannot_rescue_a_sparse_attribute_that_fails_its_gate():
+    """A failing spend_band gate rejected a fully populated study but vanished from a half-populated one,
+    because it was dropped after completion touched spend_band. The verdict now comes first."""
+    strict = PopulationParameters(distribution_gates=DistributionThresholds(significance_level=0.999999))
+    fake = FakeChat()
+    with pytest.raises(GateFailure) as raised:
+        build(pack(), 200, 4021, coreset=synthetic(spend_populated=0.5), inference=fake, parameters=strict)
+    assert "spend_band" in str(raised.value)
+    assert fake.calls == []
+
+
+def test_a_population_carries_only_gates_true_of_its_own_values():
     result = build(pack(), 200, 4021, coreset=synthetic(spend_populated=0.5), inference=FakeChat())
-    assert result.population.manifest.completion is not None
-    assert result.population.manifest.synthesized_share > 0.0
-    gated = {getattr(r, "attribute", None) for r in result.population.gate_report.results}
-    assert "spend_band" not in gated  # completion touched it, so it is no longer wholly grounded
-    assert result.population.gate_report.overall is True
+    population = result.population
+    assert population.manifest.synthesized_share > 0.0
+    for outcome in population.gate_report.results:
+        attribute = getattr(outcome, "attribute", None)
+        if attribute is not None:
+            assert all(
+                persona.origins[attribute] is FieldOrigin.GROUNDED for persona in population.personas if attribute in persona.origins
+            )

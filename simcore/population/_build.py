@@ -61,6 +61,9 @@ def build(
     distribution = _gate_results(
         pack.ontology, coreset, sampled.references, sampled.rows, parameters.distribution_gates
     )
+    # The verdict is the draw's, and it is enforced before any model is called: completion then cannot
+    # touch it, assess() and build() cannot disagree about it, and a doomed study costs nothing.
+    _reject_failed(distribution)
     projection = project(pack, sampled.rows, coreset, inference=inference)
     personas = _patch(projection.personas, patches if patches is not None else NullPatchSource())
     embeddings = None
@@ -93,18 +96,11 @@ def build(
         completion=projection.completion,
     )
     report = GateReport(
-        results=_grounded_results(distribution, personas) + graph_build.results,
+        results=_true_of_the_population(distribution, personas) + graph_build.results,
         source_mix=sampled.source_mix,
         achieved_mix=sampled.achieved_mix,
         relaxations=sampled.relaxations,
     )
-    if not report.overall:
-        failed = [
-            getattr(result, "attribute", None) or getattr(result, "check", None).value
-            for result in report.results
-            if not result.passed
-        ]
-        raise GateFailure(f"the built population failed its gates: {failed}")
     population = Population(
         pack=pack,
         manifest=manifest,
@@ -121,11 +117,21 @@ def _requested_mix(pack) -> FrozenDict:
     return shares if shares is not None else FrozenDict({})
 
 
-def _grounded_results(results: Sequence, personas: Sequence[Persona]) -> tuple:
-    """The distribution gates the built population may still carry: an attribute completion touched is no
-    longer wholly grounded, and a gate on it would judge synthesized values against the design they were
-    chosen to match."""
-    grounded = tuple(
+def _reject_failed(results: Sequence) -> None:
+    """Refuse a draw that failed any distribution gate, naming the attributes, before anything is spent."""
+    failed = [result.attribute for result in results if not result.passed]
+    if failed:
+        raise GateFailure(f"the sample failed its distribution gates before any model was called: {failed}")
+
+
+def _true_of_the_population(results: Sequence, personas: Sequence[Persona]) -> tuple:
+    """The draw's gates that may travel with the population it became.
+
+    Every verdict was already enforced on the draw, so this never changes whether a population is built.
+    A gate was computed from grounded values; once completion or a patch changes an attribute's values, a
+    gate over that attribute would describe the draw rather than the population, and the contract keeps a
+    population's gates true of its own values."""
+    return tuple(
         result
         for result in results
         if all(
@@ -134,9 +140,6 @@ def _grounded_results(results: Sequence, personas: Sequence[Persona]) -> tuple:
             if result.attribute in persona.origins
         )
     )
-    if not grounded:
-        raise GateFailure("no gated attribute stayed grounded across the built population")
-    return grounded
 
 
 def _patch(personas: Sequence[Persona], patches: PersonaPatchSource) -> tuple[Persona, ...]:
