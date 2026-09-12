@@ -188,7 +188,8 @@ def test_report_holds_distribution_and_graph_results_and_keys_each_subject_once(
 def test_a_relaxation_records_the_filter_as_authored_and_as_applied():
     relaxed = Relaxation.model_validate(relaxation())
     assert (relaxed.audience, relaxed.rung.value) == ("gym_regulars", "widen_ordinal")
-    assert (relaxed.authored, relaxed.applied) == ("3_plus_weekly", "weekly")
+    assert relaxed.authored.value == "3_plus_weekly"
+    assert relaxed.applied.value == "weekly"
     assert Relaxation.model_validate(relaxation(rung="drop_filter", applied=None)).applied is None
     short = Relaxation.model_validate(relaxation(rung="accept_shortfall", attribute=None, authored=None, applied=None))
     assert short.attribute is None
