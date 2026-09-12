@@ -64,16 +64,32 @@ def _read_yaml(path: Path) -> Any:
 
 
 def _read_ontology(ontology_dir: Path, category: str, version: str) -> CategoryOntology:
-    path = Path(ontology_dir) / category / f"{version}.json"
+    directory = Path(ontology_dir) / category
+    path = directory / f"{version}.json"
+    if not path.is_file():
+        raise GateFailure(_missing_ontology(category, version, directory, path))
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except OSError as error:
-        raise GateFailure(
-            f"no ontology for category {category!r} at version {version!r}: looked for {path}"
-        ) from error
+        raise GateFailure(f"{path}: cannot be read ({error.strerror or error})") from error
     except json.JSONDecodeError as error:
         raise GateFailure(f"{path}: is not valid JSON ({error.msg} at line {error.lineno})") from error
-    return _validate(CategoryOntology, raw, path)
+    ontology = _validate(CategoryOntology, raw, path)
+    if (ontology.category, ontology.version) != (category, version):
+        raise GateFailure(
+            f"{path}: declares category {ontology.category!r} at version {ontology.version!r}, "
+            f"but its path says {category!r} at version {version!r}"
+        )
+    return ontology
+
+
+def _missing_ontology(category: str, version: str, directory: Path, path: Path) -> str:
+    looked = f"no ontology for category {category!r} at version {version!r}: looked for {path}"
+    if not directory.is_dir():
+        return f"{looked}; the category directory {directory} does not exist"
+    present = sorted(item.stem for item in directory.glob("*.json"))
+    listing = ", ".join(repr(item) for item in present) if present else "none"
+    return f"{looked}; versions present: {listing}"
 
 
 def _validate(model: type, payload: Any, path: Path):
