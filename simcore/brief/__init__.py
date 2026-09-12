@@ -7,5 +7,6 @@ machine. Nothing here opens a socket or reads a clock (ADR 0013).
 
 from ._fetch import fetch_evidence
 from ._intake import load_brief
+from ._ledger import assumptions_of
 
-__all__ = ["fetch_evidence", "load_brief"]
+__all__ = ["assumptions_of", "fetch_evidence", "load_brief"]
