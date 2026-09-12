@@ -22,9 +22,11 @@ from simcore.schemas import (
     GateReport,
     Identifier,
     OrdinalGateResult,
+    Relaxation,
 )
 
 from ._gates import chi_squared, ordinal_similarity
+from ._relax import resolve
 
 
 def assess(pack: BriefPack, n: int, population_seed: int, *, coreset: CoresetSource) -> GateReport:
@@ -44,14 +46,19 @@ def assess(pack: BriefPack, n: int, population_seed: int, *, coreset: CoresetSou
     if audiences and shares is None:
         raise GateFailure("the brief declares audiences but no shares to sample them by")
 
+    relaxations: tuple[Relaxation, ...] = ()
     if audiences:
-        pools = {audience.name: coreset.matching(audience.attribute_filters, present=conditioning) for audience in brief.audiences}
         quotas = _quotas(shares, n, audiences)
+        resolved = [
+            (audience.name, quotas[audience.name], resolve(audience, quotas[audience.name], ontology, coreset, conditioning))
+            for audience in brief.audiences
+        ]
+        drawn = _draw(resolved, population_seed)
+        relaxations = tuple(relaxation for _, _, outcome in resolved for relaxation in outcome.relaxations)
     else:
-        pools = {None: eligible}
-        quotas = {None: n}
+        generator = random.Random(f"population-sample:{population_seed}:none")
+        drawn = [(None, row_id) for row_id in generator.sample(list(eligible), k=min(n, len(eligible)))]
 
-    drawn = _draw(pools, quotas, population_seed)
     if not drawn:
         raise GateFailure("no eligible row was drawn: every audience's eligible pool is empty")
 
@@ -63,7 +70,7 @@ def assess(pack: BriefPack, n: int, population_seed: int, *, coreset: CoresetSou
         results=_gate_results(ontology, coreset, population_rows, sample_rows),
         source_mix=_mix(Counter(row.source for row in sample_rows)),
         achieved_mix=_achieved_mix(drawn, audiences),
-        relaxations=(),
+        relaxations=relaxations,
     )
 
 
@@ -77,13 +84,12 @@ def _quotas(shares: Mapping[Identifier, float], n: int, order: Sequence[Identifi
     return quotas
 
 
-def _draw(pools: Mapping[Identifier | None, Sequence[str]], quotas: Mapping[Identifier | None, int], seed: int):
-    """One seeded draw per audience from its own eligible pool, in audience order."""
+def _draw(resolved, seed: int):
+    """One seeded draw per audience from its own (possibly relaxed) eligible pool, in audience order."""
     drawn: list[tuple[Identifier | None, str]] = []
-    for name in pools:
-        pool = list(pools[name])
+    for name, quota, outcome in resolved:
         generator = random.Random(f"population-sample:{seed}:{name}")
-        for row_id in generator.sample(pool, k=min(quotas[name], len(pool))):
+        for row_id in generator.sample(list(outcome.pool), k=min(quota, len(outcome.pool))):
             drawn.append((name, row_id))
     return drawn
 
