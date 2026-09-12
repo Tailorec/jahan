@@ -157,28 +157,11 @@ def test_degree_shape_clustering_and_connectivity_are_judged_and_a_failure_rejec
         _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=0.5))
 
 
-def test_the_measured_attribute_assortativity_is_reported():
-    pack, personas = projected()
-    weak = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=0.0))
-    strong = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=1.0))
-    assert 0.0 < weak.assortativity <= 1.0 and 0.0 < strong.assortativity <= 1.0
-    assert strong.assortativity > weak.assortativity
-
-
 def test_homophily_strength_is_recorded_and_two_strengths_produce_different_graphs():
     pack, personas = projected()
     weak = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=0.0))
     strong = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=1.0))
     assert canonical_hash(weak.graph) != canonical_hash(strong.graph)
-
-
-def test_a_graph_whose_edges_never_cross_audiences_is_refused(monkeypatch):
-    pack, personas = projected(count=60)
-    monkeypatch.setattr(_graph, "_restates_the_audiences", lambda graph, audience_of: True)
-    with pytest.raises(GateFailure, match="restates"):
-        _graph.build_graph(
-            pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=0.5), audience_of={"p-000001": "A"}
-        )
 
 
 def test_similarity_is_computed_over_sampled_candidates_not_all_pairs(monkeypatch):
@@ -236,3 +219,28 @@ def test_the_same_personas_in_any_order_build_the_same_graph():
     forward = _graph.build_graph(pack, people, population_seed=4021)
     backward = _graph.build_graph(pack, list(reversed(people)), population_seed=4021)
     assert canonical_hash(forward.graph) == canonical_hash(backward.graph)
+
+
+def test_the_measured_attribute_assortativity_is_reported_per_attribute():
+    """Real assortativity: near zero when ties ignore attributes, rising as homophily makes like join like."""
+    pack, personas = projected()
+    weak = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=0.0))
+    strong = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=1.0))
+    assert set(weak.assortativity) <= set(pack.ontology.attribute_domains)
+    assert abs(weak.assortativity["exercise_frequency"]) < 0.15
+    assert strong.assortativity["exercise_frequency"] > weak.assortativity["exercise_frequency"] + 0.05
+
+
+def test_a_graph_whose_ties_restate_the_audiences_is_refused_at_the_assortativity_ceiling():
+    pack, people, audience_of = audience_grouped()
+    accepted = _graph.build_graph(pack, people, population_seed=4021, audience_of=audience_of)
+    assert accepted.graph.edges
+    with pytest.raises(GateFailure, match="restates the declared audiences"):
+        _graph.build_graph(
+            pack,
+            people,
+            population_seed=4021,
+            audience_of=audience_of,
+            parameters=GraphParameters(homophily_strength=1.0),
+            thresholds=GraphThresholds(assortativity_ceiling=0.01),
+        )

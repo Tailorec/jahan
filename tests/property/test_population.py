@@ -286,6 +286,7 @@ def test_every_default_parameter_is_the_value_the_engine_used_before_it_was_tuna
     defaults = PopulationParameters()
     assert (defaults.graph.ring_degree, defaults.graph.hub_attachment) == (4, 2)
     assert (defaults.graph_gates.clustering_floor, defaults.graph_gates.connectivity_floor, defaults.graph_gates.hub_tail_floor) == (0.05, 0.98, 1.8)
+    assert defaults.graph_gates.assortativity_ceiling == 0.9
     assert (defaults.communities.modularity_floor, defaults.communities.min_communities, defaults.communities.max_communities) == (0.4, 4, 8)
     assert defaults.communities.share_floor == 0.05 and defaults.communities.resolutions == (0.5, 0.75, 1.0, 1.25, 1.5)
     assert (defaults.distribution_gates.significance_level, defaults.distribution_gates.similarity_threshold) == (0.05, 0.80)
@@ -304,9 +305,11 @@ def test_every_default_parameter_is_the_value_the_engine_used_before_it_was_tuna
         (CommunityThresholds, {"resolutions": (0.5, 0.5)}, "each once"),
         (CommunityThresholds, {"resolutions": ()}, "resolutions"),
         (DistributionThresholds, {"significance_level": 1.0}, "significance_level"),
+        (GraphThresholds, {"assortativity_ceiling": 0.0}, "assortativity_ceiling"),
     ],
     ids=["odd-ring", "homophily-out-of-range", "no-hub-attachment", "hub-floor-judging-nothing", "min-over-max",
-         "floor-unreachable", "resolutions-descending", "resolution-repeated", "no-resolutions", "significance-certain"],
+         "floor-unreachable", "resolutions-descending", "resolution-repeated", "no-resolutions", "significance-certain",
+         "ceiling-judging-nothing"],
 )
 def test_a_tuned_parameter_that_could_never_mean_anything_is_refused(model, overrides, match):
     with pytest.raises(ValidationError, match=match):

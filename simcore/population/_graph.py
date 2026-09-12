@@ -7,11 +7,13 @@ Similarity is read over a bounded sample per rewiring rather than every pair, be
 billions of comparisons at the sizes this engine targets. The graph is judged on degree shape,
 clustering and connectivity; a failure rejects the population."""
 
+import math
 import random
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
 import networkx as nx
+import numpy as np
 
 from simcore.schemas import (
     AttributeId,
@@ -38,7 +40,9 @@ CANDIDATE_SAMPLE = 16
 class GraphBuild:
     graph: SocialGraph
     results: tuple[GraphGateResult, ...]
-    assortativity: float
+    # Newman's attribute assortativity per declared attribute the personas carry: how strongly ties join
+    # personas who share it, from -1 through 0 (no preference) to 1 (only like joins like).
+    assortativity: Mapping[AttributeId, float]
 
 
 def build_graph(
@@ -76,13 +80,18 @@ def build_graph(
             for u, v in sorted(tuple(sorted(edge)) for edge in edges)
         )
     )
-    if audience_of is not None and _restates_the_audiences(graph, audience_of):
-        raise GateFailure("every tie stays within an audience, so the graph merely restates the declared audiences")
+    if audience_of is not None:
+        restating = _audience_assortativity(graph, audience_of)
+        if restating is not None and restating >= thresholds.assortativity_ceiling:
+            raise GateFailure(
+                f"ties follow the declared audiences with assortativity {restating:.2f}, at or above the ceiling of "
+                f"{thresholds.assortativity_ceiling}: the graph merely restates the declared audiences"
+            )
     results = judge(graph, n, thresholds)
     if not all(result.passed for result in results):
         failed = [result.check.value for result in results if not result.passed]
         raise GateFailure(f"the generated graph fails its structural gates: {failed}")
-    return GraphBuild(graph, results, _assortativity(graph))
+    return GraphBuild(graph, results, _assortativity(graph, arranged, ontology))
 
 
 def judge(graph: SocialGraph, n: int, thresholds: GraphThresholds = GraphThresholds()) -> tuple[GraphGateResult, ...]:
@@ -103,11 +112,46 @@ def judge(graph: SocialGraph, n: int, thresholds: GraphThresholds = GraphThresho
     )
 
 
-def _assortativity(graph: SocialGraph) -> float:
-    """How much attributes shaped the structure, as the mean tie strength the edges carry."""
-    if not graph.edges:
-        return 0.0
-    return sum(edge.weight for edge in graph.edges) / len(graph.edges)
+def _assortativity(graph: SocialGraph, personas: Sequence[Persona], ontology) -> dict[AttributeId, float]:
+    """Attribute assortativity for each declared attribute, over the personas that carry it.
+
+    This is what "how much attributes shaped the structure" means. The mean tie strength once reported
+    here rose with homophily too, but it is high for any homogeneous population whether or not ties
+    follow attributes — it read 0.39 on a graph whose real assortativity was below zero. An attribute
+    carried by too few tied personas, or by only one value, has no assortativity to measure and is left out."""
+    network = nx.Graph()
+    network.add_edges_from((edge.u, edge.v) for edge in graph.edges)
+    by_id = {persona.persona_id: persona for persona in personas}
+    measured: dict[AttributeId, float] = {}
+    for attribute in ontology.relevance_order:
+        values = {node: _value(by_id[node], attribute) for node in network.nodes if node in by_id}
+        carriers = {node: value for node, value in values.items() if value is not None}
+        value = _coefficient(network.subgraph(carriers).copy(), carriers, attribute)
+        if value is not None:
+            measured[attribute] = value
+    return measured
+
+
+def _audience_assortativity(graph: SocialGraph, audience_of: Mapping[str, str]) -> float | None:
+    """How strongly ties stay within the declared audiences, or nothing when there is only one."""
+    if len(set(audience_of.values())) < 2:
+        return None
+    network = nx.Graph()
+    network.add_edges_from((edge.u, edge.v) for edge in graph.edges if edge.u in audience_of and edge.v in audience_of)
+    return _coefficient(network, {node: audience_of[node] for node in network.nodes}, "audience")
+
+
+def _coefficient(network: nx.Graph, labels: Mapping[str, AttributeValue], name: str) -> float | None:
+    if network.number_of_edges() < 2 or len(set(labels.values())) < 2:
+        return None
+    nx.set_node_attributes(network, dict(labels), name)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        value = nx.attribute_assortativity_coefficient(network, name)
+    return round(float(value), 6) if math.isfinite(value) else None
+
+
+def _value(persona: Persona, attribute: AttributeId) -> AttributeValue | None:
+    return persona.conditioning.get(attribute, persona.attributes.get(attribute))
 
 
 def _arrange(personas: Sequence[Persona], population_seed: int) -> list[Persona]:
@@ -214,10 +258,3 @@ def _attribute_match(attribute: AttributeId, a: AttributeValue, b: AttributeValu
 def _weight(a: Persona, b: Persona, ontology) -> float:
     quantised = round(_similarity(a, b, ontology) * QUANTUM) / QUANTUM
     return min(1.0, max(1.0 / QUANTUM, quantised))
-
-
-def _restates_the_audiences(graph: SocialGraph, audience_of: Mapping[str, str]) -> bool:
-    audiences = set(audience_of.values())
-    if len(audiences) < 2:
-        return False
-    return all(audience_of[edge.u] == audience_of[edge.v] for edge in graph.edges)

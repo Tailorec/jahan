@@ -187,6 +187,9 @@ class GraphThresholds(SimBaseModel):
     connectivity_floor: UnitInterval = 0.98
     # Highest degree over mean degree; at least one by definition, so a floor at or below it judges nothing.
     hub_tail_floor: Annotated[float, Field(gt=1.0)] = 1.8
+    # How far ties may follow the declared audiences before the graph merely restates them: attribute
+    # assortativity runs from -1 through 0 (no preference) to 1 (every tie joins like to like).
+    assortativity_ceiling: Annotated[float, Field(gt=0.0, le=1.0)] = 0.9
 
 
 class CommunityThresholds(SimBaseModel):
