@@ -23,7 +23,7 @@ from .base import (
     proportions_sum_to_one,
 )
 from .brief import AttributeFilter, AttributeId, BriefPack
-from .enums import FieldOrigin, GraphCheck, PersonaFieldDomain, RelaxationRung
+from .enums import FieldOrigin, GateReference, GraphCheck, PersonaFieldDomain, RelaxationRung
 from .persona import Persona, PersonaSource
 from .run import PinnedModelId
 
@@ -127,6 +127,8 @@ class GateReport(SimBaseModel):
     achieved_mix: FrozenDict[Identifier, UnitInterval] = FrozenDict({})
     # A shortfall caveats the sample; it is not a verdict, so it never moves `overall`.
     relaxations: tuple[Relaxation, ...] = ()
+    # What the results were judged against, so a pass is never read as a claim it does not make.
+    reference: GateReference = GateReference.DESIGN
 
     @model_validator(mode="after")
     def _source_mix_is_complete(self) -> Self:

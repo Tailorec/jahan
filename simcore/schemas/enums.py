@@ -229,6 +229,18 @@ class RelaxationRung(StrEnum):
     ACCEPT_SHORTFALL = "accept_shortfall"
 
 
+class GateReference(StrEnum):
+    """What a gate report judged its sample against.
+
+    `design` is the share-weighted mixture of the audiences the study asked for: it catches a draw
+    that did not realise its own design, and says nothing about whether the study matches the real
+    world. `category_targets` is that stronger claim, and needs measured targets the engine does not
+    yet carry."""
+
+    DESIGN = "design"
+    CATEGORY_TARGETS = "category_targets"
+
+
 class GraphCheck(StrEnum):
     """A structural property of the social graph that a gate result can judge."""
 
