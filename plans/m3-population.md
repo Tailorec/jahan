@@ -193,15 +193,15 @@ Tie strengths are quantised before becoming edges, so a graph's identity is its 
 
 ### Acceptance criteria
 
-- [ ] Generated graphs carry clustering and a hub tail rather than uniform degree
-- [ ] Two personas sharing their most relevant attributes are likelier to be tied than two who share none
-- [ ] A tie's strength can be explained from the attributes that produced it
-- [ ] Tie strengths are quantised, and the same graph built twice hashes identically
-- [ ] Every persona has at least one tie
-- [ ] Degree shape, clustering and connectivity are judged, and a failure rejects the population
-- [ ] The measured attribute assortativity is reported, and a degenerate graph whose communities merely restate the audiences is refused
-- [ ] Homophily strength is recorded, and two strengths produce two different graphs
-- [ ] Similarity is computed over sampled candidates, not all pairs
+- [x] Generated graphs carry clustering and a hub tail rather than uniform degree
+- [x] Two personas sharing their most relevant attributes are likelier to be tied than two who share none
+- [x] A tie's strength can be explained from the attributes that produced it
+- [x] Tie strengths are quantised, and the same graph built twice hashes identically
+- [x] Every persona has at least one tie
+- [x] Degree shape, clustering and connectivity are judged, and a failure rejects the population
+- [x] The measured attribute assortativity is reported, and a degenerate graph whose communities merely restate the audiences is refused
+- [x] Homophily strength is recorded, and two strengths produce two different graphs
+- [x] Similarity is computed over sampled candidates, not all pairs
 
 ---
 
