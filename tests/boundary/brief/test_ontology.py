@@ -85,3 +85,11 @@ def test_a_component_that_escapes_the_ontology_directory_is_refused_by_the_contr
     path, ontology_dir = authored(payload, load_ontology())
     with pytest.raises(GateFailure, match=field):
         load_brief(path, ontology_dir)
+
+
+def test_a_key_repeated_in_an_ontology_file_is_refused(example_brief, authored, tmp_path):
+    path, ontology_dir = authored(payload_of(example_brief), load_ontology())
+    ontology = ontology_dir / "beverage_protein" / "1.0.0.json"
+    ontology.write_text('{"category": "beverage_protein", "category": "snack_bar"}', encoding="utf-8")
+    with pytest.raises(GateFailure, match=r"the key 'category' is given more than once"):
+        load_brief(path, ontology_dir)

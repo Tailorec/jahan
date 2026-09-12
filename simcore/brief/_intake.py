@@ -125,16 +125,35 @@ def _join_evidence(payload: dict, path: Path) -> dict:
     return payload
 
 
+def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict:
+    """`json.loads` keeps the last of a repeated key, exactly as `safe_load` does, and a study
+    must not depend on which one that was."""
+    mapping: dict = {}
+    for key, value in pairs:
+        if key in mapping:
+            raise ValueError(f"the key {key!r} is given more than once")
+        mapping[key] = value
+    return mapping
+
+
+def _read_json(path: Path) -> Any:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as error:
+        raise GateFailure(f"{path}: cannot be read ({error.strerror or error})") from error
+    try:
+        return json.loads(text, object_pairs_hook=_no_duplicate_keys)
+    except json.JSONDecodeError as error:
+        raise GateFailure(f"{path}: is not valid JSON ({error.msg} at line {error.lineno})") from error
+    except ValueError as error:
+        raise GateFailure(f"{path}: {error}") from error
+
+
 def _read_sidecar(path: Path) -> dict:
     sidecar_path = _sidecar_path(path)
     if not sidecar_path.is_file():
         raise GateFailure(f"{path}: cites evidence but its sidecar {sidecar_path} is missing")
-    try:
-        raw = json.loads(sidecar_path.read_text(encoding="utf-8"))
-    except OSError as error:
-        raise GateFailure(f"{sidecar_path}: cannot be read ({error.strerror or error})") from error
-    except json.JSONDecodeError as error:
-        raise GateFailure(f"{sidecar_path}: is not valid JSON ({error.msg} at line {error.lineno})") from error
+    raw = _read_json(sidecar_path)
     if not isinstance(raw, dict):
         raise GateFailure(f"{sidecar_path}: must be a mapping of cited URLs at its top level, not {_describe(raw)}")
     return raw
@@ -145,13 +164,7 @@ def _read_ontology(ontology_dir: Path, category: str, version: str) -> CategoryO
     path = directory / f"{version}.json"
     if not path.is_file():
         raise GateFailure(_missing_ontology(category, version, directory, path))
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except OSError as error:
-        raise GateFailure(f"{path}: cannot be read ({error.strerror or error})") from error
-    except json.JSONDecodeError as error:
-        raise GateFailure(f"{path}: is not valid JSON ({error.msg} at line {error.lineno})") from error
-    ontology = _validate(CategoryOntology, raw, path)
+    ontology = _validate(CategoryOntology, _read_json(path), path)
     if (ontology.category, ontology.version) != (category, version):
         raise GateFailure(
             f"{path}: declares category {ontology.category!r} at version {ontology.version!r}, "

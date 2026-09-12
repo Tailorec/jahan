@@ -129,6 +129,14 @@ def test_a_citation_that_names_no_url_is_refused(example_brief, authored, cited)
         load_brief(path, ontology_dir)
 
 
+def test_a_url_recorded_twice_in_the_sidecar_is_refused(example_brief, authored):
+    entry = '{"content_hash": "%s", "fetched_at": "2026-09-01T00:00:00Z"}' % ("ab" * 32)
+    text = '{"%s": %s, "%s": %s, "%s": %s}' % (NUTRITION_PANEL, entry, CATEGORY_REPORT, entry, NUTRITION_PANEL, entry)
+    path, ontology_dir = authored(payload_of(example_brief), load_ontology(), sidecar=text)
+    with pytest.raises(GateFailure, match="is given more than once"):
+        load_brief(path, ontology_dir)
+
+
 def test_a_missing_sidecar_is_refused_as_such(example_brief, authored):
     path, ontology_dir = authored(payload_of(example_brief), load_ontology(), sidecar=None)
     with pytest.raises(GateFailure, match=r"sidecar .*is missing"):
