@@ -135,7 +135,11 @@ def _band_order(ontology: CategoryOntology, attribute: AttributeId) -> tuple[str
 
 
 def _widenings(predicate: AttributeFilter, order: tuple[str, ...]) -> list[BandRange]:
-    """Extend the predicate's band span by one band on either side, lower side first."""
+    """Extend the predicate's band span by one band on either side, lower side first.
+
+    A widening that would span every band is not offered: an audience whose filter covers the whole
+    scale no longer means what its name says, and calling that a widening rather than a drop would
+    hide it. The ladder moves on to its next rung instead."""
     span = _band_span(predicate, order)
     if span is None:
         return []
@@ -145,7 +149,11 @@ def _widenings(predicate: AttributeFilter, order: tuple[str, ...]) -> list[BandR
         candidates.append(BandRange(first=order[low - 1], last=order[high]))
     if high < len(order) - 1:
         candidates.append(BandRange(first=order[low], last=order[high + 1]))
-    return candidates
+    return [band for band in candidates if not _spans_every_band(band, order)]
+
+
+def _spans_every_band(predicate: BandRange, order: tuple[str, ...]) -> bool:
+    return order.index(predicate.first) == 0 and order.index(predicate.last) == len(order) - 1
 
 
 def _band_span(predicate: AttributeFilter, order: tuple[str, ...]) -> tuple[int, int] | None:

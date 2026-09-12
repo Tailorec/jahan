@@ -6,7 +6,7 @@ import pytest
 
 from simcore.population import assess
 from simcore.ports.synthetic import AttributeShape, SyntheticCoresetSource, SyntheticShape
-from simcore.schemas import BandRange, BriefPack, Exactly, GateFailure
+from simcore.schemas import BandRange, BriefPack, Exactly, GateFailure, RelaxationRung
 from tests.study_builders import pack_payload
 
 
@@ -156,3 +156,26 @@ def test_relaxations_do_not_change_the_gate_report_verdict():
 def test_a_study_whose_audiences_all_fill_records_no_relaxations():
     report = assess(BriefPack.model_validate(pack_payload()), 200, 4021, coreset=source(rows=4000))
     assert report.relaxations == ()
+
+
+def test_widening_never_swallows_the_whole_scale():
+    """A filter widened across every band is a dropped filter wearing a gentler name."""
+    source = SyntheticCoresetSource(
+        SyntheticShape(
+            {
+                "age": AttributeShape(("18_24", "25_34", "35_44", "45_54")),
+                "sex": AttributeShape(("female", "male")),
+                "exercise_frequency": AttributeShape(("rarely", "weekly", "3_plus_weekly"), weights=(0.97, 0.02, 0.01)),
+                "diet_protein_focus": AttributeShape(("low", "medium", "high")),
+            },
+            rows=4000,
+        ),
+        seed=11,
+    )
+    report = assess(BriefPack.model_validate(pack_payload()), 1000, 4021, coreset=source)
+    gym = [relaxation for relaxation in report.relaxations if relaxation.audience == "gym_regulars"]
+    widened = [relaxation for relaxation in gym if relaxation.rung is RelaxationRung.WIDEN_ORDINAL]
+    assert widened, "the starved audience should have widened at least once"
+    assert all(relaxation.applied.first != "rarely" for relaxation in widened)
+    assert gym[-1].rung is RelaxationRung.ACCEPT_SHORTFALL
+    assert report.achieved_mix["gym_regulars"] < 0.3
