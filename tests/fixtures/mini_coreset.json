@@ -1,0 +1,50 @@
+{
+  "vocabulary": {
+    "age": ["18_24", "25_34", "35_44", "45_54"],
+    "sex": ["female", "male"],
+    "exercise_frequency": ["rarely", "weekly", "3_plus_weekly"],
+    "diet_protein_focus": ["low", "medium", "high"]
+  },
+  "rows": [
+    {
+      "row_id": "000001",
+      "source": "gss",
+      "values": {"age": "25_34", "sex": "female", "exercise_frequency": "3_plus_weekly", "diet_protein_focus": "high"}
+    },
+    {
+      "row_id": "000002",
+      "source": "gss",
+      "values": {"age": "35_44", "sex": "male", "exercise_frequency": "weekly", "diet_protein_focus": "medium"}
+    },
+    {
+      "row_id": "000003",
+      "source": "amazon",
+      "values": {"age": "18_24", "sex": "female", "exercise_frequency": "rarely", "diet_protein_focus": "low"}
+    },
+    {
+      "row_id": "000004",
+      "source": "amazon",
+      "values": {"age": "25_34", "sex": "male", "exercise_frequency": "3_plus_weekly", "diet_protein_focus": "high"}
+    },
+    {
+      "row_id": "000005",
+      "source": "synthetic",
+      "values": {"age": "45_54", "sex": "female", "exercise_frequency": "weekly", "diet_protein_focus": "medium"}
+    },
+    {
+      "row_id": "000006",
+      "source": "gss",
+      "values": {"age": "25_34", "sex": "female", "exercise_frequency": "weekly"}
+    },
+    {
+      "row_id": "000007",
+      "source": "synthetic",
+      "values": {"age": "35_44", "sex": "male", "diet_protein_focus": "high"}
+    },
+    {
+      "row_id": "000008",
+      "source": "gss",
+      "values": {"age": "45_54", "sex": "female", "exercise_frequency": "rarely", "diet_protein_focus": "low"}
+    }
+  ]
+}
