@@ -32,13 +32,16 @@ competitors:
 
 target_market: US urban adults 25-40 who train at least weekly
 
-# Audiences are declared here and referred to by name everywhere else. Every attribute
-# an audience filters on must be one the category ontology declares.
+# Audiences are declared here and referred to by name everywhere else. Their shares are
+# all-or-nothing and sum to one. Every attribute an audience filters on must be one the
+# category ontology declares.
 audiences:
   - name: gym_regulars
+    share: 0.6
     attribute_filters:
       exercise_frequency: 3_plus_weekly
   - name: protein_dieters
+    share: 0.4
     attribute_filters:
       diet_protein_focus: high
 

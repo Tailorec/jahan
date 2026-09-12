@@ -51,12 +51,14 @@
   "audiences": [
     {
       "name": "gym_regulars",
+      "share": 0.6,
       "attribute_filters": {
         "exercise_frequency": "3_plus_weekly"
       }
     },
     {
       "name": "protein_dieters",
+      "share": 0.4,
       "attribute_filters": {
         "diet_protein_focus": "high"
       }

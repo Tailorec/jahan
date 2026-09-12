@@ -59,23 +59,23 @@
     }
   },
   "example_brief": {
-    "hash": "addd3f9d6c340d18fa73fceae8215b34f2d35a945515f3c4f5e58f3e4f2d5f98"
+    "hash": "a9b7731cdc8016c9e3002db35d41764b9b4475b1fd0392ed8c5ece3f612543ec"
   },
   "example_ontology": {
     "hash": "f362a0ce2fc83987b3bd69f5f1a020b1f1b6b6ae2c7eb1d9f439a646257fda02"
   },
   "replay_pins": {
     "1.0.0": {
-      "population_hash": "33569b8141f620496605e92b990435db37fa0d0fd25cb1da896da9ea2a31f442",
+      "population_hash": "ee3c8818f8e7f5cfafb4678f7dd8a50eec8f62267b2254571ae9d9e9be4a7565",
       "graph_hash": "94dad3d334867e6cdb8756cf09d829da55ed94ece7dc850ad94b50a0e9515e59",
-      "config_hash": "71c4265c3764adeb4b537229b102d366cc15172535a7b1f3462086d0e0f1f60d",
+      "config_hash": "0899b38e7651bce96adfdc07f90ff359fcf1e15f644e295d4d0f8574cdc9fee3",
       "world_ids": [
-        "0bb471ef7e6a",
-        "12003a1fe625",
-        "1948d15571f4",
-        "241285742ce9",
-        "62c7e4eac5c6",
-        "c09f1dd10a53"
+        "99c988284e5f",
+        "a932e096a067",
+        "a9adeb0bd9bb",
+        "d5f6306c5cf2",
+        "e378a2c36e32",
+        "e939ca5bcb98"
       ]
     }
   }
