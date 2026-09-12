@@ -7,7 +7,7 @@ import pytest
 from simcore.population import assess
 from simcore.ports.fixture import FixtureCoresetSource
 from simcore.ports.synthetic import AttributeShape, SyntheticCoresetSource, SyntheticShape
-from simcore.schemas import BriefPack, GateFailure, canonical_hash
+from simcore.schemas import BriefPack, GateFailure, GateReference, canonical_hash
 from tests.study_builders import pack_payload
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
@@ -88,36 +88,54 @@ def test_the_source_mix_of_the_sample_is_reported():
     assert sum(report.source_mix.values()) == pytest.approx(1.0)
 
 
-def test_a_faithful_sample_passes_and_a_skewed_categorical_marginal_fails():
-    source = default_source()
-    faithful = assess(pack(audiences=[]), 1000, 4021, coreset=source)
-    assert faithful.overall is True
-
-    skewed = assess(
-        pack(audiences=[{"name": "young", "share": 1.0, "attribute_filters": {"age": "25_34"}}]),
-        1000,
-        4021,
-        coreset=source,
+def starved_source(rows: int = 4000, seed: int = 11) -> SyntheticCoresetSource:
+    """A corpus with almost nobody who trains: a study asking for gym regulars cannot have its mix."""
+    return SyntheticCoresetSource(
+        SyntheticShape(
+            {
+                "age": AttributeShape(("18_24", "25_34", "35_44", "45_54")),
+                "sex": AttributeShape(("female", "male")),
+                "exercise_frequency": AttributeShape(("rarely", "weekly", "3_plus_weekly"), weights=(0.97, 0.02, 0.01)),
+                "diet_protein_focus": AttributeShape(("low", "medium", "high")),
+            },
+            rows=rows,
+        ),
+        seed=seed,
     )
-    age = next(result for result in skewed.results if result.attribute == "age")
-    assert age.kind == "categorical" and age.passed is False
-    assert skewed.overall is False
 
 
-def test_an_ordinal_attribute_is_judged_on_its_declared_bands_and_a_shifted_distribution_fails():
-    source = default_source()
-    faithful = assess(pack(audiences=[]), 1000, 4021, coreset=source)
-    ordinal = next(result for result in faithful.results if result.attribute == "exercise_frequency")
+def test_a_targeted_study_passes_because_its_own_design_is_the_reference():
+    """An audience exists to be unlike the corpus, so the corpus is not what a draw is judged against."""
+    report = assess(pack(), 1000, 4021, coreset=default_source())
+    assert report.overall is True
+    assert dict(report.achieved_mix) == pytest.approx({"gym_regulars": 0.6, "protein_dieters": 0.4})
+    assert {result.attribute for result in report.results} >= {"exercise_frequency", "diet_protein_focus"}
+
+
+def test_an_untargeted_study_is_judged_against_the_pool_it_drew_from():
+    report = assess(pack(audiences=[]), 1000, 4021, coreset=default_source())
+    assert report.overall is True
+
+
+def test_a_sample_that_could_not_realise_the_mix_it_asked_for_fails_its_gates():
+    """Relaxation caveats a study; a study that ends up weighted nothing like its design fails."""
+    report = assess(pack(), 1000, 4021, coreset=starved_source())
+    assert report.achieved_mix["gym_regulars"] < 0.3
+    assert report.overall is False
+    ordinal = next(result for result in report.results if result.attribute == "exercise_frequency")
+    assert ordinal.kind == "ordinal" and ordinal.passed is False
+
+
+def test_an_ordinal_attribute_is_judged_on_the_bands_its_ontology_declares():
+    report = assess(pack(audiences=[]), 1000, 4021, coreset=default_source())
+    ordinal = next(result for result in report.results if result.attribute == "exercise_frequency")
     assert ordinal.kind == "ordinal" and ordinal.passed is True
+    assert ordinal.ks_similarity == pytest.approx(1.0 - ordinal.ks_statistic)
 
-    shifted = assess(
-        pack(audiences=[{"name": "gym", "share": 1.0, "attribute_filters": {"exercise_frequency": "3_plus_weekly"}}]),
-        1000,
-        4021,
-        coreset=source,
-    )
-    moved = next(result for result in shifted.results if result.attribute == "exercise_frequency")
-    assert moved.kind == "ordinal" and moved.passed is False
+
+def test_a_gate_report_says_what_it_judged_the_sample_against():
+    report = assess(pack(), 1000, 4021, coreset=default_source())
+    assert report.reference is GateReference.DESIGN
 
 
 def test_gates_run_only_on_attributes_the_sample_carries():

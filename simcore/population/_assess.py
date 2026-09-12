@@ -9,6 +9,8 @@ the free check a user runs before spending anything on a model.
 
 import math
 import random
+
+import numpy as np
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
 
@@ -25,7 +27,7 @@ from simcore.schemas import (
     Relaxation,
 )
 
-from ._gates import chi_squared, ordinal_similarity
+from ._gates import chi_squared, counts_of, ordinal_similarity
 from ._relax import resolve
 
 
@@ -36,7 +38,6 @@ def assess(pack: BriefPack, n: int, population_seed: int, *, coreset: CoresetSou
     brief, ontology = pack.brief, pack.ontology
     conditioning = tuple(sorted(ontology.conditioning_set))
 
-    population_ids = coreset.matching({}, present=())
     eligible = coreset.matching({}, present=conditioning)
     if not eligible:
         raise GateFailure("no row in the source carries every attribute the category's conditioning set requires")
@@ -64,10 +65,13 @@ def assess(pack: BriefPack, n: int, population_seed: int, *, coreset: CoresetSou
 
     rows = {row.row_id: row for row in coreset.rows([row_id for _, row_id in drawn])}
     sample_rows = [rows[row_id] for _, row_id in drawn]
-    population_rows = list(coreset.rows(population_ids))
+    if audiences:
+        references = [(shares[name], _reference(outcome.pool, population_seed, name, coreset)) for name, _, outcome in resolved]
+    else:
+        references = [(1.0, _reference(eligible, population_seed, "population", coreset))]
 
     return GateReport(
-        results=_gate_results(ontology, coreset, population_rows, sample_rows),
+        results=_gate_results(ontology, coreset, references, sample_rows),
         source_mix=_mix(Counter(row.source for row in sample_rows)),
         achieved_mix=_achieved_mix(drawn, audiences),
         relaxations=relaxations,
@@ -115,9 +119,32 @@ def _by_attribute(rows: Sequence) -> Mapping[AttributeId, list]:
     return values
 
 
-def _gate_results(ontology, coreset: CoresetSource, population_rows: Sequence, sample_rows: Sequence) -> tuple:
+# The expectation is a distribution, so it is read from a bounded draw of each pool rather than from
+# every row the pool holds: a study of two thousand must not scan a corpus of a million to be judged.
+REFERENCE_CAP = 5_000
+
+
+def _reference(pool: Sequence[str], seed: int, name: str, coreset: CoresetSource) -> list:
+    """A bounded, seeded read of one pool, standing for its distribution."""
+    if len(pool) > REFERENCE_CAP:
+        generator = random.Random(f"population-reference:{seed}:{name}")
+        pool = tuple(generator.sample(list(pool), k=REFERENCE_CAP))
+    return list(coreset.rows(pool))
+
+
+def _expected(references: Sequence[tuple[float, Sequence]], attribute: AttributeId, vocabulary: Sequence):
+    """What the study's design implies for one attribute: each pool's distribution, weighted by the
+    share the brief asked that audience to hold."""
+    expected = np.zeros(len(vocabulary), dtype=float)
+    for share, rows in references:
+        counts = counts_of([row.values[attribute] for row in rows if attribute in row.values], vocabulary)
+        if counts.sum() > 0:
+            expected += share * counts / counts.sum()
+    return expected
+
+
+def _gate_results(ontology, coreset: CoresetSource, references: Sequence[tuple[float, Sequence]], sample_rows: Sequence) -> tuple:
     scaled = {scale.attribute for scale in ontology.ordinal_scales}
-    population_values = _by_attribute(population_rows)
     sample_values = _by_attribute(sample_rows)
     results = []
     for attribute in ontology.relevance_order:
@@ -125,14 +152,14 @@ def _gate_results(ontology, coreset: CoresetSource, population_rows: Sequence, s
             continue
         vocabulary = coreset.values(attribute)
         if attribute in scaled:
-            outcome = ordinal_similarity(sample_values[attribute], population_values.get(attribute, []), vocabulary)
+            outcome = ordinal_similarity(sample_values[attribute], _expected(references, attribute, vocabulary), vocabulary)
             if outcome is not None:
                 statistic, similarity = outcome
                 results.append(
                     OrdinalGateResult(kind="ordinal", attribute=attribute, ks_statistic=statistic, ks_similarity=similarity)
                 )
         else:
-            outcome = chi_squared(sample_values[attribute], population_values.get(attribute, []), vocabulary)
+            outcome = chi_squared(sample_values[attribute], _expected(references, attribute, vocabulary), vocabulary)
             if outcome is not None:
                 statistic, degrees, p_value = outcome
                 results.append(
