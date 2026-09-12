@@ -108,6 +108,27 @@ def test_the_example_brief_hashes_to_the_pinned_representative_study(example_bri
 # --- the sidecar itself ------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("entry", "match"),
+    [("ab" * 32, "not text"), ([], "not a list"), (7, "not a number")],
+    ids=["a-hash-on-its-own", "a-list", "a-number"],
+)
+def test_a_sidecar_entry_that_is_not_a_mapping_is_refused(example_brief, authored, entry, match):
+    sidecar = {**sidecar_of(), NUTRITION_PANEL: entry}
+    path, ontology_dir = authored(payload_of(example_brief), load_ontology(), sidecar=sidecar)
+    with pytest.raises(GateFailure, match=f"must be a mapping of what was retrieved, {match}"):
+        load_brief(path, ontology_dir)
+
+
+@pytest.mark.parametrize("cited", [None, "", "   "], ids=["null", "empty", "whitespace"])
+def test_a_citation_that_names_no_url_is_refused(example_brief, authored, cited):
+    payload = payload_of(example_brief)
+    payload["claims"][0]["evidence_url"] = cited
+    path, ontology_dir = authored(payload, load_ontology(), sidecar=sidecar_of())
+    with pytest.raises(GateFailure, match=r"claims\[0\]\.evidence_url: cite a url or leave the field out"):
+        load_brief(path, ontology_dir)
+
+
 def test_a_missing_sidecar_is_refused_as_such(example_brief, authored):
     path, ontology_dir = authored(payload_of(example_brief), load_ontology(), sidecar=None)
     with pytest.raises(GateFailure, match=r"sidecar .*is missing"):

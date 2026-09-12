@@ -86,6 +86,11 @@ def _join_evidence(payload: dict, path: Path) -> dict:
             raise GateFailure(
                 f"{path}: claims[{index}].id: claim identifiers are assigned by position and must not be authored"
             )
+        if "evidence_url" in claim and not (isinstance(claim["evidence_url"], str) and claim["evidence_url"].strip()):
+            raise GateFailure(
+                f"{path}: claims[{index}].evidence_url: cite a url or leave the field out; "
+                f"an empty citation is neither ({claim['evidence_url']!r})"
+            )
         if "evidence" in claim:
             raise GateFailure(
                 f"{path}: claims[{index}].evidence: evidence is supplied by the sidecar, not authored; cite it with `evidence_url`"
@@ -105,7 +110,11 @@ def _join_evidence(payload: dict, path: Path) -> dict:
                 f"{path}: claims[{index}].evidence_url: {url!r} was cited but never fetched; "
                 f"{sidecar_path} has no entry for it"
             )
-        stated = entry.get("url") if isinstance(entry, dict) else None
+        if not isinstance(entry, dict):
+            raise GateFailure(
+                f"{sidecar_path}: the entry for {url!r} must be a mapping of what was retrieved, not {_describe(entry)}"
+            )
+        stated = entry.get("url")
         if stated is not None and stated != url:
             raise GateFailure(
                 f"{sidecar_path}: the entry for {url!r} names a different url {stated!r}; "
