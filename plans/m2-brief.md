@@ -160,9 +160,9 @@ Reading only the `assumptions:` block hides two of those three, which is exactly
 
 ### Acceptance criteria
 
-- [ ] Stated assumptions appear in the ledger unchanged
-- [ ] A claim marked `assumed` appears in the ledger, carrying its own text
-- [ ] A brief that declares no audiences contributes an entry saying the target market was assumed
-- [ ] A brief that declares audiences contributes no such entry
-- [ ] The ledger is derived on demand and stored nowhere, so it cannot disagree with the brief it describes
-- [ ] The ledger introduces no new type crossing a module boundary
+- [x] Stated assumptions appear in the ledger unchanged
+- [x] A claim marked `assumed` appears in the ledger, carrying its own text
+- [x] A brief that declares no audiences contributes an entry saying the target market was assumed
+- [x] A brief that declares audiences contributes no such entry
+- [x] The ledger is derived on demand and stored nowhere, so it cannot disagree with the brief it describes
+- [x] The ledger introduces no new type crossing a module boundary
