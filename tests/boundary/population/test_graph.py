@@ -50,7 +50,7 @@ def projected(count: int = 250):
     source = synthetic()
     conditioning = tuple(sorted(pack.ontology.conditioning_set))
     rows = list(source.rows(source.matching({}, present=conditioning)[:count]))
-    return pack, project(pack, rows, source, inference=FakeChat(), completion_model_id=MODEL).personas
+    return pack, project(pack, rows, source, inference=FakeChat(model_id=MODEL)).personas
 
 
 def audience_grouped(gym_count: int = 150, diet_count: int = 100):
@@ -62,7 +62,7 @@ def audience_grouped(gym_count: int = 150, diet_count: int = 100):
     taken = set(gym)
     diet = [row_id for row_id in source.matching({"diet_protein_focus": Exactly(value="high")}, present=conditioning) if row_id not in taken][:diet_count]
     rows = list(source.rows(gym + diet))
-    people = project(pack, rows, source, inference=FakeChat(), completion_model_id=MODEL).personas
+    people = project(pack, rows, source, inference=FakeChat(model_id=MODEL)).personas
     audience_of = {person.persona_id: ("gym" if index < len(gym) else "diet") for index, person in enumerate(people)}
     return pack, people, audience_of
 

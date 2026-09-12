@@ -26,6 +26,7 @@ from simcore.schemas import (
     CompletionProvenance,
     FieldOrigin,
     FrozenDict,
+    GateFailure,
     InferenceRole,
     Persona,
     PersonaFieldDomain,
@@ -71,16 +72,19 @@ def project(
     coreset: CoresetSource,
     *,
     inference: ChatPort,
-    completion_model_id: str,
 ) -> Projection:
-    """Project each decoded row into a persona, completing sparse fields from the corpus's value sets."""
+    """Project each decoded row into a persona, completing sparse fields from the corpus's value sets.
+
+    The completing model is read from the completions themselves, never supplied by the caller: a model a
+    caller expected is not evidence of the model that answered, and a fallback route would otherwise be
+    recorded as the primary it replaced."""
     ontology = pack.ontology
     conditioning = set(ontology.conditioning_set)
     drafts = {f"p-{row.row_id}": _draft(row, set(ontology.attribute_domains), conditioning) for row in rows}
-    synthesized = _complete(_missing(drafts, ontology, conditioning), drafts, coreset, inference)
+    synthesized, models = _complete(_missing(drafts, ontology, conditioning), drafts, coreset, inference)
     personas = tuple(_persona(persona_id, draft, pack) for persona_id, draft in drafts.items())
     total = sum(len(draft.origins) for draft in drafts.values())
-    return Projection(personas, _provenance(completion_model_id, synthesized), synthesized / total if total else 0.0)
+    return Projection(personas, _provenance(models, synthesized), synthesized / total if total else 0.0)
 
 
 def _draft(row: DecodedRow, declared: set[AttributeId], conditioning: set[AttributeId]) -> _Draft:
@@ -116,17 +120,21 @@ def _complete(
     drafts: Mapping[str, _Draft],
     coreset: CoresetSource,
     inference: ChatPort,
-) -> int:
+) -> tuple[int, set[str]]:
+    """How many fields were synthesized, and the models whose answers supplied them."""
     synthesized = 0
+    models: set[str] = set()
     for attribute, persona_ids in missing.items():
         values = tuple(coreset.values(attribute))
         for start in range(0, len(persona_ids), COMPLETION_BATCH_SIZE):
             batch = persona_ids[start : start + COMPLETION_BATCH_SIZE]
-            for persona_id, value in _ask_batch(inference, attribute, values, batch, drafts).items():
+            accepted, answered_by = _ask_batch(inference, attribute, values, batch, drafts)
+            for persona_id, value in accepted.items():
                 drafts[persona_id].attributes[attribute] = value
                 drafts[persona_id].origins[attribute] = FieldOrigin.SYNTHESIZED
                 synthesized += 1
-    return synthesized
+            models |= answered_by
+    return synthesized, models
 
 
 def _ask_batch(
@@ -135,16 +143,21 @@ def _ask_batch(
     values: tuple[AttributeValue, ...],
     persona_ids: Sequence[str],
     drafts: Mapping[str, _Draft],
-) -> dict[str, str]:
+) -> tuple[dict[str, AttributeValue], set[str]]:
     """One call for the batch; whoever is still missing is asked once more, strictly, then left absent.
 
     An answer already accepted is kept: the retry asks only about the personas it has no valid value for."""
-    accepted = _accepted(_ask(inference, _request(attribute, values, persona_ids, drafts), strict=False), values, persona_ids)
+    answers, model = _ask(inference, _request(attribute, values, persona_ids, drafts), strict=False)
+    accepted = _accepted(answers, values, persona_ids)
+    answered_by = {model} if accepted else set()
     still_missing = [persona_id for persona_id in persona_ids if persona_id not in accepted]
     if still_missing:
-        retried = _ask(inference, _request(attribute, values, still_missing, drafts), strict=True)
-        accepted.update(_accepted(retried, values, still_missing))
-    return accepted
+        answers, model = _ask(inference, _request(attribute, values, still_missing, drafts), strict=True)
+        retried = _accepted(answers, values, still_missing)
+        if retried:
+            answered_by.add(model)
+        accepted.update(retried)
+    return accepted, answered_by
 
 
 def _request(attribute: AttributeId, values: tuple[AttributeValue, ...], persona_ids: Sequence[str], drafts: Mapping[str, _Draft]) -> dict:
@@ -189,14 +202,14 @@ def _comparable(value: object) -> tuple[str, object] | None:
     return None
 
 
-def _ask(inference: ChatPort, request: dict, *, strict: bool) -> dict[str, object]:
+def _ask(inference: ChatPort, request: dict, *, strict: bool) -> tuple[dict[str, object], str]:
     messages = [
         {"role": "system", "content": COMPLETION_RETRY_SYSTEM if strict else COMPLETION_SYSTEM},
         {"role": "user", "content": json.dumps(request, sort_keys=True)},
     ]
     budget = ANSWER_TOKENS_OVERHEAD + ANSWER_TOKENS_PER_PERSONA * len(request["personas"])
     completion = inference.chat(InferenceRole.TIER_A, messages, temp=0.0, max_tokens=budget, template_id=COMPLETION_TEMPLATE_ID)
-    return _parse(completion.text)
+    return _parse(completion.text), completion.cost.model_id
 
 
 def _parse(text: str) -> dict[str, object]:
@@ -225,11 +238,20 @@ def _persona(persona_id: str, draft: _Draft, pack: BriefPack) -> Persona:
     )
 
 
-def _provenance(completion_model_id: str, synthesized: int) -> CompletionProvenance | None:
+def _provenance(models: set[str], synthesized: int) -> CompletionProvenance | None:
+    """The one model whose answers completed this population, or a refusal when there were several.
+
+    A population records a single completing model, so fields invented by a primary and by its fallback
+    cannot share one without the record misstating one of them (ADR 0012)."""
     if synthesized == 0:
         return None
+    if len(models) != 1:
+        raise GateFailure(
+            f"sparse fields were completed by more than one model {sorted(models)}; a population records the one "
+            "model that completed it, so its synthesized fields are never an unrecorded mixture"
+        )
     return CompletionProvenance(
-        model_id=completion_model_id,
+        model_id=next(iter(models)),
         template_id=COMPLETION_TEMPLATE_ID,
         template_hash=hashlib.sha256(COMPLETION_SYSTEM.encode("utf-8")).hexdigest(),
     )
