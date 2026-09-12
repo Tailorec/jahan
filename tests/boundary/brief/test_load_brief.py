@@ -83,8 +83,8 @@ def test_loading_a_brief_reaches_no_network_and_reads_no_clock():
         assert forbidden not in source, f"loading a brief must not use {forbidden}"
 
 
-def test_the_modules_public_surface_is_loading_and_fetching():
+def test_the_modules_public_surface_is_its_three_functions():
     import simcore.brief as module
 
-    assert module.__all__ == ["fetch_evidence", "load_brief"]
+    assert module.__all__ == ["assumptions_of", "fetch_evidence", "load_brief"]
     assert not [name for name in vars(module) if name.startswith(("write_", "Brief_"))]
