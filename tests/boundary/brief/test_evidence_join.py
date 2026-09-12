@@ -14,8 +14,17 @@ PINNED = json.loads((Path(__file__).resolve().parents[2] / "fixtures" / "hash_st
 PINNED_BRIEF_HASH = PINNED["example_brief"]["hash"]
 
 
+NUTRITION_PANEL = "https://example.com/nutrition-panel"
+CATEGORY_REPORT = "https://example.com/category-report"
+
+
 def payload_of(example_brief) -> dict:
     return yaml.safe_load(example_brief.read_text())
+
+
+def sidecar_of(*urls: str) -> dict:
+    """A sidecar recording a plausible retrieval for each url given."""
+    return {url: {"content_hash": "ab" * 32, "fetched_at": "2026-09-01T00:00:00Z"} for url in (urls or (NUTRITION_PANEL, CATEGORY_REPORT))}
 
 
 def test_a_cited_url_loads_with_the_evidence_the_sidecar_carries(example_brief, authored):
@@ -34,6 +43,22 @@ def test_a_cited_url_absent_from_the_sidecar_is_refused(example_brief, authored)
     with pytest.raises(GateFailure) as raised:
         load_brief(path, ontology_dir)
     assert "category-report" in str(raised.value) and "never fetched" in str(raised.value)
+
+
+def test_a_claim_records_the_url_it_cited(example_brief, authored):
+    """A sidecar may restate the url it fetched, but what a claim records is what the brief cites."""
+    sidecar = sidecar_of()
+    sidecar[NUTRITION_PANEL]["url"] = NUTRITION_PANEL
+    path, ontology_dir = authored(payload_of(example_brief), load_ontology(), sidecar=sidecar)
+    assert str(load_brief(path, ontology_dir).brief.claims[0].evidence.url) == NUTRITION_PANEL
+
+
+def test_a_sidecar_entry_naming_a_different_url_is_refused(example_brief, authored):
+    sidecar = sidecar_of()
+    sidecar[NUTRITION_PANEL]["url"] = "https://elsewhere.example/copy"
+    path, ontology_dir = authored(payload_of(example_brief), load_ontology(), sidecar=sidecar)
+    with pytest.raises(GateFailure, match="names a different url"):
+        load_brief(path, ontology_dir)
 
 
 def test_a_sidecar_entry_no_claim_cites_is_ignored(example_brief, authored):

@@ -105,7 +105,14 @@ def _join_evidence(payload: dict, path: Path) -> dict:
                 f"{path}: claims[{index}].evidence_url: {url!r} was cited but never fetched; "
                 f"{sidecar_path} has no entry for it"
             )
-        claim["evidence"] = _validate(Evidence, {"url": url, **entry}, sidecar_path)
+        stated = entry.get("url") if isinstance(entry, dict) else None
+        if stated is not None and stated != url:
+            raise GateFailure(
+                f"{sidecar_path}: the entry for {url!r} names a different url {stated!r}; "
+                "a claim's evidence is what it cites, whatever a redirect led to"
+            )
+        # The cited url is the provenance and cannot be displaced by the entry (ADR 0013).
+        claim["evidence"] = _validate(Evidence, {**entry, "url": url}, sidecar_path)
     return payload
 
 
