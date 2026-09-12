@@ -263,8 +263,8 @@ The quickstart path has to be fast enough that a first-time user does not wonder
 
 ### Acceptance criteria
 
-- [ ] Building two thousand personas against the synthetic source and the deterministic fake completes under five seconds
-- [ ] Rewiring's candidate sampling keeps graph generation from growing with the square of the population
-- [ ] Graph gates hold across twenty seeds
-- [ ] A larger population builds without loading every row it considered into memory at once
-- [ ] The suite still runs with no network, no credentials and no dataset
+- [x] Building two thousand personas against the synthetic source and the deterministic fake completes under five seconds
+- [x] Rewiring's candidate sampling keeps graph generation from growing with the square of the population
+- [x] Graph gates hold across twenty seeds
+- [x] A larger population builds without loading every row it considered into memory at once
+- [x] The suite still runs with no network, no credentials and no dataset
