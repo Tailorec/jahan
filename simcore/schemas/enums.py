@@ -216,3 +216,23 @@ class GuardrailRule(StrEnum):
     """The rule a guardrail violation broke."""
 
     REFERENCES_UNSHOWN_STIMULUS = "references_unshown_stimulus"
+
+
+class RelaxationRung(StrEnum):
+    """A step on the shortfall ladder, in escalating order; the conditioning set is never one.
+
+    A quota that cannot be filled widens an ordinal predicate by one band, then drops the least
+    relevant non-conditioning filter, then accepts the shortfall rather than inventing coverage."""
+
+    WIDEN_ORDINAL = "widen_ordinal"
+    DROP_FILTER = "drop_filter"
+    ACCEPT_SHORTFALL = "accept_shortfall"
+
+
+class GraphCheck(StrEnum):
+    """A structural property of the social graph that a gate result can judge."""
+
+    DEGREE_SHAPE = "degree_shape"
+    CLUSTERING = "clustering"
+    CONNECTIVITY = "connectivity"
+

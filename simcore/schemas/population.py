@@ -11,6 +11,7 @@ from .base import (
     FrozenDict,
     GraphHash,
     Identifier,
+    NonEmptyStr,
     NonNegativeInt,
     PersonaId,
     PopulationHash,
@@ -22,7 +23,7 @@ from .base import (
     proportions_sum_to_one,
 )
 from .brief import AttributeId, BriefPack
-from .enums import FieldOrigin, PersonaFieldDomain
+from .enums import FieldOrigin, GraphCheck, PersonaFieldDomain, RelaxationRung
 from .persona import Persona, PersonaSource
 
 OpenUnitInterval = Annotated[float, Field(gt=0.0, lt=1.0)]
@@ -65,12 +66,63 @@ class OrdinalGateResult(SimBaseModel):
         return self.ks_similarity >= self.similarity_threshold
 
 
-GateResult = Annotated[CategoricalGateResult | OrdinalGateResult, Field(discriminator="kind")]
+class GraphGateResult(SimBaseModel):
+    """A structural property of the social graph, judged against a target; it passes when it reaches it.
+
+    Keyed by the check it performed rather than by an attribute, so a graph gate shares a report with
+    distribution gates without pretending to be one."""
+
+    kind: Literal["graph"]
+    check: GraphCheck
+    measured: float
+    threshold: float
+
+    @computed_field
+    @property
+    def passed(self) -> bool:
+        return self.measured >= self.threshold
+
+
+class Relaxation(SimBaseModel):
+    """One rung climbed when an audience's quota could not be filled, recorded so the sample is legible.
+
+    It travels on the gate report — that is already where "is this sample acceptable" is answered — and
+    it caveats a population without rejecting it. The conditioning set is never a rung."""
+
+    audience: Identifier
+    rung: RelaxationRung
+    attribute: AttributeId | None = None
+    authored: NonEmptyStr | None = None
+    applied: NonEmptyStr | None = None
+    rows_before: NonNegativeInt
+    rows_after: NonNegativeInt
+    share_achieved: UnitInterval
+
+    @model_validator(mode="after")
+    def _rung_shapes_the_record(self) -> Self:
+        if self.rung is RelaxationRung.WIDEN_ORDINAL:
+            if self.attribute is None or self.authored is None or self.applied is None:
+                raise ValueError("widening a predicate records the attribute and the filter as authored and as applied")
+        elif self.rung is RelaxationRung.DROP_FILTER:
+            if self.attribute is None or self.authored is None or self.applied is not None:
+                raise ValueError("dropping a filter records the attribute and what was dropped, applying nothing")
+        elif self.attribute is not None or self.authored is not None or self.applied is not None:
+            raise ValueError("accepting a shortfall changes no filter")
+        if self.rows_after < self.rows_before:
+            raise ValueError("a relaxation never shrinks the pool it relaxes")
+        return self
+
+
+GateResult = Annotated[
+    CategoricalGateResult | OrdinalGateResult | GraphGateResult, Field(discriminator="kind")
+]
 
 
 class GateReport(SimBaseModel):
     results: tuple[GateResult, ...] = Field(min_length=1)
     source_mix: FrozenDict[PersonaSource, UnitInterval]
+    # A shortfall caveats the sample; it is not a verdict, so it never moves `overall`.
+    relaxations: tuple[Relaxation, ...] = ()
 
     @model_validator(mode="after")
     def _source_mix_is_complete(self) -> Self:
@@ -78,8 +130,8 @@ class GateReport(SimBaseModel):
         return self
 
     @model_validator(mode="after")
-    def _one_result_per_attribute(self) -> Self:
-        repeated = sorted(name for name, count in Counter(r.attribute for r in self.results).items() if count > 1)
+    def _one_result_per_subject(self) -> Self:
+        repeated = sorted(subject for subject, count in Counter(_subject(r) for r in self.results).items() if count > 1)
         if repeated:
             raise ValueError(f"more than one gate result for: {repeated}")
         return self
@@ -88,6 +140,12 @@ class GateReport(SimBaseModel):
     @property
     def overall(self) -> bool:
         return all(result.passed for result in self.results)
+
+
+def _subject(result: GateResult) -> tuple[str, str]:
+    if result.kind == "graph":
+        return ("graph", result.check.value)
+    return (result.kind, result.attribute)
 
 
 class PopulationManifest(SimBaseModel):
@@ -271,6 +329,8 @@ class Population(SimBaseModel):
         ontology = self.pack.ontology
         scaled = {scale.attribute for scale in ontology.ordinal_scales}
         for result in self.gate_report.results:
+            if result.kind == "graph":
+                continue
             attribute = result.attribute
             if attribute not in ontology.attribute_domains:
                 raise ValueError(f"gate on {attribute!r}, which the ontology does not declare")
@@ -292,6 +352,10 @@ class Population(SimBaseModel):
             strangers = sorted({end for edge in self.graph.edges for end in (edge.u, edge.v)} - members)
             if strangers:
                 raise ValueError(f"social graph ties personas outside the population: {strangers}")
+            tied = {end for edge in self.graph.edges for end in (edge.u, edge.v)}
+            isolated = sorted(members - tied)
+            if isolated:
+                raise ValueError(f"every persona has at least one social tie; isolated: {isolated}")
         if not self.communities:
             return self
         if self.graph is None:
