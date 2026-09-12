@@ -44,6 +44,14 @@ class Claim(SimBaseModel):
     source: ClaimSource
     evidence: Evidence | None = None
 
+    @model_validator(mode="after")
+    def _evidence_matches_its_source(self) -> Self:
+        if self.source is ClaimSource.PUBLIC_SOURCE and self.evidence is None:
+            raise ValueError("a claim drawn from a public source must carry the evidence it was drawn from")
+        if self.source is ClaimSource.ASSUMED and self.evidence is not None:
+            raise ValueError("an assumed claim is taken as true without evidence, so it cannot carry evidence")
+        return self
+
 
 class Price(SimBaseModel):
     amount: Annotated[float, Field(gt=0.0)]
