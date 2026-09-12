@@ -13,7 +13,7 @@ Durable across every phase:
 - **The corpus seam yields decoded rows** — the packed format, the mapping from ontology vocabulary to dataset codes, and each attribute's value set are the adapter's knowledge. The conditioning filter is in the port's signature, so it cannot be forgotten.
 - **A model may only choose what the corpus contains** — completion is a choice among real values, off-list answers are refused, and gates read grounded attributes only, so completion can never be judged against the distribution it was chosen to match.
 - **Structure explains itself** — attribute homophily, weighted by the ontology's relevance order, is the primary tie signal; embedding cosine is an optional secondary term, off by default. A tie can always be justified from the attributes that produced it.
-- **Study parameters are recorded, operational settings are not study parameters** — anything that changes what a study measured (homophily strength, seeds, thresholds) is carried in the manifest or the contracts. The environment configures how a run executes, never what it concluded.
+- **Study parameters are tunable, defaulted and recorded; operational settings are not study parameters** — every value that shapes a population or decides whether it is accepted (homophily strength, ring degree, hub attachment, graph gate floors, community thresholds and resolutions, distribution gate thresholds) is a `PopulationParameters` field a user may tune, defaulting to the engine's previous values and carried on the manifest, so a tuned graph or a loosened gate is visible wherever the population goes. Operational constants that never change a result stay internal. The environment configures how a run executes, never what it concluded.
 - **Identity is structural, not floating-point** — tie strengths are quantised before becoming edges, because the graph hash covers them and a different numeric build would otherwise change a population's identity.
 - **Built once, carried thereafter** — determinism is promised under a deterministic inference port; a live model makes a rebuild a different population, so replay loads the artifact rather than re-deriving it (ADR 0015).
 - **Contract amendments come first** — module 1 owns the shapes, and nothing here can produce a `Relaxation`, a graph gate result or a manifest provenance field that does not exist yet. Two of the three amendment phases move pinned identities, which are re-pinned under 1.0.0 while it remains unreleased.
@@ -59,6 +59,8 @@ This phase also makes two things optional that the contracts currently force: a 
 - [x] A manifest records which model completed sparse fields, under which template and template hash, and what share of projected fields was synthesized
 - [x] A manifest that reports synthesized fields without naming what produced them is refused, and one reporting none may name nothing
 - [x] A manifest records the homophily strength the graph was generated with
+
+> Amended after phase 9's review: the manifest now records the full `PopulationParameters` — graph structure, graph gate floors, community thresholds and distribution gate thresholds — of which homophily strength is one field. None of them is a hard-coded constant any longer.
 - [x] A persona may omit its embedding, and a population of personas without embeddings validates
 - [x] An ontology may record which model drafted it, from which codebook and when, without changing its hash
 - [x] The representative identities are re-pinned under 1.0.0 with the change noted
@@ -201,6 +203,8 @@ Tie strengths are quantised before becoming edges, so a graph's identity is its 
 - [x] Degree shape, clustering and connectivity are judged, and a failure rejects the population
 - [x] The measured attribute assortativity is reported, and a degenerate graph whose communities merely restate the audiences is refused
 - [x] Homophily strength is recorded, and two strengths produce two different graphs
+
+> Amended after phase 9's review: ring degree, hub attachment and every structural gate floor are tunable too, each gate result carries the floor it was judged against, and a hub attachment the population cannot support is refused rather than clamped.
 - [x] Similarity is computed over sampled candidates, not all pairs
 
 ---
