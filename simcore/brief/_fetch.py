@@ -15,7 +15,7 @@ from pathlib import Path
 from simcore.ports import EvidencePort
 from simcore.schemas import GateFailure
 
-from ._intake import _read_yaml, _sidecar_path
+from ._intake import _read_yaml, _sidecar_path, read_sidecar_entries
 
 
 @dataclass(frozen=True)
@@ -84,15 +84,7 @@ def _cited_urls(payload: dict) -> tuple[str, ...]:
 def _existing_entries(sidecar_path: Path) -> dict:
     if not sidecar_path.is_file():
         return {}
-    try:
-        raw = json.loads(sidecar_path.read_text(encoding="utf-8"))
-    except OSError as error:
-        raise GateFailure(f"{sidecar_path}: cannot be read ({error.strerror or error})") from error
-    except json.JSONDecodeError as error:
-        raise GateFailure(f"{sidecar_path}: is not valid JSON ({error.msg} at line {error.lineno})") from error
-    if not isinstance(raw, dict):
-        raise GateFailure(f"{sidecar_path}: must be a mapping of cited URLs at its top level")
-    return raw
+    return read_sidecar_entries(sidecar_path)
 
 
 def _write_sidecar(sidecar_path: Path, entries: dict) -> None:

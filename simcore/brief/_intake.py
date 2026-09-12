@@ -153,6 +153,12 @@ def _read_sidecar(path: Path) -> dict:
     sidecar_path = _sidecar_path(path)
     if not sidecar_path.is_file():
         raise GateFailure(f"{path}: cites evidence but its sidecar {sidecar_path} is missing")
+    return read_sidecar_entries(sidecar_path)
+
+
+def read_sidecar_entries(sidecar_path: Path) -> dict:
+    """What a sidecar records, keyed by cited url. Shared with the fetcher, so a file one of them
+    refuses is never quietly accepted — and rewritten — by the other."""
     raw = _read_json(sidecar_path)
     if not isinstance(raw, dict):
         raise GateFailure(f"{sidecar_path}: must be a mapping of cited URLs at its top level, not {_describe(raw)}")

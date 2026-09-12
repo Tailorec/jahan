@@ -106,6 +106,22 @@ def test_an_entry_no_claim_cites_survives_a_fetch(authored):
     assert "https://example.com/old" in entries(path)
 
 
+def test_a_sidecar_recording_a_url_twice_is_refused_before_it_is_rewritten(authored):
+    """What loading refuses, fetching must not quietly accept — and then rewrite, keeping one."""
+    entry = '{"content_hash": "%s", "fetched_at": "2026-09-01T00:00:00Z"}' % ("ab" * 32)
+    path, _ = authored(brief_with(A, B), sidecar='{"%s": %s, "%s": %s}' % (A, entry, A, entry))
+    before = sidecar_of(path).read_text()
+    with pytest.raises(GateFailure, match="is given more than once"):
+        fetch_evidence(path, InMemoryEvidence({A: b"a", B: b"b"}))
+    assert sidecar_of(path).read_text() == before
+
+
+def test_a_sidecar_that_is_not_a_mapping_is_refused_by_the_fetcher_too(authored):
+    path, _ = authored(brief_with(A), sidecar="[1, 2]")
+    with pytest.raises(GateFailure, match="must be a mapping of cited URLs"):
+        fetch_evidence(path, InMemoryEvidence({A: b"a"}))
+
+
 def test_an_interrupted_write_leaves_the_sidecar_untouched(authored, monkeypatch):
     path, _ = authored(brief_with(A), None, sidecar=None)
     fetch_evidence(path, InMemoryEvidence({A: b"alpha"}))
