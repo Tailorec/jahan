@@ -10,6 +10,7 @@ from pydantic import Field, computed_field, model_validator
 from .base import (
     FrozenDict,
     GraphHash,
+    HashDigest,
     Identifier,
     NonEmptyStr,
     NonNegativeInt,
@@ -25,6 +26,7 @@ from .base import (
 from .brief import AttributeId, BriefPack
 from .enums import FieldOrigin, GraphCheck, PersonaFieldDomain, RelaxationRung
 from .persona import Persona, PersonaSource
+from .run import PinnedModelId
 
 OpenUnitInterval = Annotated[float, Field(gt=0.0, lt=1.0)]
 
@@ -148,6 +150,15 @@ def _subject(result: GateResult) -> tuple[str, str]:
     return (result.kind, result.attribute)
 
 
+class CompletionProvenance(SimBaseModel):
+    """What produced the synthesized fields in a population, so invented data stays accountable even
+    after the personas stop travelling with the manifest (ADR 0015)."""
+
+    model_id: PinnedModelId
+    template_id: Identifier
+    template_hash: HashDigest
+
+
 class PopulationManifest(SimBaseModel):
     """The light-weight record of a population: what travels with runs and traces in place of the personas.
     Its hashes are stated here and verified wherever the population itself is present."""
@@ -156,7 +167,13 @@ class PopulationManifest(SimBaseModel):
     graph_hash: GraphHash | None = None
     population_seed: NonNegativeInt
     persona_ids: tuple[PersonaId, ...] = Field(min_length=1)
+    # The mix the study asked for, beside the mix it got; the difference is a shortfall, told plainly.
+    requested_mix: FrozenDict[Identifier, UnitInterval] = FrozenDict({})
     achieved_mix: FrozenDict[Identifier, UnitInterval]
+    # The homophily strength the graph was generated with, so structure is explained rather than assumed.
+    homophily_strength: UnitInterval = 0.0
+    synthesized_share: UnitInterval = 0.0
+    completion: CompletionProvenance | None = None
 
     @model_validator(mode="after")
     def _persona_ids_unique(self) -> Self:
@@ -168,6 +185,20 @@ class PopulationManifest(SimBaseModel):
     @model_validator(mode="after")
     def _achieved_mix_is_complete(self) -> Self:
         proportions_sum_to_one(self.achieved_mix)
+        return self
+
+    @model_validator(mode="after")
+    def _requested_mix_is_complete(self) -> Self:
+        if self.requested_mix:
+            proportions_sum_to_one(self.requested_mix)
+        return self
+
+    @model_validator(mode="after")
+    def _synthesized_fields_name_their_producer(self) -> Self:
+        if self.synthesized_share > 0 and self.completion is None:
+            raise ValueError("a manifest reporting synthesized fields must name the model and template that produced them")
+        if self.synthesized_share == 0 and self.completion is not None:
+            raise ValueError("a manifest reporting no synthesized fields must not name a completion source")
         return self
 
 
@@ -296,10 +327,11 @@ class Population(SimBaseModel):
 
     @model_validator(mode="after")
     def _embeddings_are_distinct_positions_in_one_space(self) -> Self:
-        spaces = {(persona.embedding.model_id, persona.embedding.dim) for persona in self.personas}
+        present = [persona.embedding for persona in self.personas if persona.embedding is not None]
+        spaces = {(embedding.model_id, embedding.dim) for embedding in present}
         if len(spaces) > 1:
             raise ValueError(f"persona embeddings come from more than one model or dimension: {sorted(spaces)}")
-        positions = Counter(persona.embedding.index for persona in self.personas)
+        positions = Counter(embedding.index for embedding in present)
         shared = sorted(index for index, count in positions.items() if count > 1)
         if shared:
             raise ValueError(f"personas share embedding positions: {shared}")

@@ -112,8 +112,21 @@ class CompletionPolicy(SimBaseModel):
         return self
 
 
+class OntologyDrafting(SimBaseModel):
+    """Which model drafted an ontology, from which corpus codebook, and when.
+
+    This is provenance, not identity: it is hash-excluded so redrafting or correcting the record never
+    moves what studies pinned against the ontology (ADR 0014)."""
+
+    model_id: Identifier
+    codebook: Identifier
+    drafted_at: AwareDatetime
+
+
 class CategoryOntology(SimBaseModel):
     """The shared, versioned description of a category; a brief refers to it, never embeds it."""
+
+    _hash_exclude_: ClassVar[frozenset[str]] = frozenset({"drafting"})
 
     category: Identifier
     version: OntologyVersion
@@ -125,6 +138,8 @@ class CategoryOntology(SimBaseModel):
     relevance_order: tuple[AttributeId, ...] = Field(min_length=1)
     # The anchor set each construct is scored against, so a study cannot be scored against another category's.
     anchor_sets: FrozenDict[ConstructId, Identifier] = Field(min_length=1)
+    # Hash-excluded provenance: which model drafted this ontology, and when (ADR 0014).
+    drafting: OntologyDrafting | None = None
 
     @model_validator(mode="after")
     def _referenced_attributes_declare_a_domain(self) -> Self:

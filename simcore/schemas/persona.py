@@ -50,7 +50,8 @@ class Persona(SimBaseModel):
     conditioning: FrozenDict[AttributeId, AttributeValue]
     attributes: FrozenDict[AttributeId, AttributeValue]
     origins: FrozenDict[AttributeId, FieldOrigin]
-    embedding: EmbeddingRef
+    # Attribute homophily explains a tie on its own, so embeddings are an optional secondary signal.
+    embedding: EmbeddingRef | None = None
     baseline_beliefs: Beliefs
 
     @model_validator(mode="after")
