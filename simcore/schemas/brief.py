@@ -1,9 +1,10 @@
 """The brief domain: the study's inputs — product, claims, price, competitors, target market,
 audiences, assumptions — and the category ontology a brief is read against."""
 
+import re
 from typing import Annotated, Any, ClassVar, Self
 
-from pydantic import AwareDatetime, Field, HttpUrl, StringConstraints, field_validator, model_validator
+from pydantic import AfterValidator, AwareDatetime, Field, HttpUrl, StringConstraints, field_validator, model_validator
 
 from .base import FrozenDict, HashDigest, Identifier, NonEmptyStr, SimBaseModel
 from .enums import ClaimSource, PersonaFieldDomain
@@ -12,6 +13,20 @@ ClaimId = Annotated[str, StringConstraints(pattern=r"^C[1-9][0-9]*$")]
 ConstructId = Identifier
 CurrencyCode = Annotated[str, StringConstraints(pattern=r"^[A-Z]{3}$")]
 AttributeId = Identifier
+
+# An ontology a study ran against must resolve forever, so `latest`, a wildcard segment or a range
+# is refused for the same reason model pins refuse them.
+_FLOATING_VERSION = re.compile(r"(^|[/:@._-])latest$", re.IGNORECASE)
+_VERSION_WILDCARD = re.compile(r"(?:^|[._-])[xX](?:[._-]|$)")
+
+
+def _exact_version(value: str) -> str:
+    if _FLOATING_VERSION.search(value) or _VERSION_WILDCARD.search(value):
+        raise ValueError(f"an ontology version must name an exact version, got floating {value!r}")
+    return value
+
+
+OntologyVersion = Annotated[Identifier, AfterValidator(_exact_version)]
 
 
 class Evidence(SimBaseModel):
@@ -93,7 +108,7 @@ class CategoryOntology(SimBaseModel):
     """The shared, versioned description of a category; a brief refers to it, never embeds it."""
 
     category: Identifier
-    version: Identifier
+    version: OntologyVersion
     attribute_domains: FrozenDict[AttributeId, PersonaFieldDomain]
     conditioning_set: frozenset[AttributeId] = Field(min_length=1)
     completion_policy: CompletionPolicy
@@ -158,7 +173,7 @@ class ProductBrief(SimBaseModel):
     target_market: NonEmptyStr
     audiences: tuple[Audience, ...] = ()
     assumptions: tuple[Assumption, ...] = ()
-    ontology_version: Identifier
+    ontology_version: OntologyVersion
 
     @field_validator("claims", mode="before")
     @classmethod
