@@ -10,6 +10,7 @@ policy says (the contract refuses a policy that lists them, and this refuses to 
 
 import hashlib
 import json
+import math
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -154,12 +155,41 @@ def _request(attribute: AttributeId, values: tuple[AttributeValue, ...], persona
     }
 
 
-def _accepted(answers: Mapping[str, str], values: tuple[AttributeValue, ...], persona_ids: Sequence[str]) -> dict[str, AttributeValue]:
+def _accepted(answers: Mapping[str, object], values: tuple[AttributeValue, ...], persona_ids: Sequence[str]) -> dict[str, AttributeValue]:
+    """The answers that name an offered value, each recorded as the value the corpus offered — its own
+    type included, so an integer-coded attribute is completed with integers rather than their spelling."""
+    offered = {}
+    for value in values:
+        offered.setdefault(_comparable(value), value)
     wanted = set(persona_ids)
-    return {persona_id: value for persona_id, value in answers.items() if persona_id in wanted and value in values}
+    accepted: dict[str, AttributeValue] = {}
+    for persona_id, answer in answers.items():
+        key = _comparable(answer)
+        if persona_id in wanted and key is not None and key in offered:
+            accepted[persona_id] = offered[key]
+    return accepted
 
 
-def _ask(inference: ChatPort, request: dict, *, strict: bool) -> dict[str, str]:
+def _comparable(value: object) -> tuple[str, object] | None:
+    """A value's form for matching an answer to what was offered. A number is compared by its value, so a
+    model answering 10, 10.0 or "10" names the offered 10; text is compared as written. A JSON answer can
+    only spell a value, and requiring its spelling to match an integer's type would refuse every correct
+    answer to an integer-coded attribute."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return ("number", float(value)) if math.isfinite(value) else None
+    if isinstance(value, str):
+        text = value.strip()
+        try:
+            number = float(text)
+        except ValueError:
+            return ("text", text)
+        return ("number", number) if math.isfinite(number) else ("text", text)
+    return None
+
+
+def _ask(inference: ChatPort, request: dict, *, strict: bool) -> dict[str, object]:
     messages = [
         {"role": "system", "content": COMPLETION_RETRY_SYSTEM if strict else COMPLETION_SYSTEM},
         {"role": "user", "content": json.dumps(request, sort_keys=True)},
@@ -169,14 +199,15 @@ def _ask(inference: ChatPort, request: dict, *, strict: bool) -> dict[str, str]:
     return _parse(completion.text)
 
 
-def _parse(text: str) -> dict[str, str]:
+def _parse(text: str) -> dict[str, object]:
+    """Persona id to answer, answers kept as the JSON types the model wrote them in."""
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError:
         return {}
     if not isinstance(parsed, dict):
         return {}
-    return {str(key): str(value) for key, value in parsed.items()}
+    return {str(key): value for key, value in parsed.items()}
 
 
 def _persona(persona_id: str, draft: _Draft, pack: BriefPack) -> Persona:

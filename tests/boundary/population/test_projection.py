@@ -197,3 +197,47 @@ def test_a_retry_asks_only_about_the_personas_still_missing_and_keeps_accepted_a
     assert len(retry["personas"]) == len(first["personas"]) // 2
     assert {p["persona_id"] for p in retry["personas"]} == {p["persona_id"] for index, p in enumerate(first["personas"]) if index % 2}
     assert all(persona.origins.get("spend_band") is FieldOrigin.SYNTHESIZED for persona in projection.personas)
+
+
+def integer_coded(rows: int = 60) -> SyntheticCoresetSource:
+    return SyntheticCoresetSource(
+        SyntheticShape(
+            {
+                "age": AttributeShape(("18_24", "25_34")),
+                "sex": AttributeShape(("female", "male")),
+                "exercise_frequency": AttributeShape(("rarely", "weekly", "3_plus_weekly")),
+                "diet_protein_focus": AttributeShape(("low", "high")),
+                "spend_band": AttributeShape((5, 10, 20), populated=0.0),
+            },
+            rows=rows,
+        ),
+        seed=3,
+    )
+
+
+def test_an_integer_coded_vocabulary_is_completed_with_its_own_integers():
+    """A correct answer to an integer-coded attribute was once refused for being spelled as text."""
+    source = integer_coded()
+    brief = pack()
+    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(), completion_model_id=MODEL)
+    completed = [persona.attributes["spend_band"] for persona in projection.personas if persona.origins.get("spend_band") is FieldOrigin.SYNTHESIZED]
+    assert len(completed) == len(projection.personas)
+    assert all(value == 5 and type(value) is int for value in completed)
+
+
+def test_a_number_is_matched_by_its_value_and_an_off_list_number_is_refused():
+    source = integer_coded()
+    brief = pack()
+    rows = rows_of(source, brief)
+    off_list = {f"p-{row.row_id}" for index, row in enumerate(rows) if index % 2}
+
+    def spelled_or_invented(messages, template_id) -> str:
+        request = json.loads(messages[-1]["content"])
+        return json.dumps({persona["persona_id"]: (7 if persona["persona_id"] in off_list else " 10.0") for persona in request["personas"]})
+
+    projection = project(brief, rows, source, inference=FakeChat(spelled_or_invented), completion_model_id=MODEL)
+    for persona in projection.personas:
+        if persona.persona_id in off_list:
+            assert "spend_band" not in persona.origins
+        else:
+            assert persona.attributes["spend_band"] == 10 and type(persona.attributes["spend_band"]) is int
