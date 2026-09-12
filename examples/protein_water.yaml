@@ -14,14 +14,12 @@ price:
 claims:
   - text: 20g protein with zero sugar
     source: user_asserted
+    evidence_url: https://example.com/nutrition-panel
   - text: Hydrates like water, not milk
     source: assumed
   - text: Preferred over milky shakes after workouts
     source: public_source
-    evidence:
-      url: https://example.com/category-report
-      fetched_at: 2026-08-15T00:00:00Z
-      content_hash: ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb
+    evidence_url: https://example.com/category-report
 
 competitors:
   - name: Clear whey shooter
