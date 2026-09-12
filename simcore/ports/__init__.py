@@ -1,0 +1,10 @@
+"""Ports: the seams through which the engine reaches the outside world.
+
+A port is a protocol; its adapters live beside it, one production and one in-memory that every
+boundary test runs against. Core modules import the protocol only, so no core module can reach a
+concrete adapter (FINAL_ARCH §4).
+"""
+
+from .evidence import EvidencePort
+
+__all__ = ["EvidencePort"]
