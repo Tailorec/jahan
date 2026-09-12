@@ -115,13 +115,13 @@ With evidence in place the example brief becomes the representative study in ful
 
 ### Acceptance criteria
 
-- [ ] A claim carrying `evidence_url` loads with its `Evidence` built from the sidecar entry for that URL
-- [ ] A claim citing a URL absent from the sidecar is refused, naming the URL
-- [ ] A sidecar entry no claim cites is ignored, and does not affect what loads
-- [ ] A claim carrying no URL loads with no evidence
-- [ ] Claim identifiers are assigned in file order, and a brief that authors its own is refused
-- [ ] Loading the example brief produces a brief whose hash equals the value pinned for the representative study
-- [ ] A missing or malformed sidecar is refused as such, distinctly from a missing entry
+- [x] A claim carrying `evidence_url` loads with its `Evidence` built from the sidecar entry for that URL
+- [x] A claim citing a URL absent from the sidecar is refused, naming the URL
+- [x] A sidecar entry no claim cites is ignored, and does not affect what loads
+- [x] A claim carrying no URL loads with no evidence
+- [x] Claim identifiers are assigned in file order, and a brief that authors its own is refused
+- [x] Loading the example brief produces a brief whose hash equals the value pinned for the representative study
+- [x] A missing or malformed sidecar is refused as such, distinctly from a missing entry
 
 ---
 
