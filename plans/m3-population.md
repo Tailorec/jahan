@@ -55,13 +55,15 @@ This phase also makes two things optional that the contracts currently force: a 
 
 ### Acceptance criteria
 
-- [ ] A manifest records the requested mix beside the achieved mix, and a requested mix that does not sum to one is refused
-- [ ] A manifest records which model completed sparse fields, under which template and template hash, and what share of projected fields was synthesized
-- [ ] A manifest that reports synthesized fields without naming what produced them is refused, and one reporting none may name nothing
-- [ ] A manifest records the homophily strength the graph was generated with
-- [ ] A persona may omit its embedding, and a population of personas without embeddings validates
-- [ ] An ontology may record which model drafted it, from which codebook and when, without changing its hash
-- [ ] The representative identities are re-pinned under 1.0.0 with the change noted
+- [x] A manifest records the requested mix beside the achieved mix, and a requested mix that does not sum to one is refused
+- [x] A manifest records which model completed sparse fields, under which template and template hash, and what share of projected fields was synthesized
+- [x] A manifest that reports synthesized fields without naming what produced them is refused, and one reporting none may name nothing
+- [x] A manifest records the homophily strength the graph was generated with
+- [x] A persona may omit its embedding, and a population of personas without embeddings validates
+- [x] An ontology may record which model drafted it, from which codebook and when, without changing its hash
+- [x] The representative identities are re-pinned under 1.0.0 with the change noted
+
+> Re-pinned 1.0.0: the representative personas no longer carry embeddings (the default path omits them), so the population and configuration hashes and every world id moved. The graph hash did not. The brief and ontology hashes are unchanged.
 
 ---
 
