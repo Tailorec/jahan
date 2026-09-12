@@ -13,8 +13,10 @@ import random
 import numpy as np
 from collections import Counter, defaultdict
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 from simcore.ports import CoresetSource
+from simcore.ports.coreset import DecodedRow
 from simcore.schemas import (
     AttributeId,
     BriefPack,
@@ -31,22 +33,33 @@ from simcore.schemas import (
 
 from ._gates import chi_squared, counts_of, ordinal_similarity
 from ._relax import resolve
+from ._streams import spawn
 
 
-def assess(
-    pack: BriefPack,
-    n: int,
-    population_seed: int,
-    *,
-    coreset: CoresetSource,
-    parameters: PopulationParameters = PopulationParameters(),
-) -> GateReport:
-    """Who is eligible, who was drawn, and whether the draw is sound, for `pack` sampling `n` personas.
+@dataclass(frozen=True)
+class Sampled:
+    """One draw: the rows it took, what each audience held, and what the draw achieved.
 
-    The gates test at the significance and similarity `parameters` set, and every result carries the
-    threshold it was judged against, so a loosened gate is visible in the report it produced."""
+    `build` continues from exactly this draw, so the free check `assess` makes and the population a run
+    is built from can never disagree about which rows the study used."""
+
+    rows: tuple[DecodedRow, ...]
+    drawn: tuple[tuple[Identifier | None, str], ...]
+    relaxations: tuple[Relaxation, ...]
+    references: tuple[tuple[float, tuple[DecodedRow, ...]], ...]
+    audiences: tuple[Identifier, ...]
+    source_mix: FrozenDict
+    achieved_mix: FrozenDict
+
+
+def sample(pack: BriefPack, n: int, population_seed: int, *, coreset: CoresetSource) -> Sampled:
+    """Eligibility, quotas, the relaxation ladder and one seeded draw per audience — the shared draw.
+
+    A row missing any conditioning attribute never reaches a pool (ADR 0002), and the sampling stream is
+    one of the three spawned from the population seed, so no graph draw can shift it."""
     if n < 1:
         raise ValueError(f"a study samples at least one persona, got n={n}")
+    sampling_seed, _, _ = spawn(population_seed)
     brief, ontology = pack.brief, pack.ontology
     conditioning = tuple(sorted(ontology.conditioning_set))
 
@@ -66,27 +79,55 @@ def assess(
             (audience.name, quotas[audience.name], resolve(audience, quotas[audience.name], ontology, coreset, conditioning))
             for audience in brief.audiences
         ]
-        drawn = _draw(resolved, population_seed)
+        drawn = _draw(resolved, sampling_seed)
         relaxations = tuple(relaxation for _, _, outcome in resolved for relaxation in outcome.relaxations)
     else:
-        generator = random.Random(f"population-sample:{population_seed}:none")
+        generator = random.Random(f"population-sample:{sampling_seed}:none")
         drawn = [(None, row_id) for row_id in generator.sample(list(eligible), k=min(n, len(eligible)))]
 
     if not drawn:
         raise GateFailure("no eligible row was drawn: every audience's eligible pool is empty")
 
     rows = {row.row_id: row for row in coreset.rows([row_id for _, row_id in drawn])}
-    sample_rows = [rows[row_id] for _, row_id in drawn]
+    sample_rows = tuple(rows[row_id] for _, row_id in drawn)
     if audiences:
-        references = [(shares[name], _reference(outcome.pool, population_seed, name, coreset)) for name, _, outcome in resolved]
+        references = tuple(
+            (shares[name], tuple(_reference(outcome.pool, sampling_seed, name, coreset))) for name, _, outcome in resolved
+        )
     else:
-        references = [(1.0, _reference(eligible, population_seed, "population", coreset))]
+        references = ((1.0, tuple(_reference(eligible, sampling_seed, "population", coreset))),)
 
-    return GateReport(
-        results=_gate_results(ontology, coreset, references, sample_rows, parameters.distribution_gates),
+    return Sampled(
+        rows=sample_rows,
+        drawn=tuple(drawn),
+        relaxations=relaxations,
+        references=references,
+        audiences=audiences,
         source_mix=_mix(Counter(row.source for row in sample_rows)),
         achieved_mix=_achieved_mix(drawn, audiences),
-        relaxations=relaxations,
+    )
+
+
+def assess(
+    pack: BriefPack,
+    n: int,
+    population_seed: int,
+    *,
+    coreset: CoresetSource,
+    parameters: PopulationParameters = PopulationParameters(),
+) -> GateReport:
+    """Who is eligible, who was drawn, and whether the draw is sound, for `pack` sampling `n` personas.
+
+    The gates test at the significance and similarity `parameters` set, and every result carries the
+    threshold it was judged against, so a loosened gate is visible in the report it produced."""
+    sampled = sample(pack, n, population_seed, coreset=coreset)
+    return GateReport(
+        results=_gate_results(
+            pack.ontology, coreset, sampled.references, sampled.rows, parameters.distribution_gates
+        ),
+        source_mix=sampled.source_mix,
+        achieved_mix=sampled.achieved_mix,
+        relaxations=sampled.relaxations,
     )
 
 
@@ -101,12 +142,16 @@ def _quotas(shares: Mapping[Identifier, float], n: int, order: Sequence[Identifi
 
 
 def _draw(resolved, seed: int):
-    """One seeded draw per audience from its own (possibly relaxed) eligible pool, in audience order."""
+    """One seeded draw per audience, without replacement across the whole study: a persona is one row, so
+    a row that satisfies two audiences is still drawn once."""
     drawn: list[tuple[Identifier | None, str]] = []
+    used: set[str] = set()
     for name, quota, outcome in resolved:
+        candidates = [row_id for row_id in outcome.pool if row_id not in used]
         generator = random.Random(f"population-sample:{seed}:{name}")
-        for row_id in generator.sample(list(outcome.pool), k=min(quota, len(outcome.pool))):
-            drawn.append((name, row_id))
+        chosen = generator.sample(candidates, k=min(quota, len(candidates)))
+        used.update(chosen)
+        drawn.extend((name, row_id) for row_id in chosen)
     return drawn
 
 

@@ -80,7 +80,13 @@ def project(
     recorded as the primary it replaced."""
     ontology = pack.ontology
     conditioning = set(ontology.conditioning_set)
-    drafts = {f"p-{row.row_id}": _draft(row, set(ontology.attribute_domains), conditioning) for row in rows}
+    drafts: dict[str, _Draft] = {}
+    declared = set(ontology.attribute_domains)
+    for row in rows:
+        persona_id = f"p-{row.row_id}"
+        if persona_id in drafts:
+            raise GateFailure(f"the sample drew row {row.row_id!r} more than once; one row is one persona")
+        drafts[persona_id] = _draft(row, declared, conditioning)
     synthesized, models = _complete(_missing(drafts, ontology, conditioning), drafts, coreset, inference)
     personas = tuple(_persona(persona_id, draft, pack) for persona_id, draft in drafts.items())
     total = sum(len(draft.origins) for draft in drafts.values())

@@ -5,5 +5,6 @@
 """
 
 from ._assess import assess
+from ._build import BuiltPopulation, build
 
-__all__ = ["assess"]
+__all__ = ["BuiltPopulation", "assess", "build"]
