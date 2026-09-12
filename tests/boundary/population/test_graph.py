@@ -16,6 +16,8 @@ from simcore.schemas import (
     GateFailure,
     GraphCheck,
     GraphGateResult,
+    GraphParameters,
+    GraphThresholds,
     Persona,
     SocialEdge,
     SocialGraph,
@@ -58,7 +60,7 @@ def network_of(graph: SocialGraph) -> nx.Graph:
 
 def test_a_generated_graph_carries_clustering_and_a_hub_tail():
     pack, personas = projected()
-    build = _graph.build_graph(pack, personas, population_seed=4021, homophily_strength=0.5)
+    build = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=0.5))
     degrees = [degree for _, degree in network_of(build.graph).degree()]
     assert min(degrees) >= 1 and max(degrees) > statistics.mean(degrees)
     checks = {result.check.value: result for result in build.results}
@@ -109,15 +111,15 @@ def test_a_ties_strength_can_be_explained_from_the_attributes_that_produced_it()
 
 def test_tie_strengths_are_quantised_and_the_same_graph_hashes_identically():
     pack, personas = projected()
-    first = _graph.build_graph(pack, personas, population_seed=4021, homophily_strength=0.5)
-    second = _graph.build_graph(pack, personas, population_seed=4021, homophily_strength=0.5)
+    first = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=0.5))
+    second = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=0.5))
     assert canonical_hash(first.graph) == canonical_hash(second.graph)
     assert all(abs(edge.weight * _graph.QUANTUM - round(edge.weight * _graph.QUANTUM)) < 1e-9 for edge in first.graph.edges)
 
 
 def test_every_persona_has_at_least_one_tie():
     pack, personas = projected()
-    build = _graph.build_graph(pack, personas, population_seed=4021, homophily_strength=1.0)
+    build = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=1.0))
     tied = {endpoint for edge in build.graph.edges for endpoint in (edge.u, edge.v)}
     assert all(persona.persona_id in tied for persona in personas)
 
@@ -135,23 +137,23 @@ def test_degree_shape_clustering_and_connectivity_are_judged_and_a_failure_rejec
 
     pack, personas = projected(count=40)
     failing = (GraphGateResult(kind="graph", check=GraphCheck.CONNECTIVITY, measured=0.5, threshold=0.98),)
-    monkeypatch.setattr(_graph, "judge", lambda graph, n: failing)
+    monkeypatch.setattr(_graph, "judge", lambda graph, n, thresholds: failing)
     with pytest.raises(GateFailure, match="structural gates"):
-        _graph.build_graph(pack, personas, population_seed=4021, homophily_strength=0.5)
+        _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=0.5))
 
 
 def test_the_measured_attribute_assortativity_is_reported():
     pack, personas = projected()
-    weak = _graph.build_graph(pack, personas, population_seed=4021, homophily_strength=0.0)
-    strong = _graph.build_graph(pack, personas, population_seed=4021, homophily_strength=1.0)
+    weak = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=0.0))
+    strong = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=1.0))
     assert 0.0 < weak.assortativity <= 1.0 and 0.0 < strong.assortativity <= 1.0
     assert strong.assortativity > weak.assortativity
 
 
 def test_homophily_strength_is_recorded_and_two_strengths_produce_different_graphs():
     pack, personas = projected()
-    weak = _graph.build_graph(pack, personas, population_seed=4021, homophily_strength=0.0)
-    strong = _graph.build_graph(pack, personas, population_seed=4021, homophily_strength=1.0)
+    weak = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=0.0))
+    strong = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=1.0))
     assert canonical_hash(weak.graph) != canonical_hash(strong.graph)
 
 
@@ -160,7 +162,7 @@ def test_a_graph_whose_edges_never_cross_audiences_is_refused(monkeypatch):
     monkeypatch.setattr(_graph, "_restates_the_audiences", lambda graph, audience_of: True)
     with pytest.raises(GateFailure, match="restates"):
         _graph.build_graph(
-            pack, personas, population_seed=4021, homophily_strength=0.5, audience_of={"p-000001": "A"}
+            pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=0.5), audience_of={"p-000001": "A"}
         )
 
 
@@ -174,7 +176,29 @@ def test_similarity_is_computed_over_sampled_candidates_not_all_pairs(monkeypatc
         return original(a, b, ontology)
 
     monkeypatch.setattr(_graph, "_similarity", counting)
-    build = _graph.build_graph(pack, personas, population_seed=4021, homophily_strength=1.0)
+    build = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(homophily_strength=1.0))
     n = len(personas)
     assert len(calls) < n * (n - 1) / 2
     assert len(calls) <= int(1.0 * len(build.graph.edges)) * (_graph.CANDIDATE_SAMPLE + 2) + len(build.graph.edges)
+
+
+def test_graph_structure_follows_its_tuned_parameters():
+    pack, personas = projected()
+    permissive = GraphThresholds(clustering_floor=0.0, connectivity_floor=0.0, hub_tail_floor=1.01)
+    sparse = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(ring_degree=4, hub_attachment=1), thresholds=permissive)
+    dense = _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(ring_degree=8, hub_attachment=4), thresholds=permissive)
+    assert len(dense.graph.edges) > len(sparse.graph.edges)
+
+
+def test_graph_gate_floors_are_tunable_carried_on_each_result_and_a_raised_floor_rejects():
+    pack, personas = projected()
+    build = _graph.build_graph(pack, personas, population_seed=4021)
+    assert {result.check.value: result.threshold for result in build.results} == {"connectivity": 0.98, "clustering": 0.05, "degree_shape": 1.8}
+    with pytest.raises(GateFailure, match="clustering"):
+        _graph.build_graph(pack, personas, population_seed=4021, thresholds=GraphThresholds(clustering_floor=0.99))
+
+
+def test_a_hub_attachment_the_population_cannot_support_is_refused_not_clamped():
+    pack, personas = projected(count=40)
+    with pytest.raises(GateFailure, match="hub attachment of 40"):
+        _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(hub_attachment=40))

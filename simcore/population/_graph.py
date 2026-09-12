@@ -20,6 +20,8 @@ from simcore.schemas import (
     GateFailure,
     GraphCheck,
     GraphGateResult,
+    GraphParameters,
+    GraphThresholds,
     Persona,
     SocialEdge,
     SocialGraph,
@@ -28,10 +30,8 @@ from simcore.schemas import (
 # Tie strengths are quantised to this grid, and never zero, so two numeric builds of the same
 # structure hash identically and no edge is recorded as weightless.
 QUANTUM = 1000
+# How many partners a rewiring considers. Operational: it bounds cost and never changes what is measured.
 CANDIDATE_SAMPLE = 16
-CLUSTERING_FLOOR = 0.05
-CONNECTIVITY_FLOOR = 0.98
-HUB_TAIL_FLOOR = 1.8
 
 
 @dataclass(frozen=True)
@@ -46,20 +46,28 @@ def build_graph(
     personas: Sequence[Persona],
     *,
     population_seed: int,
-    homophily_strength: float,
+    parameters: GraphParameters = GraphParameters(),
+    thresholds: GraphThresholds = GraphThresholds(),
     audience_of: Mapping[str, str] | None = None,
     candidate_sample_size: int = CANDIDATE_SAMPLE,
 ) -> GraphBuild:
-    """The social structure over `personas`, built and judged; a failing gate rejects it."""
+    """The social structure over `personas`, built from its tuned parameters and judged against its
+    tuned thresholds; a failing gate rejects it. The defaults are the values the engine used before."""
     n = len(personas)
     if n < 3:
         raise GateFailure("a social graph needs at least three personas")
+    if parameters.hub_attachment >= n:
+        raise GateFailure(
+            f"a hub attachment of {parameters.hub_attachment} ties each newcomer to more personas than the "
+            f"{n} in this population; tune it below the population size rather than have it silently clamped"
+        )
     ontology, brief = pack.ontology, pack.brief
     generator = random.Random(f"population-graph:{population_seed}")
 
-    edges = _ring_lattice(n, 4 if n > 5 else 2)
-    edges |= {frozenset(edge) for edge in nx.barabasi_albert_graph(n, 2, seed=population_seed).edges()}
-    edges = _rewire(edges, personas, ontology, homophily_strength, candidate_sample_size, generator)
+    ring = parameters.ring_degree if n > parameters.ring_degree + 1 else 2
+    edges = _ring_lattice(n, ring)
+    edges |= {frozenset(edge) for edge in nx.barabasi_albert_graph(n, parameters.hub_attachment, seed=population_seed).edges()}
+    edges = _rewire(edges, personas, ontology, parameters.homophily_strength, candidate_sample_size, generator)
 
     graph = SocialGraph(
         edges=tuple(
@@ -69,15 +77,15 @@ def build_graph(
     )
     if audience_of is not None and _restates_the_audiences(graph, audience_of):
         raise GateFailure("every tie stays within an audience, so the graph merely restates the declared audiences")
-    results = judge(graph, n)
+    results = judge(graph, n, thresholds)
     if not all(result.passed for result in results):
         failed = [result.check.value for result in results if not result.passed]
         raise GateFailure(f"the generated graph fails its structural gates: {failed}")
     return GraphBuild(graph, results, _assortativity(graph))
 
 
-def judge(graph: SocialGraph, n: int) -> tuple[GraphGateResult, ...]:
-    """Degree shape, clustering and connectivity, each with its measured value and its floor."""
+def judge(graph: SocialGraph, n: int, thresholds: GraphThresholds = GraphThresholds()) -> tuple[GraphGateResult, ...]:
+    """Degree shape, clustering and connectivity, each with its measured value and its tuned floor."""
     network = nx.Graph()
     network.add_nodes_from(persona_id for edge in graph.edges for persona_id in (edge.u, edge.v))
     network.add_edges_from((edge.u, edge.v) for edge in graph.edges)
@@ -88,9 +96,9 @@ def judge(graph: SocialGraph, n: int) -> tuple[GraphGateResult, ...]:
     mean_degree = sum(degrees) / len(degrees) if degrees else 0.0
     hub_tail = (max(degrees) / mean_degree) if mean_degree else 0.0
     return (
-        GraphGateResult(kind="graph", check=GraphCheck.CONNECTIVITY, measured=connectivity, threshold=CONNECTIVITY_FLOOR),
-        GraphGateResult(kind="graph", check=GraphCheck.CLUSTERING, measured=clustering, threshold=CLUSTERING_FLOOR),
-        GraphGateResult(kind="graph", check=GraphCheck.DEGREE_SHAPE, measured=hub_tail, threshold=HUB_TAIL_FLOOR),
+        GraphGateResult(kind="graph", check=GraphCheck.CONNECTIVITY, measured=connectivity, threshold=thresholds.connectivity_floor),
+        GraphGateResult(kind="graph", check=GraphCheck.CLUSTERING, measured=clustering, threshold=thresholds.clustering_floor),
+        GraphGateResult(kind="graph", check=GraphCheck.DEGREE_SHAPE, measured=hub_tail, threshold=thresholds.hub_tail_floor),
     )
 
 
