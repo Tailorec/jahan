@@ -103,13 +103,13 @@ The synthetic source generates rows from a declared shape: per attribute, its va
 
 ### Acceptance criteria
 
-- [ ] Resolution asks for matching rows and required-populated attributes in one call, so eligibility cannot be requested without stating it
-- [ ] Predicates — exact, one-of, range — resolve against the source's own vocabulary
-- [ ] A source reports the value set for an attribute, and an attribute it does not know is refused by name
-- [ ] The synthetic source generates the same rows for the same shape and seed, in two processes
-- [ ] A shape controls each attribute's value distribution and how often it is populated
-- [ ] The fixture source serves a handful of committed rows readable beside the tests that use them
-- [ ] No core module imports a concrete source
+- [x] Resolution asks for matching rows and required-populated attributes in one call, so eligibility cannot be requested without stating it
+- [x] Predicates — exact, one-of, range — resolve against the source's own vocabulary
+- [x] A source reports the value set for an attribute, and an attribute it does not know is refused by name
+- [x] The synthetic source generates the same rows for the same shape and seed, in two processes
+- [x] A shape controls each attribute's value distribution and how often it is populated
+- [x] The fixture source serves a handful of committed rows readable beside the tests that use them
+- [x] No core module imports a concrete source
 
 ---
 
