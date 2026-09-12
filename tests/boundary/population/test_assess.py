@@ -7,7 +7,7 @@ import pytest
 from simcore.population import assess
 from simcore.ports.fixture import FixtureCoresetSource
 from simcore.ports.synthetic import AttributeShape, SyntheticCoresetSource, SyntheticShape
-from simcore.schemas import BriefPack, GateFailure, GateReference, canonical_hash
+from simcore.schemas import BriefPack, DistributionThresholds, GateFailure, GateReference, PopulationParameters, canonical_hash
 from tests.study_builders import pack_payload
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
@@ -131,6 +131,26 @@ def test_an_ordinal_attribute_is_judged_on_the_bands_its_ontology_declares():
     ordinal = next(result for result in report.results if result.attribute == "exercise_frequency")
     assert ordinal.kind == "ordinal" and ordinal.passed is True
     assert ordinal.ks_similarity == pytest.approx(1.0 - ordinal.ks_statistic)
+
+
+def test_distribution_gate_thresholds_are_tunable_and_carried_on_every_result():
+    tuned = PopulationParameters(distribution_gates=DistributionThresholds(significance_level=0.01, similarity_threshold=0.5))
+    report = assess(pack(), 1000, 4021, coreset=default_source(), parameters=tuned)
+    for result in report.results:
+        if result.kind == "categorical":
+            assert result.significance_level == 0.01
+        else:
+            assert result.similarity_threshold == 0.5
+
+
+def test_a_loosened_ordinal_threshold_accepts_what_the_default_rejects():
+    starved = starved_source()
+    rejected = assess(pack(), 1000, 4021, coreset=starved)
+    lenient = PopulationParameters(distribution_gates=DistributionThresholds(similarity_threshold=0.01))
+    accepted = assess(pack(), 1000, 4021, coreset=starved, parameters=lenient)
+    ordinal = lambda report: next(result for result in report.results if result.attribute == "exercise_frequency")
+    assert ordinal(rejected).passed is False and ordinal(accepted).passed is True
+    assert ordinal(accepted).similarity_threshold == 0.01
 
 
 def test_a_gate_report_says_what_it_judged_the_sample_against():

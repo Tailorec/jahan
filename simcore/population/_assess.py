@@ -19,11 +19,13 @@ from simcore.schemas import (
     AttributeId,
     BriefPack,
     CategoricalGateResult,
+    DistributionThresholds,
     FrozenDict,
     GateFailure,
     GateReport,
     Identifier,
     OrdinalGateResult,
+    PopulationParameters,
     Relaxation,
 )
 
@@ -31,8 +33,18 @@ from ._gates import chi_squared, counts_of, ordinal_similarity
 from ._relax import resolve
 
 
-def assess(pack: BriefPack, n: int, population_seed: int, *, coreset: CoresetSource) -> GateReport:
-    """Who is eligible, who was drawn, and whether the draw is sound, for `pack` sampling `n` personas."""
+def assess(
+    pack: BriefPack,
+    n: int,
+    population_seed: int,
+    *,
+    coreset: CoresetSource,
+    parameters: PopulationParameters = PopulationParameters(),
+) -> GateReport:
+    """Who is eligible, who was drawn, and whether the draw is sound, for `pack` sampling `n` personas.
+
+    The gates test at the significance and similarity `parameters` set, and every result carries the
+    threshold it was judged against, so a loosened gate is visible in the report it produced."""
     if n < 1:
         raise ValueError(f"a study samples at least one persona, got n={n}")
     brief, ontology = pack.brief, pack.ontology
@@ -71,7 +83,7 @@ def assess(pack: BriefPack, n: int, population_seed: int, *, coreset: CoresetSou
         references = [(1.0, _reference(eligible, population_seed, "population", coreset))]
 
     return GateReport(
-        results=_gate_results(ontology, coreset, references, sample_rows),
+        results=_gate_results(ontology, coreset, references, sample_rows, parameters.distribution_gates),
         source_mix=_mix(Counter(row.source for row in sample_rows)),
         achieved_mix=_achieved_mix(drawn, audiences),
         relaxations=relaxations,
@@ -143,7 +155,13 @@ def _expected(references: Sequence[tuple[float, Sequence]], attribute: Attribute
     return expected
 
 
-def _gate_results(ontology, coreset: CoresetSource, references: Sequence[tuple[float, Sequence]], sample_rows: Sequence) -> tuple:
+def _gate_results(
+    ontology,
+    coreset: CoresetSource,
+    references: Sequence[tuple[float, Sequence]],
+    sample_rows: Sequence,
+    thresholds: DistributionThresholds,
+) -> tuple:
     scaled = {scale.attribute for scale in ontology.ordinal_scales}
     sample_values = _by_attribute(sample_rows)
     results = []
@@ -156,7 +174,13 @@ def _gate_results(ontology, coreset: CoresetSource, references: Sequence[tuple[f
             if outcome is not None:
                 statistic, similarity = outcome
                 results.append(
-                    OrdinalGateResult(kind="ordinal", attribute=attribute, ks_statistic=statistic, ks_similarity=similarity)
+                    OrdinalGateResult(
+                        kind="ordinal",
+                        attribute=attribute,
+                        ks_statistic=statistic,
+                        ks_similarity=similarity,
+                        similarity_threshold=thresholds.similarity_threshold,
+                    )
                 )
         else:
             outcome = chi_squared(sample_values[attribute], _expected(references, attribute, vocabulary), vocabulary)
@@ -164,7 +188,12 @@ def _gate_results(ontology, coreset: CoresetSource, references: Sequence[tuple[f
                 statistic, degrees, p_value = outcome
                 results.append(
                     CategoricalGateResult(
-                        kind="categorical", attribute=attribute, chi_square=statistic, degrees_of_freedom=degrees, p_value=p_value
+                        kind="categorical",
+                        attribute=attribute,
+                        chi_square=statistic,
+                        degrees_of_freedom=degrees,
+                        p_value=p_value,
+                        significance_level=thresholds.significance_level,
                     )
                 )
     if not results:
