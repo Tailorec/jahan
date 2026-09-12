@@ -7,10 +7,13 @@ from typing import Any
 import yaml
 from pydantic import ValidationError
 
-from simcore.schemas import BriefPack, CategoryOntology, GateFailure, ProductBrief
+from simcore.schemas import BriefPack, CategoryOntology, Evidence, GateFailure, ProductBrief
 
 # A broken file usually breaks in one way many times over; the first several say what that way is.
 MAX_REPORTED_PROBLEMS = 10
+
+# The machine-written evidence beside a brief: `<brief>.evidence.json`, keyed by cited URL.
+SIDECAR_SUFFIX = ".evidence.json"
 
 
 def load_brief(path: Path, ontology_dir: Path) -> BriefPack:
@@ -19,7 +22,8 @@ def load_brief(path: Path, ontology_dir: Path) -> BriefPack:
     Reads two files and nothing else: no network, no clock, no environment. Anything the brief
     contract refuses, and anything the files cannot supply, is raised as a `GateFailure` naming
     the file it came from and the field within it."""
-    brief = _validate(ProductBrief, _read_yaml(path), path)
+    payload = _join_evidence(_read_yaml(path), path)
+    brief = _validate(ProductBrief, payload, path)
     ontology = _read_ontology(ontology_dir, brief.product.category, brief.ontology_version)
     return _validate(BriefPack, {"brief": brief, "ontology": ontology}, path)
 
@@ -61,6 +65,63 @@ def _read_yaml(path: Path) -> Any:
     if not isinstance(payload, dict):
         raise GateFailure(f"{path}: must be a mapping of fields at its top level, not {_describe(payload)}")
     return payload
+
+
+def _sidecar_path(path: Path) -> Path:
+    return path.with_name(path.name + SIDECAR_SUFFIX)
+
+
+def _join_evidence(payload: dict, path: Path) -> dict:
+    """Replace each claim's `evidence_url` with the `Evidence` the sidecar supplies for it.
+
+    Claim identity is a claim's position, so an authored id is refused; evidence comes from the
+    sidecar, so an authored `evidence` mapping is refused rather than trusted."""
+    claims = payload.get("claims")
+    if not isinstance(claims, list):
+        return payload
+    for index, claim in enumerate(claims):
+        if not isinstance(claim, dict):
+            continue
+        if "id" in claim:
+            raise GateFailure(
+                f"{path}: claims[{index}].id: claim identifiers are assigned by position and must not be authored"
+            )
+        if "evidence" in claim:
+            raise GateFailure(
+                f"{path}: claims[{index}].evidence: evidence is supplied by the sidecar, not authored; cite it with `evidence_url`"
+            )
+    cited = {claim["evidence_url"] for claim in claims if isinstance(claim, dict) and claim.get("evidence_url")}
+    if not cited:
+        return payload
+    sidecar = _read_sidecar(path)
+    sidecar_path = _sidecar_path(path)
+    for index, claim in enumerate(claims):
+        url = claim.pop("evidence_url", None) if isinstance(claim, dict) else None
+        if url is None:
+            continue
+        entry = sidecar.get(url)
+        if entry is None:
+            raise GateFailure(
+                f"{path}: claims[{index}].evidence_url: {url!r} was cited but never fetched; "
+                f"{sidecar_path} has no entry for it"
+            )
+        claim["evidence"] = _validate(Evidence, {"url": url, **entry}, sidecar_path)
+    return payload
+
+
+def _read_sidecar(path: Path) -> dict:
+    sidecar_path = _sidecar_path(path)
+    if not sidecar_path.is_file():
+        raise GateFailure(f"{path}: cites evidence but its sidecar {sidecar_path} is missing")
+    try:
+        raw = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    except OSError as error:
+        raise GateFailure(f"{sidecar_path}: cannot be read ({error.strerror or error})") from error
+    except json.JSONDecodeError as error:
+        raise GateFailure(f"{sidecar_path}: is not valid JSON ({error.msg} at line {error.lineno})") from error
+    if not isinstance(raw, dict):
+        raise GateFailure(f"{sidecar_path}: must be a mapping of cited URLs at its top level, not {_describe(raw)}")
+    return raw
 
 
 def _read_ontology(ontology_dir: Path, category: str, version: str) -> CategoryOntology:
