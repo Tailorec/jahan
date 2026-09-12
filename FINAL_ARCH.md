@@ -188,43 +188,47 @@ Each spec states what the module **owns**, what it **hides**, its **interface**,
 **Interface:**
 
 ```python
-def build(brief: BriefPack, n: int, population_seed: int, *,
-          coreset: CoresetSource, inference: ChatPort & EmbedPort,
-          patches: PersonaPatchSource = NullPatchSource()) -> Population
+def assess(pack: BriefPack, n: int, population_seed: int, *,
+           coreset: CoresetSource) -> GateReport
+
+def build(pack: BriefPack, n: int, population_seed: int, *,
+          coreset: CoresetSource, inference: ChatPort,
+          patches: PersonaPatchSource = NullPatchSource()) -> BuiltPopulation
 ```
 
-`Population` carries `personas`, `graph`, `communities`, `gate_report`, `embeddings` (one `float32` array), `manifest` (row ids, `achieved_mix` keyed by audience, seeds, `population_hash`).
+`assess` stops after gating and calls no model, so checking a cohort is free; it is what `coreset-gate` wires. `build` returns a `BuiltPopulation`: the validated `Population` — `personas`, `graph`, `communities`, `gate_report`, `manifest` (row ids, requested and achieved mix, seeds, completion provenance, `population_hash`) — alongside the embedding array when embeddings are enabled. The array travels beside the contract, never inside it: `schemas` is a leaf package and can hold no numpy, and a hash over 2,000 × 384 floats would dominate every serialization in the system. `EmbeddingRef.index` is the join.
 
-Sampling and graph generation draw from **independent streams** spawned off the one population seed (`SeedSequence(population_seed).spawn(2)`) rather than from two separately authored seeds, which would invite correlated draws if anyone set them equal (ADR 0001).
+Sampling, graph rewiring and community detection draw from **independent streams** spawned off the one population seed (`SeedSequence(population_seed).spawn(3)`) rather than from separately authored seeds, which would invite correlated draws if anyone set them equal (ADR 0001). Leiden is randomised, so it is seeded too. A population is built once and carried, never rebuilt: determinism holds under a deterministic inference port, and against a live model the completion of sparse fields makes a rebuild a different population (ADR 0015).
 
 **Why these four merged:** nobody ever wants a `DecodedRow` — it existed only to cross a boundary. Field-mapping knowledge was split between decode and projection. The completion policy was defined in `brief` but enforced in projection. The graph is not a separate concept from the population; a population without its social structure is not usable by any caller. One module, one question: *who is in this study?*
 
 **Internals, in order:**
 1. **Resolve** — intersect postings sets per filter key **and require every attribute in the category's conditioning set to be populated**; index-only, never opens a data shard. Filtering for conditionability here rather than dropping sparse rows after sampling is what stops the population skewing toward the dataset's complete synthetic rows (ADR 0002).
 2. **Decode** — `pyarrow.parquet.read_table(memory_map=True)`; vectorized nibble decode (even index = low nibble `arr[::2] & 0x0F`, odd = high `arr[1::2] >> 4`); codebook gather via numpy mapping arrays; null bitmask applied (set bit = missing, LSB-first); `attribute_overrides` overlaid last.
-3. **Sample** — seeded `np.random.Generator`; proportions from the brief's declared audiences, or derived from `calibration_targets.json` when the brief declares none; shortfall policy widens filters and logs the degradation, never silently drops.
+3. **Sample** — seeded `np.random.Generator`; quotas from the shares the brief's audiences declare (all-or-nothing, summing to one), or from `calibration_targets.json` when the brief declares no audiences. A quota that cannot be filled climbs a fixed ladder, each rung recorded as a `Relaxation` on the gate report: widen an ordinal predicate by one band, then drop the least relevant non-conditioning filter using the ontology's `relevance_order`, then accept the shortfall so the achieved mix tells the truth, and fail only when an audience matches nothing. The conditioning set is never a rung — trading it for coverage would undo ADR 0002.
 4. **Gate** — a tagged union, never nullable twins: `CategoricalGate` on categorical marginals (χ², pass at p > 0.05) and `OrdinalGate` on attributes the ontology declares ordinal, using their band→midpoint scale (pass at `ks_similarity ≥ 0.80`, where `ks_similarity = 1 − D` — named for direction, because a threshold on a bare `ks` reads backwards). Gates run on grounded attributes only. Each result carries its threshold and computes its verdict, and `GateReport.overall` is computed from those — both serialize, and a supplied value that contradicts the computation is refused. Any FAIL rejects the population. A `Population` aggregate joins personas, manifest, gate report, graph and communities with the `BriefPack` and enforces every cross-persona invariant: conditioning and field domains come from the ontology, never from the persona; gated attributes are grounded for every carrier; the source mix matches the personas; communities partition the population. The gate report carries the population's `source_mix` so any skew the conditioning filter induced is visible.
-5. **Project** — the ontology's relevance order selects fields; the conditioning set lands in `Persona.conditioning`, everything else in `Persona.attributes`; sparse completion batched one call per ~25 personas of the same audience; **every** projected field states a `FieldOrigin`, completed ones as `SYNTHESIZED` — grounding is never inferred from an absent key.
+5. **Project** — the ontology's relevance order selects fields; the conditioning set lands in `Persona.conditioning`, everything else in `Persona.attributes`; sparse completion batched one call per ~25 personas of the same audience, and constrained to the corpus's own value set for that attribute — a choice among real values, never free text, since an invented value silently breaks the audience filters and gates that never saw it; **every** projected field states a `FieldOrigin`, completed ones as `SYNTHESIZED` — grounding is never inferred from an absent key.
 6. **Patch** — `PersonaPatchSource` applied; default adapter is a no-op.
 7. **Embed** — mean-pooled attribute-text vectors into one contiguous array; `EmbeddingRef` on each persona.
-8. **Graph** — Watts–Strogatz ring (clustering) merged with preferential attachment (hub tail), then a homophily rewiring pass; tie strength `w = 0.45·cos(emb_u, emb_v) + 0.35·homophily + 0.20·strong_flag`. Seeded, bit-identical per seed.
-9. **Detect communities** — Leiden over the weighted graph, γ ∈ {0.3, 0.5, 1.0}, selected on modularity ≥ 0.4 with 4–8 communities of ≥ ~80 members; community cards authored once per population and versioned. Communities are discovered, so they appear only in outputs — never in an input file.
+8. **Graph** — Watts–Strogatz ring (clustering) merged with preferential attachment (hub tail), then a homophily rewiring pass over sampled candidates rather than all pairs. Tie strength is **attribute homophily first** — categorical match and normalised ordinal distance, weighted by the ontology's `relevance_order` — plus a strong-tie flag; embedding cosine is an optional secondary term, off by default, because homophily explains itself ("tied because both train three times a week") where a mean-pooled vector cannot, and dropping it removes an embedding call per persona from the common path. Homophily strength is a study parameter recorded in the manifest, never read from the environment. Weights are quantised before becoming edges, since the graph hash covers them as floats. Seeded, bit-identical per seed.
+9. **Detect communities** — Leiden over the weighted graph, seeded, across a γ search, selecting the qualifying partition with the highest modularity: modularity ≥ 0.4, 4–8 communities, each holding at least a fixed *share* of the population rather than a fixed count, so a small study is not structurally doomed. A population that yields no qualifying partition is still valid; polarization is then reported as **not measurable**, never as zero. Communities are discovered, so they appear only in outputs — never in an input file.
 
-**Graph gates:** degree KS vs. power-law target; clustering within ±0.05; giant component ≥ 98%; zero isolates (an isolate gets one weak edge).
+**Graph gates:** carried in the same `GateReport` as a third result kind, keyed by check rather than attribute — degree KS vs. power-law target, clustering within ±0.05, giant component ≥ 98% — and a failure rejects the population as a distribution gate does. Measured attribute assortativity is reported beside them, so how much attributes shaped the structure is a number rather than an assumption. "Zero isolates" is not a gate but an invariant of a valid population: an isolate gets one weak edge during generation, and `Population` refuses a graph that leaves any persona untied.
 
 **Salvage:** MatrAIx `persona_codes.schema.json` (the decode contract), `build_persona_1m_indexes.py`, `persona_1m_index.py`, `persona_1m_pool.py`, `calibration_targets.json`. OASIS `agent_graph.py` for the networkx container only — topology is ours. `leidenalg` for community detection.
 
 **Perf gates:** 10k-persona decode < 60 s cold, < 2 s warm. Postings filter must not open a shard. Full `build()` for n=2,000 under `SyntheticCoresetSource` < 5 s (this is the quickstart path).
 
 **Boundary tests** (against `FixtureCoresetSource` + `FakeInference`) — these replace the separate decode/sampling/projection unit tests entirely:
-- known fixture rows decode to known attribute dicts, including a null-bitmask case and an `attribute_overrides` case;
+- (decode moved: `CoresetSource` yields decoded rows, so packed-format tests belong to the adapter — deferred with it, see §12);
 - an injected positivity skew in the fixture makes the gate FAIL and rejects the population;
 - **no demographic or psychographic field is ever `SYNTHESIZED`** — the contract-2 test, and it is only expressible here;
 - a fixture row missing a conditioning-set attribute never reaches the candidate pool;
 - the gate report's `source_mix` reflects the conditioning filter's effect on source composition;
 - same `(brief, n, population_seed)` → identical `population_hash`, twice;
 - graph gates hold across 20 seeds;
-- filter widening on shortfall is logged and reflected in `gate_report.degradations`.
+- filter widening on shortfall climbs the recorded ladder and is reflected in `gate_report.relaxations`;
+- a completion answering off-list leaves the field absent rather than inventing a value.
 
 ---
 
