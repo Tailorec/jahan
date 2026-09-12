@@ -136,6 +136,8 @@ Gates then judge the sample: categorical marginals by chi-squared, ordinal attri
 - [x] Any failing gate rejects the population
 - [x] Assessing calls no model and opens no socket, and the same seed assesses identically twice
 
+> Amended after review: the gates judge a draw against the study's own design, not against the corpus, which rejected every targeted study. A study declaring no audiences is judged against the ontology's `CategoryTargets` where they exist; each result records its reference, and the report claims only the weakest.
+
 ---
 
 ## Phase 6: The relaxation ladder
@@ -202,6 +204,8 @@ Tie strengths are quantised before becoming edges, so a graph's identity is its 
 - [x] Every persona has at least one tie
 - [x] Degree shape, clustering and connectivity are judged, and a failure rejects the population
 - [x] The measured attribute assortativity is reported, and a degenerate graph whose communities merely restate the audiences is refused
+
+> Amended after review: assortativity is Newman's per-attribute coefficient rather than mean tie strength, it is carried on the gate report so it survives beside the population, and the degenerate check judges audience assortativity against a tunable ceiling.
 - [x] Homophily strength is recorded, and two strengths produce two different graphs
 
 > Amended after phase 9's review: ring degree, hub attachment and every structural gate floor are tunable too, each gate result carries the floor it was judged against, and a hub attachment the population cannot support is refused rather than clamped.

@@ -96,6 +96,10 @@ _Avoid_: throttling, fallback, downgrade
 The shared, versioned catalogue of which persona attributes matter for a product category — what kind of information each holds, which must be present for conditioning, which may be synthesized, how ordered attributes are scaled, what order they are cut in under a token budget, and which anchor set scores each construct. It declares attributes, never relationships or behaviour: how personas interact is the world's business, not the ontology's. A brief names the version it is read against; it never carries its own copy.
 _Avoid_: schema, taxonomy, category config, knowledge graph, entity model, codebook (the codebook is the dataset's, not the category's)
 
+**Category Targets**:
+The measured distribution of a category's real population on some of its attributes, with the source it was measured from. A study that claims to represent the whole category is judged against them; a study that targets particular audiences is not, because it departs from its category on purpose. A report may only claim its sample matches the real category when every judgement it rests on was made against them.
+_Avoid_: benchmarks, norms, calibration (calibration is checking results against human studies, not checking a sample against a population)
+
 **Field Domain**:
 The kind of information a persona field holds — demographic, psychographic, category behaviour, economic, decision rule, or media. Demographic and psychographic fields are never synthesized.
 _Avoid_: field type, section, attribute group
