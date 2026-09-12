@@ -21,6 +21,8 @@ from simcore.schemas import (
     AttributeId,
     BriefPack,
     CategoricalGateResult,
+    CategoryTargets,
+    GateReference,
     DistributionThresholds,
     FrozenDict,
     GateFailure,
@@ -123,7 +125,7 @@ def assess(
     sampled = sample(pack, n, population_seed, coreset=coreset)
     return GateReport(
         results=_gate_results(
-            pack.ontology, coreset, sampled.references, sampled.rows, parameters.distribution_gates
+            pack.ontology, coreset, sampled.references, sampled.rows, parameters.distribution_gates, targets_for(pack, sampled)
         ),
         source_mix=sampled.source_mix,
         achieved_mix=sampled.achieved_mix,
@@ -200,12 +202,32 @@ def _expected(references: Sequence[tuple[float, Sequence]], attribute: Attribute
     return expected
 
 
+def targets_for(pack: BriefPack, sampled: Sampled) -> CategoryTargets | None:
+    """The category targets a draw is judged against, or none.
+
+    Only a study that declares no audiences means to resemble the whole category, so only it is held to the
+    category's measured marginals. A targeted study is supposed to differ from the category — gym regulars
+    are younger than everybody — and holding it to category targets would reject every study for doing what
+    it was asked, the very defect gating against the corpus once had. It stays judged against its design."""
+    return None if sampled.audiences else pack.ontology.targets
+
+
+def _reference_for(attribute: AttributeId, vocabulary: Sequence, references, targets: CategoryTargets | None):
+    """The expectation for one attribute and the reference it stands for: the category's measured marginal
+    where one exists, otherwise what the study's design implies."""
+    marginal = targets.marginals.get(attribute) if targets is not None else None
+    if marginal is None:
+        return _expected(references, attribute, vocabulary), GateReference.DESIGN
+    return np.array([marginal.get(str(value), 0.0) for value in vocabulary], dtype=float), GateReference.CATEGORY_TARGETS
+
+
 def _gate_results(
     ontology,
     coreset: CoresetSource,
     references: Sequence[tuple[float, Sequence]],
     sample_rows: Sequence,
     thresholds: DistributionThresholds,
+    targets: CategoryTargets | None = None,
 ) -> tuple:
     scaled = {scale.attribute for scale in ontology.ordinal_scales}
     sample_values = _by_attribute(sample_rows)
@@ -215,7 +237,8 @@ def _gate_results(
             continue
         vocabulary = coreset.values(attribute)
         if attribute in scaled:
-            outcome = ordinal_similarity(sample_values[attribute], _expected(references, attribute, vocabulary), vocabulary)
+            expected, reference = _reference_for(attribute, vocabulary, references, targets)
+            outcome = ordinal_similarity(sample_values[attribute], expected, vocabulary)
             if outcome is not None:
                 statistic, similarity = outcome
                 results.append(
@@ -225,10 +248,12 @@ def _gate_results(
                         ks_statistic=statistic,
                         ks_similarity=similarity,
                         similarity_threshold=thresholds.similarity_threshold,
+                        reference=reference,
                     )
                 )
         else:
-            outcome = chi_squared(sample_values[attribute], _expected(references, attribute, vocabulary), vocabulary)
+            expected, reference = _reference_for(attribute, vocabulary, references, targets)
+            outcome = chi_squared(sample_values[attribute], expected, vocabulary)
             if outcome is not None:
                 statistic, degrees, p_value = outcome
                 results.append(
@@ -239,6 +264,7 @@ def _gate_results(
                         degrees_of_freedom=degrees,
                         p_value=p_value,
                         significance_level=thresholds.significance_level,
+                        reference=reference,
                     )
                 )
     if not results:

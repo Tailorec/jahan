@@ -28,7 +28,7 @@ from simcore.schemas import (
     derive_population_hash,
 )
 
-from ._assess import _gate_results, sample
+from ._assess import _gate_results, sample, targets_for
 from ._communities import detect
 from ._graph import build_graph
 from ._project import project
@@ -58,7 +58,7 @@ def build(
     """The population `pack` sampling `n` personas produces, validated against the brief and ontology."""
     sampled = sample(pack, n, population_seed, coreset=coreset)
     distribution = _gate_results(
-        pack.ontology, coreset, sampled.references, sampled.rows, parameters.distribution_gates
+        pack.ontology, coreset, sampled.references, sampled.rows, parameters.distribution_gates, targets_for(pack, sampled)
     )
     # The verdict is the draw's, and it is enforced before any model is called: completion then cannot
     # touch it, assess() and build() cannot disagree about it, and a doomed study costs nothing.

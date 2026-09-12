@@ -198,3 +198,62 @@ def test_a_study_that_can_sample_nothing_is_refused():
     )
     with pytest.raises(GateFailure, match="conditioning"):
         assess(pack(audiences=[]), 10, 4021, coreset=source)
+
+
+MATCHING = {
+    "age": {"18_24": 0.25, "25_34": 0.25, "35_44": 0.25, "45_54": 0.25},
+    "sex": {"female": 0.5, "male": 0.5},
+    "exercise_frequency": {"rarely": 0.334, "weekly": 0.333, "3_plus_weekly": 0.333},
+    "diet_protein_focus": {"low": 0.334, "medium": 0.333, "high": 0.333},
+}
+
+
+def pack_with_targets(marginals: dict, **brief_overrides) -> BriefPack:
+    payload = pack_payload(**brief_overrides)
+    payload["ontology"]["targets"] = {"source": "a measured category survey", "marginals": marginals}
+    return BriefPack.model_validate(payload)
+
+
+def test_a_study_declaring_no_audiences_is_judged_against_the_category_it_claims_to_resemble():
+    report = assess(pack_with_targets(MATCHING, audiences=[]), 1000, 4021, coreset=default_source())
+    assert report.overall is True
+    assert all(result.reference is GateReference.CATEGORY_TARGETS for result in report.results)
+    assert report.reference is GateReference.CATEGORY_TARGETS
+
+
+def test_a_sample_unlike_its_category_is_refused_even_though_it_realised_its_design():
+    """The corpus is half women; the category, measured, is four-fifths. Judged against its own design the
+    draw passes; judged against the category it claims to resemble, it cannot."""
+    marginals = {**MATCHING, "sex": {"female": 0.8, "male": 0.2}}
+    report = assess(pack_with_targets(marginals, audiences=[]), 1000, 4021, coreset=default_source())
+    sex = next(result for result in report.results if result.attribute == "sex")
+    assert sex.passed is False and sex.reference is GateReference.CATEGORY_TARGETS
+    assert report.overall is False
+    assert assess(pack(audiences=[]), 1000, 4021, coreset=default_source()).overall is True
+
+
+def test_a_targeted_study_is_not_held_to_category_targets_it_deliberately_departs_from():
+    marginals = {**MATCHING, "sex": {"female": 0.8, "male": 0.2}}
+    report = assess(pack_with_targets(marginals), 1000, 4021, coreset=default_source())
+    assert report.overall is True
+    assert all(result.reference is GateReference.DESIGN for result in report.results)
+    assert report.reference is GateReference.DESIGN
+
+
+def test_targets_on_some_attributes_leave_the_report_claiming_only_the_design():
+    report = assess(pack_with_targets({"sex": MATCHING["sex"]}, audiences=[]), 1000, 4021, coreset=default_source())
+    references = {result.attribute: result.reference for result in report.results}
+    assert references["sex"] is GateReference.CATEGORY_TARGETS
+    assert references["age"] is GateReference.DESIGN
+    assert report.reference is GateReference.DESIGN
+
+
+def test_building_a_study_unlike_its_category_is_refused_before_any_model_is_called():
+    from simcore.population import build
+    from simcore.ports.fake import FakeChat
+
+    fake = FakeChat()
+    marginals = {**MATCHING, "sex": {"female": 0.8, "male": 0.2}}
+    with pytest.raises(GateFailure, match="before any model was called"):
+        build(pack_with_targets(marginals, audiences=[]), 300, 4021, coreset=default_source(), inference=fake)
+    assert fake.calls == []
