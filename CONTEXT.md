@@ -84,13 +84,17 @@ _Avoid_: run (a run is the whole study execution), simulation, trial, replicate
 
 ### Grounding and conditioning
 
+**Relaxation**:
+A recorded loosening of an audience's filter, made because too few conditionable rows matched what the brief asked for. The population is still built and may still pass its gates, but it no longer matches the audience as declared, so the relaxation travels with the gate report.
+_Avoid_: degradation (that word belongs to the budget), fallback, compromise, best effort
+
 **Degradation**:
 A budget-driven reduction in how fully a world is simulated — optional reflections frozen, fewer personas activated per tick, or the world paused. A degraded world is not comparable to one that ran in full, so degradation is recorded where it happens.
 _Avoid_: throttling, fallback, downgrade
 
 **Category Ontology**:
-The shared, versioned description of a product category — which attributes matter, what kind of information each holds, which must be present for conditioning, which may be synthesized, and how ordered attributes are scaled. A brief names the version it is read against; it never carries its own copy.
-_Avoid_: schema, taxonomy, category config, codebook (the codebook is the dataset's, not the category's)
+The shared, versioned catalogue of which persona attributes matter for a product category — what kind of information each holds, which must be present for conditioning, which may be synthesized, how ordered attributes are scaled, what order they are cut in under a token budget, and which anchor set scores each construct. It declares attributes, never relationships or behaviour: how personas interact is the world's business, not the ontology's. A brief names the version it is read against; it never carries its own copy.
+_Avoid_: schema, taxonomy, category config, knowledge graph, entity model, codebook (the codebook is the dataset's, not the category's)
 
 **Field Domain**:
 The kind of information a persona field holds — demographic, psychographic, category behaviour, economic, decision rule, or media. Demographic and psychographic fields are never synthesized.
