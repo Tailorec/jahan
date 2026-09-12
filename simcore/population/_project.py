@@ -3,7 +3,8 @@
 The ontology's relevance order selects fields, the conditioning set lands in `Persona.conditioning`
 and everything else in `Persona.attributes`, and every projected field states where it came from.
 Completion is a constrained choice from the corpus's value set — classification, not generation,
-batched one call per attribute and retried once — so a model can never invent a vocabulary the
+batched at most twenty-five personas a call and retried once for whoever is still missing — so a
+model can never invent a vocabulary the
 filters and gates do not know. Demographics and psychographics are never completed, whatever the
 policy says (the contract refuses a policy that lists them, and this refuses to act on one)."""
 
@@ -30,7 +31,11 @@ from simcore.schemas import (
 )
 
 COMPLETION_TEMPLATE_ID = "field_completion"
-COMPLETION_MAX_TOKENS = 1024
+# Personas per completion call, and the answer tokens budgeted per persona. Operational: they bound what
+# one request asks of a model, so an answer always fits the budget it is given.
+COMPLETION_BATCH_SIZE = 25
+ANSWER_TOKENS_PER_PERSONA = 32
+ANSWER_TOKENS_OVERHEAD = 64
 COMPLETION_SYSTEM = (
     "You complete sparse persona fields for a population simulation. For each persona, choose exactly "
     "one value from the offered set for the named attribute. Never invent a value. Reply only with a "
@@ -114,9 +119,9 @@ def _complete(
     synthesized = 0
     for attribute, persona_ids in missing.items():
         values = tuple(coreset.values(attribute))
-        answers = _ask_batch(inference, attribute, values, persona_ids, drafts)
-        for persona_id, value in answers.items():
-            if value in values:
+        for start in range(0, len(persona_ids), COMPLETION_BATCH_SIZE):
+            batch = persona_ids[start : start + COMPLETION_BATCH_SIZE]
+            for persona_id, value in _ask_batch(inference, attribute, values, batch, drafts).items():
                 drafts[persona_id].attributes[attribute] = value
                 drafts[persona_id].origins[attribute] = FieldOrigin.SYNTHESIZED
                 synthesized += 1
@@ -130,18 +135,28 @@ def _ask_batch(
     persona_ids: Sequence[str],
     drafts: Mapping[str, _Draft],
 ) -> dict[str, str]:
-    """One call for the whole batch; an off-list answer is retried once, then left absent."""
-    request = {
+    """One call for the batch; whoever is still missing is asked once more, strictly, then left absent.
+
+    An answer already accepted is kept: the retry asks only about the personas it has no valid value for."""
+    accepted = _accepted(_ask(inference, _request(attribute, values, persona_ids, drafts), strict=False), values, persona_ids)
+    still_missing = [persona_id for persona_id in persona_ids if persona_id not in accepted]
+    if still_missing:
+        retried = _ask(inference, _request(attribute, values, still_missing, drafts), strict=True)
+        accepted.update(_accepted(retried, values, still_missing))
+    return accepted
+
+
+def _request(attribute: AttributeId, values: tuple[AttributeValue, ...], persona_ids: Sequence[str], drafts: Mapping[str, _Draft]) -> dict:
+    return {
         "attribute": attribute,
         "values": list(values),
         "personas": [{"persona_id": persona_id, "known": {**drafts[persona_id].conditioning, **drafts[persona_id].attributes}} for persona_id in persona_ids],
     }
-    accepted = {persona_id: value for persona_id, value in _ask(inference, request, strict=False).items() if value in values}
-    if len(accepted) < len(persona_ids):
-        retried = _ask(inference, request, strict=True)
-        accepted.update({persona_id: value for persona_id, value in retried.items() if value in values})
+
+
+def _accepted(answers: Mapping[str, str], values: tuple[AttributeValue, ...], persona_ids: Sequence[str]) -> dict[str, AttributeValue]:
     wanted = set(persona_ids)
-    return {persona_id: value for persona_id, value in accepted.items() if persona_id in wanted}
+    return {persona_id: value for persona_id, value in answers.items() if persona_id in wanted and value in values}
 
 
 def _ask(inference: ChatPort, request: dict, *, strict: bool) -> dict[str, str]:
@@ -149,9 +164,8 @@ def _ask(inference: ChatPort, request: dict, *, strict: bool) -> dict[str, str]:
         {"role": "system", "content": COMPLETION_RETRY_SYSTEM if strict else COMPLETION_SYSTEM},
         {"role": "user", "content": json.dumps(request, sort_keys=True)},
     ]
-    completion = inference.chat(
-        InferenceRole.TIER_A, messages, temp=0.0, max_tokens=COMPLETION_MAX_TOKENS, template_id=COMPLETION_TEMPLATE_ID
-    )
+    budget = ANSWER_TOKENS_OVERHEAD + ANSWER_TOKENS_PER_PERSONA * len(request["personas"])
+    completion = inference.chat(InferenceRole.TIER_A, messages, temp=0.0, max_tokens=budget, template_id=COMPLETION_TEMPLATE_ID)
     return _parse(completion.text)
 
 

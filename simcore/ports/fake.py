@@ -2,7 +2,12 @@
 
 Keyed by the prompt it is given, so two runs in one process or two see identical answers. A prompt
 that carries the completion request's JSON answers with the first offered value for every persona
-named; a test replaces the responder to force an off-list answer or a bad response."""
+named; a test replaces the responder to force an off-list answer or a bad response.
+
+An answer longer than its `max_tokens` budget is cut off, as a real provider would cut it, at roughly
+four characters a token. A fake that ignored the budget once let a single completion call carry two
+thousand personas and a ten-thousand-token answer under a limit of 1024 — a request no provider
+could have honoured, passing every test."""
 
 import hashlib
 import json
@@ -11,6 +16,8 @@ from collections.abc import Callable, Sequence
 from simcore.schemas import Completion, CostRecorded, InferenceRole, InferenceRoute
 
 from .chat import ChatMessage
+
+CHARACTERS_PER_TOKEN = 4
 
 
 class FakeChat:
@@ -35,7 +42,7 @@ class FakeChat:
     ) -> Completion:
         prompt = json.dumps([dict(message) for message in messages], sort_keys=True)
         self.calls.append(prompt)
-        text = self._responder(messages, template_id)
+        text = self._responder(messages, template_id)[: max_tokens * CHARACTERS_PER_TOKEN]
         return Completion(
             text=text,
             template_id=template_id,

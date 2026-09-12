@@ -2,10 +2,11 @@
 
 import copy
 import json
+import math
 
 import pytest
 
-from simcore.population._project import COMPLETION_TEMPLATE_ID, project
+from simcore.population._project import COMPLETION_BATCH_SIZE, COMPLETION_RETRY_SYSTEM, COMPLETION_TEMPLATE_ID, project
 from simcore.ports.fake import FakeChat
 from simcore.ports.synthetic import AttributeShape, SyntheticCoresetSource, SyntheticShape
 from simcore.schemas import BriefPack, FieldOrigin, Persona, canonical_hash
@@ -37,6 +38,14 @@ def pack(**overrides) -> BriefPack:
 def rows_of(source: SyntheticCoresetSource, brief: BriefPack) -> list:
     conditioning = tuple(sorted(brief.ontology.conditioning_set))
     return list(source.rows(source.matching({}, present=conditioning)))
+
+
+def missing_count(rows, attribute: str) -> int:
+    return sum(1 for row in rows if attribute not in row.values)
+
+
+def asked(call: str) -> dict:
+    return json.loads(json.loads(call)[-1]["content"])
 
 
 def off_list_responder(messages, template_id) -> str:
@@ -80,7 +89,8 @@ def test_an_off_list_answer_is_retried_once_then_the_field_is_left_absent():
     assert projection.completion is None and projection.synthesized_share == 0.0
     assert all(persona.origins.get("spend_band") is not FieldOrigin.SYNTHESIZED for persona in projection.personas)
     assert any("spend_band" not in persona.origins for persona in projection.personas)
-    assert len(fake.calls) == 2  # one attempt, one stricter retry
+    batches = math.ceil(missing_count(rows_of(source, brief), "spend_band") / COMPLETION_BATCH_SIZE)
+    assert len(fake.calls) == 2 * batches  # each batch: one attempt, one stricter retry
 
 
 def test_no_demographic_or_psychographic_field_is_synthesized():
@@ -100,7 +110,9 @@ def test_completion_is_batched_rather_than_one_call_per_persona():
     projection = project(brief, rows_of(source, brief), source, inference=fake, completion_model_id=MODEL)
     completed = [persona for persona in projection.personas if persona.origins.get("spend_band") is FieldOrigin.SYNTHESIZED]
     assert len(completed) > 20
-    assert len(fake.calls) == 1  # one call for the whole attribute's batch, not one per persona
+    missing = missing_count(rows_of(source, brief), "spend_band")
+    assert len(fake.calls) == math.ceil(missing / COMPLETION_BATCH_SIZE) < missing
+    assert all(len(asked(call)["personas"]) <= COMPLETION_BATCH_SIZE for call in fake.calls)
 
 
 def test_the_projection_records_the_completing_model_template_and_synthesized_share():
@@ -153,3 +165,35 @@ def test_a_non_conditioning_calibrated_domain_is_not_completed():
     )
     projection = project(brief, rows_of(source, brief), source, inference=FakeChat(), completion_model_id=MODEL)
     assert any("income" not in persona.origins for persona in projection.personas)
+
+
+def test_a_large_population_completes_within_the_answer_budget_it_is_given():
+    """Two thousand personas in one call once needed a ten-thousand-token answer under a limit of 1024;
+    against a fake that cuts answers off at their budget, as a provider does, batching completes them all."""
+    source = synthetic(rows=2000, spend_populated=0.3)
+    brief = pack()
+    rows = rows_of(source, brief)
+    projection = project(brief, rows, source, inference=FakeChat(), completion_model_id=MODEL)
+    completed = sum(1 for persona in projection.personas if persona.origins.get("spend_band") is FieldOrigin.SYNTHESIZED)
+    assert completed == missing_count(rows, "spend_band") > 1000
+
+
+def test_a_retry_asks_only_about_the_personas_still_missing_and_keeps_accepted_answers():
+    requests: list[dict] = []
+
+    def half_wrong_then_right(messages, template_id) -> str:
+        request = json.loads(messages[-1]["content"])
+        requests.append(request)
+        strict = messages[0]["content"] == COMPLETION_RETRY_SYSTEM
+        return json.dumps({
+            persona["persona_id"]: (request["values"][0] if strict or index % 2 == 0 else "invented")
+            for index, persona in enumerate(request["personas"])
+        })
+
+    source = synthetic(rows=40, spend_populated=0.0)
+    brief = pack()
+    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(half_wrong_then_right), completion_model_id=MODEL)
+    first, retry = requests[0], requests[1]
+    assert len(retry["personas"]) == len(first["personas"]) // 2
+    assert {p["persona_id"] for p in retry["personas"]} == {p["persona_id"] for index, p in enumerate(first["personas"]) if index % 2}
+    assert all(persona.origins.get("spend_band") is FieldOrigin.SYNTHESIZED for persona in projection.personas)
