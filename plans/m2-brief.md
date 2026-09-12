@@ -95,11 +95,11 @@ These are invariants of a brief however it was built, so they land in `schemas` 
 
 ### Acceptance criteria
 
-- [ ] A claim whose source is `public_source` and which carries no evidence is refused, by the contract itself
-- [ ] A claim whose source is `assumed` and which carries evidence is refused
-- [ ] A claim whose source is `user_asserted` is accepted with or without evidence
-- [ ] The refusals hold for a brief built in Python, not only one loaded from YAML
-- [ ] Every pinned identity is unchanged, and the representative brief and example still validate
+- [x] A claim whose source is `public_source` and which carries no evidence is refused, by the contract itself
+- [x] A claim whose source is `assumed` and which carries evidence is refused
+- [x] A claim whose source is `user_asserted` is accepted with or without evidence
+- [x] The refusals hold for a brief built in Python, not only one loaded from YAML
+- [x] Every pinned identity is unchanged, and the representative brief and example still validate
 
 ---
 
