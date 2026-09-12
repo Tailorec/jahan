@@ -15,7 +15,7 @@ from pathlib import Path
 from simcore.ports import EvidencePort
 from simcore.schemas import GateFailure
 
-from ._intake import _read_yaml, _sidecar_path, read_sidecar_entries
+from ._intake import _read_yaml, _sidecar_path, citation, read_sidecar_entries
 
 
 @dataclass(frozen=True)
@@ -51,7 +51,7 @@ def fetch_evidence(path: Path, port: EvidencePort, *, refetch: bool = False) -> 
     fetched: list[FetchedEvidence] = []
     skipped: list[str] = []
     failed: list[FetchFailure] = []
-    for url in _cited_urls(payload):
+    for url in _cited_urls(payload, path):
         if url in entries and not refetch:
             skipped.append(url)
             continue
@@ -68,15 +68,16 @@ def fetch_evidence(path: Path, port: EvidencePort, *, refetch: bool = False) -> 
     return FetchReport(tuple(fetched), tuple(skipped), tuple(failed))
 
 
-def _cited_urls(payload: dict) -> tuple[str, ...]:
-    """The URLs the brief cites, in file order and once each."""
+def _cited_urls(payload: dict, path: Path) -> tuple[str, ...]:
+    """The urls the brief cites, in file order and once each, refusing an empty citation as
+    loading does — the fetch is what a person runs first, so it is where the mistake should show."""
     claims = payload.get("claims")
     if not isinstance(claims, list):
         return ()
     urls: list[str] = []
-    for claim in claims:
-        url = claim.get("evidence_url") if isinstance(claim, dict) else None
-        if isinstance(url, str) and url and url not in urls:
+    for index, claim in enumerate(claims):
+        url = citation(claim, index, path) if isinstance(claim, dict) else None
+        if url is not None and url not in urls:
             urls.append(url)
     return tuple(urls)
 

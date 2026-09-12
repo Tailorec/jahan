@@ -86,11 +86,7 @@ def _join_evidence(payload: dict, path: Path) -> dict:
             raise GateFailure(
                 f"{path}: claims[{index}].id: claim identifiers are assigned by position and must not be authored"
             )
-        if "evidence_url" in claim and not (isinstance(claim["evidence_url"], str) and claim["evidence_url"].strip()):
-            raise GateFailure(
-                f"{path}: claims[{index}].evidence_url: cite a url or leave the field out; "
-                f"an empty citation is neither ({claim['evidence_url']!r})"
-            )
+        citation(claim, index, path)
         if "evidence" in claim:
             raise GateFailure(
                 f"{path}: claims[{index}].evidence: evidence is supplied by the sidecar, not authored; cite it with `evidence_url`"
@@ -147,6 +143,20 @@ def _read_json(path: Path) -> Any:
         raise GateFailure(f"{path}: is not valid JSON ({error.msg} at line {error.lineno})") from error
     except ValueError as error:
         raise GateFailure(f"{path}: {error}") from error
+
+
+def citation(claim: dict, index: int, path: Path) -> str | None:
+    """The url a claim cites, if it cites one. Citing nothing and citing an empty string are
+    different things: the first is a claim without evidence, the second is a mistake."""
+    if "evidence_url" not in claim:
+        return None
+    url = claim["evidence_url"]
+    if not (isinstance(url, str) and url.strip()):
+        raise GateFailure(
+            f"{path}: claims[{index}].evidence_url: cite a url or leave the field out; "
+            f"an empty citation is neither ({url!r})"
+        )
+    return url
 
 
 def _read_sidecar(path: Path) -> dict:

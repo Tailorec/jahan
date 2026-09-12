@@ -106,6 +106,15 @@ def test_an_entry_no_claim_cites_survives_a_fetch(authored):
     assert "https://example.com/old" in entries(path)
 
 
+@pytest.mark.parametrize("cited", [None, "", "   "], ids=["null", "empty", "whitespace"])
+def test_a_citation_naming_no_url_is_refused_when_fetching_too(authored, cited):
+    brief = brief_with(A)
+    brief["claims"][0]["evidence_url"] = cited
+    path, _ = authored(brief, sidecar=None)
+    with pytest.raises(GateFailure, match=r"claims\[0\]\.evidence_url: cite a url or leave the field out"):
+        fetch_evidence(path, InMemoryEvidence({A: b"a"}))
+
+
 def test_a_sidecar_recording_a_url_twice_is_refused_before_it_is_rewritten(authored):
     """What loading refuses, fetching must not quietly accept — and then rewrite, keeping one."""
     entry = '{"content_hash": "%s", "fetched_at": "2026-09-01T00:00:00Z"}' % ("ab" * 32)
