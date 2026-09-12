@@ -90,7 +90,7 @@ Kept so the salvage inventory and any existing notes stay resolvable.
 
 ## 4. Ports and adapters
 
-Five ports. Each has a production adapter and an in-memory adapter; the in-memory one is what every boundary test runs against.
+Six ports. Each has a production adapter and an in-memory adapter; the in-memory one is what every boundary test runs against.
 
 | Port | Production adapter | Test adapter | Why it's a port |
 |---|---|---|---|
@@ -99,6 +99,7 @@ Five ports. Each has a production adapter and an in-memory adapter; the in-memor
 | `AnchorSource` | `PackagedAnchors` — versioned anchor sets and default τ shipped in-repo | `StubAnchors` — fixed vectors, exact expected PMFs | lets anchors and τ be replaced without touching `elicitation` |
 | `PersonaPatchSource` | `NullPatchSource` (ships as default) | `InMemoryPatchSource` | lets externally-derived persona corrections be applied without changing `population`'s signature later |
 | `TraceSink` | `SqliteParquetSink` | `InMemoryTraceSink` | filesystem + a hot write path |
+| `EvidencePort` | `HttpEvidence` — a standard-library GET, http(s) only, capped and timed out | `InMemoryEvidence` — url to bytes, with failures on demand | network, and the only reach outside the engine that a study author triggers |
 
 Two of these are load-bearing beyond testability:
 
@@ -167,9 +168,9 @@ Each spec states what the module **owns**, what it **hides**, its **interface**,
 **Owns:** turning user YAML into validated structures, the category ontology, and the assumption ledger.
 **Hides:** parsing, strict-mode rejection, claim ID assignment, evidence-URL fetch and hashing, ontology file versioning.
 
-**Interface:** `load_brief(path: Path, ontology_dir: Path) -> BriefPack`
+**Interface:** `load_brief(path: Path, ontology_dir: Path) -> BriefPack` · `fetch_evidence(path: Path, port: EvidencePort, *, refetch: bool = False) -> FetchReport` · `assumptions_of(pack: BriefPack) -> tuple[Assumption, ...]`
 
-**Internals:** `yaml.safe_load` → `ProductBrief.model_validate` (unknown keys rejected); claim IDs auto-assigned `C1..Cn`; evidence URLs fetched and SHA-256'd at ingest; the brief names an ontology version and the category ontology is loaded as versioned JSON from `ontology_dir` — never embedded in the brief (ADR 0004) — then joined into a `BriefPack` that refuses a category or version mismatch and checks audience filters against the ontology; the ontology declares a field domain for every attribute it uses, and supplies an attribute relevance order (every declared attribute ranked once, the conditioning set first, so a token budget cuts only non-conditioning attributes), the anchor set for each construct, and `completion_policy` (which persona fields may be synthesized — economics, decision rules, media yes; demographics, psychographics never); stimulus kinds are one global closed set, not a per-category list; assumption ledger built so every assumption is a first-class record surfaced in the report.
+**Internals:** `yaml.safe_load` → `ProductBrief.model_validate` (unknown keys rejected); claim IDs auto-assigned `C1..Cn` and never authored; a claim cites `evidence_url` and the content hash beside it comes from `<brief>.evidence.json`, written by a separate `fetch_evidence` command through `EvidencePort` — loading touches no network and no clock, and a cited URL that was never fetched is refused (ADR 0013); the brief names an ontology version and the category ontology is loaded as versioned JSON from `ontology_dir` — never embedded in the brief (ADR 0004) — then joined into a `BriefPack` that refuses a category or version mismatch and checks audience filters against the ontology; the ontology declares a field domain for every attribute it uses, and supplies an attribute relevance order (every declared attribute ranked once, the conditioning set first, so a token budget cuts only non-conditioning attributes), the anchor set for each construct, and `completion_policy` (which persona fields may be synthesized — economics, decision rules, media yes; demographics, psychographics never); stimulus kinds are one global closed set, not a per-category list; assumption ledger built so every assumption is a first-class record surfaced in the report.
 
 **Gotcha to encode:** claims are the atomic stimulus unit — feed cards, forum posts and report findings all reference `Claim.id`. Reordering claims mid-study silently breaks comparability, which is why `brief_hash` covers claim order and the runner refuses to resume a run whose `brief_hash` moved.
 
@@ -560,9 +561,10 @@ consumersim/
 │   ├── report/
 │   └── cli/
 ├── anchors/                     versioned SSR anchor sets
-├── ontologies/                  versioned category ontologies
+├── ontologies/                  versioned category ontologies, `<category>/<version>.json`
 ├── examples/
 │   ├── protein_water.yaml       concept test
+│   ├── protein_water.yaml.evidence.json   what its cited URLs served, machine-written
 │   ├── subreddit_policy.yaml    forum dynamics
 │   └── price_grid.yaml          sweep
 └── tests/
@@ -574,7 +576,7 @@ consumersim/
 
 `ports/` holding both protocols and adapters is deliberate: adapters are infrastructure, and keeping them out of the core packages means no core module can accidentally import a concrete adapter.
 
-Core dependencies: `pydantic`, `pyarrow`, `numpy`, `networkx`, `leidenalg`, `openai` (the OpenAI-compatible transport), optional `boto3`. SQLite for live state and traces until scale demands otherwise.
+Core dependencies: `pydantic`, `pyyaml` (brief intake), `pyarrow`, `numpy`, `networkx`, `leidenalg`, `openai` (the OpenAI-compatible transport), optional `boto3`. SQLite for live state and traces until scale demands otherwise.
 
 ---
 
