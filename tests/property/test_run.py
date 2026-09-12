@@ -293,6 +293,17 @@ def test_a_scenario_omitting_weights_needs_the_brief_to_declare_shares():
         check_scenario_against_brief(scenario, shareless.brief)
 
 
+def test_a_run_configuration_cannot_inherit_weights_it_does_not_state():
+    """Authoring may omit weights; a recorded input may not — nothing downstream holds a brief."""
+    with pytest.raises(ValidationError, match="cannot inherit them"):
+        RunConfig.model_validate(run_config_payload(scenarios=[scenario_payload(audience_weights=None)]))
+
+
+def test_a_run_configuration_states_the_weights_its_scenarios_run_with():
+    config = RunConfig.model_validate(run_config_payload())
+    assert all(scenario.audience_weights is not None for scenario in config.scenarios)
+
+
 # --- replay pins ------------------------------------------------------------------------------
 
 

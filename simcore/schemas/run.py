@@ -163,6 +163,20 @@ class RunConfig(SimBaseModel):
         return self
 
     @model_validator(mode="after")
+    def _every_scenario_states_the_weights_it_runs_with(self) -> Self:
+        """A brief may leave weights to be inherited; a run configuration may not.
+
+        It is a recorded input, read downstream by modules that hold no brief to inherit from, so the
+        weights are resolved when the configuration is assembled and stated here."""
+        unresolved = sorted(s.variant.variant_id for s in self.scenarios if s.audience_weights is None)
+        if unresolved:
+            raise ValueError(
+                f"scenarios carry no audience weights and a run configuration cannot inherit them: {unresolved}; "
+                "resolve them against the brief before configuring the run"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _templates_are_pinned(self) -> Self:
         if not self.template_hashes:
             raise ValueError("a run renders prompts, so it must pin the hash of every template it uses")
