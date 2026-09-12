@@ -179,3 +179,15 @@ def test_a_population_carries_only_gates_true_of_its_own_values():
             assert all(
                 persona.origins[attribute] is FieldOrigin.GROUNDED for persona in population.personas if attribute in persona.origins
             )
+
+
+def test_a_built_population_carries_its_assortativity_beside_its_gates():
+    """Assortativity was once returned beside the population and lost the moment it left memory."""
+    result = built()
+    report = result.population.gate_report
+    assert report.assortativity and set(report.assortativity) <= set(result.population.pack.ontology.attribute_domains)
+    assert all(-1.0 <= value <= 1.0 for value in report.assortativity.values())
+    assert report.audience_assortativity is not None
+    assert not hasattr(result, "assortativity")
+    stored = Population.model_validate(result.population.model_dump(mode="json"))
+    assert stored.gate_report.assortativity == report.assortativity

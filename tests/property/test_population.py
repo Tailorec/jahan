@@ -576,3 +576,27 @@ def test_unvalidated_graph_construction_takes_edge_models_not_mappings():
         SocialGraph.model_construct(edges=tuple(edges))
     built = SocialGraph.model_construct(edges=tuple(SocialEdge.model_validate(edge) for edge in edges))
     assert built.graph_hash == SocialGraph.model_validate({"edges": edges}).graph_hash
+
+
+def test_a_population_records_assortativity_only_for_attributes_its_ontology_declares():
+    data = population_payload()
+    data["gate_report"]["assortativity"] = {"exercise_frequency": 0.12}
+    data["gate_report"]["audience_assortativity"] = 0.2
+    parsed = Population.model_validate(data)
+    assert parsed.gate_report.assortativity["exercise_frequency"] == 0.12
+    data["gate_report"]["assortativity"] = {"favourite_colour": 0.1}
+    with pytest.raises(ValidationError, match="does not declare"):
+        Population.model_validate(data)
+
+
+def test_assortativity_is_refused_on_a_population_without_a_graph():
+    data = population_payload(graph=None, communities=[])
+    data["gate_report"]["assortativity"] = {"exercise_frequency": 0.12}
+    with pytest.raises(ValidationError, match="measured on the social graph"):
+        Population.model_validate(data)
+
+
+@pytest.mark.parametrize("value", [1.5, -1.5], ids=["above-one", "below-minus-one"])
+def test_assortativity_lies_between_minus_one_and_one(value):
+    with pytest.raises(ValidationError):
+        GateReport.model_validate({**gate_report_payload(), "assortativity": {"exercise_frequency": value}})

@@ -16,6 +16,7 @@ from .base import (
     PersonaId,
     PopulationHash,
     PositiveInt,
+    SignedUnitInterval,
     SimBaseModel,
     UnitInterval,
     canonical_hash,
@@ -130,6 +131,12 @@ class GateReport(SimBaseModel):
     relaxations: tuple[Relaxation, ...] = ()
     # What the results were judged against, so a pass is never read as a claim it does not make.
     reference: GateReference = GateReference.DESIGN
+    # How strongly ties joined personas sharing each declared attribute, measured on the graph beside its
+    # gates: -1 through 0 (no preference) to 1 (only like joins like). A measurement, not a verdict.
+    assortativity: FrozenDict[AttributeId, SignedUnitInterval] = FrozenDict({})
+    # How strongly ties stayed within the declared audiences — the value the assortativity ceiling judged —
+    # or nothing when a study declares fewer than two audiences.
+    audience_assortativity: SignedUnitInterval | None = None
 
     @model_validator(mode="after")
     def _source_mix_is_complete(self) -> Self:
@@ -490,6 +497,16 @@ class Population(SimBaseModel):
                 "communities must partition the population: "
                 f"in several {overlapping}, in none {unplaced}, not in the population {outsiders}"
             )
+        return self
+
+    @model_validator(mode="after")
+    def _assortativity_is_measured_on_the_graph_over_declared_attributes(self) -> Self:
+        report = self.gate_report
+        if (report.assortativity or report.audience_assortativity is not None) and self.graph is None:
+            raise ValueError("assortativity is measured on the social graph, so a population without one reports none")
+        undeclared = sorted(set(report.assortativity) - set(self.pack.ontology.attribute_domains))
+        if undeclared:
+            raise ValueError(f"assortativity reported for attributes the ontology does not declare: {undeclared}")
         return self
 
     # Runs last: every semantic check above names its own problem before the identity check catches the change.

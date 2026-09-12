@@ -43,6 +43,8 @@ class GraphBuild:
     # Newman's attribute assortativity per declared attribute the personas carry: how strongly ties join
     # personas who share it, from -1 through 0 (no preference) to 1 (only like joins like).
     assortativity: Mapping[AttributeId, float]
+    # How strongly ties stayed within the declared audiences, as judged against the assortativity ceiling.
+    audience_assortativity: float | None = None
 
 
 def build_graph(
@@ -80,18 +82,17 @@ def build_graph(
             for u, v in sorted(tuple(sorted(edge)) for edge in edges)
         )
     )
-    if audience_of is not None:
-        restating = _audience_assortativity(graph, audience_of)
-        if restating is not None and restating >= thresholds.assortativity_ceiling:
-            raise GateFailure(
-                f"ties follow the declared audiences with assortativity {restating:.2f}, at or above the ceiling of "
-                f"{thresholds.assortativity_ceiling}: the graph merely restates the declared audiences"
-            )
+    restating = _audience_assortativity(graph, audience_of) if audience_of is not None else None
+    if restating is not None and restating >= thresholds.assortativity_ceiling:
+        raise GateFailure(
+            f"ties follow the declared audiences with assortativity {restating:.2f}, at or above the ceiling of "
+            f"{thresholds.assortativity_ceiling}: the graph merely restates the declared audiences"
+        )
     results = judge(graph, n, thresholds)
     if not all(result.passed for result in results):
         failed = [result.check.value for result in results if not result.passed]
         raise GateFailure(f"the generated graph fails its structural gates: {failed}")
-    return GraphBuild(graph, results, _assortativity(graph, arranged, ontology))
+    return GraphBuild(graph, results, _assortativity(graph, arranged, ontology), restating)
 
 
 def judge(graph: SocialGraph, n: int, thresholds: GraphThresholds = GraphThresholds()) -> tuple[GraphGateResult, ...]:

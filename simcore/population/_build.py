@@ -37,12 +37,11 @@ from ._streams import spawn
 
 @dataclass(frozen=True)
 class BuiltPopulation:
-    """A validated population, the embedding array its personas index into when enabled, and how much
-    attributes shaped its structure. The array travels beside the contract, never inside it."""
+    """A validated population and the embedding array its personas index into when enabled. The array
+    travels beside the contract, never inside it; what the graph measured travels inside it, on the report."""
 
     population: Population
     embeddings: np.ndarray | None = None
-    assortativity: Mapping[AttributeId, float] | None = None
 
 
 def build(
@@ -100,6 +99,8 @@ def build(
         source_mix=sampled.source_mix,
         achieved_mix=sampled.achieved_mix,
         relaxations=sampled.relaxations,
+        assortativity=FrozenDict(graph_build.assortativity),
+        audience_assortativity=graph_build.audience_assortativity,
     )
     population = Population(
         pack=pack,
@@ -109,7 +110,7 @@ def build(
         graph=graph_build.graph,
         communities=communities,
     )
-    return BuiltPopulation(population, embeddings, graph_build.assortativity)
+    return BuiltPopulation(population, embeddings)
 
 
 def _requested_mix(pack) -> FrozenDict:
