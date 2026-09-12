@@ -12,6 +12,7 @@ from simcore.ports.synthetic import AttributeShape, SyntheticCoresetSource, Synt
 from simcore.schemas import (
     Beliefs,
     BriefPack,
+    Exactly,
     FrozenDict,
     GateFailure,
     GraphCheck,
@@ -50,6 +51,20 @@ def projected(count: int = 250):
     conditioning = tuple(sorted(pack.ontology.conditioning_set))
     rows = list(source.rows(source.matching({}, present=conditioning)[:count]))
     return pack, project(pack, rows, source, inference=FakeChat(), completion_model_id=MODEL).personas
+
+
+def audience_grouped(gym_count: int = 150, diet_count: int = 100):
+    """Personas handed over audience by audience — the order a draw produces them in."""
+    pack = BriefPack.model_validate(pack_payload())
+    source = synthetic(rows=2000)
+    conditioning = tuple(sorted(pack.ontology.conditioning_set))
+    gym = list(source.matching({"exercise_frequency": Exactly(value="3_plus_weekly")}, present=conditioning)[:gym_count])
+    taken = set(gym)
+    diet = [row_id for row_id in source.matching({"diet_protein_focus": Exactly(value="high")}, present=conditioning) if row_id not in taken][:diet_count]
+    rows = list(source.rows(gym + diet))
+    people = project(pack, rows, source, inference=FakeChat(), completion_model_id=MODEL).personas
+    audience_of = {person.persona_id: ("gym" if index < len(gym) else "diet") for index, person in enumerate(people)}
+    return pack, people, audience_of
 
 
 def network_of(graph: SocialGraph) -> nx.Graph:
@@ -202,3 +217,22 @@ def test_a_hub_attachment_the_population_cannot_support_is_refused_not_clamped()
     pack, personas = projected(count=40)
     with pytest.raises(GateFailure, match="hub attachment of 40"):
         _graph.build_graph(pack, personas, population_seed=4021, parameters=GraphParameters(hub_attachment=40))
+
+
+
+def test_the_order_personas_arrive_in_does_not_segregate_the_graph():
+    """Handed over audience by audience, the clustering layer once tied each audience to itself (82% of ties
+    against 52% under random mixing) before homophily did anything."""
+    pack, people, audience_of = audience_grouped()
+    build = _graph.build_graph(pack, people, population_seed=4021, parameters=GraphParameters(homophily_strength=0.0))
+    within = sum(audience_of[edge.u] == audience_of[edge.v] for edge in build.graph.edges) / len(build.graph.edges)
+    gym_share = 150 / 250
+    random_mixing = gym_share**2 + (1 - gym_share) ** 2
+    assert within < random_mixing + 0.08
+
+
+def test_the_same_personas_in_any_order_build_the_same_graph():
+    pack, people, _ = audience_grouped()
+    forward = _graph.build_graph(pack, people, population_seed=4021)
+    backward = _graph.build_graph(pack, list(reversed(people)), population_seed=4021)
+    assert canonical_hash(forward.graph) == canonical_hash(backward.graph)

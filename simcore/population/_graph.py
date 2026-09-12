@@ -63,16 +63,17 @@ def build_graph(
         )
     ontology, brief = pack.ontology, pack.brief
     generator = random.Random(f"population-graph:{population_seed}")
+    arranged = _arrange(personas, population_seed)
 
     ring = parameters.ring_degree if n > parameters.ring_degree + 1 else 2
     edges = _ring_lattice(n, ring)
     edges |= {frozenset(edge) for edge in nx.barabasi_albert_graph(n, parameters.hub_attachment, seed=population_seed).edges()}
-    edges = _rewire(edges, personas, ontology, parameters.homophily_strength, candidate_sample_size, generator)
+    edges = _rewire(edges, arranged, ontology, parameters.homophily_strength, candidate_sample_size, generator)
 
     graph = SocialGraph(
         edges=tuple(
-            SocialEdge(u=personas[u].persona_id, v=personas[v].persona_id, weight=_weight(personas[u], personas[v], ontology))
-            for u, v in sorted(edges)
+            SocialEdge(u=arranged[u].persona_id, v=arranged[v].persona_id, weight=_weight(arranged[u], arranged[v], ontology))
+            for u, v in sorted(tuple(sorted(edge)) for edge in edges)
         )
     )
     if audience_of is not None and _restates_the_audiences(graph, audience_of):
@@ -107,6 +108,19 @@ def _assortativity(graph: SocialGraph) -> float:
     if not graph.edges:
         return 0.0
     return sum(edge.weight for edge in graph.edges) / len(graph.edges)
+
+
+def _arrange(personas: Sequence[Persona], population_seed: int) -> list[Persona]:
+    """The positions the structural layers tie by: a canonical order, then a seeded permutation.
+
+    The ring lattice ties each position to its neighbours, so if positions followed the order personas
+    were handed over — audience by audience, as a draw produces them — the clustering layer would tie
+    each audience to itself before homophily did anything, and communities would rediscover the audiences
+    by construction. Sorting first makes the graph a function of which personas and which seed, never of
+    the order they arrived in; the permutation makes a neighbour in the lattice mean nothing about audience."""
+    arranged = sorted(personas, key=lambda persona: persona.persona_id)
+    random.Random(f"population-graph-order:{population_seed}").shuffle(arranged)
+    return arranged
 
 
 def _ring_lattice(n: int, k: int) -> set[frozenset[int]]:
