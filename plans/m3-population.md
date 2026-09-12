@@ -243,13 +243,13 @@ Every randomised stage draws from its own stream spawned from the one population
 
 ### Acceptance criteria
 
-- [ ] Building returns the validated population and, when embeddings are enabled, the array its personas index into
-- [ ] The population validates against the brief and ontology it was built for, with every cross-persona invariant enforced
-- [ ] The same brief, size and seed build an identical population twice under a deterministic port, hash for hash
-- [ ] Three independent streams are spawned from the population seed, and changing one stage's draw does not shift another's
-- [ ] The embedding array is never inside the contract, and a population without embeddings carries none
-- [ ] The no-op patch seam is applied and changes nothing
-- [ ] The reproducibility test states the deterministic-port condition in its name
+- [x] Building returns the validated population and, when embeddings are enabled, the array its personas index into
+- [x] The population validates against the brief and ontology it was built for, with every cross-persona invariant enforced
+- [x] The same brief, size and seed build an identical population twice under a deterministic port, hash for hash
+- [x] Three independent streams are spawned from the population seed, and changing one stage's draw does not shift another's
+- [x] The embedding array is never inside the contract, and a population without embeddings carries none
+- [x] The no-op patch seam is applied and changes nothing
+- [x] The reproducibility test states the deterministic-port condition in its name
 
 ---
 
