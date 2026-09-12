@@ -170,14 +170,14 @@ Sparse fields are completed by a model — but as a choice among the values the 
 
 ### Acceptance criteria
 
-- [ ] Every projected field states its origin, and a persona whose origins do not cover its fields is refused
-- [ ] Completion offers the attribute's own value set and accepts only a value from it
-- [ ] An off-list answer is retried once, then the field is left absent
-- [ ] No demographic or psychographic field is ever synthesized, whatever the completion policy says
-- [ ] Completion is batched rather than one call per persona
-- [ ] The manifest records the completing model, its template and hash, and the synthesized share
-- [ ] Under the deterministic fake, projecting the same sample twice produces identical personas
-- [ ] A population needing no completion calls no model
+- [x] Every projected field states its origin, and a persona whose origins do not cover its fields is refused
+- [x] Completion offers the attribute's own value set and accepts only a value from it
+- [x] An off-list answer is retried once, then the field is left absent
+- [x] No demographic or psychographic field is ever synthesized, whatever the completion policy says
+- [x] Completion is batched rather than one call per persona
+- [x] The manifest records the completing model, its template and hash, and the synthesized share
+- [x] Under the deterministic fake, projecting the same sample twice produces identical personas
+- [x] A population needing no completion calls no model
 
 ---
 
