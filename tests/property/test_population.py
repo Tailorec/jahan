@@ -9,6 +9,7 @@ from simcore.schemas import (
     Community,
     CommunityThresholds,
     DistributionThresholds,
+    GateReference,
     GateReport,
     GraphGateResult,
     GraphParameters,
@@ -600,3 +601,23 @@ def test_assortativity_is_refused_on_a_population_without_a_graph():
 def test_assortativity_lies_between_minus_one_and_one(value):
     with pytest.raises(ValidationError):
         GateReport.model_validate({**gate_report_payload(), "assortativity": {"exercise_frequency": value}})
+
+
+def test_a_distribution_gate_records_what_it_was_judged_against_and_defaults_to_the_design():
+    assert CategoricalGateResult.model_validate(categorical()).reference is GateReference.DESIGN
+    assert OrdinalGateResult.model_validate(ordinal(reference="category_targets")).reference is GateReference.CATEGORY_TARGETS
+
+
+@pytest.mark.parametrize(
+    ("references", "claim"),
+    [(["category_targets", "category_targets"], "category_targets"), (["category_targets", "design"], "design"), (["design", "design"], "design")],
+    ids=["every-gate-on-targets", "one-gate-on-the-design", "every-gate-on-the-design"],
+)
+def test_a_report_claims_only_what_its_weakest_distribution_gate_claims(references, claim):
+    results = [ordinal(reference=references[0]), categorical(reference=references[1]), graph()]
+    assert GateReport.model_validate({**gate_report_payload(), "results": results}).reference.value == claim
+
+
+def test_a_report_cannot_state_a_stronger_claim_than_its_gates_support():
+    with pytest.raises(ValidationError, match="computed"):
+        GateReport.model_validate({**gate_report_payload(), "reference": "category_targets"})

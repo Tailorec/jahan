@@ -41,6 +41,8 @@ class CategoricalGateResult(SimBaseModel):
     degrees_of_freedom: Annotated[int, Field(gt=0)]
     p_value: UnitInterval
     significance_level: OpenUnitInterval = 0.05
+    # What this gate compared the sample against: the study's own design, or measured category targets.
+    reference: GateReference = GateReference.DESIGN
 
     @computed_field
     @property
@@ -56,6 +58,8 @@ class OrdinalGateResult(SimBaseModel):
     ks_statistic: UnitInterval
     ks_similarity: UnitInterval
     similarity_threshold: Annotated[float, Field(gt=0.0, le=1.0)] = 0.80
+    # What this gate compared the sample against: the study's own design, or measured category targets.
+    reference: GateReference = GateReference.DESIGN
 
     @model_validator(mode="after")
     def _similarity_is_one_minus_statistic(self) -> Self:
@@ -129,8 +133,6 @@ class GateReport(SimBaseModel):
     achieved_mix: FrozenDict[Identifier, UnitInterval] = FrozenDict({})
     # A shortfall caveats the sample; it is not a verdict, so it never moves `overall`.
     relaxations: tuple[Relaxation, ...] = ()
-    # What the results were judged against, so a pass is never read as a claim it does not make.
-    reference: GateReference = GateReference.DESIGN
     # How strongly ties joined personas sharing each declared attribute, measured on the graph beside its
     # gates: -1 through 0 (no preference) to 1 (only like joins like). A measurement, not a verdict.
     assortativity: FrozenDict[AttributeId, SignedUnitInterval] = FrozenDict({})
@@ -160,6 +162,17 @@ class GateReport(SimBaseModel):
     @property
     def overall(self) -> bool:
         return all(result.passed for result in self.results)
+
+    @computed_field
+    @property
+    def reference(self) -> GateReference:
+        """The claim the whole report supports, which is the weakest any distribution gate makes: category
+        targets only when every distribution gate was judged against them, so a pass is never read as a
+        claim that one of its gates did not make."""
+        distribution = [result for result in self.results if result.kind != "graph"]
+        if distribution and all(result.reference is GateReference.CATEGORY_TARGETS for result in distribution):
+            return GateReference.CATEGORY_TARGETS
+        return GateReference.DESIGN
 
 
 def _subject(result: GateResult) -> tuple[str, str]:

@@ -172,6 +172,27 @@ class OntologyDrafting(SimBaseModel):
     drafted_at: AwareDatetime
 
 
+class CategoryTargets(SimBaseModel):
+    """How a category's real population is distributed on some of its attributes, and where that was measured.
+
+    A gate judged against these makes the strongest claim a sample can support — that it matches the
+    category, not merely the study's own design — so targets name their source, as any claim of realism
+    must bring its evidence. Changing them is a new ontology version, so studies stay comparable."""
+
+    source: NonEmptyStr
+    marginals: FrozenDict[AttributeId, FrozenDict[NonEmptyStr, UnitInterval]] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _each_marginal_is_a_distribution(self) -> Self:
+        for attribute, shares in self.marginals.items():
+            if len(shares) < 2:
+                raise ValueError(f"a target marginal for {attribute!r} spans at least two values, got {sorted(shares)}")
+            total = sum(shares.values())
+            if abs(total - 1.0) > 1e-6:
+                raise ValueError(f"the target marginal for {attribute!r} must sum to one, got {total}")
+        return self
+
+
 class CategoryOntology(SimBaseModel):
     """The shared, versioned description of a category; a brief refers to it, never embeds it."""
 
@@ -187,6 +208,9 @@ class CategoryOntology(SimBaseModel):
     relevance_order: tuple[AttributeId, ...] = Field(min_length=1)
     # The anchor set each construct is scored against, so a study cannot be scored against another category's.
     anchor_sets: FrozenDict[ConstructId, Identifier] = Field(min_length=1)
+    # Measured marginals of the category's real population, where anyone has measured them. A study that
+    # declares no audiences is gated against these rather than against its own design.
+    targets: CategoryTargets | None = None
     # Hash-excluded provenance: which model drafted this ontology, and when (ADR 0014).
     drafting: OntologyDrafting | None = None
 
@@ -206,6 +230,22 @@ class CategoryOntology(SimBaseModel):
             raise ValueError(f"more than one ordinal scale declared for: {duplicated}")
         return self
 
+
+    @model_validator(mode="after")
+    def _targets_describe_declared_attributes_in_their_own_values(self) -> Self:
+        if self.targets is None:
+            return self
+        undeclared = sorted(set(self.targets.marginals) - set(self.attribute_domains))
+        if undeclared:
+            raise ValueError(f"targets describe attributes the ontology does not declare: {undeclared}")
+        bands = {scale.attribute: {band.label for band in scale.bands} for scale in self.ordinal_scales}
+        for attribute, shares in self.targets.marginals.items():
+            unknown = sorted(set(shares) - bands.get(attribute, set(shares)))
+            if unknown:
+                raise ValueError(
+                    f"targets for {attribute!r} name values that are not its bands: {unknown}; bands {sorted(bands[attribute])}"
+                )
+        return self
 
     @model_validator(mode="after")
     def _relevance_ranks_every_attribute_once(self) -> Self:

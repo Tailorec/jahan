@@ -560,3 +560,38 @@ def test_pack_round_trips_over_generated_values(
     packed = pack(brief=brief)
     assert BriefPack.model_validate(packed.model_dump(mode="json")) == packed
     assert BriefPack.model_validate_json(packed.model_dump_json()) == packed
+
+
+def targets_payload(**overrides):
+    payload = {
+        "source": "US census 2020, table S0101",
+        "marginals": {"age": {"25_34": 0.6, "35_44": 0.4}, "exercise_frequency": {"rarely": 0.5, "weekly": 0.3, "3_plus_weekly": 0.2}},
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_an_ontology_may_carry_measured_category_targets_with_their_source():
+    ontology = CategoryOntology.model_validate(ontology_payload(targets=targets_payload()))
+    assert ontology.targets.source.startswith("US census")
+    assert ontology.targets.marginals["exercise_frequency"]["weekly"] == 0.3
+
+
+def test_an_ontology_without_targets_carries_none():
+    assert CategoryOntology.model_validate(ontology_payload()).targets is None
+
+
+@pytest.mark.parametrize(
+    ("targets", "match"),
+    [
+        (targets_payload(marginals={"age": {"25_34": 0.6, "35_44": 0.3}}), "must sum to one"),
+        (targets_payload(marginals={"age": {"25_34": 1.0}}), "at least two values"),
+        (targets_payload(marginals={"favourite_colour": {"red": 0.5, "blue": 0.5}}), "does not declare"),
+        (targets_payload(marginals={"exercise_frequency": {"daily": 0.5, "weekly": 0.5}}), "not its bands"),
+        (targets_payload(source="  "), "source"),
+    ],
+    ids=["shares-not-summing", "single-value", "undeclared-attribute", "ordinal-value-not-a-band", "no-source"],
+)
+def test_category_targets_that_are_not_a_measured_distribution_are_refused(targets, match):
+    with pytest.raises(ValidationError, match=match):
+        CategoryOntology.model_validate(ontology_payload(targets=targets))
