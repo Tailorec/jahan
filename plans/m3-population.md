@@ -217,13 +217,13 @@ A population that yields no qualifying partition is still a valid population. Wh
 
 ### Acceptance criteria
 
-- [ ] Communities are detected from the graph and appear only in outputs, never read from an input
-- [ ] Detection is seeded, and the same graph yields the same communities twice
-- [ ] The resolution search selects the qualifying partition with the highest modularity, breaking ties deterministically
-- [ ] A community must hold at least a share of the population, so the floor scales with study size
-- [ ] Communities partition the population — every persona in exactly one
-- [ ] A graph with no qualifying partition produces a population with no communities rather than a failure
-- [ ] Such a population reports polarization as not measurable
+- [x] Communities are detected from the graph and appear only in outputs, never read from an input
+- [x] Detection is seeded, and the same graph yields the same communities twice
+- [x] The resolution search selects the qualifying partition with the highest modularity, breaking ties deterministically
+- [x] A community must hold at least a share of the population, so the floor scales with study size
+- [x] Communities partition the population — every persona in exactly one
+- [x] A graph with no qualifying partition produces a population with no communities rather than a failure
+- [x] Such a population reports polarization as not measurable
 
 ---
 
