@@ -90,4 +90,6 @@ The `concepts brief fetch` command, which lands with the command-line module; un
 
 Three statements in `FINAL_ARCH.md` are now out of date and are reconciled as part of this module: §5.2 still says evidence URLs are fetched at ingest, §4's port table does not list `EvidencePort`, and §9's dependency list has no YAML parser in it.
 
+**Amended by M3.** Audiences gain a share and their filters gain predicates, so a study author chooses who is sampled and in what proportion rather than accepting whatever the data holds. Intake reads both; the shipped example declares them; the pinned identities re-pin. Specified in `docs/prd/M3-population.md`, built in phase 3 of `plans/m3-population.md`.
+
 The build-phase table places `brief` in phase 1 and `population` in phase 0. Building intake first is a deliberate reordering: it is small, its contract already exists, and `population.build(brief, n, seed)` takes what it produces.

@@ -2,6 +2,8 @@
 
 > Source PRD: `docs/prd/M1-schemas.md`
 > Binding decisions: `CONTEXT.md` (glossary), `docs/adr/0001`–`0003`. Where `FINAL_ARCH.md` disagrees with either, those win — the architecture document has not yet been reconciled.
+>
+> **Every phase below is complete, but the contracts are not final.** Grilling module 3 found nine shapes the architecture described and this module never built. They land in phases 1–3 of `plans/m3-population.md`, with the producer that needs them: `Relaxation` and gate-report relaxations, a graph gate result kind keyed by check, the no-isolate population invariant, manifest fields for the requested mix and completion provenance, `Audience.share`, filter predicates, a digest that can report polarization as not measurable, an optional persona embedding, and hash-excluded ontology drafting provenance (ADR 0014). Two of those phases re-pin the representative identities under contract 1.0.0, which remains unreleased.
 
 ## Architectural decisions
 

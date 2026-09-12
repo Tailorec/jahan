@@ -257,6 +257,8 @@ A **run** returns its registry entry and one outcome per world, with the run's s
 
 **Contract version.** Contract 1.0.0 has not been released: no trace or registry entry has been stored. Phase 8 lands within it and re-pins the representative identities under 1.0.0. The first stored run releases the contract, after which ADR 0009's rule binds — a hashed shape change requires a version bump and new pins.
 
+**Amended by M3.** Building the population producer found nine more shapes this module owes it — relaxations, graph gate results, manifest provenance, audience shares, filter predicates, a not-measurable polarization, an optional persona embedding, and ontology drafting provenance. They are specified in `docs/prd/M3-population.md` and land in phases 1–3 of `plans/m3-population.md`, still within unreleased 1.0.0. The pattern is worth noting for the modules that follow: each producer discovers one or two contracts the architecture named but nobody built.
+
 ## Testing Decisions
 
 The same posture holds: assert refusals and observable behaviour through the public surface, with builders producing valid data and each test breaking one thing. Prior art now exists for every shape these contracts take — the study builders, the partition tests' single-change mutations, computed-value round-trips, and the per-version replay pins.

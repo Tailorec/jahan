@@ -2,6 +2,8 @@
 
 > Source PRD: `docs/prd/M2-brief.md`
 > Binding decisions: ADR 0013 (pure intake, evidence fetched separately), ADR 0004 (briefs reference their ontology by version), `CONTEXT.md` (glossary). Where `FINAL_ARCH.md` disagrees, the ADRs win — §5.2, §4 and §9 are reconciled by the phases that contradict them.
+>
+> **Amended by M3.** Intake learns to read audience shares and filter predicates in phase 3 of `plans/m3-population.md`: the study author declares who is sampled and in what proportion, and "trains at least weekly" becomes expressible. The shipped example declares its own shares and its identities re-pin with it.
 
 ## Architectural decisions
 
