@@ -580,7 +580,7 @@ consumersim/
 
 `ports/` holding both protocols and adapters is deliberate: adapters are infrastructure, and keeping them out of the core packages means no core module can accidentally import a concrete adapter.
 
-Core dependencies: `pydantic`, `pyyaml` (brief intake), `pyarrow`, `numpy`, `networkx`, `leidenalg`, `openai` (the OpenAI-compatible transport), optional `boto3`. SQLite for live state and traces until scale demands otherwise.
+Core dependencies: `pydantic`, `pyyaml` (brief intake), `pyarrow`, `numpy`, `scipy` (distribution gates: the chi-squared survival function), `networkx`, `leidenalg` with `igraph` (Leiden's graph, imported directly), `openai` (the OpenAI-compatible transport), optional `boto3`. SQLite for live state and traces until scale demands otherwise.
 
 ---
 

@@ -478,6 +478,7 @@ name = "simcore"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "igraph" },
     { name = "leidenalg" },
     { name = "networkx" },
     { name = "numpy" },
@@ -494,6 +495,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "igraph", specifier = ">=1.0.0" },
     { name = "leidenalg", specifier = ">=0.12.0" },
     { name = "networkx", specifier = ">=3.6.1" },
     { name = "numpy", specifier = ">=2.5.3" },
