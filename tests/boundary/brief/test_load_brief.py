@@ -77,14 +77,14 @@ def test_an_ontology_the_contract_refuses_is_a_gate_failure(example_brief, autho
 # --- what intake may not do -------------------------------------------------------------------
 
 
-def test_intake_reaches_no_network_and_reads_no_clock():
-    source = "\n".join(p.read_text() for p in MODULE.glob("*.py"))
+def test_loading_a_brief_reaches_no_network_and_reads_no_clock():
+    source = (MODULE / "_intake.py").read_text()
     for forbidden in ("import socket", "urllib", "requests", "httpx", "datetime", "time.time", "os.environ", "getenv"):
         assert forbidden not in source, f"loading a brief must not use {forbidden}"
 
 
-def test_the_modules_public_surface_is_loading_a_brief():
+def test_the_modules_public_surface_is_loading_and_fetching():
     import simcore.brief as module
 
-    assert module.__all__ == ["load_brief"]
-    assert not [name for name in vars(module) if name.startswith(("fetch", "write", "Brief_"))]
+    assert module.__all__ == ["fetch_evidence", "load_brief"]
+    assert not [name for name in vars(module) if name.startswith(("write_", "Brief_"))]
