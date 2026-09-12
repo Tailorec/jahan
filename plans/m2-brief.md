@@ -75,11 +75,11 @@ The failure this phase makes good is the one a new user hits first — a version
 
 ### Acceptance criteria
 
-- [ ] A brief naming a floating version — `latest`, a wildcard, or a range — is refused, as model pins are
-- [ ] An ontology file whose declared category or version disagrees with its path is refused, naming both
-- [ ] A missing version names the path it looked for and lists the versions present for that category
-- [ ] A category with no directory at all is refused distinctly from a category whose directory lacks that version
-- [ ] The category and version used to build a path are validated identifiers first, so no brief can address a file outside the ontology directory
+- [x] A brief naming a floating version — `latest`, a wildcard, or a range — is refused, as model pins are
+- [x] An ontology file whose declared category or version disagrees with its path is refused, naming both
+- [x] A missing version names the path it looked for and lists the versions present for that category
+- [x] A category with no directory at all is refused distinctly from a category whose directory lacks that version
+- [x] The category and version used to build a path are validated identifiers first, so no brief can address a file outside the ontology directory
 
 ---
 
