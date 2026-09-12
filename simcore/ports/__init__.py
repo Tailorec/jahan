@@ -5,6 +5,7 @@ boundary test runs against. Core modules import the protocol only, so no core mo
 concrete adapter (FINAL_ARCH §4).
 """
 
+from .coreset import CoresetSource
 from .evidence import EvidencePort
 
-__all__ = ["EvidencePort"]
+__all__ = ["CoresetSource", "EvidencePort"]
