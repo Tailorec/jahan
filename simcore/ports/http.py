@@ -11,6 +11,10 @@ from urllib.request import urlopen
 # file:// and ftp:// among them — so a cited url could otherwise read the local filesystem.
 FETCHABLE_SCHEMES = frozenset({"http", "https"})
 
+# Evidence is a document a person cited, not a dataset. A url that serves more than this is a
+# mistake or a hostile answer, and either way it must fail rather than exhaust memory.
+MAX_EVIDENCE_BYTES = 32 * 1024 * 1024
+
 
 class HttpEvidence:
     """Fetch bytes over HTTP through the standard library, following redirects.
@@ -18,8 +22,9 @@ class HttpEvidence:
     The bytes are returned exactly as received; the caller hashes them and records the URL the
     author cited, which is the provenance rather than the address actually resolved."""
 
-    def __init__(self, *, timeout: float = 30.0) -> None:
+    def __init__(self, *, timeout: float = 30.0, max_bytes: int = MAX_EVIDENCE_BYTES) -> None:
         self._timeout = timeout
+        self._max_bytes = max_bytes
 
     def fetch(self, url: str) -> bytes:
         scheme = urlsplit(url).scheme.lower()
@@ -27,4 +32,8 @@ class HttpEvidence:
             named = repr(scheme) if scheme else "no scheme"
             raise ValueError(f"evidence is fetched over http and https only, but {url!r} names {named}")
         with urlopen(url, timeout=self._timeout) as response:  # noqa: S310 — the scheme is checked above
-            return response.read()
+            # One byte past the cap, so that hitting it is a refusal rather than a silent truncation.
+            body = response.read(self._max_bytes + 1)
+        if len(body) > self._max_bytes:
+            raise ValueError(f"{url!r} serves more than the {self._max_bytes} bytes evidence is capped at")
+        return body
