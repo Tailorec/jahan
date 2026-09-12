@@ -91,7 +91,7 @@ def population_payload(**overrides) -> dict:
             "persona_ids": list(PERSONA_IDS),
             "requested_mix": {"gym_regulars": 0.6, "protein_dieters": 0.4},
             "achieved_mix": {"gym_regulars": 0.5, "protein_dieters": 0.5},
-            "homophily_strength": 0.2,
+            "parameters": {"graph": {"homophily_strength": 0.2}},
             "synthesized_share": 0.2,
             "completion": {
                 "model_id": "openrouter/camel-ai/persona-8b",

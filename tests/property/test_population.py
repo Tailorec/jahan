@@ -7,12 +7,17 @@ from simcore import schemas
 from simcore.schemas import (
     CategoricalGateResult,
     Community,
+    CommunityThresholds,
+    DistributionThresholds,
     GateReport,
     GraphGateResult,
+    GraphParameters,
+    GraphThresholds,
     OrdinalGateResult,
     Persona,
     Population,
     PopulationManifest,
+    PopulationParameters,
     Relaxation,
     SocialEdge,
     SocialGraph,
@@ -265,8 +270,52 @@ def test_manifest_refuses_synthesis_without_a_producer_and_a_producer_without_sy
         PopulationManifest.model_validate(manifest(**overrides))
 
 
-def test_manifest_records_the_homophily_strength_the_graph_was_built_with():
-    assert PopulationManifest.model_validate(manifest()).homophily_strength == 0.2
+def test_manifest_records_the_parameters_the_population_was_built_with():
+    parsed = PopulationManifest.model_validate(manifest())
+    assert parsed.parameters.graph.homophily_strength == 0.2
+    assert parsed.parameters.communities == CommunityThresholds()
+
+
+def test_parameters_default_to_the_engines_values_when_a_manifest_states_none():
+    stated = manifest()
+    stated.pop("parameters")
+    assert PopulationManifest.model_validate(stated).parameters == PopulationParameters()
+
+
+def test_every_default_parameter_is_the_value_the_engine_used_before_it_was_tunable():
+    defaults = PopulationParameters()
+    assert (defaults.graph.ring_degree, defaults.graph.hub_attachment) == (4, 2)
+    assert (defaults.graph_gates.clustering_floor, defaults.graph_gates.connectivity_floor, defaults.graph_gates.hub_tail_floor) == (0.05, 0.98, 1.8)
+    assert (defaults.communities.modularity_floor, defaults.communities.min_communities, defaults.communities.max_communities) == (0.4, 4, 8)
+    assert defaults.communities.share_floor == 0.05 and defaults.communities.resolutions == (0.5, 0.75, 1.0, 1.25, 1.5)
+    assert (defaults.distribution_gates.significance_level, defaults.distribution_gates.similarity_threshold) == (0.05, 0.80)
+
+
+@pytest.mark.parametrize(
+    ("model", "overrides", "match"),
+    [
+        (GraphParameters, {"ring_degree": 3}, "degree is even"),
+        (GraphParameters, {"homophily_strength": 1.5}, "homophily_strength"),
+        (GraphParameters, {"hub_attachment": 0}, "hub_attachment"),
+        (GraphThresholds, {"hub_tail_floor": 1.0}, "hub_tail_floor"),
+        (CommunityThresholds, {"min_communities": 9, "max_communities": 8}, "cannot both hold"),
+        (CommunityThresholds, {"min_communities": 6, "share_floor": 0.2}, "no partition could ever qualify"),
+        (CommunityThresholds, {"resolutions": (1.0, 0.5)}, "ascending order"),
+        (CommunityThresholds, {"resolutions": (0.5, 0.5)}, "each once"),
+        (CommunityThresholds, {"resolutions": ()}, "resolutions"),
+        (DistributionThresholds, {"significance_level": 1.0}, "significance_level"),
+    ],
+    ids=["odd-ring", "homophily-out-of-range", "no-hub-attachment", "hub-floor-judging-nothing", "min-over-max",
+         "floor-unreachable", "resolutions-descending", "resolution-repeated", "no-resolutions", "significance-certain"],
+)
+def test_a_tuned_parameter_that_could_never_mean_anything_is_refused(model, overrides, match):
+    with pytest.raises(ValidationError, match=match):
+        model.model_validate(overrides)
+
+
+def test_tuned_parameters_round_trip():
+    tuned = PopulationParameters.model_validate({"graph": {"homophily_strength": 0.6, "ring_degree": 6}, "communities": {"resolutions": [0.4, 1.2]}})
+    assert PopulationParameters.model_validate_json(tuned.model_dump_json()) == tuned
 
 
 def test_social_edges_refuse_self_loops_and_out_of_range_weights():

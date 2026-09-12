@@ -15,6 +15,7 @@ from .base import (
     NonNegativeInt,
     PersonaId,
     PopulationHash,
+    PositiveInt,
     SimBaseModel,
     UnitInterval,
     canonical_hash,
@@ -160,6 +161,77 @@ def _subject(result: GateResult) -> tuple[str, str]:
     return (result.kind, result.attribute)
 
 
+class GraphParameters(SimBaseModel):
+    """What shapes the social structure. These are study parameters: they change what a study measures,
+    so they are tunable, recorded on the manifest, and never read from the environment."""
+
+    # The fraction of ties rewired toward attribute-similar partners — how much attributes shape the graph.
+    homophily_strength: UnitInterval = 0.3
+    # Ties per persona in the ring lattice that supplies clustering; even, since a ring ties both sides.
+    ring_degree: PositiveInt = 4
+    # Ties each newcomer makes under preferential attachment, which supplies the hub tail.
+    hub_attachment: PositiveInt = 2
+
+    @model_validator(mode="after")
+    def _ring_ties_both_sides(self) -> Self:
+        if self.ring_degree % 2:
+            raise ValueError(f"a ring lattice ties each persona to both sides, so its degree is even, got {self.ring_degree}")
+        return self
+
+
+class GraphThresholds(SimBaseModel):
+    """What a generated graph must reach to be accepted. Quality thresholds decide whether a population is
+    used at all, so tuning one is recorded rather than silent."""
+
+    clustering_floor: UnitInterval = 0.05
+    connectivity_floor: UnitInterval = 0.98
+    # Highest degree over mean degree; at least one by definition, so a floor at or below it judges nothing.
+    hub_tail_floor: Annotated[float, Field(gt=1.0)] = 1.8
+
+
+class CommunityThresholds(SimBaseModel):
+    """When a discovered partition is substantial enough to call communities."""
+
+    modularity_floor: UnitInterval = 0.4
+    min_communities: Annotated[int, Field(ge=2)] = 4
+    max_communities: Annotated[int, Field(ge=2)] = 8
+    # A community's size floor is a share of the population, so it scales with the study.
+    share_floor: OpenUnitInterval = 0.05
+    resolutions: tuple[Annotated[float, Field(gt=0.0)], ...] = Field(default=(0.5, 0.75, 1.0, 1.25, 1.5), min_length=1)
+
+    @model_validator(mode="after")
+    def _a_qualifying_partition_is_possible(self) -> Self:
+        if self.min_communities > self.max_communities:
+            raise ValueError(f"at least {self.min_communities} and at most {self.max_communities} communities cannot both hold")
+        if self.min_communities * self.share_floor > 1.0:
+            raise ValueError(
+                f"{self.min_communities} communities each holding {self.share_floor:.0%} of the population exceed it; "
+                "no partition could ever qualify"
+            )
+        if list(self.resolutions) != sorted(set(self.resolutions)):
+            raise ValueError("resolutions are searched in ascending order, each once")
+        return self
+
+
+class DistributionThresholds(SimBaseModel):
+    """The significance a categorical gate tests at and the similarity an ordinal gate must reach."""
+
+    significance_level: OpenUnitInterval = 0.05
+    similarity_threshold: Annotated[float, Field(gt=0.0, le=1.0)] = 0.80
+
+
+class PopulationParameters(SimBaseModel):
+    """Every value that shapes a population or decides whether it is accepted, with the engine's defaults.
+
+    A user may tune any of them; none is hard-coded where it cannot be seen. They travel on the manifest,
+    so a study built with a tuned graph or a loosened gate says so wherever the population goes."""
+
+    graph: GraphParameters = GraphParameters()
+    graph_gates: GraphThresholds = GraphThresholds()
+    communities: CommunityThresholds = CommunityThresholds()
+    distribution_gates: DistributionThresholds = DistributionThresholds()
+
+
 class CompletionProvenance(SimBaseModel):
     """What produced the synthesized fields in a population, so invented data stays accountable even
     after the personas stop travelling with the manifest (ADR 0015)."""
@@ -180,8 +252,8 @@ class PopulationManifest(SimBaseModel):
     # The mix the study asked for, beside the mix it got; the difference is a shortfall, told plainly.
     requested_mix: FrozenDict[Identifier, UnitInterval] = FrozenDict({})
     achieved_mix: FrozenDict[Identifier, UnitInterval]
-    # The homophily strength the graph was generated with, so structure is explained rather than assumed.
-    homophily_strength: UnitInterval = 0.0
+    # Everything that shaped this population or decided its acceptance, defaults included, so tuning is visible.
+    parameters: PopulationParameters = PopulationParameters()
     synthesized_share: UnitInterval = 0.0
     completion: CompletionProvenance | None = None
 
