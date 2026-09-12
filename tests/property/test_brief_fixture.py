@@ -60,6 +60,18 @@ def test_representative_ontology_hash_is_pinned():
     assert canonical_hash(CategoryOntology.model_validate(load("example_ontology.json"))) == pinned("example_ontology")
 
 
+def test_an_ontology_records_its_drafting_provenance_without_moving_its_hash():
+    payload = load("example_ontology.json")
+    payload["drafting"] = {
+        "model_id": "claude-sonnet-4-5",
+        "codebook": "matraix-codebook-v1",
+        "drafted_at": "2026-09-01T00:00:00Z",
+    }
+    drafted = CategoryOntology.model_validate(payload)
+    assert (drafted.drafting.model_id, drafted.drafting.codebook) == ("claude-sonnet-4-5", "matraix-codebook-v1")
+    assert canonical_hash(drafted) == pinned("example_ontology")
+
+
 def test_pinned_brief_hash_survives_whitespace_key_order_and_refetched_evidence():
     payload = load("example_brief.json")
     payload["product"]["name"] = "  Protein water  "

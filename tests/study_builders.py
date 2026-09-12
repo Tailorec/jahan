@@ -64,7 +64,6 @@ def persona_payload(index: int = 0, **overrides) -> dict:
             "diet_protein_focus": "grounded",
             "spend_band": "synthesized",
         },
-        "embedding": {"model_id": "text-embedding-3-small", "dim": 1536, "index": index},
         "baseline_beliefs": beliefs_payload(),
     }
     payload.update(overrides)
@@ -90,7 +89,15 @@ def population_payload(**overrides) -> dict:
             "population_hash": "00" * 32,
             "population_seed": 4021,
             "persona_ids": list(PERSONA_IDS),
+            "requested_mix": {"gym_regulars": 0.6, "protein_dieters": 0.4},
             "achieved_mix": {"gym_regulars": 0.5, "protein_dieters": 0.5},
+            "homophily_strength": 0.2,
+            "synthesized_share": 0.2,
+            "completion": {
+                "model_id": "openrouter/camel-ai/persona-8b",
+                "template_id": "field_completion",
+                "template_hash": "ef" * 32,
+            },
         },
         "personas": [persona_payload(index) for index in range(len(PERSONA_IDS))],
         "gate_report": gate_report_payload(),

@@ -226,6 +226,39 @@ def test_manifest_refuses_a_persona_sampled_twice():
         PopulationManifest.model_validate(manifest(persona_ids=["p-000001", "p-000001"]))
 
 
+def test_manifest_records_the_requested_mix_beside_the_achieved_mix():
+    parsed = PopulationManifest.model_validate(manifest())
+    assert parsed.requested_mix == {"gym_regulars": 0.6, "protein_dieters": 0.4}
+    assert parsed.achieved_mix == {"gym_regulars": 0.5, "protein_dieters": 0.5}
+    with pytest.raises(ValidationError, match="sum to one"):
+        PopulationManifest.model_validate(manifest(requested_mix={"gym_regulars": 0.6, "protein_dieters": 0.5}))
+
+
+def test_manifest_records_completion_provenance_and_the_synthesized_share():
+    parsed = PopulationManifest.model_validate(manifest())
+    assert parsed.synthesized_share == 0.2
+    assert parsed.completion.model_id == "openrouter/camel-ai/persona-8b"
+    assert parsed.completion.template_id == "field_completion"
+    assert len(parsed.completion.template_hash) == 64
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [
+        ({"completion": None}, "must name the model and template"),
+        ({"synthesized_share": 0.0}, "must not name a completion source"),
+    ],
+    ids=["synthesis-without-producer", "producer-without-synthesis"],
+)
+def test_manifest_refuses_synthesis_without_a_producer_and_a_producer_without_synthesis(overrides, match):
+    with pytest.raises(ValidationError, match=match):
+        PopulationManifest.model_validate(manifest(**overrides))
+
+
+def test_manifest_records_the_homophily_strength_the_graph_was_built_with():
+    assert PopulationManifest.model_validate(manifest()).homophily_strength == 0.2
+
+
 def test_social_edges_refuse_self_loops_and_out_of_range_weights():
     with pytest.raises(ValidationError, match="itself"):
         SocialEdge(u="p-000001", v="p-000001", weight=0.5)
@@ -312,14 +345,29 @@ def test_personas_must_be_exactly_the_manifest(persona_ids):
         build(manifest={**population_payload()["manifest"], "persona_ids": persona_ids})
 
 
+def embedded_personas() -> list[dict]:
+    return [
+        persona_payload(index, embedding={"model_id": "text-embedding-3-small", "dim": 1536, "index": index})
+        for index in range(len(PERSONA_IDS))
+    ]
+
+
 def test_personas_sharing_an_embedding_position_refused():
+    personas = embedded_personas()
+    personas[1] = persona_payload(1, embedding={"model_id": "text-embedding-3-small", "dim": 1536, "index": 0})
     with pytest.raises(ValidationError, match="share embedding positions"):
-        build(personas=personas_with(1, embedding={"model_id": "text-embedding-3-small", "dim": 1536, "index": 0}))
+        build(personas=personas)
 
 
 def test_personas_embedded_by_different_models_refused():
+    personas = embedded_personas()
+    personas[1] = persona_payload(1, embedding={"model_id": "voyage-3", "dim": 1024, "index": 1})
     with pytest.raises(ValidationError, match="more than one model"):
-        build(personas=personas_with(1, embedding={"model_id": "voyage-3", "dim": 1024, "index": 1}))
+        build(personas=personas)
+
+
+def test_a_population_whose_personas_omit_embeddings_validates():
+    assert build().personas[0].embedding is None
 
 
 def test_achieved_mix_must_report_every_declared_audience():

@@ -74,13 +74,17 @@ def test_malformed_source_refused(source):
 
 
 def test_embedding_is_a_positional_reference():
-    persona = Persona.model_validate(persona_payload(index=2))
+    persona = Persona.model_validate(persona_payload(index=2, embedding={"model_id": "text-embedding-3-small", "dim": 1536, "index": 2}))
     assert isinstance(persona.embedding, EmbeddingRef)
     assert (persona.embedding.index, persona.embedding.dim) == (2, 1536)
     with pytest.raises(ValidationError):
         EmbeddingRef(model_id="text-embedding-3-small", dim=0, index=0)
     with pytest.raises(ValidationError):
         EmbeddingRef(model_id="text-embedding-3-small", dim=1536, index=-1)
+
+
+def test_a_persona_may_omit_its_embedding():
+    assert Persona.model_validate(persona_payload()).embedding is None
 
 
 def test_persona_round_trips_through_json():
