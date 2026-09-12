@@ -79,13 +79,15 @@ Module 2 learns to read both from the authored YAML, the shipped example declare
 
 ### Acceptance criteria
 
-- [ ] An audience may declare a share, and a brief where some audiences declare one and others do not is refused
-- [ ] Declared shares must sum to one
-- [ ] A filter may be an exact value, a one-of set, or a range, and a range over a non-ordinal attribute is refused
-- [ ] A range or set naming a value that is not one of the attribute's declared bands is refused, with the bands listed
-- [ ] The authored YAML expresses shares and every predicate form, and the shipped example declares its audiences' shares
-- [ ] A scenario that omits audience weights is read as weighting the brief's shares
-- [ ] Loading the example still produces the representative study, and every moved identity is re-pinned under 1.0.0
+- [x] An audience may declare a share, and a brief where some audiences declare one and others do not is refused
+- [x] Declared shares must sum to one
+- [x] A filter may be an exact value, a one-of set, or a range, and a range over a non-ordinal attribute is refused
+- [x] A range or set naming a value that is not one of the attribute's declared bands is refused, with the bands listed
+- [x] The authored YAML expresses shares and every predicate form, and the shipped example declares its audiences' shares
+- [x] A scenario that omits audience weights is read as weighting the brief's shares
+- [x] Loading the example still produces the representative study, and every moved identity is re-pinned under 1.0.0
+
+> Re-pinned 1.0.0: audiences now carry shares and predicates, so the representative brief hash moved, and with it the population and configuration hashes and every world id. The ontology and graph hashes are unchanged.
 
 ---
 
