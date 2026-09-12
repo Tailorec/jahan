@@ -4,7 +4,12 @@ Network access is refused for every test by the suite's isolation, so this adapt
 in continuous integration by construction. It is imported by nothing in the package; the command
 line is what will select it once it exists."""
 
+from urllib.parse import urlsplit
 from urllib.request import urlopen
+
+# A port bounds what the engine can reach. urlopen serves whatever opener matches a scheme —
+# file:// and ftp:// among them — so a cited url could otherwise read the local filesystem.
+FETCHABLE_SCHEMES = frozenset({"http", "https"})
 
 
 class HttpEvidence:
@@ -17,5 +22,9 @@ class HttpEvidence:
         self._timeout = timeout
 
     def fetch(self, url: str) -> bytes:
-        with urlopen(url, timeout=self._timeout) as response:
+        scheme = urlsplit(url).scheme.lower()
+        if scheme not in FETCHABLE_SCHEMES:
+            named = repr(scheme) if scheme else "no scheme"
+            raise ValueError(f"evidence is fetched over http and https only, but {url!r} names {named}")
+        with urlopen(url, timeout=self._timeout) as response:  # noqa: S310 — the scheme is checked above
             return response.read()
