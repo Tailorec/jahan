@@ -123,12 +123,21 @@ GateResult = Annotated[
 class GateReport(SimBaseModel):
     results: tuple[GateResult, ...] = Field(min_length=1)
     source_mix: FrozenDict[PersonaSource, UnitInterval]
+    # What the sample actually drew, keyed by audience, beside the mix the study asked for. Empty when
+    # the brief declares no audiences. `build` carries the same mix on the manifest it persists.
+    achieved_mix: FrozenDict[Identifier, UnitInterval] = FrozenDict({})
     # A shortfall caveats the sample; it is not a verdict, so it never moves `overall`.
     relaxations: tuple[Relaxation, ...] = ()
 
     @model_validator(mode="after")
     def _source_mix_is_complete(self) -> Self:
         proportions_sum_to_one(self.source_mix)
+        return self
+
+    @model_validator(mode="after")
+    def _achieved_mix_is_complete(self) -> Self:
+        if self.achieved_mix:
+            proportions_sum_to_one(self.achieved_mix)
         return self
 
     @model_validator(mode="after")
