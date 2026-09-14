@@ -2,35 +2,37 @@
 
 **Status:** v2 · companion to `FINAL_ARCH.md`, whose twelve module names are used throughout. The older `M1`–`M28` numbering is retired; `FINAL_ARCH.md` §3 carries the mapping.
 **Scope:** everything salvaged into the engine. Rows marked `deferred` feed capabilities parked in `FINAL_ARCH.md` §12 — they are recorded here so the mapping survives, not because they ship now.
-**Ground truth:** repo trees verified via GitHub API (main branches, Feb 2026 snapshots); HF dataset card + `persona_codes.schema.json` read.
-**Licenses:** OASIS Apache-2.0 · MatrAIx MIT · MatrAIx Persona-1M dataset: confirm commercial terms before public/paid deployment — resolve before public release. The engine never bundles the shards — `CoresetSource` downloads them at first run so users accept the dataset's own terms, and a synthetic fallback source keeps the quickstart working regardless (`FINAL_ARCH.md` §4).
+**Ground truth:** re-verified against local clones on 2026-09-14 — OASIS `0004f5b`, ASAL `677ba0e`, MatrAIx `3633d8d`, MiroFish `39d8491` — and against the `MatrAIx2026/MatrAIx_Persona_1M` dataset card, `persona_codes.schema.json`, `calibration_targets.json`, `RESULTS.md` and `manifest.json` on 2026-09-15. Earlier claims corrected by that pass are marked **corrected**.
+**Licenses:** OASIS Apache-2.0 · ASAL Apache-2.0 · MatrAIx code MIT · MiroFish **AGPL-3.0** (no code salvaged, §4) · MatrAIx Persona 1M dataset **`matraix-research-only`: non-commercial research use**, subsets inherit the terms, upstream sources add their own (Wikipedia CC BY-SA 4.0, Stack Overflow ODbL, PRISM CC BY-NC, Amazon Reviews research use, NORC terms for GSS). The engine is a research instrument (ADR 0016). It never bundles the shards and no corpus row enters the repository, the Dataset Viewer sample included — `CoresetSource` downloads them at runtime so users accept the dataset's own terms, and a synthetic source keeps the quickstart working regardless (`FINAL_ARCH.md` §4).
 **Verdict key:** COPY (use code, light touch) · ADAPT (reimplement following the pattern/shape) · SKIP (wrong modality/scale/purpose)
 
 ---
 
 ## 1. OASIS — `github.com/camel-ai/oasis` (Apache-2.0, `pip install camel-oasis`)
 
-Feeds modules: **`agent`, `world`, `world`, `world`, `world`, `trace`**. Fully redistributable — Apache-2.0 permits forking, modifying, and relicensing under Apache-2.0 with attribution. Keep license headers intact in every forked file; CAMEL-AI attribution lives in `NOTICE.md`.
+Feeds modules: **`agent`, `world`, `trace`**. Fully redistributable — Apache-2.0 permits forking, modifying, and relicensing under Apache-2.0 with attribution. Keep license headers intact in every forked file; CAMEL-AI attribution lives in `NOTICE.md`.
+
+**Corrected — how deep the coupling runs.** OASIS requires Python < 3.12 and pins `camel-ai`, `neo4j` and `sentence-transformers`, so it can be copied with attribution but never installed as a dependency of this engine (Python ≥ 3.12). Its agents subclass CAMEL's `ChatAgent` and act through CAMEL `FunctionTool` calls with a `BaseModelBackend`/`ModelManager`; the package itself never calls `ModelFactory` (only its examples do). Adopting its agents therefore means rewriting the agent loop onto our router, not swapping a model call.
 
 | Repo path | Verdict | → Module | Notes |
 |---|---|---|---|
 | `oasis/environment/env.py`, `env_action.py`, `make.py` | **COPY/ADAPT** | `world` | PettingZoo-style `reset()/step(actions)` with per-agent `LLMAction`/`ManualAction`. Fork into `simcore/world/`; swap CAMEL model calls → our ModelRouter (`inference`); our `Environment` interface wraps it |
-| `oasis/social_agent/agent_graph.py` | **COPY/ADAPT** | `agent`/`world` | networkx agent graph + container. **Input adapter:** OASIS expects connections/edges as input — we generate them (`population`: seeded topology + tie strengths from attribute homophily/embedding similarity) and inject. twhin-mode follower counts = generated degree centralities. No persona-invention: profiles come from coreset rows |
+| `oasis/social_agent/agent_graph.py` | **COPY/ADAPT** | `agent`/`world` | **Corrected:** an **igraph** agent graph with an optional Neo4j backend, not networkx. **Input adapter:** OASIS expects connections/edges as input — we generate them (`population`: seeded topology + tie strengths from attribute homophily/embedding similarity) and inject. twhin-mode follower counts = generated degree centralities. No persona-invention: profiles come from coreset rows |
 | `oasis/social_agent/agents_generator.py` | **ADAPT** | `agent` | generation *pipeline shape* only; inputs become coreset rows |
-| `oasis/social_agent/agent.py`, `agent_action.py`, `agent_environment.py` | **COPY/ADAPT** | `agent` | agent↔action↔env indirection; extend ActionType with non-platform verbs (buy, ask_peer, reject) |
+| `oasis/social_agent/agent.py`, `agent_action.py`, `agent_environment.py` | **ADAPT** | `agent` | agent↔action↔env indirection. **Corrected:** `SocialAgent` subclasses CAMEL `ChatAgent` and dispatches actions as `FunctionTool` calls, so this is a rewrite onto our router, not a copy. `PURCHASE_PRODUCT` and `INTERVIEW` already exist; extend with ask_peer and reject |
 | `oasis/social_platform/platform.py` | **COPY** | `world` | platform ops over SQLite (posts/comments/likes/rec_matrix). Add provenance columns (persona row id, stimulus provenance) at write time. **Forum scoping:** one `ForumPlatform` subclass with two presets — `reddit_global` (OASIS behavior as-is) and `community_scoped` (thread visibility = Leiden communities, recency+consensus ranking) — mechanically similar, dynamically distinct (slow consensus hardening vs hot-score herding) |
 | `oasis/social_platform/database.py`, `channel.py` | **COPY** | `world`/`trace` | async-safe channel dict + db wrapper; already trace-shaped — extend, don't rewrite |
-| `oasis/social_platform/recsys.py` | **ADAPT** | `world` | **Keep hot-score math verbatim** (Reddit mode, log-based time-decay). Salvage all 4 rec modes: Twitter (interest-match), Twhin-Bert (graph+history personalized), Reddit (hot-score), Random (baseline/control arm) + trace-aware personalized fn — embedder branches swapped to router embeddings (single pinned model). Keep `rec_matrix` max-len + score-normalization logic |
+| `oasis/social_platform/recsys.py` | **ADAPT** | `world` | **Corrected:** the module imports torch, sentence-transformers and a twhin-bert model at import time, so extract the scoring functions rather than copying the file. **Keep hot-score math verbatim** (Reddit mode, log-based time-decay). Salvage all 4 rec modes: Twitter (interest-match), Twhin-Bert (graph+history personalized), Reddit (hot-score), Random (baseline/control arm) + trace-aware personalized fn — embedder branches swapped to router embeddings (single pinned model). Keep `rec_matrix` max-len + score-normalization logic |
 | `oasis/social_platform/process_recsys_posts.py` | **ADAPT** | `world` | post-vector generation — swap embedder to `inference` |
-| `oasis/social_platform/typing.py` | **ADAPT** | `world` | `ActionType` enum (23 actions) → subset + extension; `RecsysType` (TWITTER/TWHIN/REDDIT/RANDOM) → our filter modes, all four retained |
+| `oasis/social_platform/typing.py` | **ADAPT** | `world` | `ActionType` enum (**corrected: 32 actions**, including `PURCHASE_PRODUCT`, `INTERVIEW` and five group actions) → subset + extension; `RecsysType` (TWITTER/TWHIN/REDDIT/RANDOM) → our filter modes, all four retained |
 | `oasis/social_platform/platform_utils.py` | **COPY** | `world` | helpers |
-| `oasis/clock/clock.py` | **COPY/ADAPT** | `world` | tick clock + activation probabilities; add straggler-aware tick semantics (variant worlds finish at different ticks); the scenario declares the tick unit |
+| `oasis/clock/clock.py` | **ADAPT** | `world` | **Corrected:** a 33-line time-scaling clock (a speed multiplier and a step counter). Activation probabilities are not implemented upstream — only a TODO in `agents_generator.py` — so activation is ours to build; add straggler-aware tick semantics (variant worlds finish at different ticks); the scenario declares the tick unit |
 | `oasis/environment/graph utils` (networkx usage in agent_graph) | **ADAPT** | `population` | graph container only — topology is OURS: seeded two-layer build (Watts–Strogatz strong ties for clustering + preferential attachment weak ties for hub tail) with category-fitted params, homophily rewiring, tie-strength weights `0.45×emb-cos + 0.35×homophily + 0.20×strong`; full procedure in `FINAL_ARCH.md` §5.3. Gates: degree KS, clustering ±0.05, giant component ≥98%, graph hash in the population manifest |
 | `oasis/social_platform/config/user.py` | **ADAPT** | `agent` | profile config shape |
 | Interview action (in platform action set) | **COPY** | `world` | SurveyRoom answer elicitation |
 | `generator/` (LLM user generation) | **SKIP** | — | grounded coreset sampling replaces persona invention |
 | 1M-agent async inferencer machinery | **SKIP** (now) | — | our scale is 10²–10³ agents; revisit if partner scale demands |
-| CAMEL `ModelFactory` dependency | **DECIDE Phase 1** | `inference` | it already supports `AWS_BEDROCK` platform type; default plan is own wrapper (cost/trace instrumentation close to the metal). Spike both, keep the thinner one |
+| CAMEL `ModelFactory` dependency | **SKIP** | `inference` | **Corrected:** the OASIS package does not use `ModelFactory`; only its examples do. Taking CAMEL for model access would pull in its agent framework for a transport. Our own router over an OpenAI-compatible transport is the plan |
 
 ---
 
@@ -40,7 +42,7 @@ Nothing is copy-pasted: JAX/CLIP is the wrong modality, so anything used here is
 
 | Repo path | Verdict | → Module | Notes |
 |---|---|---|---|
-| `main_sweep_gol.py` | **ADAPT (pattern)** | `runner`/`cli` | brute-force discrete sweep — the one ASAL pattern the OSS engine uses (grid sweep over user-specified configs). Nothing copy-pasted — JAX/CLIP is the wrong modality; reimplemented in plain Python |
+| `main_sweep_gol.py` | **ADAPT (pattern)** | `runner`/`cli` | **Corrected:** the script scores the novelty of Game of Life rule sets with JAX, CLIP and evosax. The only transferable idea is iterating a grid of configurations, which needs no salvage; nothing is copied |
 
 ---
 
@@ -52,20 +54,20 @@ Biggest salvage. Feeds **`population`, `inference`, `agent`, `elicitation`, `run
 
 | Artifact | Verdict | → Module | Notes |
 |---|---|---|---|
-| `persona_codes.schema.json` (1,290-field codebook + packing spec) | **COPY** | `population` | the contract for decode + Persona projection |
-| `data/persona-1m-*.parquet` (packed 4-bit, null-bitmap, `attribute_overrides`) | **USE** | `population` | read with pyarrow (datasets lib can't open it); sparse `.get()` semantics; ~656/1290 avg populated. **Not bundled in this repo** — reached through `CoresetSource`, which downloads from HF at first run so users accept the dataset's own terms (`FINAL_ARCH.md` §4) |
+| `persona_codes.schema.json` (1,290-field codebook + packing spec) | **USE** | `population` | the contract for decode + Persona projection. Verified: format `persona_codes` v2, nibble packing, 645 bytes per row, each field with `id`, `label`, `category`, `values` (at most 16). It does not document the `grounding` column. Its value lists, not the repo's `persona/schema/dimensions.json`, are the completion value sets — the repo file drifts from the data |
+| `data/persona-1m-0000..0009.parquet` (packed 4-bit, null-bitmap, `attribute_overrides`, per-field `grounding`, `descriptions`, `metadata_json`) | **USE** | `population` | 999,847 personas, 4.17 GB Zstandard. Read with pyarrow (datasets lib can't open it); sparse `.get()` semantics; 656.01/1,290 populated on average. **40% synthetic and complete by construction; human sources sparse** (Amazon about 16 attributes, GSS about 12). **Calibrated to the 2024 global population including children** — only real-survey minors were removed. **Not the Dataset Viewer's `sample/sample.parquet`**, a decoded 999 x 990 preview outside the release. **Not bundled in this repo** — reached through `CoresetSource`, which downloads from HF at first run so users accept the dataset's own terms (`FINAL_ARCH.md` §4) |
 | `indexes/postings.sqlite` + `indexes/manifest.json` | **USE** | `population` | value→row-id filtering without 4 GB scans |
-| `calibration_targets.json`, `audit.json`, `RESULTS.md` | **USE** | `population` | distribution-gate targets; audit trail reference |
-| Per-row `source` / `grounding` provenance | **USE** | `population`/`trace` | powers `grounded` vs `synthesized` labeling end-to-end |
+| `calibration_targets.json`, `audit.json`, `RESULTS.md` | **USE** | `population` | **Corrected:** these are *global population* margins (UN WPP 2024 for age and region, UN/World Bank for gender and urbanicity), not category targets. They match the shape of `CategoryTargets` and can serve as a general-population reference. `RESULTS.md` reports `age_bracket` known in 70.5% of rows |
+| Per-row `source` and per-field `grounding` provenance | **USE** | `population`/`trace` | `grounding` carries per-field evidence, confidence and assignment type. Open question: what `grounded` means for the 40% of rows whose source is `synthetic` (ADR 0016 context) |
 
 ### 3.2 Playground package (`packages/playground/src/playground/`)
 
 | Repo path | Verdict | → Module | Notes |
 |---|---|---|---|
-| `persona_model.py` | **COPY/ADAPT** | `inference` | model-ID resolution precedence (CLI → env → config → default) — reuse verbatim for per-role model pinning (tier_a/tier_b/embed) |
-| `model_client.py` | **COPY** | `inference` | **Provider-agnostic router core:** their multi-provider client — provider-prefixed model resolution (`dashscope/…`, `gemini/…`, `openrouter/…`, `xai/…`, `deepseek/…`, `zai/…`), JSON coercion, per-provider timeouts — is exactly our shape. Keep ALL provider branches; add `bedrock/` (via OpenRouter/LiteLLM route or boto3 adapter) and a `vllm/` local branch for Persona-8B |
-| `openai_client.py` | **COPY/ADAPT** | `inference` | their `coerce_json` + request-timeout patterns; the OpenAI-compatible client is the router's primary transport (works against OpenRouter/LiteLLM/vLLM alike) |
-| `llm_usage.py` | **COPY/ADAPT** | `runner` | per-completion token/usage accounting → cost governor ledger |
+| `persona_model.py` | **ADAPT (CLI only)** | `cli` | **Corrected:** it resolves one persona model from arguments and environment variables. Model pins change results, so they are recorded in `RunConfig`, never read from the environment inside the engine; this precedence may only seed CLI defaults that are then recorded |
+| `model_client.py` | **ADAPT** | `inference` | **Corrected:** not a router core. It is a JSON-mode client factory: provider-prefixed ids (`dashscope/`, `gemini/`/`google/`, `openrouter/`, `xai/`, `deepseek/`, `zai/`, `openai/`) mapped to OpenAI-compatible base URLs, plus raw Anthropic Messages calls. It has no retries, fallback, caching, coalescing, embeddings, Bedrock or vLLM. Take the base-URL table; the routing policy is ours |
+| `openai_client.py` | **COPY/ADAPT** | `inference` | verified: `coerce_json` + request timeouts; the OpenAI-compatible client is the router's primary transport (works against OpenRouter/LiteLLM/vLLM alike) |
+| `llm_usage.py` | **ADAPT** | `runner` | per-completion token/usage accounting → cost governor ledger. **Corrected:** prices come from LiteLLM (`completion_cost`, `model_cost`), so copying it takes a LiteLLM dependency. Its `cost_source` field (`provider` vs `estimated`) is worth keeping — a cost should say where its number came from |
 | `survey_task_content.py` | **COPY/ADAPT** | `world` (SurveyRoom) | questionnaire YAML → task content; instrument registry pattern |
 | `survey_list_meta.py` | **COPY** | `world` | questionnaire list metadata |
 | `inprocess/survey_eval.py` | **ADAPT** | `world` | batch survey execution + structured answer validation; strip Harbor eval framing, add SSR instructions (free-text intent, no numbers) |
@@ -78,13 +80,13 @@ Biggest salvage. Feeds **`population`, `inference`, `agent`, `elicitation`, `run
 
 | Repo path | Verdict | → Module | Notes |
 |---|---|---|---|
-| `templating.py` | **COPY/ADAPT** | `agent` | 1,290-dim profile → structured prompt sections. This is the hardest prompt-engineering problem they already solved |
+| `templating.py` | **ADAPT** | `agent` | **Corrected:** 70 lines of Jinja glue rendering persona **YAML** files. The prompt-engineering asset is the three templates in `templates/` (`persona_system`, `persona_instruction`, `persona_macros`), `src/matraix/persona_dimension_catalog.py` (454 lines), and `persona/schema/dimensions.json` — 1,290 dimensions with a `phrase` per dimension ("aged {value}"), the natural seed for rendering a persona block |
 | `json_survey.py` | **ADAPT** | `agent`/`elicitation` | persona-conditioned JSON survey answering; add SSR free-text mode (no numeric elicitation) |
 | `user_sim.py` | **ADAPT** | `agent` | chat-style persona simulation — conversation turns in WOM/forum |
 | `mixin.py`, `loader.py` | **COPY/ADAPT** | `agent` | persona-agent composition + loading |
 | `browser_use.py`, `computer_1.py`, `cocoa.py`, `claude_code.py`, `codex.py`, … | **SKIP** | — | web/OS agent environments — orthogonal |
 
-### 3.4 Backend services (`application/backend/service/`)
+### 3.4 Backend services (**corrected path:** `application/playground/backend/service/`)
 
 | Repo path | Verdict | → Module | Notes |
 |---|---|---|---|
@@ -96,6 +98,14 @@ Biggest salvage. Feeds **`population`, `inference`, `agent`, `elicitation`, `run
 | `config.py` | **ADAPT** | `inference` | env/config resolution patterns |
 | everything Harbor/web/appworld | **SKIP** | — | web-task eval machinery |
 
+### 3.4a Found while verifying
+
+| Repo path | Verdict | → Module | Notes |
+|---|---|---|---|
+| `persona/validation/scripts/decode_persona_1m.py` | **ADAPT** | `ports` (coreset adapter) | a 37-line reference decoder matching the dataset card: nibbles low first, set null-bitmap bit means missing, schema from the Hub |
+| `application/playground/litellm/config.yaml`, `run_proxy.sh` | **ADAPT (pattern)** | `inference`/`runner` | a LiteLLM proxy used as one global rpm/tpm limiter for every concurrent run, because bursts hit provider 429s. The same problem our runner will have |
+| `persona/schema/dimensions.json` | **ADAPT** | `authoring` (ADR 0014) | the 1,290-dimension catalogue with labels, categories, values, phrases and defaults — the codebook ADR 0014's ontology drafting needs, available in the code repo. Drifts from the release codebook in places |
+
 ### 3.5 Persona-8B model weights (HF)
 
 | Verdict | → Module | Notes |
@@ -104,7 +114,15 @@ Biggest salvage. Feeds **`population`, `inference`, `agent`, `elicitation`, `run
 
 ---
 
-## 4. Cross-repo rules
+## 4. MiroFish — `github.com/666ghj/MiroFish` (**AGPL-3.0**)
+
+**No code salvaged.** AGPL would bind the whole engine if any of its code were copied in; it is studied as prior art only, and anything it suggests is rebuilt clean-room.
+
+It is the closest existing product: seed documents → LLM-generated ontology of entity and relation types → Zep Cloud graph memory → **LLM-invented agent profiles** → OASIS simulations (`camel-oasis` as a package) → a 2,600-line report agent, served by Flask over the OpenAI SDK. Its central choices are the ones this engine's ADRs reject — personas invented by a model rather than sampled from records, an ontology generated without a corpus to ground it (contrast ADR 0014), and hosted memory — which makes it the natural comparison for whether grounding changes the findings.
+
+---
+
+## 5. Cross-repo rules
 
 1. **One model router (`inference`)** — no repo talks to a model provider directly; all calls flow through the provider-agnostic router so token accounting, pinning, and trace hashes are universal. Bedrock models remain reachable through the router (OpenRouter/LiteLLM route or boto3 adapter) — the router is the lock-in boundary, not a vendor.
 2. **Forked OASIS code lives in `simcore/world/`** with license headers intact + a `NOTICE.md` crediting CAMEL-AI and MatrAIx (Apache-2.0/MIT require attribution).
@@ -114,7 +132,7 @@ Biggest salvage. Feeds **`population`, `inference`, `agent`, `elicitation`, `run
 
 ---
 
-## 5. Salvage → phase summary (OSS)
+## 6. Salvage → phase summary (OSS)
 
 | Phase | Salvage pulled |
 |---|---|
