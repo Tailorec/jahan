@@ -10,6 +10,7 @@ from .chat import ChatPort
 from .coreset import CoresetSource
 from .embed import EmbedPort
 from .evidence import EvidencePort
+from .index_catalog import IndexCoresetCatalog, from_hf_source, from_source
 from .patch import NullPatchSource, PersonaPatchSource
 
 __all__ = [
@@ -19,6 +20,9 @@ __all__ = [
     "CoresetSource",
     "EmbedPort",
     "EvidencePort",
+    "IndexCoresetCatalog",
     "NullPatchSource",
     "PersonaPatchSource",
+    "from_hf_source",
+    "from_source",
 ]
