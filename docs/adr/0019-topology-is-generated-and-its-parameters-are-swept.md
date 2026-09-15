@@ -1,0 +1,15 @@
+# The social graph is generated, and what cannot be measured is swept rather than fixed
+
+The persona corpus is one row per person with no ties: it records who someone is, never whom they follow. The engine has always generated its topology — a ring lattice for clustering, preferential attachment for the hub tail, homophily rewiring over attribute similarity — and injected it where OASIS expects a graph as input, taking twhin-mode follower counts from generated degree centralities. Nothing about the corpus's contents changes that; there was never an observed graph to lose.
+
+What the corpus does decide is which attributes homophily runs on. `_rewire` reads the ontology's relevance order over each persona's conditioning, so the conditioning set is the graph's seed. Under a conditioning set of category attitudes, ties would follow projected values. Under a demographic spine — age, gender, region, education, socioeconomic band, employment, each above 95% populated in `gss` — ties follow the most measured part of the corpus. Demographic homophily is also the part sociology actually quantifies, so `homophily_strength` can be tuned until the measured assortativity lands on published estimates: the same marginal calibration ADR 0018 applies to attributes, applied to structure.
+
+## Considered options
+
+Claiming an empirically validated topology was never available and is not attempted. Importing a real social graph from another dataset was rejected: its nodes are not these personas, so the ties would be as assumed as generated ones while looking more authoritative. Fixing the unmeasurable parameters at plausible constants was rejected in favour of sweeping them, because a constant hides the assumption inside a number that looks like a measurement.
+
+## Consequences
+
+Graph parameters are study parameters — tunable, defaulted, recorded on the manifest, never read from the environment — so a conclusion can be re-run across `homophily_strength`, `ring_degree` and recommender mode, including the `random` control arm that separates filter-driven effects from organic ones. A finding that survives the sweep is a finding; one that does not is an artefact of a parameter nobody measured. Reporting which it is beats asserting a graph we cannot observe.
+
+There is a circularity this decision names and does not resolve. If attitudes are projected from the conditioning set and ties are built on the conditioning set, attitude similarity and tie probability are correlated by construction, and communities will look attitudinally coherent because both came from the same spine — inflating any finding about opinion clustering. Projection must therefore expose the conditional variance it adds as a recorded parameter rather than behaving as a deterministic function of the spine. How much attitude variance demographics genuinely explain is measurable on a source that observes both — `stackoverflow` carries demographics and attitudes on the same person — and that measurement belongs with `inference`, where a real projection model exists to test.
