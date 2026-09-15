@@ -79,8 +79,12 @@ def sample(pack: BriefPack, n: int, population_seed: int, *, coreset: CoresetSou
     relaxations: tuple[Relaxation, ...] = ()
     if audiences:
         quotas = _quotas(shares, n, audiences)
+
+        def match(filters, *, _conditioning=conditioning):
+            return coreset.matching(filters, present=_conditioning)
+
         resolved = [
-            (audience.name, quotas[audience.name], resolve(audience, quotas[audience.name], ontology, coreset, conditioning))
+            (audience.name, quotas[audience.name], resolve(audience, quotas[audience.name], ontology, match, conditioning))
             for audience in brief.audiences
         ]
         drawn = _draw(resolved, sampling_seed)

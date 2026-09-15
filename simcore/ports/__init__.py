@@ -5,10 +5,20 @@ boundary test runs against. Core modules import the protocol only, so no core mo
 concrete adapter (FINAL_ARCH §4).
 """
 
+from .catalog import AttributeCoverage, CoresetCatalog
 from .chat import ChatPort
 from .coreset import CoresetSource
 from .embed import EmbedPort
 from .evidence import EvidencePort
 from .patch import NullPatchSource, PersonaPatchSource
 
-__all__ = ["ChatPort", "CoresetSource", "EmbedPort", "EvidencePort", "NullPatchSource", "PersonaPatchSource"]
+__all__ = [
+    "AttributeCoverage",
+    "ChatPort",
+    "CoresetCatalog",
+    "CoresetSource",
+    "EmbedPort",
+    "EvidencePort",
+    "NullPatchSource",
+    "PersonaPatchSource",
+]

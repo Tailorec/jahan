@@ -7,10 +7,9 @@ Every rung is a `Relaxation`, so a reader can reconstruct what was asked for, wh
 what was obtained. The conditioning set is never a rung: widening a value predicate keeps the
 attribute required-present, and a conditioning attribute's filter is never dropped (ADR 0002)."""
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
-from simcore.ports import CoresetSource
 from simcore.schemas import (
     AttributeFilter,
     AttributeId,
@@ -24,6 +23,10 @@ from simcore.schemas import (
     RelaxationRung,
 )
 
+# How a pool is obtained: real row ids from a source, or one placeholder per match from a catalog, since
+# the ladder only ever measures a pool by its size.
+Match = Callable[[dict[AttributeId, AttributeFilter]], Sequence[str]]
+
 
 @dataclass(frozen=True)
 class ResolvedAudience:
@@ -36,18 +39,24 @@ def resolve(
     audience: Audience,
     quota: int,
     ontology: CategoryOntology,
-    coreset: CoresetSource,
+    match: Match,
     conditioning: Sequence[AttributeId],
+    *,
+    raise_on_empty: bool = True,
 ) -> ResolvedAudience:
-    """The audience's final eligible pool after climbing the ladder, and every rung it climbed."""
+    """The audience's final eligible pool after climbing the ladder, and every rung it climbed.
+
+    `raise_on_empty` is False for a forecast: a preview reports an audience that matches nobody rather
+    than refusing a request the author has not committed to, so the zero is visible while it is cheap
+    to change."""
     filters = dict(audience.attribute_filters)
-    initial = tuple(coreset.matching(filters, present=conditioning))
+    initial = tuple(match(filters))
     pool = initial
     relaxations: list[Relaxation] = []
     counts: list[tuple[str, int]] = [("initial", len(pool))]
 
     while len(pool) < quota:
-        widened = _best_widening(filters, ontology, coreset, conditioning, len(pool))
+        widened = _best_widening(filters, ontology, match, len(pool))
         if widened is None:
             break
         attribute, applied, candidate = widened
@@ -62,7 +71,7 @@ def resolve(
             break
         least_relevant = max(droppable, key=lambda attribute: ontology.relevance_order.index(attribute))
         authored = filters.pop(least_relevant)
-        candidate = tuple(coreset.matching(filters, present=conditioning))
+        candidate = tuple(match(filters))
         _record(relaxations, audience, RelaxationRung.DROP_FILTER, least_relevant, authored, None, pool, candidate, quota)
         pool = candidate
         counts.append(("drop_filter", len(pool)))
@@ -71,7 +80,7 @@ def resolve(
         _record(relaxations, audience, RelaxationRung.ACCEPT_SHORTFALL, None, None, None, pool, pool, quota)
         counts.append(("accept_shortfall", len(pool)))
 
-    if not initial:
+    if not initial and raise_on_empty:
         raise GateFailure(
             f"audience {audience.name!r} matches no rows at all: filters {dict(audience.attribute_filters)}; "
             f"counts at each rung: {counts}"
@@ -107,8 +116,7 @@ def _record(
 def _best_widening(
     filters: dict[AttributeId, AttributeFilter],
     ontology: CategoryOntology,
-    coreset: CoresetSource,
-    conditioning: Sequence[AttributeId],
+    match: Match,
     current: int,
 ) -> tuple[AttributeId, AttributeFilter, tuple[str, ...]] | None:
     """The single-band widening that adds the most rows, most relevant attribute first on a tie."""
@@ -121,7 +129,7 @@ def _best_widening(
         if order is None:
             continue
         for candidate in _widenings(filters[attribute], order):
-            candidate_pool = tuple(coreset.matching({**filters, attribute: candidate}, present=conditioning))
+            candidate_pool = tuple(match({**filters, attribute: candidate}))
             if len(candidate_pool) > chosen_size:
                 chosen, chosen_size = (attribute, candidate, candidate_pool), len(candidate_pool)
     return chosen

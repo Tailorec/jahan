@@ -20,6 +20,8 @@ from simcore.schemas import (
     PersonaSource,
 )
 
+from .catalog import AttributeCoverage
+
 RowId = str
 
 
@@ -117,3 +119,55 @@ class _DecodedRowSource:
             return self._vocabulary[attribute]
         except KeyError:
             raise KeyError(f"the source does not know attribute {attribute!r}") from None
+
+    # --- the catalog seam: answers an index would give, scanned from memory because this source holds
+    # every row. A real adapter implements these from postings; the shape of the answers is the contract.
+
+    def sources(self) -> tuple[PersonaSource, ...]:
+        return tuple(sorted({row.source for row in self._rows}))
+
+    def attributes(self) -> tuple[AttributeId, ...]:
+        return tuple(sorted(self._vocabulary))
+
+    def coverage(
+        self, attributes: Iterable[AttributeId], sources: Iterable[PersonaSource]
+    ) -> Mapping[AttributeId, Mapping[PersonaSource, AttributeCoverage]]:
+        attributes, sources = tuple(attributes), tuple(sources)
+        result: dict[AttributeId, Mapping[PersonaSource, AttributeCoverage]] = {}
+        for attribute in attributes:
+            per_source: dict[PersonaSource, AttributeCoverage] = {}
+            for source in sources:
+                rows = [row for row in self._rows if row.source == source]
+                carried = [row for row in rows if attribute in row.values]
+                per_source[source] = AttributeCoverage(
+                    total=len(rows),
+                    present=len(carried),
+                    measured=sum(row.tiers.get(attribute, FieldOrigin.MEASURED) is FieldOrigin.MEASURED for row in carried),
+                    extracted=sum(row.tiers.get(attribute, FieldOrigin.MEASURED) is FieldOrigin.EXTRACTED for row in carried),
+                    synthesized=sum(row.tiers.get(attribute, FieldOrigin.MEASURED) is FieldOrigin.SYNTHESIZED for row in carried),
+                    calibrated=sum(row.tiers.get(attribute, FieldOrigin.MEASURED) is FieldOrigin.CALIBRATED for row in carried),
+                )
+            result[attribute] = per_source
+        return result
+
+    def count(
+        self,
+        predicates: Mapping[AttributeId, AttributeFilter],
+        present: Iterable[AttributeId],
+        *,
+        by_source: bool = True,
+    ) -> Mapping[PersonaSource, int] | int:
+        # The catalog reports zeros, never refusals: a predicate or requirement on an attribute the
+        # source does not know matches no row, which is the answer a preview exists to show.
+        known = set(self._vocabulary)
+        if set(predicates) - known or set(present) - known:
+            selected: tuple[str, ...] = ()
+        else:
+            selected = self.matching(predicates, present)
+        if not by_source:
+            return len(selected)
+        counts: dict[PersonaSource, int] = {}
+        for row_id in selected:
+            source = self._by_id[row_id].source
+            counts[source] = counts.get(source, 0) + 1
+        return counts

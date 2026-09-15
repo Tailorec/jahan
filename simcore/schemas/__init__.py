@@ -54,6 +54,7 @@ from .brief import (
     Product,
     ProductBrief,
 )
+from .audience import AudiencePreview, SourcePreview
 from .enums import (
     ActionKind,
     AnomalyKind,
@@ -189,6 +190,7 @@ __all__ = [
     "AttributeId",
     "AttributeValue",
     "Audience",
+    "AudiencePreview",
     "BandRange",
     "BeliefChange",
     "BeliefDim",
@@ -310,6 +312,7 @@ __all__ = [
     "SimError",
     "SocialEdge",
     "SocialGraph",
+    "SourcePreview",
     "SsrResult",
     "Stimulus",
     "StimulusContext",
