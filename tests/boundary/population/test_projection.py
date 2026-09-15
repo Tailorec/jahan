@@ -7,6 +7,7 @@ import math
 import pytest
 
 from simcore.population._project import COMPLETION_BATCH_SIZE, COMPLETION_RETRY_SYSTEM, COMPLETION_TEMPLATE_ID, project
+from simcore.ports.coreset import DecodedRow
 from simcore.ports.fake import FakeChat
 from simcore.ports.synthetic import AttributeShape, SyntheticCoresetSource, SyntheticShape
 from simcore.schemas import BriefPack, FieldOrigin, GateFailure, Persona, canonical_hash
@@ -67,10 +68,24 @@ def test_every_projected_field_states_an_origin():
                 "source": "synthetic",
                 "conditioning": {"age": "25_34"},
                 "attributes": {"spend_band": "5_10"},
-                "origins": {"age": "grounded"},
+                "origins": {"age": "measured"},
                 "baseline_beliefs": {"dimensions": {"value": 0.5, "fit": 0.5, "trust": 0.5}, "claim_credence": {"C1": 0.5}},
             }
         )
+
+
+def test_projection_defaults_a_corpus_field_to_measured_and_honours_a_rows_tier():
+    source = synthetic(diet_populated=1.0, spend_populated=1.0)
+    brief = pack()
+    rows = rows_of(source, brief)[:10]
+    projected = project(brief, rows, source, inference=FakeChat(model_id=MODEL))
+    assert all(origin is FieldOrigin.MEASURED for persona in projected.personas for origin in persona.origins.values())
+
+    first = rows[0]
+    attribute = next(iter(first.values))
+    tiered = DecodedRow(row_id=first.row_id, source=first.source, values=first.values, tiers={attribute: FieldOrigin.EXTRACTED})
+    extracted = project(brief, [tiered], source, inference=FakeChat(model_id=MODEL))
+    assert extracted.personas[0].origins[attribute] is FieldOrigin.EXTRACTED
 
 
 def test_completion_chooses_from_the_corpus_value_set():

@@ -375,14 +375,14 @@ def test_population_validates_and_round_trips():
     ids=["narrower-than-category", "wider-than-category"],
 )
 def test_persona_conditioned_on_other_than_the_categorys_set_refused(conditioning):
-    origins = {name: "grounded" for name in conditioning} | {"diet_protein_focus": "grounded", "spend_band": "synthesized"}
+    origins = {name: "measured" for name in conditioning} | {"diet_protein_focus": "measured", "spend_band": "synthesized"}
     with pytest.raises(ValidationError, match="must be conditioned on exactly"):
         build(personas=personas_with(1, conditioning=conditioning, origins=origins))
 
 
 def test_persona_projecting_an_undeclared_attribute_refused():
     attributes = {"diet_protein_focus": "high", "spend_band": "5_10", "hair_color": "brown"}
-    origins = {**persona_payload()["origins"], "hair_color": "grounded"}
+    origins = {**persona_payload()["origins"], "hair_color": "measured"}
     with pytest.raises(ValidationError, match="does not declare"):
         build(personas=personas_with(0, attributes=attributes, origins=origins))
 
@@ -455,18 +455,29 @@ def test_source_mix_must_match_the_personas():
         (categorical(attribute="region"), "does not declare"),
         (categorical(attribute="exercise_frequency"), "must be ordinal"),
         (ordinal(attribute="age", ks_statistic=0.1, ks_similarity=0.9), "must be categorical"),
-        (categorical(attribute="spend_band"), "not grounded"),
+        (categorical(attribute="spend_band"), "measured or extracted"),
     ],
     ids=["undeclared", "categorical-on-scaled", "ordinal-on-unscaled", "synthesized"],
 )
-def test_gates_run_only_on_declared_grounded_attributes_of_the_right_kind(result, match):
+def test_gates_run_only_on_declared_gateable_attributes_of_the_right_kind(result, match):
     with pytest.raises(ValidationError, match=match):
         build(gate_report=gate_report_payload(results=[result]))
 
 
+def test_a_gate_may_run_on_an_extracted_attribute():
+    personas = [
+        persona_payload(index, origins={**persona_payload(index)["origins"], "spend_band": "extracted"})
+        for index in range(len(PERSONA_IDS))
+    ]
+    population = build(
+        personas=personas, gate_report=gate_report_payload(results=[ordinal(), categorical(attribute="spend_band")])
+    )
+    assert population.personas[0].origins["spend_band"] is schemas.FieldOrigin.EXTRACTED
+
+
 def test_gate_on_an_attribute_no_persona_carries_refused():
     personas = [persona_payload(i, attributes={"spend_band": "5_10"},
-                                origins={"age": "grounded", "sex": "grounded", "exercise_frequency": "grounded", "spend_band": "synthesized"})
+                                origins={"age": "measured", "sex": "measured", "exercise_frequency": "measured", "spend_band": "synthesized"})
                 for i in range(len(PERSONA_IDS))]
     with pytest.raises(ValidationError, match="no persona carries"):
         build(personas=personas, gate_report=gate_report_payload(results=[categorical(attribute="diet_protein_focus")]))

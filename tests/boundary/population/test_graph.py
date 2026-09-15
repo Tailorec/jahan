@@ -111,7 +111,7 @@ def test_a_ties_strength_can_be_explained_from_the_attributes_that_produced_it()
             conditioning=FrozenDict({"age": age, "sex": "female", "exercise_frequency": exercise}),
             attributes=FrozenDict({}),
             origins=FrozenDict(
-                {"age": "grounded", "sex": "grounded", "exercise_frequency": "grounded"}
+                {"age": "measured", "sex": "measured", "exercise_frequency": "measured"}
             ),
             baseline_beliefs=beliefs,
         )

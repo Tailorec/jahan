@@ -12,7 +12,7 @@ from tests.study_builders import persona_payload
 def test_persona_validates_with_every_field_stating_its_origin():
     persona = Persona.model_validate(persona_payload())
     assert persona.conditioning["exercise_frequency"] == "3_plus_weekly"
-    assert persona.origins["age"] is FieldOrigin.GROUNDED
+    assert persona.origins["age"] is FieldOrigin.MEASURED
     assert persona.origins["spend_band"] is FieldOrigin.SYNTHESIZED
     assert persona.projected_attributes == {"age", "sex", "exercise_frequency", "diet_protein_focus", "spend_band"}
 
@@ -25,7 +25,7 @@ def test_persona_carries_no_copy_of_what_its_category_requires():
 def test_persona_without_conditioning_refused():
     payload = persona_payload(
         conditioning={},
-        origins={"diet_protein_focus": "grounded", "spend_band": "synthesized"},
+        origins={"diet_protein_focus": "measured", "spend_band": "synthesized"},
     )
     with pytest.raises(ValidationError, match="conditioned"):
         Persona.model_validate(payload)
@@ -45,7 +45,7 @@ def test_every_projected_field_must_state_an_origin():
 
 
 def test_origin_for_unknown_attribute_refused():
-    origins = {**persona_payload()["origins"], "hair_color": "grounded"}
+    origins = {**persona_payload()["origins"], "hair_color": "measured"}
     with pytest.raises(ValidationError, match="unknown attributes"):
         Persona.model_validate(persona_payload(origins=origins))
 

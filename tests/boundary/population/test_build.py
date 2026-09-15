@@ -177,7 +177,7 @@ def test_a_population_carries_only_gates_true_of_its_own_values():
         attribute = getattr(outcome, "attribute", None)
         if attribute is not None:
             assert all(
-                persona.origins[attribute] is FieldOrigin.GROUNDED for persona in population.personas if attribute in persona.origins
+                persona.origins[attribute] is FieldOrigin.MEASURED for persona in population.personas if attribute in persona.origins
             )
 
 

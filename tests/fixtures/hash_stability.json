@@ -66,16 +66,16 @@
   },
   "replay_pins": {
     "1.0.0": {
-      "population_hash": "d68dcd603202772eaaeb141299e710f42a01792577127351e51d5f6b789bd9c0",
+      "population_hash": "b2ce03659a057a0867d0489e28f5817a8b2f3701046f35f3a2872a95bb51097e",
       "graph_hash": "94dad3d334867e6cdb8756cf09d829da55ed94ece7dc850ad94b50a0e9515e59",
-      "config_hash": "9eab5e6cb89b92a5a8320beacfc928bb013c8ddf1de8e3c3bdf128b8728712e8",
+      "config_hash": "7d604d09bd63f4ff02aad3ba18d44fbe9b175450628c14cd1618fe8022540a40",
       "world_ids": [
-        "1c794dc56f8f",
-        "1cddb37af6d7",
-        "5591fbbf161f",
-        "6329d83a1da8",
-        "cc6b011d7743",
-        "f5e57640ebe5"
+        "20d54f00aa0d",
+        "9211d6ba4e0e",
+        "abc18f58b21d",
+        "c223391cdd23",
+        "c62d5b83e3de",
+        "e1a313db9fb2"
       ]
     }
   }

@@ -21,7 +21,7 @@ def persona(index: int) -> Persona:
         source="synthetic",
         conditioning=FrozenDict({"age": "25_34", "sex": "female", "exercise_frequency": "weekly"}),
         attributes=FrozenDict({}),
-        origins=FrozenDict({"age": "grounded", "sex": "grounded", "exercise_frequency": "grounded"}),
+        origins=FrozenDict({"age": "measured", "sex": "measured", "exercise_frequency": "measured"}),
         baseline_beliefs=Beliefs(
             dimensions=FrozenDict({"value": 0.5, "fit": 0.5, "trust": 0.5}),
             claim_credence=FrozenDict({"C1": 0.5}),
