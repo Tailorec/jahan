@@ -470,7 +470,11 @@ def test_a_gate_may_run_on_an_extracted_attribute():
         for index in range(len(PERSONA_IDS))
     ]
     population = build(
-        personas=personas, gate_report=gate_report_payload(results=[ordinal(), categorical(attribute="spend_band")])
+        personas=personas,
+        gate_report=gate_report_payload(
+            results=[ordinal(), categorical(attribute="spend_band")],
+            attribute_origins={"exercise_frequency": "measured", "spend_band": "extracted"},
+        ),
     )
     assert population.personas[0].origins["spend_band"] is schemas.FieldOrigin.EXTRACTED
 
@@ -626,7 +630,7 @@ def test_a_distribution_gate_records_what_it_was_judged_against_and_defaults_to_
 )
 def test_a_report_claims_only_what_its_weakest_distribution_gate_claims(references, claim):
     results = [ordinal(reference=references[0]), categorical(reference=references[1]), graph()]
-    assert GateReport.model_validate({**gate_report_payload(), "results": results}).reference.value == claim
+    assert GateReport.model_validate(gate_report_payload(results=results)).reference.value == claim
 
 
 def test_a_report_cannot_state_a_stronger_claim_than_its_gates_support():

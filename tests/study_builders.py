@@ -71,11 +71,18 @@ def persona_payload(index: int = 0, **overrides) -> dict:
 
 
 def gate_report_payload(**overrides) -> dict:
-    payload = {
-        "results": [
+    results = overrides.get(
+        "results",
+        [
             {"kind": "ordinal", "attribute": "exercise_frequency", "ks_statistic": 0.1, "ks_similarity": 0.9},
             {"kind": "categorical", "attribute": "age", "chi_square": 3.2, "degrees_of_freedom": 4, "p_value": 0.52},
         ],
+    )
+    if "attribute_origins" not in overrides:
+        origins = {result["attribute"]: "measured" for result in results if result.get("kind") != "graph" and "attribute" in result}
+        overrides = {**overrides, "attribute_origins": origins}
+    payload = {
+        "results": results,
         "source_mix": {"gss": 0.5, "amazon": 0.25, "synthetic": 0.25},
     }
     payload.update(overrides)
