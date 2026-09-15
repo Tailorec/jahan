@@ -277,6 +277,16 @@ class PopulationParameters(SimBaseModel):
     graph_gates: GraphThresholds = GraphThresholds()
     communities: CommunityThresholds = CommunityThresholds()
     distribution_gates: DistributionThresholds = DistributionThresholds()
+    # Which sources a study may draw from. None means every source the corpus holds; naming a subset is a
+    # study parameter, recorded on the manifest, never read from the environment. A union is permitted and
+    # never silent: the preview shows the mix and the weakest-tier rule grades it (ADR 0017, ADR 0020).
+    admissible_sources: frozenset[PersonaSource] | None = None
+
+    @model_validator(mode="after")
+    def _admissible_is_never_empty(self) -> Self:
+        if self.admissible_sources is not None and not self.admissible_sources:
+            raise ValueError("admissible_sources is either a non-empty set of sources or nothing at all")
+        return self
 
 
 class CompletionProvenance(SimBaseModel):

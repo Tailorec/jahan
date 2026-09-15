@@ -100,10 +100,12 @@ def test_preview_grades_by_the_weakest_attribute_and_reports_extracted():
     assert report.evidence is FieldOrigin.EXTRACTED
 
 
-def test_a_field_that_would_be_synthesized_weakens_the_grade():
+def test_a_field_that_would_be_synthesized_is_counted_without_weakening_the_gate_grade():
+    # spend_band is absent everywhere and completable, so a draw would invent it — but an invented field is
+    # never gated, so it lowers the reported count, not the grade the gated comparisons support.
     report = preview(PreviewRequest(pack(audiences=[]), 5), catalog=synthetic(origin=FieldOrigin.EXTRACTED))
     assert report.synthesized_fields > 0
-    assert report.evidence is FieldOrigin.SYNTHESIZED
+    assert report.evidence is FieldOrigin.EXTRACTED
 
 
 def test_preview_reports_the_fields_a_draw_would_synthesize_and_their_share():

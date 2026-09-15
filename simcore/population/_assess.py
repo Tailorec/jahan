@@ -56,11 +56,20 @@ class Sampled:
     achieved_mix: FrozenDict
 
 
-def sample(pack: BriefPack, n: int, population_seed: int, *, coreset: CoresetSource) -> Sampled:
+def sample(
+    pack: BriefPack,
+    n: int,
+    population_seed: int,
+    *,
+    coreset: CoresetSource,
+    admissible: frozenset[str] | None = None,
+) -> Sampled:
     """Eligibility, quotas, the relaxation ladder and one seeded draw per audience — the shared draw.
 
     A row missing any conditioning attribute never reaches a pool (ADR 0002), and the sampling stream is
-    one of the three spawned from the population seed, so no graph draw can shift it."""
+    one of the three spawned from the population seed, so no graph draw can shift it. When the study names
+    admissible sources, a row outside them never enters the sample: a source is admitted deliberately and
+    the mix it produces is what the report and manifest carry."""
     if n < 1:
         raise ValueError(f"a study samples at least one persona, got n={n}")
     sampling_seed, _, _ = spawn(population_seed)
@@ -97,6 +106,10 @@ def sample(pack: BriefPack, n: int, population_seed: int, *, coreset: CoresetSou
         raise GateFailure("no eligible row was drawn: every audience's eligible pool is empty")
 
     rows = {row.row_id: row for row in coreset.rows([row_id for _, row_id in drawn])}
+    if admissible is not None:
+        drawn = [(audience, row_id) for audience, row_id in drawn if rows[row_id].source in admissible]
+        if not drawn:
+            raise GateFailure(f"no drawn row came from an admissible source {sorted(admissible)}")
     sample_rows = tuple(rows[row_id] for _, row_id in drawn)
     if audiences:
         references = tuple(
@@ -128,7 +141,7 @@ def assess(
 
     The gates test at the significance and similarity `parameters` set, and every result carries the
     threshold it was judged against, so a loosened gate is visible in the report it produced."""
-    sampled = sample(pack, n, population_seed, coreset=coreset)
+    sampled = sample(pack, n, population_seed, coreset=coreset, admissible=parameters.admissible_sources)
     results, origins = _gate_results(
         pack.ontology, coreset, sampled.references, sampled.rows, parameters.distribution_gates, targets_for(pack, sampled)
     )

@@ -60,7 +60,7 @@ def build(
     parameters: PopulationParameters = PopulationParameters(),
 ) -> BuiltPopulation:
     """The population `pack` sampling `n` personas produces, validated against the brief and ontology."""
-    sampled = sample(pack, n, population_seed, coreset=coreset)
+    sampled = sample(pack, n, population_seed, coreset=coreset, admissible=parameters.admissible_sources)
     distribution, _ = _gate_results(
         pack.ontology, coreset, sampled.references, sampled.rows, parameters.distribution_gates, targets_for(pack, sampled)
     )

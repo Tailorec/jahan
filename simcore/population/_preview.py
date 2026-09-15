@@ -20,6 +20,7 @@ from simcore.schemas import (
     FrozenDict,
     PersonaFieldDomain,
     PersonaSource,
+    PopulationParameters,
     SourcePreview,
     weakest_origin,
 )
@@ -39,6 +40,7 @@ class PreviewRequest:
     n: int
     filters: Mapping[AttributeId, AttributeFilter] = field(default_factory=dict)
     sources: tuple[PersonaSource, ...] | None = None
+    parameters: PopulationParameters = PopulationParameters()
 
     def __post_init__(self) -> None:
         from pydantic import TypeAdapter
@@ -54,7 +56,7 @@ def preview(request: PreviewRequest, *, catalog: CoresetCatalog) -> AudiencePrev
     if request.n < 1:
         raise ValueError(f"a preview samples at least one persona, got n={request.n}")
     pack, ontology = request.pack, request.pack.ontology
-    sources = tuple(request.sources) if request.sources is not None else catalog.sources()
+    sources = tuple(request.sources) if request.sources is not None else (tuple(request.parameters.admissible_sources) if request.parameters.admissible_sources is not None else catalog.sources())
     if not sources:
         raise ValueError("a preview needs at least one admissible source")
 
@@ -121,7 +123,7 @@ def preview(request: PreviewRequest, *, catalog: CoresetCatalog) -> AudiencePrev
         synthesized_fields=synthesized,
         synthesized_share=share,
         relaxations=relaxations,
-        evidence=_grade(coverage, sources, declared, completable, matched_total),
+        evidence=_grade(coverage, sources, declared),
     )
 
 
@@ -137,17 +139,13 @@ def _grade(
     coverage: Mapping[AttributeId, Mapping[PersonaSource, AttributeCoverage]],
     sources: tuple[PersonaSource, ...],
     declared: tuple[AttributeId, ...],
-    completable: tuple[AttributeId, ...],
-    matched_total: int,
 ) -> FieldOrigin:
-    """The weakest tier among the attributes the population would carry: the strongest claim it supports.
-    An attribute absent everywhere but completable would be invented, which weakens the grade to
-    synthesized; one absent and not completable simply is not projected, so it grades nothing."""
+    """The weakest tier among the attributes that are carried and therefore could be gated. A field that
+    would be synthesized is not gated, so it does not enter the grade — the report is a claim about
+    evidence behind the comparisons it makes, and synthesis is reported separately as a count."""
     tiers: list[FieldOrigin] = []
     for attribute in declared:
         present = [coverage[attribute][source].tier for source in sources if coverage[attribute][source].tier is not None]
         if present:
             tiers.append(weakest_origin(present))
-        elif attribute in completable and matched_total:
-            tiers.append(FieldOrigin.SYNTHESIZED)
     return weakest_origin(tiers) or FieldOrigin.MEASURED
