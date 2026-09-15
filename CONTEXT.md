@@ -37,12 +37,16 @@ One simulated individual, projected from a single row of the persona dataset. A 
 _Avoid_: agent (an agent is a persona in the act of behaving), respondent, user, profile
 
 **Field Origin**:
-Whether a given persona field came from the dataset, was completed by a model, or was corrected from external data. Stated explicitly on every projected field — never inferred from a field's absence.
-_Avoid_: provenance, source (the dataset already uses "source" for which corpus a row came from)
+Whether a given persona field came from the dataset — and if so whether it was measured or extracted — was completed by a model, or was corrected from external data. Stated explicitly on every projected field — never inferred from a field's absence.
+_Avoid_: provenance, source (the dataset already uses "source" for which corpus a row came from), grounded (it hid the measured/extracted distinction)
 
-**Grounded**:
-A persona field whose value comes from the dataset row. The engine's central invariant is that grounded and synthesized values never mix silently.
-_Avoid_: real, actual, true
+**Measured**:
+A persona field whose value an instrument recorded — a survey answer, a dataset field as recorded. The strongest evidence a field can carry, and empty evidence does not weaken it when the instrument is the source.
+_Avoid_: grounded, real, actual, true
+
+**Extracted**:
+A persona field whose value is a model's reading of corpus text — not what a person said, but what a model took from what was written. It is a claim about the corpus, not a measurement of the respondent.
+_Avoid_: inferred, guessed, derived, grounded
 
 **Synthesized**:
 A persona field whose value was completed by a model because the dataset row was sparse there. Demographics and psychographics are never synthesized.
@@ -51,6 +55,18 @@ _Avoid_: generated, imputed, filled, inferred
 **Calibrated**:
 A persona field whose value was corrected using external human data. No such data exists yet; the term is reserved so the distinction from *synthesized* stays sharp when it does.
 _Avoid_: validated, tuned, fitted
+
+**Evidence Tier**:
+How strongly a value is supported — measured, extracted, calibrated or synthesized — ordered strongest to weakest. A tier grades a claim and never gates one: a report carries the weakest tier among the things it gated, so a pass is never read as stronger than its weakest evidence. The one refusal is that a report may not claim to match the measured category on anything short of measured evidence.
+_Avoid_: confidence, provenance, grounding level
+
+**Coverage**:
+How much of a source actually holds a given attribute, stated with its denominators so "nobody was asked" and "nobody is like this" cannot look identical. The reason a study can fail before it runs is almost always absent coverage, not absent matches.
+_Avoid_: completeness, fill rate, density
+
+**Audience Preview**:
+What the corpus would give a proposed audience before anything is drawn — how many rows match, carry and exist per source, which attributes are measured, extracted or absent, how many fields would be synthesized, which constraints the relaxation ladder would climb, and the evidence tier the result would carry. It is a forecast from the index, never a verdict on a sample.
+_Avoid_: dry run, estimate, what-if, simulation
 
 **Audience**:
 A named, attribute-defined slice of the target market, declared in the brief and referred to by name in study inputs. When a brief declares none, the engine derives audiences from the dataset's calibration targets so there is always a grouping to report over.
