@@ -135,7 +135,7 @@ def _true_of_the_population(results: Sequence, personas: Sequence[Persona]) -> t
     """The draw's gates that may travel with the population it became.
 
     Every verdict was already enforced on the draw, so this never changes whether a population is built.
-    A gate was computed from grounded values; once completion or a patch changes an attribute's values, a
+    A gate was computed from measured or extracted values; once completion or a patch changes an attribute's values, a
     gate over that attribute would describe the draw rather than the population, and the contract keeps a
     population's gates true of its own values."""
     return tuple(
