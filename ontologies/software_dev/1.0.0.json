@@ -1,0 +1,51 @@
+{
+  "category": "software_dev",
+  "version": "1.0.0",
+  "attribute_domains": {
+    "age_bracket": "demographic",
+    "region": "demographic",
+    "demo_employment_status": "demographic",
+    "highest_education": "demographic",
+    "years_experience": "category_behaviour",
+    "dev_professional_status": "category_behaviour",
+    "att_ai": "psychographic",
+    "coding_ai_sentiment": "psychographic"
+  },
+  "conditioning_set": [
+    "age_bracket",
+    "region",
+    "demo_employment_status"
+  ],
+  "relevance_order": [
+    "age_bracket",
+    "region",
+    "demo_employment_status",
+    "highest_education",
+    "years_experience",
+    "dev_professional_status",
+    "att_ai",
+    "coding_ai_sentiment"
+  ],
+  "anchor_sets": {
+    "purchase_intent": "pi-software-dev-v1"
+  },
+  "completion_policy": {
+    "completable_domains": [
+      "economic",
+      "decision_rule",
+      "media"
+    ]
+  },
+  "ordinal_scales": [
+    {
+      "attribute": "years_experience",
+      "bands": [
+        { "label": "0-2", "midpoint": 1.0 },
+        { "label": "3-5", "midpoint": 4.0 },
+        { "label": "6-10", "midpoint": 8.0 },
+        { "label": "11-20", "midpoint": 15.0 },
+        { "label": "20+", "midpoint": 25.0 }
+      ]
+    }
+  ]
+}
