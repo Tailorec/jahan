@@ -115,7 +115,7 @@ def from_hf_source(hf_source, attributes: Iterable[AttributeId], sources: Sequen
     instrument/text/synthetic distinction that decides a preview's grade), so a hundred-thousand-row
     shard indexes in the time it takes to read its bytes rather than the time it would take to build a
     hundred thousand personas."""
-    from simcore.ports.hf import _field_codes, tier_for
+    from simcore.ports.hf import tier_for
 
     wanted = tuple(attributes)
     totals: dict[PersonaSource, int] = {}
@@ -137,23 +137,17 @@ def from_hf_source(hf_source, attributes: Iterable[AttributeId], sources: Sequen
             base[source] = totals[source]
             tier = tier_for(source, None).value  # type: ignore[union-attr]
             for attribute in wanted:
-                field_index = hf_source._field_of[attribute]
-                codes = _field_codes(arrays.attributes, field_index)[source_mask]
-                size = len(vocabulary[attribute])
-                present_flag = codes < size
-                if arrays.bitmap is not None:
-                    bits = ((arrays.bitmap[source_mask][:, field_index // 8] >> (field_index % 8)) & 1) == 0
-                    present_flag = present_flag & bits
+                labels = hf_source.labels(arrays, attribute)[source_mask]
                 cell = coverage[attribute].setdefault(source, {"total": 0, "present": 0, "measured": 0, "extracted": 0, "synthesized": 0, "calibrated": 0})
                 cell["total"] += int(source_mask.sum())
-                present_positions = positions[present_flag]
+                carried = labels != None  # noqa: E711 - numpy object-array presence test
+                present_positions = positions[carried]
                 cell["present"] += int(len(present_positions))
                 cell[tier] += int(len(present_positions))
                 present.setdefault((source, attribute), []).extend(present_positions.tolist())
-                labels = vocabulary[attribute]
-                for code in np.unique(codes[present_flag]):
-                    hits = positions[(codes == code) & present_flag]
-                    value.setdefault((source, attribute), {}).setdefault(labels[int(code)], []).extend(hits.tolist())
+                for label in np.unique(labels[carried]):
+                    hits = positions[(labels == label) & carried]
+                    value.setdefault((source, attribute), {}).setdefault(str(label), []).extend(hits.tolist())
 
     present_built = {key: frozenset(rows) for key, rows in present.items()}
     value_built = {key: {v: frozenset(rows) for v, rows in inner.items()} for key, inner in value.items()}

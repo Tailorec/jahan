@@ -15,7 +15,7 @@ import json
 import os
 import re
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -132,6 +132,8 @@ class _ShardArrays:
     vocabulary_sizes: np.ndarray  # int16 [fields]: how many values each code may take
     sources: np.ndarray  # object [rows]: the derived source of each row
     full: object  # the pyarrow table, kept for the lazy per-row decode
+    overrides: Mapping[int, Mapping[int, str]]  # field_index -> row -> raw override value
+    labels: dict = field(default_factory=dict)  # attribute -> decoded-label array, cached
 
 
 class HfCoresetSource:
@@ -307,6 +309,10 @@ class HfCoresetSource:
         metadatas = full["metadata_json"].to_pylist()
         sources = np.asarray([derive_source(source_record_ids[i], metadatas[i]) for i in range(rows)], dtype=object)
         row_ids = tuple(f"{shard}:{index}" for index in range(rows))
+        overrides: dict[int, dict[int, str]] = {}
+        for index, entry_overrides in enumerate(full["attribute_overrides"].to_pylist()):
+            for item in entry_overrides or ():
+                overrides.setdefault(int(item["field_index"]), {})[index] = str(item["value"])
         return _ShardArrays(
             row_ids=row_ids,
             attributes=attributes,
@@ -314,7 +320,43 @@ class HfCoresetSource:
             vocabulary_sizes=self._vocabulary_sizes,
             sources=sources,
             full=full,
+            overrides=overrides,
         )
+
+    def labels(self, arrays: _ShardArrays, attribute: AttributeId) -> np.ndarray:
+        """The decoded label of one attribute for every row in a shard, `None` where the field is absent —
+        the same value ``decode_row`` would produce, including its overrides, computed as vectors."""
+        cached = arrays.labels.get(attribute)
+        if cached is not None:
+            return cached
+        index = self._field_of[attribute]
+        values = [str(value) for value in self._codebook.columns[index]["values"]]
+        codes = _field_codes(arrays.attributes, index)
+        labels = np.empty(len(arrays.row_ids), dtype=object)
+        labels[:] = None
+        for code, label in enumerate(values):
+            labels[codes == code] = label
+        if arrays.bitmap is not None:
+            labels[~_field_present(arrays.bitmap, index)] = None
+        for row, raw in arrays.overrides.get(index, {}).items():
+            labels[row] = _resolve_override_label(raw, values)
+        arrays.labels[attribute] = labels
+        return labels
+
+    def _populated(self, arrays: _ShardArrays, attribute: AttributeId) -> np.ndarray:
+        return self.labels(arrays, attribute) != None  # noqa: E711 - numpy object-array presence test
+
+    def _predicate(self, arrays: _ShardArrays, attribute: AttributeId, predicate: AttributeFilter) -> np.ndarray:
+        index = self._field_of.get(attribute)
+        if index is None:
+            return np.zeros(len(arrays.row_ids), dtype=bool)
+        labels = self.labels(arrays, attribute)
+        allowed = set(_allowed_labels(predicate, [str(value) for value in self._codebook.columns[index]["values"]]))
+        mask = np.zeros(len(arrays.row_ids), dtype=bool)
+        for position, label in enumerate(labels):
+            if label is not None and label in allowed:
+                mask[position] = True
+        return mask
 
     def _identifiers(self, row_id: str) -> tuple[str | None, str | None]:
         shard, _, index = row_id.partition(":")
@@ -339,28 +381,6 @@ class HfCoresetSource:
         tiers = {attribute: tier_for(source, assignments.get(self._field_of[attribute])) for attribute in values}
         return DecodedRow(row_id=row_id, source=source, values=FrozenDict(values), tiers=FrozenDict(tiers))
 
-    def _populated(self, arrays: _ShardArrays, attribute: AttributeId) -> np.ndarray:
-        index = self._field_of.get(attribute)
-        if index is None:
-            return np.zeros(len(arrays.row_ids), dtype=bool)
-        codes = _field_codes(arrays.attributes, index)
-        present = codes < arrays.vocabulary_sizes[index]
-        if arrays.bitmap is not None:
-            present &= _field_present(arrays.bitmap, index)
-        return present
-
-    def _predicate(self, arrays: _ShardArrays, attribute: AttributeId, predicate: AttributeFilter) -> np.ndarray:
-        index = self._field_of.get(attribute)
-        if index is None:
-            return np.zeros(len(arrays.row_ids), dtype=bool)
-        codes = _field_codes(arrays.attributes, index)
-        values = list(self._codebook.columns[index]["values"])
-        allowed = _allowed_codes(predicate, values)
-        if allowed is None:
-            return np.zeros(len(arrays.row_ids), dtype=bool)
-        mask = np.isin(codes, np.asarray(allowed, dtype=codes.dtype)) if allowed else np.zeros_like(codes, dtype=bool)
-        return mask & self._populated(arrays, attribute)
-
 
 def _field_codes(attributes: np.ndarray, index: int) -> np.ndarray:
     byte = attributes[:, index // 2]
@@ -377,17 +397,29 @@ def _bitmap_bytes(row_bytes: int) -> int:
     return (fields + 7) // 8
 
 
-def _allowed_codes(predicate: AttributeFilter, values: list) -> list[int] | None:
+def _allowed_labels(predicate: AttributeFilter, values: list) -> list:
     if isinstance(predicate, Exactly):
-        return [values.index(predicate.value)] if predicate.value in values else []
+        return [predicate.value] if predicate.value in values else []
     if isinstance(predicate, OneOf):
-        return [values.index(value) for value in predicate.values if value in values]
+        return [value for value in predicate.values if value in values]
     if isinstance(predicate, BandRange):
         if predicate.first not in values or predicate.last not in values:
             return []
         low, high = sorted((values.index(predicate.first), values.index(predicate.last)))
-        return list(range(low, high + 1))
-    return None
+        return values[low : high + 1]
+    return []
+
+
+def _resolve_override_label(raw: str, values: list) -> str | None:
+    from simcore.ports.decoder import _MISSINGNESS
+
+    token = raw.strip()
+    if token.lower() in _MISSINGNESS:
+        return None
+    if token in values:
+        return token
+    lowered = {value.lower(): value for value in values}
+    return lowered.get(token.lower())
 
 
 def _stream(path: Path, chunk: int = 1 << 20) -> Iterator[bytes]:
