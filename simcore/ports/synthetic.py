@@ -9,18 +9,22 @@ import random
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from simcore.schemas import AttributeId, AttributeValue, FrozenDict
+from simcore.schemas import AttributeId, AttributeValue, FieldOrigin, FrozenDict
 
 from .coreset import DecodedRow, _DecodedRowSource
 
 
 @dataclass(frozen=True)
 class AttributeShape:
-    """One attribute's value set, the distribution over it, and how often it is populated."""
+    """One attribute's value set, the distribution over it, how often it is populated, and the tier its
+    values carry. A shape declares no assignment type, so the default is `MEASURED`; a shape that stands
+    for a model's reading declares `EXTRACTED` and one that stands for invented rows declares
+    `SYNTHESIZED`, so grading can be exercised without any real corpus."""
 
     values: tuple[AttributeValue, ...]
     weights: tuple[float, ...] | None = None
     populated: float = 1.0
+    origin: FieldOrigin = FieldOrigin.MEASURED
 
     def __post_init__(self) -> None:
         if not self.values:
@@ -63,11 +67,13 @@ class SyntheticCoresetSource(_DecodedRowSource):
     def _generate(self, index: int) -> DecodedRow:
         generator = random.Random(f"synthetic-coreset:{self._seed}:{index}")
         values: dict[AttributeId, AttributeValue] = {}
+        tiers: dict[AttributeId, FieldOrigin] = {}
         for attribute in self._attributes:
             shape = self._shape.attributes[attribute]
             if generator.random() < shape.populated:
                 values[attribute] = self._choose(generator, shape)
-        return DecodedRow(row_id=f"{index:06d}", source="synthetic", values=FrozenDict(values))
+                tiers[attribute] = shape.origin
+        return DecodedRow(row_id=f"{index:06d}", source="synthetic", values=FrozenDict(values), tiers=FrozenDict(tiers))
 
     @staticmethod
     def _choose(generator: random.Random, shape: AttributeShape) -> AttributeValue:

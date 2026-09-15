@@ -1,5 +1,6 @@
 """Closed vocabularies shared across domains."""
 
+from collections.abc import Iterable
 from enum import StrEnum
 from typing import Final
 
@@ -38,6 +39,26 @@ class FieldOrigin(StrEnum):
     EXTRACTED = "extracted"
     SYNTHESIZED = "synthesized"
     CALIBRATED = "calibrated"
+
+
+# Declared strongest first: a report carries the weakest tier among the attributes it gated, so a pass
+# is never read as stronger than its weakest evidence. A corrected (calibrated) value outweighs a
+# model's reading and an invented (synthesized) one is weakest of all.
+ORIGIN_STRENGTH: Final[tuple[FieldOrigin, ...]] = (
+    FieldOrigin.MEASURED,
+    FieldOrigin.CALIBRATED,
+    FieldOrigin.EXTRACTED,
+    FieldOrigin.SYNTHESIZED,
+)
+
+
+def weakest_origin(origins: "Iterable[FieldOrigin]") -> FieldOrigin | None:
+    """The weakest of the given tiers, or nothing when there are none to grade."""
+    present = set(origins)
+    for tier in reversed(ORIGIN_STRENGTH):
+        if tier in present:
+            return tier
+    return None
 
 
 class TickUnit(StrEnum):

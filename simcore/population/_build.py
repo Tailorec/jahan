@@ -26,6 +26,7 @@ from simcore.schemas import (
     PopulationManifest,
     PopulationParameters,
     derive_population_hash,
+    weakest_origin,
 )
 
 from ._assess import _gate_results, sample, targets_for
@@ -60,7 +61,7 @@ def build(
 ) -> BuiltPopulation:
     """The population `pack` sampling `n` personas produces, validated against the brief and ontology."""
     sampled = sample(pack, n, population_seed, coreset=coreset)
-    distribution = _gate_results(
+    distribution, _ = _gate_results(
         pack.ontology, coreset, sampled.references, sampled.rows, parameters.distribution_gates, targets_for(pack, sampled)
     )
     # The verdict is the draw's, and it is enforced before any model is called: completion then cannot
@@ -97,8 +98,10 @@ def build(
         synthesized_share=projection.synthesized_share,
         completion=projection.completion,
     )
+    kept = _true_of_the_population(distribution, personas)
     report = GateReport(
-        results=_true_of_the_population(distribution, personas) + graph_build.results,
+        results=kept + graph_build.results,
+        attribute_origins=_origins_for(kept, personas),
         source_mix=sampled.source_mix,
         achieved_mix=sampled.achieved_mix,
         relaxations=sampled.relaxations,
@@ -143,6 +146,19 @@ def _true_of_the_population(results: Sequence, personas: Sequence[Persona]) -> t
             for persona in personas
             if result.attribute in persona.origins
         )
+    )
+
+
+def _origins_for(results: Sequence, personas: Sequence[Persona]) -> FrozenDict:
+    """The weakest tier each gated attribute carries in the population, so the report's grade is a fact
+    about the values a reader will see rather than about the draw that preceded a patch or completion."""
+    return FrozenDict(
+        {
+            result.attribute: weakest_origin(
+                persona.origins[result.attribute] for persona in personas if result.attribute in persona.origins
+            )
+            for result in results
+        }
     )
 
 

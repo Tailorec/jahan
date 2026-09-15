@@ -22,6 +22,7 @@ from simcore.schemas import (
     BriefPack,
     CategoricalGateResult,
     CategoryTargets,
+    FieldOrigin,
     GateReference,
     DistributionThresholds,
     FrozenDict,
@@ -31,6 +32,7 @@ from simcore.schemas import (
     OrdinalGateResult,
     PopulationParameters,
     Relaxation,
+    weakest_origin,
 )
 
 from ._gates import chi_squared, counts_of, ordinal_similarity
@@ -123,10 +125,12 @@ def assess(
     The gates test at the significance and similarity `parameters` set, and every result carries the
     threshold it was judged against, so a loosened gate is visible in the report it produced."""
     sampled = sample(pack, n, population_seed, coreset=coreset)
+    results, origins = _gate_results(
+        pack.ontology, coreset, sampled.references, sampled.rows, parameters.distribution_gates, targets_for(pack, sampled)
+    )
     return GateReport(
-        results=_gate_results(
-            pack.ontology, coreset, sampled.references, sampled.rows, parameters.distribution_gates, targets_for(pack, sampled)
-        ),
+        results=results,
+        attribute_origins=origins,
         source_mix=sampled.source_mix,
         achieved_mix=sampled.achieved_mix,
         relaxations=sampled.relaxations,
@@ -208,8 +212,25 @@ def targets_for(pack: BriefPack, sampled: Sampled) -> CategoryTargets | None:
     Only a study that declares no audiences means to resemble the whole category, so only it is held to the
     category's measured marginals. A targeted study is supposed to differ from the category — gym regulars
     are younger than everybody — and holding it to category targets would reject every study for doing what
-    it was asked, the very defect gating against the corpus once had. It stays judged against its design."""
-    return None if sampled.audiences else pack.ontology.targets
+    it was asked, the very defect gating against the corpus once had. It stays judged against its design.
+
+    The strongest claim needs the strongest evidence: category targets may not be claimed on an attribute
+    the sample carries as anything but measured, because "matches the measured category" must not rest on a
+    model's reading or an invented value. The refusal names the attribute and the tier the sample holds."""
+    if sampled.audiences or pack.ontology.targets is None:
+        return None
+    targets = pack.ontology.targets
+    for attribute in targets.marginals:
+        carriers = [row for row in sampled.rows if attribute in row.values]
+        if not carriers:
+            continue
+        tier = weakest_origin(row.tiers.get(attribute, FieldOrigin.MEASURED) for row in carriers)
+        if tier is not FieldOrigin.MEASURED:
+            raise GateFailure(
+                f"a gate may not claim category targets for {attribute!r}: the sample carries it as "
+                f"{tier.value if tier is not None else 'absent'}, and matching the measured category requires measured values"
+            )
+    return targets
 
 
 def _reference_for(attribute: AttributeId, vocabulary: Sequence, references, targets: CategoryTargets | None):
@@ -269,4 +290,14 @@ def _gate_results(
                 )
     if not results:
         raise GateFailure("no declared attribute could be gated from the sample")
-    return tuple(results)
+    origins = FrozenDict(
+        {
+            result.attribute: weakest_origin(
+                row.tiers.get(result.attribute, FieldOrigin.MEASURED)
+                for row in sample_rows
+                if result.attribute in row.values
+            )
+            for result in results
+        }
+    )
+    return tuple(results), origins

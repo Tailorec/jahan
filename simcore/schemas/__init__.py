@@ -81,6 +81,7 @@ from .enums import (
     TickUnit,
     TrustLevel,
     WorldStatus,
+    weakest_origin,
 )
 from .errors import BudgetExhausted, GateFailure, SchemaVersionError, SimError
 from .persona import KNOWN_PERSONA_SOURCES, AttributeValue, EmbeddingRef, Persona, PersonaSource
@@ -346,4 +347,5 @@ __all__ = [
     "hash_payload",
     "read_partition",
     "resolve_audience_weights",
+    "weakest_origin",
 ]

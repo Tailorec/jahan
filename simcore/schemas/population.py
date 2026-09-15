@@ -25,7 +25,7 @@ from .base import (
     proportions_sum_to_one,
 )
 from .brief import AttributeFilter, AttributeId, BriefPack
-from .enums import FieldOrigin, GateReference, GraphCheck, PersonaFieldDomain, RelaxationRung
+from .enums import FieldOrigin, GateReference, GraphCheck, PersonaFieldDomain, RelaxationRung, weakest_origin
 from .persona import Persona, PersonaSource
 from .run import PinnedModelId
 
@@ -128,6 +128,11 @@ GateResult = Annotated[
 class GateReport(SimBaseModel):
     results: tuple[GateResult, ...] = Field(min_length=1)
     source_mix: FrozenDict[PersonaSource, UnitInterval]
+    # The tier each gated attribute was judged at. A gate is a claim about a distribution, and the claim
+    # is only as strong as the evidence behind the values it compared; the attribute's tier travels
+    # beside the result rather than on it, since a result is a statistic and a tier is a property of
+    # what it was computed from.
+    attribute_origins: FrozenDict[AttributeId, FieldOrigin] = FrozenDict({})
     # What the sample actually drew, keyed by audience, beside the mix the study asked for. Empty when
     # the brief declares no audiences. `build` carries the same mix on the manifest it persists.
     achieved_mix: FrozenDict[Identifier, UnitInterval] = FrozenDict({})
@@ -143,6 +148,17 @@ class GateReport(SimBaseModel):
     @model_validator(mode="after")
     def _source_mix_is_complete(self) -> Self:
         proportions_sum_to_one(self.source_mix)
+        return self
+
+    @model_validator(mode="after")
+    def _attribute_origins_cover_exactly_the_gated_attributes(self) -> Self:
+        gated = {result.attribute for result in self.results if result.kind != "graph"}
+        if set(self.attribute_origins) != gated:
+            missing = sorted(gated - set(self.attribute_origins))
+            extra = sorted(set(self.attribute_origins) - gated)
+            raise ValueError(
+                f"attribute origins must cover exactly the gated attributes: missing {missing}, extra {extra}"
+            )
         return self
 
     @model_validator(mode="after")
@@ -162,6 +178,14 @@ class GateReport(SimBaseModel):
     @property
     def overall(self) -> bool:
         return all(result.passed for result in self.results)
+
+    @computed_field
+    @property
+    def evidence(self) -> FieldOrigin:
+        """The weakest tier among the gated attributes: a pass is never read as stronger evidence than its
+        weakest gate rests on. A report with no distribution gate makes no distributional claim, so nothing
+        weakens it."""
+        return weakest_origin(self.attribute_origins.values()) or FieldOrigin.MEASURED
 
     @computed_field
     @property
@@ -486,6 +510,14 @@ class Population(SimBaseModel):
             if ungateable:
                 raise ValueError(
                     f"gates run on measured or extracted attributes only; {attribute!r} is neither for {ungateable}"
+                )
+        for attribute, tier in self.gate_report.attribute_origins.items():
+            carried = [p.origins[attribute] for p in self.personas if attribute in p.origins]
+            actual = weakest_origin(carried)
+            if actual is not tier:
+                held = actual.value if actual is not None else "absent"
+                raise ValueError(
+                    f"the gate report states {attribute!r} as {tier.value}, but the population carries it as {held}"
                 )
         return self
 
