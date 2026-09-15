@@ -5,7 +5,10 @@ Every decoding case the codebook's card omits is expressible here: an override o
 all, a code at the vocabulary boundary, a `populated_attribute_count` that disagrees.
 """
 
+import hashlib
+import json
 from collections.abc import Sequence
+from pathlib import Path
 
 # A miniature codebook: enough fields to span a bitmap byte and to place an override's high nibble.
 MINI_COLUMNS: tuple[dict, ...] = (
@@ -101,3 +104,60 @@ def _as_record(row: dict, field_count: int) -> dict:
         "metadata_json": row.get("metadata_json"),
         "grounding": [{"field_index": index, "assignment_type": assignment} for index, assignment in row.get("grounding", ())] or None,
     }
+
+
+def write_hf_cache(
+    cache_dir: Path,
+    *,
+    codebook_columns: Sequence[dict],
+    shards: dict[str, Sequence[dict]],
+    rows_total: int | None = None,
+) -> dict:
+    """Build a whole release-shaped cache outside the repository: `manifest.json`, the codebook, and
+    packed `data/*.parquet` shards. `shards` maps a path to generated rows, each also carrying
+    ``source_record_id``, ``metadata_json``, ``source`` (the release's own label, for cross-checking)
+    and ``grounding`` pairs. Returns the manifest for a test to assert against."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    (cache_dir / "persona_codes.schema.json").write_text(
+        json.dumps({"format": "persona_codes", "format_version": 2, "code_base": 0, "columns": list(codebook_columns)}),
+        encoding="utf-8",
+    )
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    schema = pa.schema(
+        [
+            ("source", pa.string()),
+            ("source_row_index", pa.int64()),
+            ("source_record_id", pa.string()),
+            ("attributes", pa.binary()),
+            ("null_bitmap", pa.binary()),
+            ("attribute_overrides", pa.list_(pa.struct([("field_index", pa.int32()), ("value", pa.string())]))),
+            ("populated_attribute_count", pa.int32()),
+            ("metadata_json", pa.string()),
+            ("grounding", pa.list_(pa.struct([("field_index", pa.int32()), ("assignment_type", pa.string())]))),
+        ]
+    )
+    field_count = len(codebook_columns)
+    files = []
+    for relative, rows in shards.items():
+        path = cache_dir / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        records = []
+        for index, row in enumerate(rows):
+            record = _as_record(row, field_count)
+            record.pop("row_id", None)
+            record["source"] = row.get("source", "synthetic")
+            record["source_row_index"] = row.get("source_row_index", index)
+            records.append(record)
+        pq.write_table(pa.Table.from_pylist(records, schema=schema), path)
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        files.append({"path": relative, "rows": len(rows), "bytes": path.stat().st_size, "sha256": digest})
+    manifest = {
+        "format": "matraix_persona_1m_coreset",
+        "format_version": 1,
+        "rows": rows_total if rows_total is not None else sum(entry["rows"] for entry in files),
+        "files": files,
+    }
+    (cache_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    return manifest
