@@ -346,6 +346,9 @@ class Community(SimBaseModel):
 
 
 _NEVER_SYNTHESIZED = frozenset({PersonaFieldDomain.DEMOGRAPHIC, PersonaFieldDomain.PSYCHOGRAPHIC})
+# The tiers a distribution gate may judge: a value an instrument recorded or a model read from corpus
+# text. A synthesized or calibrated value is not gateable, because the gate would judge an invention.
+_GATEABLE_TIERS = frozenset({FieldOrigin.MEASURED, FieldOrigin.EXTRACTED})
 
 
 def derive_population_hash(
@@ -462,7 +465,7 @@ class Population(SimBaseModel):
         return self
 
     @model_validator(mode="after")
-    def _gates_run_on_declared_grounded_attributes(self) -> Self:
+    def _gates_run_on_declared_gateable_attributes(self) -> Self:
         ontology = self.pack.ontology
         scaled = {scale.attribute for scale in ontology.ordinal_scales}
         for result in self.gate_report.results:
@@ -477,9 +480,13 @@ class Population(SimBaseModel):
             carriers = [persona for persona in self.personas if attribute in persona.origins]
             if not carriers:
                 raise ValueError(f"gate on {attribute!r}, which no persona carries")
-            ungrounded = sorted(p.persona_id for p in carriers if p.origins[attribute] is not FieldOrigin.GROUNDED)
-            if ungrounded:
-                raise ValueError(f"gates run on grounded attributes only; {attribute!r} is not grounded for {ungrounded}")
+            ungateable = sorted(
+                p.persona_id for p in carriers if p.origins[attribute] not in _GATEABLE_TIERS
+            )
+            if ungateable:
+                raise ValueError(
+                    f"gates run on measured or extracted attributes only; {attribute!r} is neither for {ungateable}"
+                )
         return self
 
     @model_validator(mode="after")

@@ -34,6 +34,9 @@ from ._graph import build_graph
 from ._project import project
 from ._streams import spawn
 
+# The tiers a distribution gate may judge, matching the population's invariant.
+_GATEABLE_TIERS = frozenset({FieldOrigin.MEASURED, FieldOrigin.EXTRACTED})
+
 
 @dataclass(frozen=True)
 class BuiltPopulation:
@@ -136,7 +139,7 @@ def _true_of_the_population(results: Sequence, personas: Sequence[Persona]) -> t
         result
         for result in results
         if all(
-            persona.origins[result.attribute] is FieldOrigin.GROUNDED
+            persona.origins[result.attribute] in _GATEABLE_TIERS
             for persona in personas
             if result.attribute in persona.origins
         )

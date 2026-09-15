@@ -98,7 +98,7 @@ def _draft(row: DecodedRow, declared: set[AttributeId], conditioning: set[Attrib
     for attribute, value in row.values.items():
         if attribute not in declared:
             continue
-        draft.origins[attribute] = FieldOrigin.GROUNDED
+        draft.origins[attribute] = row.tiers.get(attribute, FieldOrigin.MEASURED)
         (draft.conditioning if attribute in conditioning else draft.attributes)[attribute] = value
     return draft
 

@@ -28,9 +28,14 @@ class PersonaFieldDomain(StrEnum):
 
 
 class FieldOrigin(StrEnum):
-    """Where a persona field's value came from; grounding is stated, never inferred."""
+    """Where a persona field's value came from; the tier is stated, never inferred.
 
-    GROUNDED = "grounded"
+    `MEASURED` is an instrument reading — a survey answer, a dataset field as recorded. `EXTRACTED`
+    is a model's reading of corpus text. They are different claims and never decode to the same one.
+    The tier grades a claim; it does not gate one."""
+
+    MEASURED = "measured"
+    EXTRACTED = "extracted"
     SYNTHESIZED = "synthesized"
     CALIBRATED = "calibrated"
 

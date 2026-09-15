@@ -6,7 +6,7 @@ take are the adapter's knowledge, so nothing above it learns the dataset's encod
 """
 
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
 from simcore.schemas import (
@@ -15,6 +15,7 @@ from simcore.schemas import (
     AttributeValue,
     BandRange,
     Exactly,
+    FieldOrigin,
     OneOf,
     PersonaSource,
 )
@@ -24,12 +25,14 @@ RowId = str
 
 @dataclass(frozen=True)
 class DecodedRow:
-    """One dataset row as the engine consumes it: the corpus it came from, and the attribute values
-    it carries. An attribute absent from `values` was never populated on this row."""
+    """One dataset row as the engine consumes it: the corpus it came from, the attribute values it
+    carries, and the tier each value's origin carries. An attribute absent from `values` was never
+    populated on this row; one absent from `tiers` was recorded by an instrument (`MEASURED`)."""
 
     row_id: RowId
     source: PersonaSource
     values: Mapping[AttributeId, AttributeValue]
+    tiers: Mapping[AttributeId, FieldOrigin] = field(default_factory=dict)
 
 
 @runtime_checkable
