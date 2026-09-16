@@ -13,7 +13,7 @@ coroutines nor a storm of 429s."""
 
 import asyncio
 import time
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 import httpx
@@ -33,6 +33,7 @@ from simcore.schemas import (
     ModelPins,
 )
 
+from ._cache import SampleCache
 from ._dispatch import (
     AdaptiveCeiling,
     DispatchStats,
@@ -82,6 +83,7 @@ class InferenceClient:
         transport: httpx.AsyncBaseTransport | None = None,
         clock: Callable[[], float] | None = None,
         sleep: Callable[[float], Awaitable[None]] | None = None,
+        template_hashes: Mapping[str, str] | None = None,
     ) -> None:
         self.pins = pins
         self.settings = settings or ExecutionSettings()
@@ -92,6 +94,8 @@ class InferenceClient:
             self.settings.requests_per_minute, self.settings.tokens_per_minute, self._clock, self._sleep
         )
         self.stats = DispatchStats()
+        self._template_hashes = dict(template_hashes or {})
+        self._cache = SampleCache(self.settings.cache_dir) if self.settings.cache_dir is not None else None
         # A short run of identical fatal errors — an invalid key, an unknown model — is not a thousand
         # separate misfortunes. The run is counted here and opens one circuit for the client.
         self._consecutive_fatals: dict[int, int] = {}
@@ -189,6 +193,11 @@ class InferenceClient:
         return last
 
     async def _attempt_route(self, request: ChatRequest, pin: ModelPin, route: InferenceRoute) -> ChatOutcome:
+        data = body_bytes(chat_body(request, pin))
+        hashed = prompt_hash(data)
+        cached = await self._cache_hit(request, pin, route, data, hashed)
+        if cached is not None:
+            return cached
         attempts = 0
         while True:
             if self._circuit_detail is not None:
@@ -199,12 +208,13 @@ class InferenceClient:
             try:
                 await self._limiter.acquire(estimate)
                 attempts += 1
-                reply = await self._exchange(request, pin, route, attempts)
+                reply = await self._exchange(request, pin, route, attempts, data, hashed)
             finally:
                 await self._ceiling.release()
             if isinstance(reply.outcome, Completion):
                 self._limiter.settle(estimate, float(reply.outcome.cost.input_tokens + reply.outcome.cost.output_tokens))
                 self._consecutive_fatals.clear()
+                await self._cache_store(request, pin, route, data, reply.outcome)
             if reply.limited:
                 self.stats.rate_limited += 1
                 await self._ceiling.lower()
@@ -236,9 +246,9 @@ class InferenceClient:
                 f"{pin.model_id!r}; the endpoint is refusing calls and the rest of the batch will not be sent"
             )
 
-    async def _exchange(self, request: ChatRequest, pin: ModelPin, route: InferenceRoute, attempts: int) -> _Reply:
-        body = chat_body(request, pin)
-        data = body_bytes(body)
+    async def _exchange(
+        self, request: ChatRequest, pin: ModelPin, route: InferenceRoute, attempts: int, data: bytes, hashed: str
+    ) -> _Reply:
         started = self._clock()
         try:
             response = await self._http.post(CHAT_PATH, content=data, headers=self._headers())
@@ -253,7 +263,7 @@ class InferenceClient:
                 retryable=True,
             )
         latency_ms = max(0, int((self._clock() - started) * 1000))
-        return self._record(request, pin, route, response, latency_ms, prompt_hash(data), attempts)
+        return self._record(request, pin, route, response, latency_ms, hashed, attempts)
 
     def _record(
         self,
@@ -347,6 +357,59 @@ class InferenceClient:
         if self.settings.api_key:
             headers["authorization"] = f"Bearer {self.settings.api_key}"
         return headers
+
+    # --- the replicate-safe cache: a hit is the cache route at zero cost, a miss answers nothing -----------
+
+    async def _cache_hit(self, request: ChatRequest, pin: ModelPin, route: InferenceRoute, data: bytes, hashed: str) -> Completion | None:
+        if self._cache is None or route is not InferenceRoute.PRIMARY:
+            return None
+        entry = self._cache.get(self._cache_key(request, pin, data))
+        if entry is None:
+            return None
+        self.stats.cache_hits += 1
+        return Completion(
+            text=entry.get("text", ""),
+            template_id=request.template_id,
+            prompt_hash=hashed,
+            latency_ms=0,
+            seed=entry.get("seed"),
+            cost=CostRecorded(
+                kind="cost",
+                role=request.role,
+                model_id=pin.model_id,
+                served_model_id=entry.get("served_model_id"),
+                cost_source=CostSource.PRICE_TABLE,
+                route=InferenceRoute.CACHE,
+                input_tokens=entry.get("input_tokens", 0),
+                output_tokens=entry.get("output_tokens", 0),
+                cost=0.0,
+            ),
+        )
+
+    async def _cache_store(self, request: ChatRequest, pin: ModelPin, route: InferenceRoute, data: bytes, outcome: Completion) -> None:
+        # Only the pinned primary's answers are cached: an answer from a fallback must not silently
+        # replace a later run's primary, because whether the fallback exists is part of the pin.
+        if self._cache is None or route is not InferenceRoute.PRIMARY:
+            return
+        self._cache.put(
+            self._cache_key(request, pin, data),
+            {
+                "text": outcome.text,
+                "served_model_id": outcome.cost.served_model_id,
+                "input_tokens": outcome.cost.input_tokens,
+                "output_tokens": outcome.cost.output_tokens,
+                "seed": outcome.seed,
+            },
+        )
+
+    def _cache_key(self, request: ChatRequest, pin: ModelPin, data: bytes) -> str:
+        assert self._cache is not None
+        return self._cache.key(
+            request,
+            pin,
+            data,
+            template_hash=self._template_hashes.get(request.template_id),
+        )
 
 
 def _frozen(message: dict) -> FrozenDict:

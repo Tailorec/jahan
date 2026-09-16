@@ -134,12 +134,12 @@ A persistent cache in the user cache directory that makes a re-run cheap without
 
 ### Acceptance criteria
 
-- [ ] Re-running the same seed serves its sampled calls from the cache, recorded as the cache route at zero cost
-- [ ] Two replicate seeds never receive the same cached sample for a call above temperature zero
-- [ ] A temperature-zero call is shared across replicates
-- [ ] A changed served model, template or request byte never serves an old answer
-- [ ] The cache survives a new process and lives outside the repository
-- [ ] Deleting the cache changes cost and never changes a result
+- [x] Re-running the same seed serves its sampled calls from the cache, recorded as the cache route at zero cost
+- [x] Two replicate seeds never receive the same cached sample for a call above temperature zero
+- [x] A temperature-zero call is shared across replicates
+- [x] A changed served model, template or request byte never serves an old answer
+- [x] The cache survives a new process and lives outside the repository
+- [x] Deleting the cache changes cost and never changes a result
 
 ---
 

@@ -30,6 +30,7 @@ class DispatchStats:
     ceiling_lowest: int | None = None
     ceiling_final: int = 0
     rate_limited: int = 0
+    cache_hits: int = 0
 
 
 class AdaptiveCeiling:
