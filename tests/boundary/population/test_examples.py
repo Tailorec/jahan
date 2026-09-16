@@ -1,10 +1,11 @@
 """The two example studies: the offline quickstart and the real-data study, proven by running them."""
 
 import importlib.util
-import os
 from pathlib import Path
 
 import pytest
+
+from tests.real_corpus import REAL_CACHE, real_corpus
 
 EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
 
@@ -15,13 +16,6 @@ def _load(name: str):
     assert spec.loader is not None
     spec.loader.exec_module(module)
     return module
-
-
-def _real_cache() -> Path | None:
-    for candidate in (os.environ.get("CONSUMERSIM_CORESET_CACHE"), str(_load("ai_code_review").default_cache_dir())):
-        if candidate and (Path(candidate) / "manifest.json").is_file():
-            return Path(candidate)
-    return None
 
 
 # --- the offline quickstart -------------------------------------------------------------------
@@ -70,13 +64,13 @@ def test_a_missing_cache_is_refused_with_a_fetch_command(tmp_path):
         real.coresets(empty)
 
 
-_real_only = pytest.mark.skipif(_real_cache() is None, reason="the corpus shards are not cached locally")
+_real_only = real_corpus
 
 
 @_real_only
 def test_the_real_study_previews_assesses_and_builds_against_cached_shards():
     real = _load("ai_code_review")
-    forecast, report, population = real.run(n=1500, cache=_real_cache())
+    forecast, report, population = real.run(n=1500, cache=REAL_CACHE)
     # Demographic and professional fields are survey answers; part of the attitude fields was inferred by a
     # model, so the report is only as strong as those — it once graded measured by grading whole sources.
     origins = {attribute: tier.value for attribute, tier in report.attribute_origins.items()}

@@ -27,3 +27,9 @@ def isolated_environment(monkeypatch):
     monkeypatch.setattr(socket.socket, "connect", _refuse_network)
     monkeypatch.setattr(socket.socket, "connect_ex", _refuse_network)
     monkeypatch.setattr(socket, "create_connection", _refuse_network)
+
+
+def pytest_report_header(config):
+    from tests.real_corpus import report_line
+
+    return report_line()

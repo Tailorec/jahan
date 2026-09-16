@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from tests.packed_fixture import write_hf_cache
+from tests.real_corpus import REAL_CACHE, real_corpus
 
 from simcore.population import PreviewRequest, preview
 from simcore.ports import CoresetCatalog, cached_hf_index, from_hf_source, from_source
@@ -223,21 +224,10 @@ def test_the_index_can_be_built_from_an_in_memory_source():
 
 # --- against the real shards, skipped when they are absent ------------------------------------
 
-import os
-
-from simcore.ports.hf import default_cache_dir
-
-def _real_cache():
-    if os.environ.get("CONSUMERSIM_CORESET_CACHE"):
-        path = Path(os.environ["CONSUMERSIM_CORESET_CACHE"])
-        if (path / "manifest.json").is_file():
-            return path
-    path = default_cache_dir()
-    return path if (path / "manifest.json").is_file() else None
 
 
-REAL = _real_cache()
-real_only = pytest.mark.skipif(REAL is None, reason="the corpus shards are not cached locally")
+REAL = REAL_CACHE
+real_only = real_corpus
 
 
 @real_only

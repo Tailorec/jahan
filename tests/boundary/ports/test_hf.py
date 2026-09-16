@@ -1,12 +1,12 @@
 """`HfCoresetSource`: the real shards, behind explicit fetching, digest-verified, and offline-safe."""
 
-import os
 from collections import Counter
 from pathlib import Path
 
 import pytest
 
 from tests.packed_fixture import MINI_COLUMNS, write_hf_cache
+from tests.real_corpus import REAL_CACHE, real_corpus
 
 from simcore.ports import CoresetSource
 from simcore.ports.hf import (
@@ -182,19 +182,8 @@ def test_a_rows_source_is_the_releases_own_column_not_a_guess_from_its_identifie
 # --- integration against the real shards, skipped when they are absent ------------------------
 
 
-def _real_cache() -> Path | None:
-    candidates = []
-    if os.environ.get("CONSUMERSIM_CORESET_CACHE"):
-        candidates.append(Path(os.environ["CONSUMERSIM_CORESET_CACHE"]))
-    candidates.append(default_cache_dir())
-    for cache in candidates:
-        if (cache / "manifest.json").is_file() and any((cache / "data").glob("persona-1m-*.parquet")):
-            return cache
-    return None
-
-
-REAL = _real_cache()
-real_only = pytest.mark.skipif(REAL is None, reason="the corpus shards are not cached locally")
+REAL = REAL_CACHE
+real_only = real_corpus
 
 
 @real_only
