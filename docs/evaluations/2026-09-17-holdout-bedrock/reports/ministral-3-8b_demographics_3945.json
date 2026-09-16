@@ -1,0 +1,47 @@
+{
+  "attributes": {
+    "att_ai": {
+      "baseline_brier": 0.6505887822658107,
+      "baseline_calibration_error": 0.01529372414066377,
+      "baseline_log_loss": 1.2367948956296135,
+      "baseline_marginal_distance": 0.009378960709759252,
+      "baseline_recovered_dependence": 1.0,
+      "brier": 0.8278628643852978,
+      "calibration_error": 0.08569581749049429,
+      "log_loss": 1.7046183088805889,
+      "marginal_distance": 0.3698352344740178,
+      "projected_rows": 3945,
+      "recovered_dependence": 0.8956402562375889,
+      "vocabulary": [
+        "Enthusiast",
+        "Positive",
+        "Neutral",
+        "Skeptical",
+        "Opposed"
+      ]
+    }
+  },
+  "completion_temperature": 1.0,
+  "held_out_rows": 3945,
+  "hidden": [
+    "att_ai"
+  ],
+  "holdout_seed": 4021,
+  "inference": "bedrock-mantle",
+  "information": "demographics",
+  "pins": {
+    "tier_a": "mistral.ministral-3-8b-instruct"
+  },
+  "pool_rows": 11834,
+  "population_seed": 4021,
+  "projected_from": [
+    "age_bracket",
+    "demo_employment_status",
+    "region"
+  ],
+  "served_models": {
+    "mistral.ministral-3-8b-instruct": [
+      "mistral.ministral-3-8b-instruct"
+    ]
+  }
+}
