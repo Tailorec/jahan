@@ -129,6 +129,30 @@ forces it); Ollama's OpenAI-compatible surface supports `/v1/embeddings`; on Lit
 model its own `model_name` entry with its own `rpm`/`tpm`.
 `SIMCORE_INFERENCE_EMBEDDINGS_BATCH_SIZE` caps texts per request.
 
+### Titan Text Embeddings v2 through LiteLLM (the elicitation route)
+
+Neither of Bedrock's OpenAI-compatible endpoints serves embeddings, and OpenAI's embedding models
+are not offered on AWS — so elicitation embeds through a local LiteLLM proxy that also serves the
+chat models, one base URL for both (ADR 0028). The pinned model is Amazon Titan Text Embeddings v2:
+
+```yaml
+model_list:
+  - model_name: embed                          # the name the engine sends — use it as the pin's model_id
+    litellm_params:
+      model: bedrock/amazon.titan-embed-text-v2:0
+      aws_region_name: us-east-1
+    rpm: 6000
+    tpm: 2000000
+```
+
+Point the engine at `SIMCORE_INFERENCE_BASE_URL=http://127.0.0.1:4000/v1` as usual. The pin's
+`model_id` is `embed` only if that is the name the proxy serves; in practice pin the served name
+`amazon.titan-embed-text-v2:0` with `serves` accepting whatever LiteLLM reports back in `model`
+(read it from the first call's cost record, as with chat). Titan returns 1024-dimensional vectors;
+the run fixes its embedding space on the first batch and refuses a later dimension change. The
+mapping validation (`python -m simcore.elicitation`) measures whether SSR survives this
+substitution; Cohere Embed v4 is the next candidate if it does not.
+
 ## Telemetry
 
 Install the extra: `pip install "simcore[otel]"` (the core depends on `opentelemetry-api` alone and

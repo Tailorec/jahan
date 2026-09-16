@@ -18,6 +18,7 @@ from ._check import (
 from ._compute import aggregate, per_set_distribution, similarities
 from ._question import is_numeric_answer, question_hash, question_text, question_version
 from ._score import DEFAULT_CHUNK_SIZE, clear_anchor_cache, rescore_from_similarities, score
+from ._validate import reviews_from_jsonl, synthetic_reviews, validate_mapping
 
 __all__ = [
     "AnchorVersion",
@@ -41,7 +42,10 @@ __all__ = [
     "read_check_record",
     "rescore_from_similarities",
     "resolve_anchors",
+    "reviews_from_jsonl",
     "score",
     "similarities",
     "spearman",
+    "synthetic_reviews",
+    "validate_mapping",
 ]
