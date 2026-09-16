@@ -1,0 +1,211 @@
+"""The anchor check: the gate a version must pass before it can be pinned (ADR 0027).
+
+Needs no human data. A frozen ladder of graded responses must score in strictly increasing
+expected rating; rank order must be stable across the six sets (Spearman above 0.8); varied
+responses must not collapse to one distribution. The check runs against the embedding model the
+version will be used with and records its result beside the version; pinning refuses a version
+without a passing result. The ladder is frozen, and nothing here can adjust an anchor."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+from pydantic import BaseModel, ConfigDict, Field
+
+from ._anchors import anchor_hash, load_anchor_version
+from ._compute import aggregate, per_set_distribution, similarities
+
+MIN_SPEARMAN = 0.8
+MIN_COLLAPSE_DISTANCE = 0.1
+
+# Frozen ladder: graded responses from certainly-not to certainly-yes. Frozen means frozen — a
+# revision is a code change reviewed as one, never an adjustment to make a version pass.
+LADDER: tuple[str, ...] = (
+    "I would never buy this, no chance at all.",
+    "I probably would not buy this.",
+    "I might or might not buy this, still deciding.",
+    "I lean a little toward buying this.",
+    "I probably would buy this.",
+    "I will very likely buy this.",
+    "I would definitely buy this, certainly.",
+)
+
+# Varied responses for the non-collapse check: different ratings, lengths and angles.
+VARIED: tuple[str, ...] = (
+    "I would never buy this.",
+    "Not for me, I will pass.",
+    "I might try it if a friend recommends it first.",
+    "I probably would buy this after payday.",
+    "I would definitely buy this, twice over, and tell everyone.",
+)
+
+
+class AnchorCheckResult(BaseModel):
+    """What the check found, recorded beside the anchor version it judged."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, populate_by_name=True)
+
+    anchor_set_id: str
+    construct_id: str = Field(alias="construct")
+    version: str
+    anchor_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    embed_model_id: str
+    passed: bool
+    expected_ratings: tuple[float, ...]
+    spearman_min: float
+    collapse_distance: float
+    detail: str = ""
+
+    @property
+    def construct(self) -> str:
+        return self.construct_id
+
+
+def expected_rating(mass: Any) -> float:
+    return sum((point + 1) * float(value) for point, value in enumerate(mass))
+
+
+def spearman(first: Any, second: Any) -> float:
+    """Rank correlation with tie-averaged ranks, no scipy needed."""
+    rank_first, rank_second = _ranks(list(first)), _ranks(list(second))
+    n = len(rank_first)
+    if n < 2:
+        return 1.0
+    mean_first = sum(rank_first) / n
+    mean_second = sum(rank_second) / n
+    numerator = sum((a - mean_first) * (b - mean_second) for a, b in zip(rank_first, rank_second))
+    denominator = (sum((a - mean_first) ** 2 for a in rank_first) * sum((b - mean_second) ** 2 for b in rank_second)) ** 0.5
+    if denominator == 0.0:
+        return 1.0 if numerator == 0.0 else 0.0
+    return max(-1.0, min(1.0, numerator / denominator))
+
+
+def _ranks(values: list[float]) -> list[float]:
+    order = sorted(range(len(values)), key=lambda index: values[index])
+    ranks = [0.0] * len(values)
+    rank = 0
+    while rank < len(order):
+        tied = rank
+        while tied + 1 < len(order) and values[order[tied + 1]] == values[order[rank]]:
+            tied += 1
+        average = (rank + tied) / 2.0 + 1.0
+        for position in range(rank, tied + 1):
+            ranks[order[position]] = average
+        rank = tied + 1
+    return ranks
+
+
+def check_record_path(anchors_dir: str | Path, construct: str, version: str) -> Path:
+    return Path(anchors_dir) / construct / f"{version}.check.json"
+
+
+def check_anchors(
+    anchor_set_id: str,
+    construct: str,
+    version: str,
+    embed,
+    anchors_dir: str | Path = "anchors",
+    *,
+    epsilon: float = 0.0,
+    temperature: float = 1.0,
+    write_record: bool = True,
+) -> AnchorCheckResult:
+    """Run the gate over one frozen version against the model it will be used with."""
+    parsed = load_anchor_version(Path(anchors_dir) / construct / f"{version}.json")
+    digest = anchor_hash(parsed)
+    model_id = embed.model_id
+
+    flat = [statement for anchor_set in parsed.sets for statement in anchor_set]
+    anchor_vectors = np.asarray(embed.embed(flat).vectors, dtype=np.float32).reshape(len(parsed.sets), 5, -1)
+    ladder_vectors = np.asarray(embed.embed(list(LADDER)).vectors, dtype=np.float32)
+    varied_vectors = np.asarray(embed.embed(list(VARIED)).vectors, dtype=np.float32)
+
+    per_set_expected: list[list[float]] = [[] for _ in parsed.sets]
+    headline_expected: list[float] = []
+    for row in range(len(LADDER)):
+        gammas = [tuple(similarities(ladder_vectors[row], anchor_vectors[set_index])) for set_index in range(len(parsed.sets))]
+        per_set = [per_set_distribution(gamma, epsilon=epsilon) for gamma in gammas]
+        for set_index, mass in enumerate(per_set):
+            per_set_expected[set_index].append(expected_rating(mass))
+        headline_expected.append(expected_rating(aggregate(per_set, temperature=temperature)))
+
+    increasing = all(later > earlier for earlier, later in zip(headline_expected, headline_expected[1:]))
+    correlations = [
+        spearman(per_set_expected[first], per_set_expected[second])
+        for first in range(len(parsed.sets))
+        for second in range(first + 1, len(parsed.sets))
+    ]
+    spearman_min = min(correlations) if correlations else 1.0
+
+    varied_headlines = []
+    for row in range(len(VARIED)):
+        gammas = [tuple(similarities(varied_vectors[row], anchor_vectors[set_index])) for set_index in range(len(parsed.sets))]
+        per_set = [per_set_distribution(gamma, epsilon=epsilon) for gamma in gammas]
+        varied_headlines.append(aggregate(per_set, temperature=temperature))
+    collapse_distance = 0.0
+    for first in range(len(varied_headlines)):
+        for second in range(first + 1, len(varied_headlines)):
+            distance = sum(abs(a - b) for a, b in zip(varied_headlines[first], varied_headlines[second])) / 2.0
+            collapse_distance = max(collapse_distance, distance)
+
+    reasons = []
+    if not increasing:
+        reasons.append("the ladder does not score in strictly increasing expected rating")
+    if spearman_min <= MIN_SPEARMAN:
+        reasons.append(f"rank stability {spearman_min:.3f} is not above {MIN_SPEARMAN}")
+    if collapse_distance <= MIN_COLLAPSE_DISTANCE:
+        reasons.append(f"varied responses collapse (max distance {collapse_distance:.3f})")
+    result = AnchorCheckResult(
+        anchor_set_id=anchor_set_id,
+        construct=construct,
+        version=version,
+        anchor_hash=digest,
+        embed_model_id=model_id,
+        passed=not reasons,
+        expected_ratings=tuple(headline_expected),
+        spearman_min=spearman_min,
+        collapse_distance=collapse_distance,
+        detail="; ".join(reasons) if reasons else "ladder increasing, ranks stable, no collapse",
+    )
+    if write_record:
+        check_record_path(anchors_dir, construct, version).write_text(result.model_dump_json(indent=2) + "\n")
+    return result
+
+
+def read_check_record(anchors_dir: str | Path, construct: str, version: str) -> AnchorCheckResult | None:
+    path = check_record_path(anchors_dir, construct, version)
+    if not path.exists():
+        return None
+    try:
+        return AnchorCheckResult.model_validate_json(path.read_text())
+    except ValueError:
+        return None
+
+
+def assert_pinnable(
+    anchor_set_id: str,
+    construct: str,
+    version: str,
+    anchors_dir: str | Path = "anchors",
+    *,
+    embed_model_id: str | None = None,
+) -> AnchorCheckResult:
+    """Refuse pinning a version without a passing check result beside it."""
+    record = read_check_record(anchors_dir, construct, version)
+    if record is None:
+        raise ValueError(f"anchor version {construct}/{version} has no check result: it cannot be pinned")
+    if not record.passed:
+        raise ValueError(f"anchor version {construct}/{version} failed its check ({record.detail}): it cannot be pinned")
+    current = anchor_hash(load_anchor_version(Path(anchors_dir) / construct / f"{version}.json"))
+    if record.anchor_hash != current:
+        raise ValueError("the anchor file changed since its check passed: a changed statement is a new version")
+    if record.anchor_set_id != anchor_set_id:
+        raise ValueError(f"the check passed for {record.anchor_set_id!r}, not {anchor_set_id!r}: it cannot be pinned")
+    if embed_model_id is not None and record.embed_model_id != embed_model_id:
+        raise ValueError(
+            f"the check passed against {record.embed_model_id!r}, not {embed_model_id!r}: re-check on the new model"
+        )
+    return record
