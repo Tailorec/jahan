@@ -80,11 +80,12 @@ class Completion(SimBaseModel):
 class CallFailure(SimBaseModel):
     """A model call that returned no completion, recorded as an outcome beside the completions around it
     rather than raised: a caller must never mistake a network event for a persona declining to act.
-    It names what went wrong, how many attempts made it that far, and which route was last tried."""
+    It names what went wrong, how many attempts made it that far — none, for a call the circuit breaker
+    short-circuited — and which route was last tried."""
 
     kind: FailureKind
     detail: NonEmptyStr
-    attempts: PositiveInt
+    attempts: NonNegativeInt
     route: InferenceRoute
 
 

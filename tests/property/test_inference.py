@@ -210,8 +210,8 @@ def test_the_closed_set_of_failure_kinds(kind):
 
 @pytest.mark.parametrize(
     "overrides",
-    [{"attempts": 0}, {"detail": ""}, {"kind": "provider_sadness"}],
-    ids=["zero-attempts", "wordless-failure", "unknown-kind"],
+    [{"attempts": -1}, {"detail": ""}, {"kind": "provider_sadness"}],
+    ids=["negative-attempts", "wordless-failure", "unknown-kind"],
 )
 def test_a_call_failure_refuses_an_ungrounded_record(overrides):
     payload = {"kind": "timed_out", "detail": "gave up", "attempts": 2, "route": "primary"}

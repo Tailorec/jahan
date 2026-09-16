@@ -116,11 +116,11 @@ What happens when an endpoint misbehaves. Rate limiting, server errors, timeouts
 
 ### Acceptance criteria
 
-- [ ] 429, 5xx, timeouts and connection errors are retried, and 400, 401, 403, 404 and 422 are not
-- [ ] A call that exhausts its retries is served by the pinned fallback and recorded with the fallback route and its served model
-- [ ] A role with no pinned fallback records a failure after its retries, and embedding never falls back
-- [ ] A handful of identical fatal errors fails the remaining batch as circuit open, without sending the remaining requests
-- [ ] Retry counts and backoff are execution configuration and appear in no hashed contract
+- [x] 429, 5xx, timeouts and connection errors are retried, and 400, 401, 403, 404 and 422 are not
+- [x] A call that exhausts its retries is served by the pinned fallback and recorded with the fallback route and its served model
+- [x] A role with no pinned fallback records a failure after its retries, and embedding never falls back
+- [x] A handful of identical fatal errors fails the remaining batch as circuit open, without sending the remaining requests
+- [x] Retry counts and backoff are execution configuration and appear in no hashed contract
 
 ---
 
