@@ -16,10 +16,17 @@ dependencies = [
     "scipy>=1.18.1",
 ]
 
+[project.optional-dependencies]
+otel = [
+    "opentelemetry-exporter-otlp-proto-http>=1.44.0",
+    "opentelemetry-sdk>=1.44.0",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",
     "hypothesis>=6.112",
+    "opentelemetry-sdk>=1.44.0",
 ]
 
 [build-system]

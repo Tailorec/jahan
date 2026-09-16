@@ -210,13 +210,13 @@ OpenTelemetry spans for every batch and call, exported over OTLP to whatever col
 
 ### Acceptance criteria
 
-- [ ] The core depends on the OpenTelemetry API only, and the SDK and exporter are an optional extra
-- [ ] With no telemetry configured, calls produce no spans and cost no measurable time
-- [ ] A batch produces one batch span and one span per call, with retries and fallbacks as events
-- [ ] No span carries prompt or response content unless capture is enabled, asserted over every attribute
-- [ ] Every GenAI attribute name is defined in one module
-- [ ] Requests carry trace context for a gateway to join
-- [ ] No analytical code path reads a span
+- [x] The core depends on the OpenTelemetry API only, and the SDK and exporter are an optional extra
+- [x] With no telemetry configured, calls produce no spans and cost no measurable time
+- [x] A batch produces one batch span and one span per call, with retries and fallbacks as events
+- [x] No span carries prompt or response content unless capture is enabled, asserted over every attribute
+- [x] Every GenAI attribute name is defined in one module
+- [x] Requests carry trace context for a gateway to join
+- [x] No analytical code path reads a span
 
 ---
 

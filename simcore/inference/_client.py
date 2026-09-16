@@ -44,6 +44,38 @@ from ._dispatch import (
     retry_after,
 )
 from ._loop import run
+from ._otel import (
+    GEN_AI_INPUT_MESSAGES,
+    GEN_AI_OUTPUT_MESSAGES,
+    GEN_AI_REQUEST_MAX_TOKENS,
+    GEN_AI_REQUEST_MODEL,
+    GEN_AI_REQUEST_SEED,
+    GEN_AI_REQUEST_TEMPERATURE,
+    GEN_AI_RESPONSE_MODEL,
+    GEN_AI_TOOL_NAME,
+    GEN_AI_USAGE_INPUT_TOKENS,
+    GEN_AI_USAGE_OUTPUT_TOKENS,
+    SIMCORE_ATTEMPTS,
+    SIMCORE_BATCH_SIZE,
+    SIMCORE_COST,
+    SIMCORE_COST_SOURCE,
+    SIMCORE_EVENT_FALLBACK,
+    SIMCORE_EVENT_RETRY,
+    SIMCORE_FAILURE_DETAIL,
+    SIMCORE_FAILURE_KIND,
+    SIMCORE_LATENCY_MS,
+    SIMCORE_PERSONA_ID,
+    SIMCORE_PROMPT_HASH,
+    SIMCORE_ROLE,
+    SIMCORE_ROUTE,
+    SIMCORE_TEMPLATE_ID,
+    SIMCORE_TICK,
+    SIMCORE_WORLD_SEED,
+    finish,
+    record,
+    start_span,
+    traceparent,
+)
 from ._settings import ExecutionSettings
 from ._parsing import coerce_json, validate_schema
 from ._wire import (
@@ -133,7 +165,9 @@ class InferenceClient:
         clock: Callable[[], float] | None = None,
         sleep: Callable[[float], Awaitable[None]] | None = None,
         template_hashes: Mapping[str, str] | None = None,
+        tracer_provider=None,
     ) -> None:
+        self._tracer_provider = tracer_provider
         self.pins = pins
         self.settings = settings or ExecutionSettings()
         self._clock = clock or time.monotonic
@@ -172,7 +206,12 @@ class InferenceClient:
                 raise ValueError("embeddings are not chat: they go through the embedding endpoint, never complete()")
         if not requests:
             return ()
-        return run(self._gather(list(requests), pins))
+        batch, batch_context = start_span("inference.chat.batch", {SIMCORE_BATCH_SIZE: len(requests)}, operation="batch", provider=self._tracer_provider)
+        try:
+            outcomes = run(self._gather(list(requests), pins, batch_context))
+        finally:
+            finish(batch, ok=True, attributes={SIMCORE_BATCH_SIZE: len(requests)})
+        return outcomes
 
     def chat(
         self,
@@ -205,11 +244,16 @@ class InferenceClient:
 
         A chat failure is an outcome because a caller can act on some and not others; a failed batch of
         vectors has no partially-usable form, so it raises — with the recorded failure in hand."""
+        pin = self.resolve(InferenceRole.EMBED)
         if not texts:
-            return EmbeddingResult(vectors=np.zeros((0, self._embedding_dim or 0), dtype=np.float32), model_id=self.resolve(InferenceRole.EMBED).model_id, served_model_id=None, normalization=EMBEDDING_NORMALIZATION, dim=self._embedding_dim or 0, costs=())
+            return EmbeddingResult(vectors=np.zeros((0, self._embedding_dim or 0), dtype=np.float32), model_id=pin.model_id, served_model_id=None, normalization=EMBEDDING_NORMALIZATION, dim=self._embedding_dim or 0, costs=())
         cap = max(1, self.settings.embeddings_batch_size)
         batches = [list(texts[start : start + cap]) for start in range(0, len(texts), cap)]
-        results = run(self._embed_all(batches))
+        batch, batch_context = start_span("inference.embeddings.batch", {SIMCORE_BATCH_SIZE: len(texts), GEN_AI_REQUEST_MODEL: pin.model_id}, operation="embeddings", provider=self._tracer_provider)
+        try:
+            results = run(self._embed_all(batches, batch_context))
+        finally:
+            finish(batch, ok=True)
         vectors = np.concatenate([result.vectors for result in results], axis=0)
         costs = tuple(cost for result in results for cost in result.costs)
         first = next((result.served_model_id for result in results if result.served_model_id), None)
@@ -222,11 +266,12 @@ class InferenceClient:
             costs=costs,
         )
 
-    async def _embed_all(self, batches: list[list[str]]) -> list:
-        return list(await asyncio.gather(*(self._embed_batch(batch) for batch in batches)))
+    async def _embed_all(self, batches: list[list[str]], batch_context) -> list:
+        return list(await asyncio.gather(*(self._embed_batch(batch, batch_context) for batch in batches)))
 
-    async def _embed_batch(self, batch: list[str]) -> "EmbeddingResult":
+    async def _embed_batch(self, batch: list[str], batch_context) -> "EmbeddingResult":
         pin = self.resolve(InferenceRole.EMBED)
+        span, call_context = start_span("inference.embeddings", {GEN_AI_REQUEST_MODEL: pin.model_id, SIMCORE_BATCH_SIZE: len(batch)}, parent=batch_context, operation="embeddings", provider=self._tracer_provider)
         data = body_bytes(embeddings_body(batch, pin))
         key = self._cache.key(pin, template_id=EMBEDDINGS_TEMPLATE, request_bytes=data) if self._cache else None
         if key and (entry := self._cache.get(key)) is not None:  # type: ignore[union-attr]
@@ -248,7 +293,7 @@ class InferenceClient:
             try:
                 await self._limiter.acquire(estimate)
                 attempts += 1
-                reply = await self._embed_exchange(batch, pin, attempts, data)
+                reply = await self._embed_exchange(batch, pin, attempts, data, call_context)
             finally:
                 await self._ceiling.release()
             if reply.limited:
@@ -266,6 +311,7 @@ class InferenceClient:
                 if self._embedding_dim is None:
                     self._embedding_dim = dimension
                 elif dimension != self._embedding_dim:
+                    finish(span, ok=False, attributes={SIMCORE_FAILURE_DETAIL: "embedding dimension changed mid run"})
                     raise ValueError(
                         f"the pinned embedding model answered with {dimension} dimensions, but this run's "
                         f"first vectors had {self._embedding_dim}; vectors from two spaces are not comparable"
@@ -277,9 +323,11 @@ class InferenceClient:
                 )
                 if self._cache and key:
                     self._cache.put(key, {"vectors": vectors.tolist(), "served_model_id": reply.outcome.served_model_id, "input_tokens": reply.outcome.input_tokens})
+                finish(span, ok=True, attributes={GEN_AI_RESPONSE_MODEL: reply.outcome.served_model_id, GEN_AI_USAGE_INPUT_TOKENS: reply.outcome.input_tokens, SIMCORE_COST: cost.cost, SIMCORE_COST_SOURCE: cost.cost_source.value, SIMCORE_ROUTE: cost.route.value})
                 return EmbeddingResult(vectors=vectors, model_id=pin.model_id, served_model_id=reply.outcome.served_model_id, normalization=EMBEDDING_NORMALIZATION, dim=dimension, costs=(cost,))
             assert isinstance(reply.outcome, CallFailure)
             if not reply.retryable or attempts > self.settings.max_retries:
+                finish(span, ok=False, attributes=_outcome_attributes(reply.outcome))
                 raise EmbeddingFailure(reply.outcome)
             wait_s = reply.wait_s
             if wait_s is None:
@@ -288,9 +336,9 @@ class InferenceClient:
                 self._limiter.penalize(wait_s)
             await self._sleep(wait_s)
 
-    async def _embed_exchange(self, batch: list[str], pin: ModelPin, attempts: int, data: bytes) -> _Reply:
+    async def _embed_exchange(self, batch: list[str], pin: ModelPin, attempts: int, data: bytes, call_context=None) -> _Reply:
         try:
-            response = await self._http.post(EMBEDDINGS_PATH, content=data, headers=self._headers())
+            response = await self._http.post(EMBEDDINGS_PATH, content=data, headers=self._headers(call_context))
         except httpx.TimeoutException:
             return _Reply(CallFailure(kind=FailureKind.TIMED_OUT, detail="the embedding endpoint timed out", attempts=attempts, route=InferenceRoute.PRIMARY), retryable=True)
         except httpx.HTTPError as error:
@@ -332,7 +380,7 @@ class InferenceClient:
 
     # --- the batch: a bounded queue feeding workers under the ceiling -----------------------------------
 
-    async def _gather(self, requests: list[ChatRequest], pins: list[ModelPin]) -> tuple[ChatOutcome, ...]:
+    async def _gather(self, requests: list[ChatRequest], pins: list[ModelPin], batch_context) -> tuple[ChatOutcome, ...]:
         outcomes: list[ChatOutcome | None] = [None] * len(requests)
         queue: asyncio.Queue = asyncio.Queue(maxsize=max(1, self.settings.queue_bound))
         workers = min(self._ceiling.maximum, len(requests))
@@ -351,7 +399,7 @@ class InferenceClient:
                 if job is done:
                     return
                 index, (request, pin) = job
-                outcomes[index] = await self._execute(request, pin)
+                outcomes[index] = await self._execute(request, pin, batch_context)
 
         producer = asyncio.create_task(produce())
         crew = [asyncio.create_task(work()) for _ in range(workers)]
@@ -360,20 +408,40 @@ class InferenceClient:
         self.stats.ceiling_lowest = self._ceiling.lowest
         return tuple(outcomes)  # type: ignore[arg-type]
 
-    async def _execute(self, request: ChatRequest, pin: ModelPin) -> ChatOutcome:
+    async def _execute(self, request: ChatRequest, pin: ModelPin, batch_context) -> ChatOutcome:
+        sample = request.sample
+        span, call_context = start_span(
+            "inference.chat",
+            {
+                SIMCORE_ROLE: request.role.value,
+                SIMCORE_TEMPLATE_ID: request.template_id,
+                GEN_AI_TOOL_NAME: request.template_id,
+                GEN_AI_REQUEST_MODEL: pin.model_id,
+                GEN_AI_REQUEST_TEMPERATURE: request.temp,
+                GEN_AI_REQUEST_MAX_TOKENS: request.max_tokens,
+                SIMCORE_WORLD_SEED: sample.world_seed if sample else None,
+                SIMCORE_PERSONA_ID: sample.persona_id if sample else None,
+                SIMCORE_TICK: sample.tick if sample else None,
+            },
+            parent=batch_context,
+            provider=self._tracer_provider,
+        )
         routes = [(InferenceRoute.PRIMARY, pin)]
         fallback = self.pins.fallbacks.get(request.role)
         if request.role is not InferenceRole.EMBED and fallback is not None:
             routes.append((InferenceRoute.FALLBACK, fallback))
         last: ChatOutcome | None = None
-        for route, route_pin in routes:
-            last = await self._attempt_route(request, route_pin, route)
+        for index, (route, route_pin) in enumerate(routes):
+            if index:
+                span.add_event(SIMCORE_EVENT_FALLBACK, {GEN_AI_REQUEST_MODEL: route_pin.model_id})
+            last = await self._attempt_route(request, route_pin, route, span, call_context)
             if isinstance(last, Completion):
-                return last
+                break
+        finish(span, ok=isinstance(last, Completion), attributes=_outcome_attributes(last))
         assert last is not None
         return last
 
-    async def _attempt_route(self, request: ChatRequest, pin: ModelPin, route: InferenceRoute) -> ChatOutcome:
+    async def _attempt_route(self, request: ChatRequest, pin: ModelPin, route: InferenceRoute, span, call_context) -> ChatOutcome:
         # A pin that honours seeds is sent one derived from the draw; a pin that does not is sent none,
         # because recording a seed the provider ignored would promise determinism nobody gave.
         seed = derive_seed(request.sample) if pin.honours_seed and request.sample is not None else None
@@ -396,13 +464,17 @@ class InferenceClient:
             try:
                 await self._limiter.acquire(estimate)
                 attempts += 1
-                reply = await self._exchange(active, pin, route, attempts, data, hashed, seed)
+                reply = await self._exchange(active, pin, route, attempts, data, hashed, seed, call_context)
             finally:
                 await self._ceiling.release()
             if isinstance(reply.outcome, Completion):
                 self._limiter.settle(estimate, float(reply.outcome.cost.input_tokens + reply.outcome.cost.output_tokens))
                 self._consecutive_fatals.clear()
                 await self._ceiling.restore()
+                if attempts > 1 or repaired:
+                    record(span, {SIMCORE_ATTEMPTS: attempts, SIMCORE_PROMPT_HASH: hashed, SIMCORE_ROUTE: route.value})
+                if self.settings.content_capture:
+                    record(span, {GEN_AI_INPUT_MESSAGES: json.dumps([dict(m) for m in active.messages]), GEN_AI_OUTPUT_MESSAGES: reply.outcome.text})
                 if schema is not None:
                     errors = _validation_errors(reply.outcome.text, schema)
                     if errors and not repaired:
@@ -431,7 +503,10 @@ class InferenceClient:
             if reply.fatal_status is not None:
                 self._trip(pin, route, reply.fatal_status)
             if not reply.retryable or attempts > self.settings.max_retries:
+                if isinstance(reply.outcome, CallFailure):
+                    record(span, {SIMCORE_FAILURE_KIND: reply.outcome.kind.value, SIMCORE_FAILURE_DETAIL: reply.outcome.detail})
                 return reply.outcome
+            span.add_event(SIMCORE_EVENT_RETRY, {SIMCORE_ATTEMPTS: attempts, GEN_AI_REQUEST_MODEL: pin.model_id, SIMCORE_ROUTE: route.value})
             wait_s = reply.wait_s
             if wait_s is None:
                 wait_s = min(self.settings.backoff_cap_s, self.settings.backoff_base_s * 2.0 ** (attempts - 1))
@@ -455,11 +530,11 @@ class InferenceClient:
             )
 
     async def _exchange(
-        self, request: ChatRequest, pin: ModelPin, route: InferenceRoute, attempts: int, data: bytes, hashed: str, seed: int | None = None
+        self, request: ChatRequest, pin: ModelPin, route: InferenceRoute, attempts: int, data: bytes, hashed: str, seed: int | None = None, call_context=None
     ) -> _Reply:
         started = self._clock()
         try:
-            response = await self._http.post(CHAT_PATH, content=data, headers=self._headers())
+            response = await self._http.post(CHAT_PATH, content=data, headers=self._headers(call_context))
         except httpx.TimeoutException:
             return _Reply(
                 CallFailure(kind=FailureKind.TIMED_OUT, detail=f"the endpoint did not answer {request.template_id!r} within {self.settings.timeout_s}s", attempts=attempts, route=route),
@@ -562,10 +637,11 @@ class InferenceClient:
             return {"cost_source": CostSource.PRICE_TABLE, "cost": price_table_cost(pin.price, input_tokens, output_tokens)}
         return {"cost_source": CostSource.UNKNOWN, "cost": None}
 
-    def _headers(self) -> dict:
+    def _headers(self, context=None) -> dict:
         headers = {"content-type": "application/json"}
         if self.settings.api_key:
             headers["authorization"] = f"Bearer {self.settings.api_key}"
+        headers.update(traceparent(context))  # so a gateway's spans nest under the engine's
         return headers
 
     # --- the replicate-safe cache: a hit is the cache route at zero cost, a miss answers nothing -----------
@@ -665,3 +741,22 @@ def _repair_request(request: ChatRequest, answer: str, errors: list[str], schema
         FrozenDict({"role": "system", "content": REPAIR_SYSTEM.format(errors="; ".join(errors[:6]), schema=schema or "{}")}),
     )
     return request.model_copy(update={"messages": messages})
+
+
+def _outcome_attributes(outcome: ChatOutcome | None) -> dict:
+    if isinstance(outcome, Completion):
+        attributes = {
+            GEN_AI_RESPONSE_MODEL: outcome.cost.served_model_id,
+            GEN_AI_USAGE_INPUT_TOKENS: outcome.cost.input_tokens,
+            GEN_AI_USAGE_OUTPUT_TOKENS: outcome.cost.output_tokens,
+            SIMCORE_LATENCY_MS: outcome.latency_ms,
+            SIMCORE_COST: outcome.cost.cost,
+            SIMCORE_COST_SOURCE: outcome.cost.cost_source.value,
+            SIMCORE_ROUTE: outcome.cost.route.value,
+            SIMCORE_PROMPT_HASH: outcome.prompt_hash,
+            GEN_AI_REQUEST_SEED: outcome.seed,
+        }
+        return attributes
+    if isinstance(outcome, CallFailure):
+        return {SIMCORE_FAILURE_KIND: outcome.kind.value, SIMCORE_FAILURE_DETAIL: outcome.detail, SIMCORE_ATTEMPTS: outcome.attempts, SIMCORE_ROUTE: outcome.route.value}
+    return {}
