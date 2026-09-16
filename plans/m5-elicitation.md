@@ -30,11 +30,11 @@ The seam every later phase embeds through, made true. The port promises what a r
 
 ### Acceptance criteria
 
-- [ ] The embedding port returns vectors in input order together with the pinned model, the served model and the cost records
-- [ ] The fake satisfies the port and stays deterministic across processes
-- [ ] The real inference client satisfies the port, asserted over a scripted transport
-- [ ] Population's embedding step accepts the real client and builds the same array shape it builds from the fake
-- [ ] Existing population tests pass unchanged in behaviour
+- [x] The embedding port returns vectors in input order together with the pinned model, the served model and the cost records
+- [x] The fake satisfies the port and stays deterministic across processes
+- [x] The real inference client satisfies the port, asserted over a scripted transport
+- [x] Population's embedding step accepts the real client and builds the same array shape it builds from the fake
+- [x] Existing population tests pass unchanged in behaviour
 
 ---
 
@@ -48,12 +48,12 @@ The shapes the module records into. The elicitation record carries temperature a
 
 ### Acceptance criteria
 
-- [ ] The record carries temperature, ε, and one similarity vector of five per anchor set beside each set's distribution
-- [ ] The headline distribution is computed from the per-set distributions under the recorded temperature, and a contradicting stated value is refused
-- [ ] At least six anchor sets are still required
-- [ ] An elicitation failure names its kind — numeric answer, embedding failure, empty response — and cannot carry a distribution
-- [ ] Temperature and ε are per-construct run parameters, defaulting to 1 and 0, included in the run's hash
-- [ ] Pinned identities are re-pinned, with the change recorded in the commit that moves them
+- [x] The record carries temperature, ε, and one similarity vector of five per anchor set beside each set's distribution
+- [x] The headline distribution is computed from the per-set distributions under the recorded temperature, and a contradicting stated value is refused
+- [x] At least six anchor sets are still required
+- [x] An elicitation failure names its kind — numeric answer, embedding failure, empty response — and cannot carry a distribution
+- [x] Temperature and ε are per-construct run parameters, defaulting to 1 and 0, included in the run's hash
+- [x] Pinned identities are re-pinned, with the change recorded in the commit that moves them
 
 ---
 
@@ -67,12 +67,12 @@ The paper's formula as pure arithmetic from similarities to distributions, prove
 
 ### Acceptance criteria
 
-- [ ] Similarity is `(1 + cosine) / 2` over normalised vectors
-- [ ] Per set, the least similar anchor receives exactly zero when ε is zero, and each set's distribution sums to one
-- [ ] ε adds to the least similar anchor and to the denominator exactly as the reference does
-- [ ] Temperature is applied once, after the mean across sets; zero temperature gives a one-hot, and a uniform distribution passes through unchanged
-- [ ] The port reproduces the reference implementation's known answers
-- [ ] The source carries the reference implementation's attribution and licence notice
+- [x] Similarity is `(1 + cosine) / 2` over normalised vectors
+- [x] Per set, the least similar anchor receives exactly zero when ε is zero, and each set's distribution sums to one
+- [x] ε adds to the least similar anchor and to the denominator exactly as the reference does
+- [x] Temperature is applied once, after the mean across sets; zero temperature gives a one-hot, and a uniform distribution passes through unchanged
+- [x] The port reproduces the reference implementation's known answers
+- [x] The source carries the reference implementation's attribution and licence notice
 
 ---
 
@@ -86,11 +86,11 @@ The anchor statements and the rules that keep them honest. An anchor version is 
 
 ### Acceptance criteria
 
-- [ ] An anchor version declares its construct and version and holds six sets of five statements, and anything else is refused
-- [ ] A version's identity is its content hash, and a run scoring against an unpinned or altered version is refused
-- [ ] Purchase-intent and satisfaction anchor versions exist, each with six sets whose wording is not a paraphrase of one set
-- [ ] Categories share the purchase-intent family by name, and an ontology can still name another version
-- [ ] No anchor file is modified after its version is first pinned, asserted against its recorded hash
+- [x] An anchor version declares its construct and version and holds six sets of five statements, and anything else is refused
+- [x] A version's identity is its content hash, and a run scoring against an unpinned or altered version is refused
+- [x] Purchase-intent and satisfaction anchor versions exist, each with six sets whose wording is not a paraphrase of one set
+- [x] Categories share the purchase-intent family by name, and an ontology can still name another version
+- [x] No anchor file is modified after its version is first pinned, asserted against its recorded hash
 
 ---
 
@@ -104,12 +104,12 @@ The module's interface end to end: responses in, outcomes out, in request order.
 
 ### Acceptance criteria
 
-- [ ] A batch returns one outcome per response in request order
-- [ ] A failed embedding chunk records only its own responses as embedding failures, and every other response is scored
-- [ ] Anchor embeddings are computed once per run for an anchor version and model, and reused across batches
-- [ ] Anchors and responses embedded by different models are refused
-- [ ] An empty response is a failure, not a distribution
-- [ ] A scored response records its per-set similarities, and re-scoring them under a new ε or temperature reproduces a fresh scoring exactly
+- [x] A batch returns one outcome per response in request order
+- [x] A failed embedding chunk records only its own responses as embedding failures, and every other response is scored
+- [x] Anchor embeddings are computed once per run for an anchor version and model, and reused across batches
+- [x] Anchors and responses embedded by different models are refused
+- [x] An empty response is a failure, not a distribution
+- [x] A scored response records its per-set similarities, and re-scoring them under a new ε or temperature reproduces a fresh scoring exactly
 
 ---
 
@@ -123,11 +123,11 @@ What the persona is asked, and what happens when it answers with a number anyway
 
 ### Acceptance criteria
 
-- [ ] Each construct has a versioned question template identified by its content hash
-- [ ] The purchase-intent template is based on the paper's question and forbids numbers and ratings
-- [ ] Responses containing ratings such as "4/5", "8 out of 10", "90%" or "★★★★" are numeric-answer failures
-- [ ] Responses that merely mention numbers in passing — a price, a pack size, a year — are scored
-- [ ] No code path accepts a model-stated rating, asserted by a test over the module
+- [x] Each construct has a versioned question template identified by its content hash
+- [x] The purchase-intent template is based on the paper's question and forbids numbers and ratings
+- [x] Responses containing ratings such as "4/5", "8 out of 10", "90%" or "★★★★" are numeric-answer failures
+- [x] Responses that merely mention numbers in passing — a price, a pack size, a year — are scored
+- [x] No code path accepts a model-stated rating, asserted by a test over the module
 
 ---
 
@@ -141,12 +141,12 @@ The gate an anchor version must pass before it can be pinned, needing no human d
 
 ### Acceptance criteria
 
-- [ ] A frozen ladder of graded responses must yield strictly increasing expected ratings
-- [ ] Rank order of the ladder is stable across anchor sets, with Spearman correlation above 0.8
-- [ ] Varied responses must not collapse to one distribution
-- [ ] Deliberately broken anchors — reversed, duplicated, all one point in different words — each fail the check
-- [ ] The result records the anchor version, its hash and the embedding model, and a version without a passing result cannot be pinned
-- [ ] The ladder is frozen, and nothing in the check can adjust an anchor
+- [x] A frozen ladder of graded responses must yield strictly increasing expected ratings
+- [x] Rank order of the ladder is stable across anchor sets, with Spearman correlation above 0.8
+- [x] Varied responses must not collapse to one distribution
+- [x] Deliberately broken anchors — reversed, duplicated, all one point in different words — each fail the check
+- [x] The result records the anchor version, its hash and the embedding model, and a version without a passing result cannot be pinned
+- [x] The ladder is frozen, and nothing in the check can adjust an anchor
 
 ---
 
@@ -160,12 +160,12 @@ The measurement of the mapping claim. A command draws a few hundred public human
 
 ### Acceptance criteria
 
-- [ ] About 500 reviews are drawn balanced across the five star ratings, from a seed, and none is written into the repository
-- [ ] SSR's log loss, Brier score and expected-rating rank correlation are reported beside a text-blind baseline's
+- [x] About 500 reviews are drawn balanced across the five star ratings, from a seed, and none is written into the repository
+- [x] SSR's log loss, Brier score and expected-rating rank correlation are reported beside a text-blind baseline's
 - [ ] The satisfaction anchors used are a pinned version with a passing anchor check
-- [ ] The report records the anchor version and hash, the served embedding model, ε, temperature, the sample size and seed
-- [ ] A fake that embeds identical text identically scores reviews against the anchors deterministically in CI
-- [ ] The gateway guide documents serving Titan Text Embeddings v2 through LiteLLM beside the chat models
+- [x] The report records the anchor version and hash, the served embedding model, ε, temperature, the sample size and seed
+- [x] A fake that embeds identical text identically scores reviews against the anchors deterministically in CI
+- [x] The gateway guide documents serving Titan Text Embeddings v2 through LiteLLM beside the chat models
 - [ ] The dataset's location and terms are confirmed and recorded
 
 ---
@@ -180,8 +180,8 @@ The module proven on a real embedding model, and the documents in step. The anch
 
 ### Acceptance criteria
 
-- [ ] The anchor check passes on the purchase-intent and satisfaction versions against Titan Text Embeddings v2, or its failure is recorded and the version is not pinned
+- [x] The anchor check passes on the purchase-intent and satisfaction versions against Titan Text Embeddings v2, or its failure is recorded and the version is not pinned
 - [ ] The mapping validation runs on real reviews through the real embedding model, and its report is committed as an evaluation with its caveats
 - [ ] Any engine defect the real run exposes is fixed with a test that fails on the old code
-- [ ] The evaluation states plainly that the mapping claim does not establish the simulation claim, and the trust level stays uncalibrated
-- [ ] `FINAL_ARCH.md` §5.5, `SALVAGE.md` and `CONTEXT.md` describe what was built, and no claim contradicts the code
+- [x] The evaluation states plainly that the mapping claim does not establish the simulation claim, and the trust level stays uncalibrated
+- [x] `FINAL_ARCH.md` §5.5, `SALVAGE.md` and `CONTEXT.md` describe what was built, and no claim contradicts the code
