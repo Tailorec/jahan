@@ -80,6 +80,49 @@ def test_the_ladder_is_frozen():
     assert tuple(LADDER) == FROZEN_LADDER
 
 
+def test_each_construct_is_checked_on_a_ladder_worded_in_its_own_construct():
+    from simcore.elicitation import ladder_for, varied_for
+
+    purchase, satisfaction = ladder_for("purchase_intent"), ladder_for("satisfaction")
+    assert tuple(purchase) == FROZEN_LADDER
+    assert len(satisfaction) == len(purchase) == 7
+    assert satisfaction != purchase
+    assert any("satisf" in rung for rung in satisfaction)
+    assert not any("buy" in rung for rung in satisfaction)
+    assert len(varied_for("satisfaction")) == len(varied_for("purchase_intent")) == 5
+    with pytest.raises(ValueError, match="no frozen ladder"):
+        ladder_for("brand_trust")
+
+
+def test_the_satisfaction_check_embeds_the_satisfaction_ladder_not_the_purchase_one(staged: Path):
+    from simcore.elicitation import check_anchors, ladder_for
+
+    seen: list[str] = []
+
+    class SpyEmbed(LexiconEmbed):
+        def embed(self, texts):
+            seen.extend(list(texts))
+            levels = dict(self.levels)
+            for text in texts:
+                levels.setdefault(text, 3)
+            return LexiconEmbed(levels, self.model_id).embed(texts)
+
+    levels = _levels_for(staged)
+    for rung in ladder_for("satisfaction"):
+        levels.setdefault(rung, 3)
+    for text in VARIED:
+        levels.setdefault(text, 3)
+    from simcore.elicitation import VARIED as PURCHASE_VARIED
+
+    for text in PURCHASE_VARIED:
+        levels.setdefault(text, 3)
+    check_anchors("satisfaction-v1", "satisfaction", "v1", SpyEmbed(levels), staged, write_record=False)
+    for rung in ladder_for("satisfaction"):
+        assert rung in seen
+    for rung in LADDER:
+        assert rung not in seen
+
+
 def test_a_frozen_ladder_scores_in_strictly_increasing_expected_rating(staged: Path):
     result = check_anchors("purchase-intent-v1", "purchase_intent", "v1", LexiconEmbed(_levels_for(staged)), staged)
     assert result.passed
@@ -148,6 +191,8 @@ def test_deliberately_broken_anchors_each_fail_the_check(staged: Path, mode: str
 def test_the_result_records_version_hash_and_model_and_pin_refuses_without_it(staged: Path, tmp_path: Path):
     fresh = tmp_path / "bare"
     shutil.copytree(ANCHORS_DIR, fresh)
+    for record in fresh.rglob("*.check.json"):
+        record.unlink()  # a version never checked pins nothing, whatever the repo holds
     with pytest.raises(ValueError, match="no check result"):
         assert_pinnable("purchase-intent-v1", "purchase_intent", "v1", fresh)
     before = anchor_hash(load_anchor_version(staged / "purchase_intent" / "v1.json"))
@@ -160,3 +205,23 @@ def test_the_result_records_version_hash_and_model_and_pin_refuses_without_it(st
     assert anchor_hash(load_anchor_version(staged / "purchase_intent" / "v1.json")) == before
     with pytest.raises(ValueError, match="cannot be pinned"):
         assert_pinnable("someone-else-v9", "purchase_intent", "v1", staged)
+
+
+def test_a_failing_check_record_still_refuses_pinning(staged: Path):
+    from simcore.elicitation import AnchorCheckResult, check_record_path
+
+    record = AnchorCheckResult(
+        anchor_set_id="purchase-intent-v1",
+        construct="purchase_intent",
+        version="v1",
+        anchor_hash=anchor_hash(load_anchor_version(staged / "purchase_intent" / "v1.json")),
+        embed_model_id="lexicon/v1",
+        passed=False,
+        expected_ratings=(3.0,) * 7,
+        spearman_min=0.0,
+        collapse_distance=0.0,
+        detail="flat everywhere",
+    )
+    check_record_path(staged, "purchase_intent", "v1").write_text(record.model_dump_json() + "\n")
+    with pytest.raises(ValueError, match="failed its check"):
+        assert_pinnable("purchase-intent-v1", "purchase_intent", "v1", staged)
