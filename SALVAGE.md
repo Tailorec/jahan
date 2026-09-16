@@ -83,6 +83,8 @@ Biggest salvage. Feeds **`population`, `inference`, `agent`, `elicitation`, `run
 |---|---|---|---|
 | `templating.py` | **ADAPT** | `agent` | **Corrected:** 70 lines of Jinja glue rendering persona **YAML** files. The prompt-engineering asset is the three templates in `templates/` (`persona_system`, `persona_instruction`, `persona_macros`), `src/matraix/persona_dimension_catalog.py` (454 lines), and `persona/schema/dimensions.json` — 1,290 dimensions with a `phrase` per dimension ("aged {value}"), the natural seed for rendering a persona block |
 | `json_survey.py` | **ADAPT** | `agent`/`elicitation` | persona-conditioned JSON survey answering; add SSR free-text mode (no numeric elicitation) |
+
+**Corrected — SSR has code.** `FINAL_ARCH.md` once said the SSR method had no implementation. The authors published `pymc-labs/semantic-similarity-rating` (Apache-2.0). Its `compute.py` is **ADAPT — port with attribution** (ADR 0026): similarity `(1 + cosine) / 2`, subtract-the-minimum normalisation per anchor set, mean across sets, then temperature — not the softmax the architecture had specified. Its `response_rater.py` is **SKIP**: it runs its own `sentence-transformers` model, bypassing the pinned embedding endpoint. Its tests are the known-answer cases for the port. The paper's anchor statements were never published, and were tuned on the paper's own evaluation surveys (ADR 0027).
 | `user_sim.py` | **ADAPT** | `agent` | chat-style persona simulation — conversation turns in WOM/forum |
 | `mixin.py`, `loader.py` | **COPY/ADAPT** | `agent` | persona-agent composition + loading |
 | `browser_use.py`, `computer_1.py`, `cocoa.py`, `claude_code.py`, `codex.py`, … | **SKIP** | — | web/OS agent environments — orthogonal |

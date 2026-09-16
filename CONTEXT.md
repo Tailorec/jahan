@@ -198,6 +198,14 @@ _Avoid_: metric, measure, question
 Reference statements for each point of a construct's five-point scale, which a response is compared against to become a response distribution. Each category names the anchor set it uses for each construct.
 _Avoid_: rubric, scale labels, prompt examples
 
+**Mapping Claim**:
+That the conversion of free text into a rating distribution recovers the rating a real person gave from what that person wrote. It can be checked on human writing that carries its own rating, and says nothing about whether simulated people answer like real ones.
+_Avoid_: SSR accuracy, validation, model accuracy
+
+**Simulation Claim**:
+That simulated personas' rating distributions for a product match what real people's would be. It is the claim a study's findings rest on, and it needs human answers to the same question about the same product to check.
+_Avoid_: realism, fidelity, accuracy
+
 **Adoption**:
 The probability that a respondent answers 4 or 5 on the five-point purchase-intent scale, weighted across audiences by their share — the headline measure of whether a variant would be bought.
 _Avoid_: purchase rate, conversion, mean intent, score

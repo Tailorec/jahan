@@ -287,26 +287,36 @@ Sampling, graph rewiring and community detection draw from **independent streams
 
 ### 5.5 `elicitation` — SSR
 
-*Old M9. Deliberately kept separate despite having one production caller.*
+*Old M9. Deliberately kept separate despite having one production caller. Reshaped by ADR 0026–0028.*
 
-**Owns:** converting free text to a Likert-5 probability mass.
-**Hides:** anchor sets, per-reference-set scoring, averaging, τ, non-collapse diagnostics.
+**Owns:** converting free text to a Likert-5 probability mass, and the question that elicits the text.
+**Hides:** anchor sets and their embeddings, per-set similarities and scoring, averaging, ε and temperature, numeric-answer detection, the anchor checks.
 
-**Interface:** `score(text: str, construct: str, category: str) -> SsrResult`
+**Interface:** batch-first, as ADR 0023 — `score(responses, construct) -> outcomes`, one per response in request order, each an `SsrResult` or a recorded elicitation failure.
 
-**Why it stays its own module** despite `agent` being its only runtime caller: it has an independent entrypoint (`ssr-replica`), its own acceptance gate against published human data, and it carries the engine's central scientific claim. Independent addressability is worth the shallowness; this is the one deliberate exception to P1.
+**Why it stays its own module** despite `agent` being its only runtime caller: it has independent entrypoints (the anchor check and the mapping validation), its own acceptance gates, and it carries the engine's central scientific claim. Independent addressability is worth the shallowness; this is the one deliberate exception to P1.
 
-**Internals:** anchor sets are versioned JSON per `(construct, category)` with R ≥ 6 reference sets of 5 statements, embedded once with the pinned embed model. Scoring: embed the text once, then per reference set `softmax(cosine(v, anchor_i) / τ)` over the 5 anchors, averaged across sets. The free text is retained as the objection-mining corpus; the PMF is the number.
+**The computation is the paper's (ADR 0026)**, ported with attribution from the authors' `compute.py`: similarity `γ = (1 + cosine) / 2`; per anchor set, subtract the least similar anchor's similarity and normalise, `p_i = (γ_i − γ_min + ε·[i is the least similar]) / (Σγ − 5·γ_min + ε)`; average across sets; then apply temperature once, `p^(1/T)`. ε and T are study parameters on `RunConfig`, per construct, defaulting to the paper's 0 and 1, and never tuned on validation data.
+
+**Anchors (ADR 0027):** one domain-independent family per construct — purchase intent now, plus a satisfaction set used only for validation — of six hand-written sets of five statements with deliberately varied wording. Stored as immutable versioned JSON under `anchors/<construct>/<version>.json`, identified by content hash and pinned by `RunConfig.anchor_set_hashes`; a changed statement is a new version. Anchors are embedded once per run, cached by anchor hash and embedding model. Before a version may be pinned, the anchor check must pass against the real embedding model: a frozen ladder of graded responses scores in increasing order, Spearman rank stability across sets exceeds 0.8, and varied responses do not collapse.
+
+**The question (Q7):** elicitation owns a versioned, hashed question template per construct, based on the paper's *"How likely are you to purchase the product?"* with an instruction to answer briefly in the persona's own words, without numbers or ratings; `agent` includes it verbatim. A response carrying a rating-like number is a recorded elicitation failure with no distribution — no code path scores a model-emitted rating.
 
 **Two rules that are not negotiable:**
-- **Numeric elicitation is forbidden.** The prompt asks for one short paragraph and explicitly forbids numbers. There is no code path that accepts a model-emitted rating.
-- **Anchors and responses must share one embedding model.** `SsrResult` carries `embed_model_id` so a mismatch is detectable from the trace alone, after the fact.
+- **Numeric elicitation is forbidden**, and enforced by detection rather than by instruction alone.
+- **Anchors and responses share one embedding model**, pinned with no fallback (ADR 0012). `SsrResult` carries `embed_model_id` so a mismatch is detectable from the trace alone.
 
-**Interface out:** `SsrResult {pmf, per_set_pmfs, anchor_set_id, anchor_version, embed_model_id, tau}`.
+**Interface out:** `SsrResult {response_text, per_set_similarities, per_set_pmfs, pmf, construct_id, category, anchor_set_id, anchor_version, embed_model_id, temperature, epsilon}`, where `pmf` is computed as temperature applied to the mean of `per_set_pmfs`, so it cannot disagree with them, and the raw similarities make a change of ε or T arithmetic on the trace.
 
-**Salvage:** the SSR method (Colgate-Palmolive × PyMC Labs, arXiv 2510.08338) — method only, no code exists. MatrAIx `json_survey.py` adapted for the free-text mode.
+**Embedding model (ADR 0028):** Amazon Titan Text Embeddings v2, through a local LiteLLM proxy that also serves the chat models — neither of Bedrock's OpenAI-compatible endpoints serves embeddings, and OpenAI's embedding models are not on AWS. The paper used OpenAI `text-embedding-3-small`; the mapping validation measures whether the substitution holds, with Cohere Embed v4 next if it does not.
 
-**Boundary tests:** PMFs never collapse to a point mass on stub anchors with known geometry; rank stability across reference sets Spearman > 0.8; an embed-model mismatch between anchors and response raises; τ change moves distribution spread monotonically.
+**Validation (ADR 0028):** the **mapping claim** — SSR recovers the rating a person gave from what they wrote — is validated on public human product reviews, about 500 balanced across stars, scored with log loss, Brier score and rank correlation against a baseline that ignores the text, using the frozen satisfaction anchors. The **simulation claim** — simulated purchase intent matches real people's — is owed; the trust level stays `UNCALIBRATED` (ADR 0008) until a purchase-intent benchmark exists.
+
+**Salvage:** the SSR computation from `pymc-labs/semantic-similarity-rating` (Apache-2.0), ported with attribution and checked against its tests. MatrAIx `json_survey.py` adapted for the free-text mode.
+
+**Out of scope:** a purchase-intent human benchmark, constructs beyond purchase intent, prompt-wording experiments, tuning ε or temperature, and assembling the persona's turn, which belongs to `agent`.
+
+**Boundary tests:** the port reproduces the reference implementation's known answers; the ladder, rank-stability and non-collapse checks catch deliberately broken anchors; a response with a rating-like number is a failure, never a distribution; an embedding-model mismatch between anchors and response raises; outcomes return in request order and a failed embedding chunk fails only its own responses; changing ε or temperature on recorded similarities reproduces a fresh scoring exactly; raising temperature widens the distribution monotonically.
 
 ---
 
@@ -547,7 +557,7 @@ Full per-file detail is in `SALVAGE.md`; this is the module-level mapping. Keep 
 | **MatrAIx** `templating.py`, `user_sim.py`, `json_survey.py` | MIT | `agent`, `elicitation` | COPY/ADAPT — the 1,290-attribute prompt renderer |
 | **MatrAIx** `survey_task_content.py`, `survey_eval.py` | MIT | `world` (SurveyRoom) | ADAPT — strip eval framing, add SSR free-text mode |
 | **MatrAIx** Harbor runtime, web app, browser/OS agents | MIT | — | SKIP — orthogonal |
-| **SSR paper** (arXiv 2510.08338) | method | `elicitation` | no code exists — implement from the paper |
+| **SSR** — arXiv 2510.08338 and `pymc-labs/semantic-similarity-rating` | Apache-2.0 | `elicitation` | ADAPT — port the computation from `compute.py` with attribution (ADR 0026); anchors are not published and are written here (ADR 0027) |
 | **Generative Agents** (Park et al.) | method | `agent` | no code — memory/reflection recipe |
 | **Leiden** (Traag et al.) | method + `leidenalg` | `population` | library |
 
