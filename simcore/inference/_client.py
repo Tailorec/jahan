@@ -579,7 +579,8 @@ class InferenceClient:
                     route=route,
                 ),
                 retryable=True,
-                fatal_status=response.status_code,
+                # An outage is not a refusal: a run of 503s is a provider recovering, and counting it toward
+                # the circuit would leave the client refusing every call after the endpoint came back.
             )
         if response.status_code >= 400:
             # 400, 401, 403, 404 and 422 — a malformed request, an invalid key, a forbidden one, an

@@ -215,6 +215,27 @@ def test_a_later_batch_meets_the_same_one_error_and_still_no_network():
     assert all(isinstance(outcome, CallFailure) and outcome.kind is FailureKind.CIRCUIT_OPEN for outcome in outcomes)
 
 
+def test_a_provider_outage_never_opens_the_circuit_so_the_client_works_again_once_it_recovers():
+    """Server errors once counted toward the circuit, which never closes: five 503s during a short outage
+    left the client refusing every later call with nothing sent, long after the endpoint recovered."""
+    state = {"down": True, "sent": 0}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        state["sent"] += 1
+        if state["down"]:
+            return httpx.Response(503, content=b"overloaded")
+        return httpx.Response(200, content=chat_json(TIER_A))
+
+    client, _ = client_for(handler, circuit_threshold=5, max_retries=1)
+    during = client.complete([ask(index) for index in range(8)])
+    assert not any(isinstance(o, CallFailure) and o.kind is FailureKind.CIRCUIT_OPEN for o in during)
+    assert all(isinstance(o, CallFailure) and o.kind is FailureKind.FATAL_RESPONSE for o in during)
+    state["down"], state["sent"] = False, 0
+    after = client.complete([ask(index) for index in range(3)])
+    assert all(isinstance(o, Completion) for o in after)
+    assert state["sent"] == 3
+
+
 def test_differing_fatal_errors_do_not_pile_into_one_circuit():
     state = {"sent": 0}
 
