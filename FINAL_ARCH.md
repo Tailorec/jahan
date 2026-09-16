@@ -20,7 +20,7 @@ flowchart LR
     D --> E["world<br/>survey · feed · forum · WOM"]
     E <--> F["agent<br/>context · memory · turn"]
     F --> G["elicitation<br/>SSR → Likert PMF"]
-    F --> H["inference<br/>router · cache · fake mode"]
+    F --> H["inference<br/>batch queue · limiter · cache · fake mode"]
     G --> H
     E --> I["trace<br/>append-only spine"]
     F --> I
@@ -94,7 +94,7 @@ Six ports. Each has a production adapter and an in-memory adapter; the in-memory
 
 | Port | Production adapter | Test adapter | Why it's a port |
 |---|---|---|---|
-| `ChatPort` / `EmbedPort` | OpenAI-compatible HTTP (OpenRouter, LiteLLM, vLLM); optional `bedrock_direct` | `FakeInference` — deterministic completions keyed by prompt hash | network + model non-determinism |
+| `ChatPort` / `EmbedPort` | one OpenAI-compatible endpoint over `httpx` — a user-run gateway (LiteLLM by default) or vLLM/Ollama directly; no provider SDK (ADR 0021) | `FakeInference` — deterministic completions keyed by prompt hash | network + model non-determinism |
 | `CoresetSource` | `HfCoresetSource` — reads shards a user fetched explicitly, verifying every file against `manifest.json` on each use; downloads nothing | `FixtureCoresetSource` (committed rows), `SyntheticCoresetSource` (generated; its fields state a tier — a shape that declares no assignment type is measured, one standing for a model's reading is extracted, for invented rows synthesized) | filesystem + a 4.17 GB dependency that must not be bundled, and a decoder whose rules are the dataset's knowledge |
 | `CoresetCatalog` | `IndexCoresetCatalog` — coverage and counts answered from postings built once from the cached shards' packed arrays and saved beside the cache, never a row decode (the release's own 2.6 GB `postings.sqlite` is not used) | the same `SyntheticCoresetSource`, which implements both protocols | a four-orders-of-magnitude cost gap and a different failure mode are why `preview()` is typed to the catalog, not the source, so it cannot grow a row read |
 | `AnchorSource` | `PackagedAnchors` — versioned anchor sets and default τ shipped in-repo | `StubAnchors` — fixed vectors, exact expected PMFs | lets anchors and τ be replaced without touching `elicitation` |
@@ -247,24 +247,41 @@ Sampling, graph rewiring and community detection draw from **independent streams
 
 ### 5.4 `inference` — every model call
 
-*Absorbs old M7 (router), M18 (cache). Unchanged in shape — this was already the deepest module in the system.*
+*Absorbs old M7 (router), M18 (cache). Reshaped by ADR 0021–0025: the engine speaks one protocol to a gateway the user runs, and owns every policy that changes what the trace must say.*
 
-**Owns:** all model access. No other module talks to a provider.
-**Hides:** role→model resolution, request coalescing, response and embedding caching, retries with provider-aware backoff, fallback routes, token accounting, cost events, fake mode.
+**Owns:** all model access. No other module talks to a model endpoint, and no module imports a provider SDK or a gateway library (ADR 0021).
+**Hides:** the HTTP client, the batch queue and concurrency ceiling, request and token rate limiting, retries and backoff, the pinned fallback, served-model verification, cost recording and its source, the persistent cache and its sample keys, seeds, structured-output requests and repair, embedding batching, OpenTelemetry spans.
 
-**Interface:** `chat(role, messages, *, temp, max_tokens, template_id) -> Completion` · `embed(texts) -> np.ndarray`
+**Interface:** `complete(requests) -> outcomes` · `chat(role, messages, *, temp, max_tokens, template_id) -> Completion` (one request over `complete`) · `embed(texts) -> np.ndarray`
 
-A `Completion` carries the text, template id, prompt hash, latency and the exact `CostRecorded` event the call produced; the runner appends that event as-is, so cost has one source. Every cost event records its route — `primary`, `fallback` or `cache` — and whether the cache served it is computed from the route (ADR 0012).
+`complete` is synchronous to its caller and concurrent inside, and returns one outcome per request **in request order** — a `Completion` or a recorded failure, never an exception for one call and never an absence (ADR 0023). A `Completion` carries the text, template id, prompt hash, latency and the exact `CostRecorded` event it produced; the runner appends that event as-is, so cost has one source. Every cost event records its route — `primary`, `fallback` or `cache` — the pinned and the **served** model, and a `cost_source` of `gateway`, `price_table` or `unknown` (ADR 0012).
 
-**Internals:** resolve role→model from `ModelPins`, failing hard if unpinned; coalesce identical in-flight requests within a 50 ms window; cache lookup (chat key `sha256(provider, model_id, template_id, messages, temp)`, embed key `sha256(embed_model, text)`); dispatch over the OpenAI-compatible transport; retry ×3 exponential, provider-aware on 429/5xx, then the role's **pinned** fallback — `ModelPins` names at most one fallback per chat role, and an unpinned fallback is never used, so a world's model never changes to one the configuration does not name. The embedding role has no fallback: anchors and responses scored in different embedding spaces are not comparable.
+**Transport:** OpenAI Chat Completions and Embeddings over `httpx`, to a base URL the user configures; the request bytes the engine hashes are the bytes it sends. The documented default gateway is a self-hosted LiteLLM proxy, which reaches Bedrock, Anthropic and hosted providers; vLLM and Ollama are reached directly. Gateway-side retries, fallbacks and caching are documented off, because a substitution the engine cannot see cannot be recorded; the engine detects a gateway that ignored this where it can — a served model outside the pin, or an impossibly fast response reporting no tokens.
 
-**Roles:** `tier_a` (bulk persona ticks — Persona-8B via OpenRouter or self-hosted vLLM, small-instruct fallback), `tier_b` (first impressions, conversations, reflections, purchases — a frontier model), `embed` (**one** pinned model for anchors, responses and recsys alike — mixing embedding models invalidates SSR geometry), `safety` (optional moderation before any generated text is written to the trace).
+**Internals:**
+1. **Resolve** role→model from `ModelPins`, failing before any network call if unpinned. A pin declares the served identifiers it accepts, its structured-output capability, whether it honours `seed`, and optionally its price.
+2. **Queue** — a bounded queue so a tick of 620,000 turns never becomes 620,000 coroutines; a concurrency ceiling set to the endpoint's real capacity; an adaptive limiter on requests *and* tokens per minute, estimating tokens from text length and correcting from reported usage, lowering concurrency on sustained 429s and restoring it on success. One async loop on a dedicated thread, so the synchronous facade works from inside a running loop.
+3. **Cache** — persistent, in the user cache directory, keyed by served model, template id and hash, exact request bytes and — for any call above temperature zero — a **sample key** from the replicate seed, persona and tick, so replicates never share a sample (ADR 0025). Replay reads the trace, never the cache.
+4. **Dispatch and retry** — 429, 5xx, timeouts and connection errors retry with backoff honouring `Retry-After`; 400, 401, 403, 404 and 422 are fatal at once, and a small run of identical fatal errors trips a circuit breaker that fails the batch with one clear error. Exhausted retries fall to the role's **pinned** fallback; an unpinned fallback is never used, and the embedding role has none.
+5. **Verify** — the first success records the served model; any later call served by a model outside the pin and its declared aliases is a **pin failure**, a recorded failed call.
+6. **Cost** — the gateway's reported cost, else the pin's declared price, else `unknown`; budget enforcement refuses `unknown` unless unbudgeted spend is explicitly accepted.
+7. **Structure** — a pin declaring structured output receives a strict `response_format` schema; every response is still parsed leniently (`coerce_json`), validated against the corpus vocabulary, repaired once, and left uncompleted rather than accepted off-list.
+8. **Seed** — a seed derived from world seed, persona, tick and sequence is sent where the pin honours it, and recorded; provider determinism is never promised, because reproducibility comes from replay (ADR 0011).
+9. **Telemetry** — a span per batch and per call, retries and fallbacks as span events, `gen_ai.*` attributes named in one module, metadata only unless content capture is explicitly enabled (ADR 0022). The core depends on `opentelemetry-api` alone; the SDK and OTLP exporter are the optional `consumersim[otel]` extra.
 
-**Cache invalidation:** never within a run — pins are immutable. Cross-run reuse only when `model_id` and `template_version` both match.
+**Completion is sampled, not chosen (ADR 0024).** Projection asks the model for a probability distribution over an attribute's vocabulary for each persona, and the engine samples the value with the population's seeded stream at a recorded `completion_temperature`. A distribution that does not cover the vocabulary or sum to one within tolerance is refused like an off-list value.
 
-**Salvage:** MatrAIx `model_client.py` (multi-provider resolution — keep every provider branch, add `bedrock/` and `vllm/`), `openai_client.py` (`coerce_json`, timeouts), `persona_model.py` (CLI→env→config→default pin precedence), `llm_usage.py` (token accounting).
+**Configuration:** the environment configures how a run executes, never what it measured. Endpoint URL, API key, concurrency, rate limits, timeouts and retry counts are execution configuration and unhashed; model pins, accepted served identifiers, capabilities, prices, temperatures and templates live on `RunConfig` and are hashed.
 
-**Boundary tests:** identical prompts hit cache and report `cache_hit`; a 429 retries then falls back; an unpinned role raises before any network call; `FakeInference` is deterministic across processes for the same prompt hash; cache hit rate ≥ 30% on a baseline re-run.
+**Roles:** `tier_a` (bulk persona ticks — Persona-8B served by vLLM or through a gateway, small-instruct fallback), `tier_b` (first impressions, conversations, reflections, purchases — a frontier model), `embed` (**one** pinned model for anchors, responses and recsys alike — mixing embedding models invalidates SSR geometry; every vector's dimension is checked against the first), `safety` (a routed role; its moderation behaviour belongs to the caller).
+
+**Holdout evaluation:** an evaluation command hides measured attitudes on Stack Overflow rows, projects them from demographics through the production path, and reports marginal distance, calibration and how much of the attitudes' dependence on demographics survives, against a baseline sampling each attitude from its demographic-conditional marginal. It runs on the fake in CI and on a real endpoint when pointed at one — the engine's central number, owed by ADR 0019.
+
+**Salvage:** MatrAIx `openai_client.py` (`coerce_json`, timeouts), `persona_model.py` (CLI→env→config→default pin precedence), `llm_usage.py` (token accounting), `cost_source` provenance. OASIS's async fan-out behind one concurrency ceiling, as a pattern only. **Withdrawn:** MatrAIx's per-provider branches in `model_client.py` (ADR 0021), and OASIS's CAMEL-based agent model access, whose random model scheduling, uncontrollable memory and swallowed errors conflict with ADR 0009, 0011 and 0023.
+
+**Out of scope:** the cost-and-time forecast (inference supplies token estimates and measured throughput; `runner` owns the budget and the forecast), streaming, the Anthropic protocol, the `safety` role's moderation behaviour, and any agent or tool-calling logic.
+
+**Boundary tests:** a scripted HTTP transport plays 429 sequences, timeouts, served-model changes, malformed JSON and reported costs through the real retry, limiter, fallback, cache and circuit-breaker code; outcomes return in request order whatever order responses arrive in; one failed call leaves the rest of a batch intact and recorded; an unpinned role raises before any network call; a served model outside the pin is a pin failure; two replicates never share a cached sample while a re-run of the same seed hits the cache; `complete` works from inside a running event loop; no telemetry span carries prompt content unless enabled; `FakeInference` is deterministic across processes for the same prompt hash; cache hit rate ≥ 30% on a baseline re-run of the same seeds.
 
 ---
 
@@ -526,7 +543,7 @@ Full per-file detail is in `SALVAGE.md`; this is the module-level mapping. Keep 
 | **ASAL** JAX substrates, `clip.py`, `dino.py` | Apache-2.0 | — | SKIP — wrong substrate and modality |
 | **MatrAIx** `persona_codes.schema.json`, index builders, pool | MIT | `population` | COPY — the decode contract |
 | **MatrAIx** Persona-1M parquet shards | **`matraix-research-only`** (ADR 0016) | `population` via `CoresetSource`/`CoresetCatalog` | **Never bundled, never downloaded implicitly** — the user fetches shards explicitly with `hf download` into a cache outside the repository and accepts the dataset's own terms; `HfCoresetSource` reads that cache and verifies each file against the manifest on use; `SyntheticCoresetSource` keeps the quickstart working with no corpus at all |
-| **MatrAIx** `model_client.py`, `openai_client.py`, `persona_model.py`, `llm_usage.py` | MIT | `inference` | COPY — the multi-provider router core |
+| **MatrAIx** `openai_client.py`, `persona_model.py`, `llm_usage.py` | MIT | `inference` | ADAPT — `coerce_json`, pin precedence, token accounting; `model_client.py`'s provider branches withdrawn (ADR 0021) |
 | **MatrAIx** `templating.py`, `user_sim.py`, `json_survey.py` | MIT | `agent`, `elicitation` | COPY/ADAPT — the 1,290-attribute prompt renderer |
 | **MatrAIx** `survey_task_content.py`, `survey_eval.py` | MIT | `world` (SurveyRoom) | ADAPT — strip eval framing, add SSR free-text mode |
 | **MatrAIx** Harbor runtime, web app, browser/OS agents | MIT | — | SKIP — orthogonal |
@@ -534,7 +551,7 @@ Full per-file detail is in `SALVAGE.md`; this is the module-level mapping. Keep 
 | **Generative Agents** (Park et al.) | method | `agent` | no code — memory/reflection recipe |
 | **Leiden** (Traag et al.) | method + `leidenalg` | `population` | library |
 
-**Salvage rules:** one router — no module talks to a provider directly. Forked OASIS code keeps upstream structure and headers (P6); pin upstream SHAs and review diffs quarterly for recsys/clock fixes. No persona-invention code from any source. Any salvage that changes golden-run output gets reviewed and re-committed deliberately, never silently.
+**Salvage rules:** one inference module — no module talks to a model endpoint directly, and none imports a provider SDK (ADR 0021). Forked OASIS code keeps upstream structure and headers (P6); pin upstream SHAs and review diffs quarterly for recsys/clock fixes. No persona-invention code from any source. Any salvage that changes golden-run output gets reviewed and re-committed deliberately, never silently.
 
 ---
 
@@ -568,7 +585,7 @@ consumersim/
 │   ├── ports/                   port protocols + all adapters (fake, fixture, synthetic, http, hf)
 │   ├── brief/
 │   ├── population/              decode · sample · gate · project · embed · graph · communities
-│   ├── inference/               router + cache + fake
+│   ├── inference/               client · batch queue · limiter · cache · fake
 │   ├── elicitation/             SSR + anchor sets
 │   ├── agent/                   context · conditioning · memory · turn
 │   ├── world/                   env · platforms · recsys · clock  (upstream-shaped)
@@ -593,7 +610,7 @@ consumersim/
 
 `ports/` holding both protocols and adapters is deliberate: adapters are infrastructure, and keeping them out of the core packages means no core module can accidentally import a concrete adapter.
 
-Core dependencies: `pydantic`, `pyyaml` (brief intake), `pyarrow`, `numpy`, `scipy` (distribution gates: the chi-squared survival function), `networkx`, `leidenalg` with `igraph` (Leiden's graph, imported directly), `openai` (the OpenAI-compatible transport), optional `boto3`. SQLite for live state and traces until scale demands otherwise.
+Core dependencies: `pydantic`, `pyyaml` (brief intake), `pyarrow`, `numpy`, `scipy` (distribution gates: the chi-squared survival function), `networkx`, `leidenalg` with `igraph` (Leiden's graph, imported directly), `httpx` (the one OpenAI-compatible transport, ADR 0021), `opentelemetry-api` (spans, no-op until configured; SDK and OTLP exporter in the optional `otel` extra, ADR 0022). SQLite for live state and traces until scale demands otherwise.
 
 ---
 
