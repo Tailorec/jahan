@@ -32,7 +32,7 @@ from simcore.schemas import (
 )
 
 from .coreset import DecodedRow
-from .decoder import Codebook, decode_row
+from .decoder import Codebook, _resolve_override, decode_row, is_unexpressible
 
 REPO = "MatrAIx2026/MatrAIx_Persona_1M_Public_Release"
 DEFAULT_CODEBOOK = "persona_codes.schema.json"
@@ -88,6 +88,7 @@ class _ShardArrays:
     overrides: Mapping[int, Mapping[int, str]]  # field_index -> row -> raw override value
     inferred: Mapping[int, np.ndarray]  # field_index -> rows whose grounding says a model inferred it
     labels: dict = field(default_factory=dict)  # attribute -> decoded-label array, cached
+    unexpressible: dict = field(default_factory=dict)  # attribute -> rows whose override the vocabulary cannot express
 
 
 class HfCoresetSource:
@@ -313,10 +314,19 @@ class HfCoresetSource:
             labels[codes == code] = label
         if arrays.bitmap is not None:
             labels[~_field_present(arrays.bitmap, index)] = None
+        unexpressible = np.zeros(len(arrays.row_ids), dtype=bool)
         for row, raw in arrays.overrides.get(index, {}).items():
-            labels[row] = _resolve_override_label(raw, values)
+            labels[row] = _resolve_override(raw, values)
+            unexpressible[row] = is_unexpressible(raw, values)
         arrays.labels[attribute] = labels
+        arrays.unexpressible[attribute] = unexpressible
         return labels
+
+    def unexpressible(self, arrays: _ShardArrays, attribute: AttributeId) -> np.ndarray:
+        """Rows that recorded a value for `attribute` the vocabulary cannot express, and so decode it as
+        absent; see ``is_unexpressible``."""
+        self.labels(arrays, attribute)
+        return arrays.unexpressible[attribute]
 
     def _populated(self, arrays: _ShardArrays, attribute: AttributeId) -> np.ndarray:
         return self.labels(arrays, attribute) != None  # noqa: E711 - numpy object-array presence test
@@ -402,18 +412,6 @@ def _allowed_labels(predicate: AttributeFilter, values: list) -> list:
         low, high = sorted((values.index(predicate.first), values.index(predicate.last)))
         return values[low : high + 1]
     return []
-
-
-def _resolve_override_label(raw: str, values: list) -> str | None:
-    from simcore.ports.decoder import _MISSINGNESS
-
-    token = raw.strip()
-    if token.lower() in _MISSINGNESS:
-        return None
-    if token in values:
-        return token
-    lowered = {value.lower(): value for value in values}
-    return lowered.get(token.lower())
 
 
 def _stream(path: Path, chunk: int = 1 << 20) -> Iterator[bytes]:

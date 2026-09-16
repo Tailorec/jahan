@@ -79,6 +79,9 @@ def preview(request: PreviewRequest, *, catalog: CoresetCatalog) -> AudiencePrev
             carrying=carrying.get(source, 0),
             matched=matched.get(source, 0),
             attributes=FrozenDict({attribute: coverage[attribute][source].tier for attribute in declared}),
+            unexpressible=FrozenDict(
+                {attribute: coverage[attribute][source].unexpressible for attribute in declared if coverage[attribute][source].unexpressible}
+            ),
         )
         for source in sources
     )

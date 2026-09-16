@@ -25,6 +25,10 @@ class SourcePreview(SimBaseModel):
     matched: NonNegativeInt
     # Every requested attribute, keyed to the tier the source carries it at, or nothing when it is absent.
     attributes: FrozenDict[AttributeId, FieldOrigin | None]
+    # Attributes some rows recorded in a form the vocabulary cannot express, with how many: those rows are
+    # excluded from anything requiring the attribute, and the exclusion follows the value — every `65+`
+    # age, never a `25-34` — so it is a skew to see, not a gap to ignore. Only non-zero entries appear.
+    unexpressible: FrozenDict[AttributeId, NonNegativeInt] = FrozenDict({})
 
 
 class AudiencePreview(SimBaseModel):

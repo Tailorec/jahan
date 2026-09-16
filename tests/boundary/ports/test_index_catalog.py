@@ -161,6 +161,29 @@ def test_a_survey_sources_inferred_values_grade_as_extracted_in_the_index_as_in_
             assert (cell.measured, cell.extracted) == (decoded.count(FieldOrigin.MEASURED), decoded.count(FieldOrigin.EXTRACTED))
 
 
+def test_an_open_band_the_vocabulary_cannot_express_is_counted_not_silently_dropped(tmp_path):
+    """Every `65+` age override decoded as absent and vanished, excluding exactly the oldest respondents from
+    any study conditioning on age. The field still decodes as absent — a demographic is never guessed —
+    but coverage and the preview now count it, apart from answers that were simply missing."""
+    cache = tmp_path / "coreset"
+    write_hf_cache(
+        cache,
+        codebook_columns=COLUMNS,
+        shards={
+            "data/persona-1m-0000.parquet": [
+                {"codes": [0, 2, 1, 1, 1, 2, 2, 1], "source": "gss", "overrides": [(0, "18+")]},
+                {"codes": [0, 2, 1, 1, 1, 2, 2, 1], "source": "gss", "overrides": [(0, "null")]},
+                {"codes": [4, 2, 1, 1, 1, 2, 2, 1], "source": "gss"},
+            ],
+        },
+    )
+    index = from_hf_source(HfCoresetSource(cache_dir=cache), ATTRIBUTES)
+    cell = index.coverage(["age_bracket"], ["gss"])["age_bracket"]["gss"]
+    assert (cell.total, cell.present, cell.unexpressible) == (3, 1, 1)
+    (source,) = preview(PreviewRequest(pack(), 1, sources=("gss",)), catalog=index).sources
+    assert source.unexpressible == {"age_bracket": 1}
+
+
 def test_the_index_can_be_built_from_an_in_memory_source():
     source = SyntheticCoresetSource(
         SyntheticShape({"age": AttributeShape(("25_34", "35_44")), "sex": AttributeShape(("female", "male"))}, rows=200), seed=3

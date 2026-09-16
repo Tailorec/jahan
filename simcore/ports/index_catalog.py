@@ -135,8 +135,9 @@ def from_hf_source(hf_source, attributes: Iterable[AttributeId], sources: Sequen
             base[source] = totals[source]
             for attribute in wanted:
                 labels = hf_source.labels(arrays, attribute)[source_mask]
-                cell = coverage[attribute].setdefault(source, {"total": 0, "present": 0, "measured": 0, "extracted": 0, "synthesized": 0, "calibrated": 0})
+                cell = coverage[attribute].setdefault(source, {"total": 0, "present": 0, "measured": 0, "extracted": 0, "synthesized": 0, "calibrated": 0, "unexpressible": 0})
                 cell["total"] += int(source_mask.sum())
+                cell["unexpressible"] += int(hf_source.unexpressible(arrays, attribute)[source_mask].sum())
                 carried = labels != None  # noqa: E711 - numpy object-array presence test
                 present_positions = positions[carried]
                 cell["present"] += int(len(present_positions))
@@ -172,6 +173,7 @@ def _coverage_of(cell: Mapping[str, int]) -> AttributeCoverage:
         extracted=cell["extracted"],
         synthesized=cell["synthesized"],
         calibrated=cell["calibrated"],
+        unexpressible=cell.get("unexpressible", 0),
     )
 
 

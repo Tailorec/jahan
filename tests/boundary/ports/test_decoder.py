@@ -117,3 +117,22 @@ def test_an_override_that_only_differs_in_case_is_mapped_into_the_vocabulary():
 def test_a_populated_count_that_disagrees_raises_naming_the_row():
     with pytest.raises(ValueError, match="row 'shard-9'"):
         decode(codes=[1, 1], populated=N + 3, row_id="shard-9")
+
+
+def test_a_vocabulary_word_that_looks_like_missingness_is_an_answer():
+    """Sentinels were checked before the vocabulary, so an override naming a real value spelled like one —
+    `None` children, `Not applicable` institution — would have erased the answer. 435 codebook values are."""
+    coding_days = [column["id"] for column in MINI_COLUMNS].index("coding_days")
+    assert decode(overrides=[(coding_days, "None")])["coding_days"] == "none"
+    assert "coding_days" not in decode(overrides=[(coding_days, "null")])
+
+
+def test_a_value_the_vocabulary_cannot_express_is_distinguished_from_a_missing_one():
+    from simcore.ports.decoder import is_unexpressible
+
+    ages = MINI_COLUMNS[0]["values"]
+    assert is_unexpressible("18+", ages)
+    assert not is_unexpressible("null", ages)
+    assert not is_unexpressible("Not applicable", ages)
+    assert not is_unexpressible("25-34", ages)
+    assert "age_bracket" not in decode(overrides=[(0, "18+")])

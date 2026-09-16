@@ -124,15 +124,28 @@ def _is_missing(bitmap: bytes | None, field_index: int) -> bool:
     return ((bitmap[byte] >> bit) & 1) == 1
 
 
-def _resolve_override(raw: str, vocabulary: list[str]) -> str | None:
-    """Map an override value to the nearest vocabulary value, or None when it encodes missingness or
-    has no mapping. An out-of-vocabulary value is never admitted raw into a decoded row, because a
-    closed vocabulary is what the gates and filters rest on."""
+def _resolve_override(raw: str, vocabulary: Sequence[str]) -> str | None:
+    """Map an override value to its vocabulary value, or None when it encodes missingness or has no
+    mapping. An out-of-vocabulary value is never admitted raw into a decoded row, because a closed
+    vocabulary is what the gates and filters rest on.
+
+    The vocabulary is consulted before the missingness sentinels: 435 codebook values are themselves
+    words like `None` and `Not applicable`, and there they are answers — "no children", "no institution" —
+    not the absence of one."""
     token = raw.strip()
-    if token.lower() in _MISSINGNESS:
-        return None
     if token in vocabulary:
         return token
-    # Try case-insensitive match — the vocabulary uses fixed labels, an override may differ in case.
-    lower_map = {v.lower(): v for v in vocabulary}
-    return lower_map.get(token.lower())
+    lowered = {str(value).lower(): str(value) for value in vocabulary}
+    if token.lower() in lowered:
+        return lowered[token.lower()]
+    return None
+
+
+def is_unexpressible(raw: str, vocabulary: Sequence[str]) -> bool:
+    """Whether an override records a real value the vocabulary cannot express — `65+` against bands that
+    split at 75 and 85 — as opposed to encoding missingness. Such a field decodes as absent, because a
+    demographic is never synthesized and choosing a band would invent a precision nobody measured; it is
+    counted instead, so the loss is visible rather than a silent, value-correlated exclusion."""
+    if _resolve_override(raw, vocabulary) is not None:
+        return False
+    return raw.strip().lower() not in _MISSINGNESS

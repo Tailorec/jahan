@@ -25,6 +25,9 @@ class AttributeCoverage:
     extracted: int = 0
     synthesized: int = 0
     calibrated: int = 0
+    # Rows that recorded a value the vocabulary cannot express (an open band like `65+`). They are not in
+    # `present` — the field decodes as absent rather than being guessed — and not a missing answer either.
+    unexpressible: int = 0
 
     @property
     def tier(self) -> FieldOrigin | None:
