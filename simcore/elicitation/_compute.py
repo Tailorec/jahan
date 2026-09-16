@@ -1,8 +1,8 @@
 """The paper's SSR computation, ported with attribution.
 
 Reference: `pymc-labs/semantic-similarity-rating` (Apache-2.0), the implementation published by the
-authors of arXiv 2510.08338 ("Semantic Similarity Rating: A Collaborative Approach for AI-Assisted
-Survey Rating"). Licensed under the Apache License, Version 2.0 — see http://www.apache.org/licenses/LICENSE-2.0.
+authors of arXiv 2510.08338, Maier et al., "LLMs Reproduce Human Purchase Intent via Semantic
+Similarity Elicitation of Likert Ratings" (2025). Licensed under the Apache License, Version 2.0 — see http://www.apache.org/licenses/LICENSE-2.0.
 
 The port covers the scoring arithmetic from `compute.py` only: similarity `gamma = (1 + cosine) / 2`
 over normalised vectors; per anchor set, subtract the least similar anchor's similarity and
