@@ -233,3 +233,29 @@ _Avoid_: confidence (confidence varies per finding and means something else), ac
 **Confidence**:
 How strongly the evidence supports one particular finding — a function of how many personas, how large an effect, how many verbatims. Independent of whether the engine as a whole has been calibrated.
 _Avoid_: trust, certainty, significance
+
+### Models
+
+**Pinned Model**:
+The model a study names for a role, fixed for the whole run. A study's results are a property of the models that produced them, so a model is never chosen, swapped or upgraded while a study runs.
+_Avoid_: default model, preferred model, current model
+
+**Served Model**:
+The model that actually answered a call, as the response reports it — which is not always the pinned one, since a gateway or provider can substitute another. Recorded beside the pinned model on every call.
+_Avoid_: requested model, backend, deployment
+
+**Pin Failure**:
+A call answered by a model other than its pinned model or that model's declared aliases. It is a failed call, not a result: an answer from an unnamed model would silently change what the study measured.
+_Avoid_: model drift, mismatch warning, fallback
+
+**Cost Source**:
+Where a call's recorded cost came from — reported by the gateway, computed from a price the study declared, or unknown. An unknown cost stays unknown rather than becoming zero, because a budget enforced against invented prices is not enforced.
+_Avoid_: estimated cost, pricing, spend
+
+**Completion Temperature**:
+How widely a filled-in attitude is allowed to vary from the one a persona's demographics make most likely. Chosen and recorded per study, because an attitude with no variance makes every persona with the same demographics think alike, and the network then looks more opinionated than any population is.
+_Avoid_: randomness, creativity, noise, sampling temperature
+
+**Holdout Evaluation**:
+Measuring how well filled-in attitudes match real ones, on people whose real attitudes were recorded and then hidden. It is the evidence for — or against — the claim that projected attitudes mean anything.
+_Avoid_: validation, backtest, accuracy check
