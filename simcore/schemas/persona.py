@@ -8,6 +8,7 @@ from pydantic import AfterValidator, Field, StringConstraints, model_validator
 from .base import FrozenDict, Identifier, NonEmptyStr, NonNegativeInt, PersonaId, PositiveInt, SimBaseModel
 from .brief import AttributeId
 from .enums import FieldOrigin
+from .run import PinnedModelId
 from .sim import Beliefs
 
 AttributeValue = str | int | float
@@ -55,7 +56,7 @@ class CompletedDistribution(SimBaseModel):
 class EmbeddingRef(SimBaseModel):
     """A position in the population's contiguous embedding array, never an inline vector."""
 
-    model_id: Identifier
+    model_id: PinnedModelId
     dim: PositiveInt
     index: NonNegativeInt
 
