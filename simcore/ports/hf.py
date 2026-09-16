@@ -201,9 +201,14 @@ class HfCoresetSource:
         return vocabulary
 
     def matching(
-        self, predicates: Mapping[AttributeId, AttributeFilter], present: Iterable[AttributeId]
+        self,
+        predicates: Mapping[AttributeId, AttributeFilter],
+        present: Iterable[AttributeId],
+        *,
+        sources: Iterable[PersonaSource] | None = None,
     ) -> tuple[str, ...]:
         present = tuple(present)
+        requested = None if sources is None else tuple(sources)
         selected: list[str] = []
         for shard in self._loaded():
             mask = np.ones(len(shard.row_ids), dtype=bool)
@@ -213,6 +218,8 @@ class HfCoresetSource:
                 mask &= self._predicate(shard, attribute, predicate)
             if self.admissible is not None:
                 mask &= np.isin(shard.sources, np.asarray(self.admissible, dtype=object))
+            if requested is not None:
+                mask &= np.isin(shard.sources, np.asarray(requested, dtype=object))
             selected.extend(shard.row_ids[index] for index in np.nonzero(mask)[0])
         return tuple(selected)
 

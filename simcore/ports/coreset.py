@@ -42,10 +42,16 @@ class CoresetSource(Protocol):
     """Three questions: which rows match, what they contain, and what values an attribute can take.
 
     `matching` carries both the predicates and the attributes that must be populated, so eligibility
-    can never be requested without stating the conditioning set it rests on (ADR 0002)."""
+    can never be requested without stating the conditioning set it rests on (ADR 0002). `sources`, when
+    given, restricts eligibility to those sources at the same point — a source a study does not admit
+    must be excluded before sampling, never discarded after it, or the draw silently comes up short."""
 
     def matching(
-        self, predicates: Mapping[AttributeId, AttributeFilter], present: Iterable[AttributeId]
+        self,
+        predicates: Mapping[AttributeId, AttributeFilter],
+        present: Iterable[AttributeId],
+        *,
+        sources: Iterable[PersonaSource] | None = None,
     ) -> tuple[RowId, ...]: ...
 
     def rows(self, ids: Iterable[RowId]) -> Iterator[DecodedRow]: ...
@@ -91,13 +97,20 @@ class _DecodedRowSource:
             raise KeyError(f"the source does not know these attributes: {unknown}")
 
     def matching(
-        self, predicates: Mapping[AttributeId, AttributeFilter], present: Iterable[AttributeId]
+        self,
+        predicates: Mapping[AttributeId, AttributeFilter],
+        present: Iterable[AttributeId],
+        *,
+        sources: Iterable[PersonaSource] | None = None,
     ) -> tuple[RowId, ...]:
         present = tuple(present)
         self._require_known([*predicates, *present])
         required = set(present)
+        admitted = None if sources is None else frozenset(sources)
         selected = []
         for row in self._rows:
+            if admitted is not None and row.source not in admitted:
+                continue
             if not required <= set(row.values):
                 continue
             if all(
