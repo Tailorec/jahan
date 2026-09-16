@@ -1,20 +1,22 @@
 """The `ChatPort` protocol: the one way a core module reaches a chat model.
 
-The engine builds a prompt and reads text back; which provider answers, how it is retried and what it
-costs is the inference module's business, not the caller's. Projection asks for its sparse fields to
-be completed through this port, so its determinism under a fake is the same code path as production.
-"""
+A batch of requests goes in and one outcome per request comes back in request order — a `Completion`
+or a recorded `CallFailure` — so a caller never depends on network timing and one failure never
+aborts or erases the rest of its batch (ADR 0023). `chat()` is exactly a batch of one. Which provider
+answers, how it is retried and what it costs is the inference module's business, not the caller's."""
 
 from collections.abc import Mapping, Sequence
 from typing import Protocol, runtime_checkable
 
-from simcore.schemas import Completion, InferenceRole
+from simcore.schemas import ChatOutcome, ChatRequest, InferenceRole
 
 ChatMessage = Mapping[str, str]
 
 
 @runtime_checkable
 class ChatPort(Protocol):
+    def complete(self, requests: Sequence[ChatRequest]) -> tuple[ChatOutcome, ...]: ...
+
     def chat(
         self,
         role: InferenceRole,
@@ -23,4 +25,6 @@ class ChatPort(Protocol):
         temp: float,
         max_tokens: int,
         template_id: str,
-    ) -> Completion: ...
+        sample=None,
+        json_schema: str | None = None,
+    ) -> ChatOutcome: ...

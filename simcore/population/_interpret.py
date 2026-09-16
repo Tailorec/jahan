@@ -19,10 +19,14 @@ from simcore.schemas import (
     Audience,
     BandRange,
     BriefPack,
+    CallFailure,
+    ChatRequest,
     Exactly,
+    FrozenDict,
     InferenceRole,
     OneOf,
     PersonaSource,
+    Completion,
 )
 
 INTERPRET_TEMPLATE_ID = "audience_interpretation"
@@ -86,21 +90,25 @@ def _values(catalog: CoresetCatalog, attribute: AttributeId) -> tuple[AttributeV
 
 
 def _propose(description: str, table: list[dict], inference: ChatPort) -> Mapping[str, object]:
-    messages = [
-        {"role": "system", "content": INTERPRET_SYSTEM},
-        {"role": "user", "content": json.dumps({"description": description, "attributes": table}, sort_keys=True)},
-    ]
-    completion = inference.chat(
-        InferenceRole.TIER_A,
-        messages,
+    messages = (
+        FrozenDict({"role": "system", "content": INTERPRET_SYSTEM}),
+        FrozenDict({"role": "user", "content": json.dumps({"description": description, "attributes": table}, sort_keys=True)}),
+    )
+    request = ChatRequest(
+        role=InferenceRole.TIER_A,
+        messages=messages,
         temp=0.0,
         max_tokens=INTERPRET_MAX_TOKENS,
         template_id=INTERPRET_TEMPLATE_ID,
     )
+    (outcome,) = inference.complete((request,))
+    if isinstance(outcome, CallFailure):
+        raise ValueError(f"the interpretation call failed: {outcome.kind.value} — {outcome.detail}")
+    assert isinstance(outcome, Completion)
     try:
-        parsed = json.loads(completion.text)
+        parsed = json.loads(outcome.text)
     except json.JSONDecodeError:
-        raise ValueError(f"the interpretation was not valid JSON: {completion.text!r}") from None
+        raise ValueError(f"the interpretation was not valid JSON: {outcome.text!r}") from None
     if not isinstance(parsed, dict):
         raise ValueError(f"the interpretation must be a JSON object mapping attributes to values, got {parsed!r}")
     return {str(attribute): choice for attribute, choice in parsed.items()}

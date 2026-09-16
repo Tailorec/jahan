@@ -84,12 +84,15 @@ class Clock:
         return self.now
 
 
+TICKING_CLOCK = Clock()
+
+
 def client(script: Script, pins: ModelPins = PINS, **settings) -> InferenceClient:
     return InferenceClient(
         pins,
         ExecutionSettings(base_url="http://gateway.test/v1", **settings),
         transport=script.transport(),
-        clock=Clock(),
+        clock=TICKING_CLOCK,
     )
 
 
@@ -196,7 +199,7 @@ def test_a_cost_reported_only_in_a_gateway_header_is_still_gateway():
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=completion_json(TIER_A, usage={"prompt_tokens": 10, "completion_tokens": 2}).encode(), headers={"x-litellm-response-cost": "0.002"})
 
-    c = InferenceClient(PINS, ExecutionSettings(base_url="http://gateway.test/v1"), transport=httpx.MockTransport(handler), clock=Clock())
+    c = InferenceClient(PINS, ExecutionSettings(base_url="http://gateway.test/v1"), transport=httpx.MockTransport(handler), clock=TICKING_CLOCK)
     outcome = c.complete([chat_request()])[0]
     assert outcome.cost.cost_source is CostSource.GATEWAY and outcome.cost.cost == 0.002
 

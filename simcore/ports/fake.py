@@ -1,8 +1,11 @@
-"""The deterministic `ChatPort`: the same prompt always yields the same completion.
+"""The deterministic `ChatPort`: the same prompt always yields the same completion, in batches.
 
 Keyed by the prompt it is given, so two runs in one process or two see identical answers. A prompt
 that carries the completion request's JSON answers with the first offered value for every persona
 named; a test replaces the responder to force an off-list answer or a bad response.
+
+`complete` is the batch port (ADR 0023): one outcome per request in request order, and failures are
+injected by template id so a calling module can prove it treats a recorded failure as one.
 
 An answer longer than its `max_tokens` budget is cut off, as a real provider would cut it, at roughly
 four characters a token. A fake that ignored the budget once let a single completion call carry two
@@ -11,11 +14,21 @@ could have honoured, passing every test."""
 
 import hashlib
 import json
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 import numpy as np
 
-from simcore.schemas import Completion, CostRecorded, InferenceRole, InferenceRoute
+from simcore.schemas import (
+    CallFailure,
+    ChatOutcome,
+    ChatRequest,
+    Completion,
+    CostRecorded,
+    FailureKind,
+    FrozenDict,
+    InferenceRole,
+    InferenceRoute,
+)
 
 from .chat import ChatMessage
 
@@ -28,10 +41,15 @@ class FakeChat:
         responder: Callable[[Sequence[ChatMessage], str], str] | None = None,
         *,
         model_id: str = "fake/chat",
+        failures: Mapping[str, FailureKind] | None = None,
     ) -> None:
         self._responder = responder or _first_offered
         self._model_id = model_id
+        self._failures = dict(failures or {})
         self.calls: list[str] = []
+
+    def complete(self, requests: Sequence[ChatRequest]) -> tuple[ChatOutcome, ...]:
+        return tuple(self._one(request) for request in requests)
 
     def chat(
         self,
@@ -41,18 +59,36 @@ class FakeChat:
         temp: float,
         max_tokens: int,
         template_id: str,
-    ) -> Completion:
-        prompt = json.dumps([dict(message) for message in messages], sort_keys=True)
+        sample=None,
+        json_schema: str | None = None,
+    ) -> ChatOutcome:
+        request = ChatRequest(
+            role=role,
+            messages=tuple(FrozenDict(message) for message in messages),
+            temp=temp,
+            max_tokens=max_tokens,
+            template_id=template_id,
+            sample=sample,
+            json_schema=json_schema,
+        )
+        return self.complete((request,))[0]
+
+    def _one(self, request: ChatRequest) -> ChatOutcome:
+        messages = [dict(message) for message in request.messages]
+        prompt = json.dumps(messages, sort_keys=True)
         self.calls.append(prompt)
-        text = self._responder(messages, template_id)[: max_tokens * CHARACTERS_PER_TOKEN]
+        injected = self._failures.get(request.template_id)
+        if injected is not None:
+            return CallFailure(kind=injected, detail=f"fake failure injected for {request.template_id!r}", attempts=1, route=InferenceRoute.PRIMARY)
+        text = self._responder(messages, request.template_id)[: request.max_tokens * CHARACTERS_PER_TOKEN]
         return Completion(
             text=text,
-            template_id=template_id,
+            template_id=request.template_id,
             prompt_hash=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
             latency_ms=0,
             cost=CostRecorded(
                 kind="cost",
-                role=role,
+                role=request.role,
                 model_id=self._model_id,
                 served_model_id=self._model_id,
                 cost_source="gateway",
@@ -98,4 +134,3 @@ class FakeEmbed:
     def _vector(self, text: str) -> list[float]:
         digest = hashlib.sha256(text.encode("utf-8")).digest()
         return [digest[index % len(digest)] / 255.0 for index in range(self._dim)]
-

@@ -23,6 +23,8 @@ from simcore.schemas import (
     BeliefDim,
     Beliefs,
     BriefPack,
+    ChatRequest,
+    Completion,
     CompletionProvenance,
     FieldOrigin,
     FrozenDict,
@@ -209,13 +211,24 @@ def _comparable(value: object) -> tuple[str, object] | None:
 
 
 def _ask(inference: ChatPort, request: dict, *, strict: bool) -> tuple[dict[str, object], str]:
-    messages = [
-        {"role": "system", "content": COMPLETION_RETRY_SYSTEM if strict else COMPLETION_SYSTEM},
-        {"role": "user", "content": json.dumps(request, sort_keys=True)},
-    ]
+    messages = (
+        FrozenDict({"role": "system", "content": COMPLETION_RETRY_SYSTEM if strict else COMPLETION_SYSTEM}),
+        FrozenDict({"role": "user", "content": json.dumps(request, sort_keys=True)}),
+    )
     budget = ANSWER_TOKENS_OVERHEAD + ANSWER_TOKENS_PER_PERSONA * len(request["personas"])
-    completion = inference.chat(InferenceRole.TIER_A, messages, temp=0.0, max_tokens=budget, template_id=COMPLETION_TEMPLATE_ID)
-    return _parse(completion.text), completion.cost.model_id
+    chat_request = ChatRequest(
+        role=InferenceRole.TIER_A,
+        messages=messages,
+        temp=0.0,
+        max_tokens=budget,
+        template_id=COMPLETION_TEMPLATE_ID,
+    )
+    (outcome,) = inference.complete((chat_request,))
+    if not isinstance(outcome, Completion):
+        # A recorded failure: the batch's personas keep no answer, exactly as a refused one does; the
+        # stricter retry below may still land, and the field stays absent if it does not.
+        return {}, ""
+    return _parse(outcome.text), outcome.cost.model_id
 
 
 def _parse(text: str) -> dict[str, object]:

@@ -10,7 +10,7 @@ from simcore.population._project import COMPLETION_BATCH_SIZE, COMPLETION_RETRY_
 from simcore.ports.coreset import DecodedRow
 from simcore.ports.fake import FakeChat
 from simcore.ports.synthetic import AttributeShape, SyntheticCoresetSource, SyntheticShape
-from simcore.schemas import BriefPack, FieldOrigin, GateFailure, Persona, canonical_hash
+from simcore.schemas import BriefPack, Completion, FieldOrigin, GateFailure, Persona, canonical_hash
 from tests.study_builders import load_fixture, load_ontology, pack_payload
 
 MODEL = "openrouter/camel-ai/persona-8b"
@@ -267,11 +267,17 @@ class RoutedChat(FakeChat):
         self._route = route
         self.served = 0
 
-    def chat(self, role, messages, **kwargs):
-        completion = super().chat(role, messages, **kwargs)
-        self.served += 1
-        model = self._route(self.served, messages)
-        return completion.model_copy(update={"cost": completion.cost.model_copy(update={"model_id": model})})
+    def complete(self, requests):
+        outcomes = []
+        for request in requests:
+            outcome = super().complete([request])[0]
+            self.served += 1
+            if isinstance(outcome, Completion):
+                messages = [dict(message) for message in request.messages]
+                model = self._route(self.served, messages)
+                outcome = outcome.model_copy(update={"cost": outcome.cost.model_copy(update={"model_id": model})})
+            outcomes.append(outcome)
+        return tuple(outcomes)
 
 
 def test_provenance_records_the_model_that_answered_not_the_one_expected():

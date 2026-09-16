@@ -78,12 +78,12 @@ The deterministic fake grows the same shape with injectable failures, and audien
 
 ### Acceptance criteria
 
-- [ ] Outcomes return in request order when the transport answers them in reverse
-- [ ] One failing request leaves every other outcome in its batch a completion, and the failure is recorded, not raised
-- [ ] The batch call works from inside a running event loop
-- [ ] A single-request call is exactly a batch of one
-- [ ] The fake answers batches deterministically across processes and can inject each failure kind
-- [ ] Audience interpretation runs through the batch port with its behaviour and tests unchanged
+- [x] Outcomes return in request order when the transport answers them in reverse
+- [x] One failing request leaves every other outcome in its batch a completion, and the failure is recorded, not raised
+- [x] The batch call works from inside a running event loop
+- [x] A single-request call is exactly a batch of one
+- [x] The fake answers batches deterministically across processes and can inject each failure kind
+- [x] Audience interpretation runs through the batch port with its behaviour and tests unchanged
 
 ---
 
