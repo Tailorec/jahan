@@ -1,0 +1,20 @@
+{
+  "anchor_set_id": "purchase-intent-v1",
+  "construct_id": "purchase_intent",
+  "version": "v1",
+  "anchor_hash": "7b253b23107a98b43380d3e1632397fad5cb370748641139e09dd2d1b09d516e",
+  "embed_model_id": "embed",
+  "passed": false,
+  "expected_ratings": [
+    1.9317068972784674,
+    2.1115748724852508,
+    3.3042667585620746,
+    3.703029404627626,
+    3.873108947873842,
+    4.018379164941247,
+    4.048966573270634
+  ],
+  "spearman_min": 0.5,
+  "collapse_distance": 0.7298857384143362,
+  "detail": "rank stability 0.500 is not above 0.8"
+}
