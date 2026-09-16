@@ -116,6 +116,14 @@ class Budget(SimBaseModel):
     currency: CurrencyCode
 
 
+class ElicitationParams(SimBaseModel):
+    """The SSR study parameters for one construct: temperature applied once after the mean across
+    sets, and ε added to the least similar anchor and the denominator. Defaults are the paper's."""
+
+    temperature: Annotated[float, Field(ge=0.0)] = 1.0
+    epsilon: Annotated[float, Field(ge=0.0)] = 0.0
+
+
 class Variant(SimBaseModel):
     """One version of the proposition under test; the price it faces lives on the scenario."""
 
@@ -196,6 +204,8 @@ class RunConfig(SimBaseModel):
     # Replay needs the exact prompt templates and SSR anchor sets, not just the model pins.
     template_hashes: FrozenDict[Identifier, HashDigest]
     anchor_set_hashes: FrozenDict[Identifier, HashDigest] = FrozenDict({})
+    # Per-construct SSR parameters, hashed with the run; absent constructs run at the paper's defaults.
+    elicitation_params: FrozenDict[Identifier, ElicitationParams] = FrozenDict({})
 
     @model_validator(mode="after")
     def _cells_are_distinct_and_comparable(self) -> Self:

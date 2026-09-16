@@ -65,6 +65,7 @@ from .enums import (
     CostSource,
     DegradationRung,
     DropReason,
+    ElicitationFailureKind,
     ExposureReason,
     FailureKind,
     FieldOrigin,
@@ -123,6 +124,7 @@ from .report import (
 )
 from .run import (
     Budget,
+    ElicitationParams,
     Intervention,
     ModelPin,
     ModelPins,
@@ -141,8 +143,10 @@ from .run import (
     resolve_audience_weights,
 )
 from .sim import (
+    AnchorSimplex5,
     BeliefChange,
     Beliefs,
+    ElicitationFailure,
     Exposure,
     Impression,
     ImpressionId,
@@ -153,6 +157,8 @@ from .sim import (
     Reaction,
     ReactionId,
     RetrievedMemory,
+    Similarity5,
+    SsrOutcome,
     SsrResult,
     Stimulus,
     StimulusContext,
@@ -187,6 +193,7 @@ from .world import DroppedExposure, WorldDelta
 
 __all__ = [
     "ActionKind",
+    "AnchorSimplex5",
     "Anomaly",
     "AnomalyKind",
     "Assumption",
@@ -234,6 +241,9 @@ __all__ = [
     "DistributionThresholds",
     "DropReason",
     "DroppedExposure",
+    "ElicitationFailure",
+    "ElicitationFailureKind",
+    "ElicitationParams",
     "EmbeddingRef",
     "EventId",
     "Evidence",
@@ -321,11 +331,13 @@ __all__ = [
     "Scenario",
     "SchemaVersionError",
     "SignedUnitInterval",
+    "Similarity5",
     "SimBaseModel",
     "SimError",
     "SocialEdge",
     "SocialGraph",
     "SourcePreview",
+    "SsrOutcome",
     "SsrResult",
     "Stimulus",
     "StimulusContext",

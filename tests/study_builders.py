@@ -223,15 +223,25 @@ def ssr_payload(**overrides) -> dict:
         (0.05, 0.10, 0.20, 0.31, 0.34),
         (0.05, 0.10, 0.20, 0.29, 0.36),
     ]
+    similarities = [
+        (0.55, 0.60, 0.70, 0.80, 0.85),
+        (0.56, 0.60, 0.69, 0.80, 0.85),
+        (0.54, 0.61, 0.70, 0.80, 0.85),
+        (0.55, 0.59, 0.71, 0.80, 0.85),
+        (0.55, 0.60, 0.70, 0.81, 0.84),
+        (0.55, 0.60, 0.70, 0.79, 0.86),
+    ]
     payload = {
         "response_text": "I would probably try it after training.",
         "per_set_pmfs": sets,
+        "per_set_similarities": similarities,
         "construct_id": "purchase_intent",
         "category": "beverage_protein",
         "anchor_set_id": "pi-beverage-v1",
         "anchor_version": "1.0.0",
         "embed_model_id": "openai/text-embedding-3-small",
-        "tau": 0.42,
+        "temperature": 1.0,
+        "epsilon": 0.0,
     }
     payload.update(overrides)
     return payload
