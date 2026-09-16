@@ -162,6 +162,23 @@ class GateReport(SimBaseModel):
         return self
 
     @model_validator(mode="after")
+    def _category_targets_rest_on_measured_values(self) -> Self:
+        """ADR 0017's one refusal, held by the report itself: "this population matches the measured
+        category" may not rest on values a model extracted or synthesized. Enforced here rather than only
+        where a study is assessed, so a report read back from storage cannot carry the claim either."""
+        thin = sorted(
+            (result.attribute, self.attribute_origins[result.attribute].value)
+            for result in self.results
+            if result.kind != "graph"
+            and result.reference is GateReference.CATEGORY_TARGETS
+            and result.attribute in self.attribute_origins
+            and self.attribute_origins[result.attribute] is not FieldOrigin.MEASURED
+        )
+        if thin:
+            raise ValueError(f"a gate may not claim category targets on attributes that are not measured: {thin}")
+        return self
+
+    @model_validator(mode="after")
     def _achieved_mix_is_complete(self) -> Self:
         if self.achieved_mix:
             proportions_sum_to_one(self.achieved_mix)

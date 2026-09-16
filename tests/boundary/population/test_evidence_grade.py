@@ -112,3 +112,15 @@ def test_build_refuses_the_strong_claim_before_any_model_is_called():
             inference=fake,
         )
     assert fake.calls == []
+
+def test_a_stored_report_cannot_carry_category_targets_on_non_measured_evidence():
+    """The refusal once lived only in `assess`: a population read back from storage could claim category
+    targets on extracted values and validate."""
+    base = population_payload()
+    results = [dict(result, reference="category_targets") if "attribute" in result else result for result in base["gate_report"]["results"]]
+    attributes = [result["attribute"] for result in results if "attribute" in result]
+    thin = {**base["gate_report"], "results": results, "attribute_origins": {attribute: "extracted" for attribute in attributes}}
+    with pytest.raises(ValidationError, match="category targets on attributes that are not measured"):
+        GateReport.model_validate(thin)
+    measured = {**thin, "attribute_origins": {attribute: "measured" for attribute in attributes}}
+    assert GateReport.model_validate(measured).reference.value == "category_targets"
