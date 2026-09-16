@@ -154,7 +154,16 @@ alias would let another model inherit the result. The anchor check and pinning r
 provider qualifier (no `.` or `/`). Titan returns 1024-dimensional vectors;
 the run fixes its embedding space on the first batch and refuses a later dimension change. The
 mapping validation (`python -m simcore.elicitation`) measures whether SSR survives this
-substitution; Cohere Embed v4 is the next candidate if it does not.
+substitution.
+
+**Other Bedrock embedding models.** Cohere Embed v4 (`cohere.embed-v4:0`) is sold through AWS Marketplace:
+the account needs a valid payment method, or calls fail with `INVALID_PAYMENT_INSTRUMENT` and the model
+agreement stays `PENDING`. Amazon Nova 2 multimodal embeddings (`amazon.nova-2-multimodal-embeddings-v1:0`)
+is Amazon's own and needs no subscription. LiteLLM (1.101) serves it with the same entry shape
+(`model: bedrock/amazon.nova-2-multimodal-embeddings-v1:0`) and sends `GENERIC_INDEX` purpose at 3072
+dimensions unless told otherwise. It makes one Bedrock request per text, and the default on-demand quota is
+20 requests per minute, so set `SIMCORE_INFERENCE_EMBEDDINGS_BATCH_SIZE=1`, `SIMCORE_INFERENCE_CONCURRENCY=1`
+and `SIMCORE_INFERENCE_REQUESTS_PER_MINUTE=18`, or request a quota increase before embedding at scale.
 
 ## Telemetry
 
