@@ -32,7 +32,7 @@ Feeds modules: **`agent`, `world`, `trace`**. Fully redistributable — Apache-2
 | Interview action (in platform action set) | **COPY** | `world` | SurveyRoom answer elicitation |
 | `generator/` (LLM user generation) | **SKIP** | — | grounded coreset sampling replaces persona invention |
 | 1M-agent async inferencer machinery | **SKIP** (now) | — | our scale is 10²–10³ agents; revisit if partner scale demands |
-| CAMEL `ModelFactory` dependency | **SKIP** | `inference` | **Corrected:** the OASIS package does not use `ModelFactory`; only its examples do. Taking CAMEL for model access would pull in its agent framework for a transport. Our own router over an OpenAI-compatible transport is the plan |
+| CAMEL `ModelFactory` dependency | **SKIP** | `inference` | **Corrected:** the OASIS package does not use `ModelFactory`; only its examples do. Taking CAMEL for model access would pull in its agent framework for a transport. **Reviewed 2026-09-16:** OASIS has no inference layer of its own — models are created in user scripts, `SocialAgent` passes `scheduling_strategy='random_model'` so one persona's calls can land on different models, interviews call CAMEL's private `_aget_model_response` because CAMEL memory cannot be stopped from updating, `perform_action_by_llm` catches every exception and returns it as a value, and there are no retries, caching, seeds or cost accounting. Only its pattern is taken: async fan-out behind one `asyncio.Semaphore`. Model access is one OpenAI-compatible endpoint (ADR 0021) |
 
 ---
 
@@ -66,9 +66,9 @@ Biggest salvage. Feeds **`population`, `inference`, `agent`, `elicitation`, `run
 | Repo path | Verdict | → Module | Notes |
 |---|---|---|---|
 | `persona_model.py` | **ADAPT (CLI only)** | `cli` | **Corrected:** it resolves one persona model from arguments and environment variables. Model pins change results, so they are recorded in `RunConfig`, never read from the environment inside the engine; this precedence may only seed CLI defaults that are then recorded |
-| `model_client.py` | **ADAPT** | `inference` | **Corrected:** not a router core. It is a JSON-mode client factory: provider-prefixed ids (`dashscope/`, `gemini/`/`google/`, `openrouter/`, `xai/`, `deepseek/`, `zai/`, `openai/`) mapped to OpenAI-compatible base URLs, plus raw Anthropic Messages calls. It has no retries, fallback, caching, coalescing, embeddings, Bedrock or vLLM. Take the base-URL table; the routing policy is ours |
-| `openai_client.py` | **COPY/ADAPT** | `inference` | verified: `coerce_json` + request timeouts; the OpenAI-compatible client is the router's primary transport (works against OpenRouter/LiteLLM/vLLM alike) |
-| `llm_usage.py` | **ADAPT** | `runner` | per-completion token/usage accounting → cost governor ledger. **Corrected:** prices come from LiteLLM (`completion_cost`, `model_cost`), so copying it takes a LiteLLM dependency. Its `cost_source` field (`provider` vs `estimated`) is worth keeping — a cost should say where its number came from |
+| `model_client.py` | **ADAPT** | `inference` | **Corrected:** not a router core. It is a JSON-mode client factory: provider-prefixed ids (`dashscope/`, `gemini/`/`google/`, `openrouter/`, `xai/`, `deepseek/`, `zai/`, `openai/`) mapped to OpenAI-compatible base URLs, plus raw Anthropic Messages calls. It has no retries, fallback, caching, coalescing, embeddings, Bedrock or vLLM. **Withdrawn (ADR 0021):** the base-URL table is no longer needed — the engine talks to one base URL the user configures, and a gateway owns provider translation |
+| `openai_client.py` | **COPY/ADAPT** | `inference` | verified: `coerce_json` + request timeouts are kept. The client itself is not: the engine's transport is `httpx`, because the request bytes must be exactly what is hashed, response headers carry the served model and gateway cost, and a provider SDK retries on its own (ADR 0021) |
+| `llm_usage.py` | **ADAPT** | `runner` | per-completion token/usage accounting → cost governor ledger. **Corrected:** prices come from LiteLLM (`completion_cost`, `model_cost`), so copying it takes a LiteLLM dependency. Its `cost_source` idea is kept without the dependency: a cost is `gateway`-reported, from a `price_table` the study declares, or `unknown` — never an estimate presented as a price |
 | `survey_task_content.py` | **COPY/ADAPT** | `world` (SurveyRoom) | questionnaire YAML → task content; instrument registry pattern |
 | `survey_list_meta.py` | **COPY** | `world` | questionnaire list metadata |
 | `inprocess/survey_eval.py` | **ADAPT** | `world` | batch survey execution + structured answer validation; strip Harbor eval framing, add SSR instructions (free-text intent, no numbers) |
@@ -104,7 +104,7 @@ Biggest salvage. Feeds **`population`, `inference`, `agent`, `elicitation`, `run
 | Repo path | Verdict | → Module | Notes |
 |---|---|---|---|
 | `persona/validation/scripts/decode_persona_1m.py` | **ADAPT** | `ports` (coreset adapter) | a 37-line reference decoder matching the dataset card: nibbles low first, set null-bitmap bit means missing, schema from the Hub |
-| `application/playground/litellm/config.yaml`, `run_proxy.sh` | **ADAPT (pattern)** | `inference`/`runner` | a LiteLLM proxy used as one global rpm/tpm limiter for every concurrent run, because bursts hit provider 429s. The same problem our runner will have |
+| `application/playground/litellm/config.yaml`, `run_proxy.sh` | **ADAPT (pattern)** | `inference`/`runner` | a LiteLLM proxy used as one global rpm/tpm limiter for every concurrent run, because bursts hit provider 429s. Kept as documentation: the engine always runs its own adaptive request and token limiter, and several engine processes share the gateway's limits as a common ceiling |
 | `persona/schema/dimensions.json` | **ADAPT** | `authoring` (ADR 0014) | the 1,290-dimension catalogue with labels, categories, values, phrases and defaults — the codebook ADR 0014's ontology drafting needs, available in the code repo. Drifts from the release codebook in places |
 
 ### 3.5 Persona-8B model weights (HF)
@@ -125,7 +125,7 @@ It is the closest existing product: seed documents → LLM-generated ontology of
 
 ## 5. Cross-repo rules
 
-1. **One model router (`inference`)** — no repo talks to a model provider directly; all calls flow through the provider-agnostic router so token accounting, pinning, and trace hashes are universal. Bedrock models remain reachable through the router (OpenRouter/LiteLLM route or boto3 adapter) — the router is the lock-in boundary, not a vendor.
+1. **One inference module over one endpoint** — no repo talks to a model provider directly, and none imports a provider SDK; all calls go to one OpenAI-compatible endpoint the user runs, so token accounting, pinning, served-model verification and trace hashes are universal. Bedrock is reached through the user's gateway (LiteLLM by default) — the protocol is the lock-in boundary, not a vendor (ADR 0021).
 2. **Forked OASIS code lives in `simcore/world/`** with license headers intact + a `NOTICE.md` crediting CAMEL-AI and MatrAIx (Apache-2.0/MIT require attribution).
 3. **Re-benchmark after every salvage** — copied code changes behaviour. With no calibration harness (deferred, `FINAL_ARCH.md` §12), golden-run regression tests (`FINAL_ARCH.md` §8) are the referee. A salvage that changes golden-run output gets reviewed and re-committed deliberately, not silently.
 4. **No persona-invention code from any repo** — grounded sampling only (anti-collapse + provenance invariants, spec §5.4).
@@ -137,7 +137,7 @@ It is the closest existing product: seed documents → LLM-generated ontology of
 
 | Phase | Salvage pulled |
 |---|---|
-| 0 | MatrAIx index/pool + codebook schema (`population`); `model_client.py` + `openai_client.py` + `llm_usage.py` (`inference`, cost accounting into `runner`); SSR harness uses router embeddings |
+| 0 | MatrAIx index/pool + codebook schema (`population`); `openai_client.py` (`coerce_json`) + `llm_usage.py`'s cost-source idea (`inference`, cost accounting into `runner`); SSR harness uses router embeddings |
 | 1 | OASIS env/clock/agent-graph fork (`world`/`agent`); MatrAIx survey content + eval (`world`); Tier-A serving decision (OpenRouter/vLLM/Bedrock CIM microbenchmark) |
 | 2 | OASIS platform/db/recsys (`world`/`trace`); hot-score verbatim; embeddings swapped to router; moderation on |
 | 3 | No ASAL salvage beyond the grid-sweep pattern already in `runner` |
