@@ -6,14 +6,19 @@ The computation is the paper's (ADR 0026), ported with attribution from the refe
 
 from ._anchors import AnchorVersion, anchor_hash, anchor_path, load_anchor_version, resolve_anchors
 from ._compute import aggregate, per_set_distribution, similarities
+from ._score import DEFAULT_CHUNK_SIZE, clear_anchor_cache, rescore_from_similarities, score
 
 __all__ = [
     "AnchorVersion",
+    "DEFAULT_CHUNK_SIZE",
     "aggregate",
     "anchor_hash",
     "anchor_path",
+    "clear_anchor_cache",
     "load_anchor_version",
     "per_set_distribution",
+    "rescore_from_similarities",
     "resolve_anchors",
+    "score",
     "similarities",
 ]
