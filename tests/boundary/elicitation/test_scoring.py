@@ -9,19 +9,20 @@ from simcore.inference import EmbeddingFailure
 from simcore.ports.fake import FakeEmbed
 from simcore.schemas import CallFailure, ElicitationFailure, SsrResult
 
-ANCHORS_DIR = Path(__file__).resolve().parents[3] / "anchors"
-PINNED = {
-    "purchase-intent-v1": anchor_hash(load_anchor_version(ANCHORS_DIR / "purchase_intent" / "v1.json")),
-}
+from tests.boundary.elicitation.staging import pinned, stage_passing
 
-BASE = dict(
-    construct="purchase_intent",
-    category="beverage_protein",
-    anchor_set_id="purchase-intent-v1",
-    anchor_version="v1",
-    anchors_dir=ANCHORS_DIR,
-    pinned_hashes=PINNED,
-)
+
+@pytest.fixture()
+def base(tmp_path: Path) -> dict:
+    staged = stage_passing(tmp_path)
+    return dict(
+        construct="purchase_intent",
+        category="beverage_protein",
+        anchor_set_id="purchase-intent-v1",
+        anchor_version="v1",
+        anchors_dir=staged,
+        pinned_hashes=pinned(staged),
+    )
 
 
 class CountingEmbed(FakeEmbed):
@@ -54,62 +55,83 @@ def _failure() -> EmbeddingFailure:
     )
 
 
-def test_a_batch_returns_one_outcome_per_response_in_request_order():
+def test_a_batch_returns_one_outcome_per_response_in_request_order(base):
     clear_anchor_cache()
     responses = ["I would definitely buy this.", "", "I would never buy this."]
-    outcomes = score(responses, **BASE, embed=FakeEmbed(dim=8))
+    outcomes = score(responses, **base, embed=FakeEmbed(dim=8))
     assert len(outcomes) == 3
     assert isinstance(outcomes[0], SsrResult) and isinstance(outcomes[2], SsrResult)
     assert isinstance(outcomes[1], ElicitationFailure)
     assert outcomes[0].response_text == responses[0] and outcomes[2].response_text == responses[2]
 
 
-def test_a_failed_chunk_fails_only_its_own_responses():
+def test_a_failed_chunk_fails_only_its_own_responses(base):
     clear_anchor_cache()
     embed = ChunkFailingEmbed("POISON", _failure(), dim=8)
     responses = ["I love it.", "POISONED chunk here.", "I hate it.", "Another fine answer."]
-    outcomes = score(responses, **BASE, embed=embed, chunk_size=1)
+    outcomes = score(responses, **base, embed=embed, chunk_size=1)
     assert isinstance(outcomes[0], SsrResult)
     assert isinstance(outcomes[1], ElicitationFailure) and outcomes[1].kind.value == "embedding_failure"
     assert isinstance(outcomes[2], SsrResult) and isinstance(outcomes[3], SsrResult)
 
 
-def test_anchor_embeddings_are_computed_once_per_run_and_reused():
+def test_anchor_embeddings_are_computed_once_per_run_and_reused(base):
     clear_anchor_cache()
     embed = CountingEmbed(dim=8)
-    score(["First answer.", "Second answer."], **BASE, embed=embed)
+    score(["First answer.", "Second answer."], **base, embed=embed)
     first_calls = list(embed.texts)
     assert len(first_calls) == 30 + 2  # six sets of five anchors, then the responses
-    score(["Third answer."], **BASE, embed=embed)
+    score(["Third answer."], **base, embed=embed)
     anchor_texts = first_calls[:30]
     assert embed.texts[30 + 2 :] == ["Third answer."]
     assert embed.texts.count(anchor_texts[0]) == 1
 
 
-def test_anchors_and_responses_from_different_models_are_refused():
+def test_anchors_and_responses_from_different_models_are_refused(base):
     clear_anchor_cache()
-    score(["An answer."], **BASE, embed=FakeEmbed(dim=8, model_id="model-a"))
-    with pytest.raises(ValueError, match="not comparable"):
-        score(["An answer."], **BASE, embed=FakeEmbed(dim=8, model_id="model-b"))
+    score(["An answer."], **base, embed=FakeEmbed(dim=8))
+    # A second model is refused twice over: its version never passed a check on that model, and anchors
+    # already embedded by the first model are not comparable with its responses.
+    with pytest.raises(ValueError, match="re-check on the new model|not comparable"):
+        score(["An answer."], **base, embed=FakeEmbed(dim=8, model_id="model-b"))
 
 
-def test_an_empty_response_is_a_failure_not_a_distribution():
+def test_an_empty_response_is_a_failure_not_a_distribution(base):
     clear_anchor_cache()
-    (outcome,) = score(["   "], **BASE, embed=FakeEmbed(dim=8))
+    (outcome,) = score(["   "], **base, embed=FakeEmbed(dim=8))
     assert isinstance(outcome, ElicitationFailure) and outcome.kind.value == "empty_response"
     assert not hasattr(outcome, "pmf")
 
 
-def test_rescoring_recorded_similarities_reproduces_a_fresh_scoring_exactly():
+def test_rescoring_recorded_similarities_reproduces_a_fresh_scoring_exactly(base):
     clear_anchor_cache()
     embed = FakeEmbed(dim=8)
-    (first,) = score(["I would definitely buy this."], **BASE, embed=embed)
+    (first,) = score(["I would definitely buy this."], **base, embed=embed)
     assert isinstance(first, SsrResult)
     assert first.temperature == 1.0 and first.epsilon == 0.0
     per_set, headline = rescore_from_similarities(first.per_set_similarities, epsilon=0.5, temperature=2.0)
     clear_anchor_cache()
-    (second,) = score(["I would definitely buy this."], **BASE, embed=FakeEmbed(dim=8), epsilon=0.5, temperature=2.0)
+    (second,) = score(["I would definitely buy this."], **base, embed=FakeEmbed(dim=8), epsilon=0.5, temperature=2.0)
     assert isinstance(second, SsrResult)
     for fresh, rescored in zip(second.per_set_pmfs, per_set):
         assert tuple(fresh) == pytest.approx(tuple(rescored))
     assert tuple(second.pmf) == pytest.approx(tuple(headline))
+
+
+def test_a_version_whose_check_failed_is_never_scored_even_when_the_run_pins_its_hash():
+    """The repository's purchase-intent v1 failed its check on Titan, yet pinning its hash was once enough to score
+    against it: nothing on the scoring path consulted the check."""
+    clear_anchor_cache()
+    repo = Path(__file__).resolve().parents[3] / "anchors"
+    with pytest.raises(ValueError, match="failed its check"):
+        score(["I would buy it."], construct="purchase_intent", category="beverage_protein", anchor_set_id="purchase-intent-v1",
+              anchor_version="v1", anchors_dir=repo, pinned_hashes=pinned(repo), embed=FakeEmbed(dim=8))
+
+
+def test_a_version_with_no_check_record_is_never_scored(tmp_path):
+    clear_anchor_cache()
+    staged = stage_passing(tmp_path)
+    (staged / "purchase_intent" / "v1.check.json").unlink()
+    with pytest.raises(ValueError, match="no check result"):
+        score(["I would buy it."], construct="purchase_intent", category="beverage_protein", anchor_set_id="purchase-intent-v1",
+              anchor_version="v1", anchors_dir=staged, pinned_hashes=pinned(staged), embed=FakeEmbed(dim=8))

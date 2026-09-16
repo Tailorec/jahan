@@ -9,6 +9,7 @@ from simcore.inference import ExecutionSettings, InferenceClient
 from simcore.schemas import ModelPins
 
 from ._anchors import anchor_hash, load_anchor_version
+from ._check import read_check_record
 from ._validate import SATISFACTION_CONSTRUCT, reviews_from_jsonl, synthetic_reviews, validate_mapping
 
 
@@ -30,6 +31,12 @@ def main() -> None:
         sample = reviews_from_jsonl(args.reviews, seed=args.seed)
     else:
         sample = synthetic_reviews(args.synthetic, args.seed)
+    # The pin comes from the version's passing check record, before any client exists: a version without one
+    # is refused here rather than embedded, and the file is then checked against the hash that passed.
+    record = read_check_record(args.anchors_dir, SATISFACTION_CONSTRUCT, args.anchor_version)
+    if record is None or not record.passed:
+        detail = "has no check record" if record is None else f"failed its check ({record.detail})"
+        raise SystemExit(f"satisfaction/{args.anchor_version} {detail}: it cannot be pinned, so it cannot be validated")
     pins = ModelPins.model_validate(
         {
             "tier_a": "tier-a/model",
@@ -45,7 +52,7 @@ def main() -> None:
             anchors_dir=args.anchors_dir,
             anchor_set_id=args.anchor_set_id,
             anchor_version=args.anchor_version,
-            anchor_hash_pinned=anchor_hash(load_anchor_version(f"{args.anchors_dir}/{SATISFACTION_CONSTRUCT}/{args.anchor_version}.json")),
+            anchor_hash_pinned=record.anchor_hash,
             epsilon=args.epsilon,
             temperature=args.temperature,
             seed=args.seed,

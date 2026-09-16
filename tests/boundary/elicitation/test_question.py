@@ -14,7 +14,7 @@ from simcore.elicitation import (
 )
 from simcore.ports.fake import FakeEmbed
 from simcore.schemas import ElicitationFailure
-from tests.boundary.elicitation.test_scoring import ANCHORS_DIR, BASE, PINNED
+from tests.boundary.elicitation.test_scoring import base  # noqa: F401 - the staged, passing anchor fixture
 
 
 def test_each_construct_has_a_versioned_question_identified_by_its_hash():
@@ -37,10 +37,10 @@ def test_the_purchase_intent_template_is_the_paper_question_without_numbers_or_r
     "rating",
     ["4/5", "I give it 4/5 stars", "8 out of 10", "9 out of 10 stars", "90%", "★★★★", "☆☆☆☆", "rated 4", "my score is 5", "3 stars"],
 )
-def test_rating_like_responses_are_numeric_answer_failures(rating):
+def test_rating_like_responses_are_numeric_answer_failures(rating, base):
     assert is_numeric_answer(rating) is True
     clear_anchor_cache()
-    (outcome,) = score([rating], **BASE, embed=FakeEmbed(dim=8))
+    (outcome,) = score([rating], **base, embed=FakeEmbed(dim=8))
     assert isinstance(outcome, ElicitationFailure) and outcome.kind.value == "numeric_answer"
     assert not hasattr(outcome, "pmf")
 
@@ -54,14 +54,14 @@ def test_rating_like_responses_are_numeric_answer_failures(rating):
         "I would definitely buy this after my workout.",
     ],
 )
-def test_numbers_in_passing_are_scored(prose):
+def test_numbers_in_passing_are_scored(prose, base):
     assert is_numeric_answer(prose) is False
     clear_anchor_cache()
-    (outcome,) = score([prose], **BASE, embed=FakeEmbed(dim=8))
+    (outcome,) = score([prose], **base, embed=FakeEmbed(dim=8))
     assert hasattr(outcome, "pmf")
 
 
-def test_no_code_path_in_the_module_accepts_a_model_stated_rating():
+def test_no_code_path_in_the_module_accepts_a_model_stated_rating(base):
     root = Path(__file__).resolve().parents[3] / "simcore" / "elicitation"
     gate_found = False
     for path in sorted(root.glob("*.py")):
@@ -75,5 +75,5 @@ def test_no_code_path_in_the_module_accepts_a_model_stated_rating():
             assert "is_numeric_answer" in path.read_text(), f"{path.name} builds results without the numeric gate"
     assert gate_found
     clear_anchor_cache()
-    outcomes = score(["4/5", "plain prose answer here"], **BASE, embed=FakeEmbed(dim=8))
+    outcomes = score(["4/5", "plain prose answer here"], **base, embed=FakeEmbed(dim=8))
     assert isinstance(outcomes[0], ElicitationFailure) and hasattr(outcomes[1], "pmf")

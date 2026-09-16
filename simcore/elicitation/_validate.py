@@ -143,16 +143,17 @@ def validate_mapping(
     *,
     anchor_set_id: str = "satisfaction-v1",
     anchor_version: str = "v1",
-    anchor_hash_pinned: str | None = None,
+    anchor_hash_pinned: str,
     epsilon: float = 0.0,
     temperature: float = 1.0,
     seed: int = 0,
 ) -> dict[str, Any]:
     """Score the sample through SSR and report SSR beside a text-blind uniform baseline."""
+    # The pin is the caller's, never derived from the file about to be loaded: a pin computed from that file
+    # can never disagree with it, and once let a failed version validate. Scoring checks the file against this
+    # pin and the version's check result against the embedding model.
     parsed = load_anchor_version(Path(anchors_dir) / SATISFACTION_CONSTRUCT / f"{anchor_version}.json")
     digest = anchor_hash(parsed)
-    if anchor_hash_pinned is not None and digest != anchor_hash_pinned:
-        raise ValueError("the satisfaction anchors changed since pinning: refusing to validate")
     clear_anchor_cache()
     outcomes = score(
         list(sample.texts),
@@ -162,7 +163,7 @@ def validate_mapping(
         anchor_version=anchor_version,
         embed=embed,
         anchors_dir=anchors_dir,
-        pinned_hashes={anchor_set_id: digest},
+        pinned_hashes={anchor_set_id: anchor_hash_pinned},
         temperature=temperature,
         epsilon=epsilon,
     )

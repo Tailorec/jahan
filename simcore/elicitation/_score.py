@@ -16,6 +16,7 @@ import numpy as np
 from simcore.schemas import ElicitationFailure, SsrOutcome, SsrResult
 
 from ._anchors import anchor_hash, resolve_anchors
+from ._check import assert_pinnable
 from ._compute import aggregate, per_set_distribution, similarities
 from ._question import is_numeric_answer
 
@@ -80,6 +81,10 @@ def score(
 ) -> tuple[SsrOutcome, ...]:
     """One outcome per response in request order: an `SsrResult` or a recorded elicitation failure."""
     version = resolve_anchors(anchor_set_id, construct, anchor_version, pinned_hashes or {}, anchors_dir)
+    # The gate, enforced where it matters: a version is scored only if its check passed against this
+    # embedding model. Pinning a hash in the run is not enough — a version whose check failed was once
+    # scored and validated all the same, because nothing on the scoring path asked (ADR 0027).
+    assert_pinnable(anchor_set_id, construct, anchor_version, anchors_dir, embed_model_id=embed.model_id)
     digest = anchor_hash(version)
     anchor_model_id = embed.model_id
     anchors = _anchor_vectors(version.sets, embed, anchor_model_id, digest)
