@@ -135,6 +135,53 @@ def test_a_call_that_exhausts_its_retries_is_served_by_the_pinned_fallback_and_r
     assert state["primary"] == 2  # the fallback is used only after the primary is exhausted
 
 
+@pytest.mark.parametrize(
+    ("reply", "kind"),
+    [
+        ((400, b"malformed"), FailureKind.FATAL_RESPONSE),
+        ((401, b"invalid key"), FailureKind.FATAL_RESPONSE),
+        ((200, "wrong-model"), FailureKind.PIN_FAILURE),
+    ],
+)
+def test_only_exhausted_retries_move_a_call_to_the_pinned_fallback(reply, kind):
+    """The fallback once answered any failure: a malformed request, an invalid key, a gateway substitution —
+    none of which another model cures, and each of which silently moved personas onto a different model."""
+    pins = ModelPins.model_validate({"tier_a": TIER_A, "tier_b": PINS.tier_b, "embed": PINS.embed, "fallbacks": {"tier_a": "fallback/model"}})
+    models: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        model = json.loads(request.content)["model"]
+        models.append(model)
+        if model != TIER_A:
+            return httpx.Response(200, content=chat_json("fallback/model"))
+        status, body = reply
+        return httpx.Response(status, content=chat_json("some/other-model") if body == "wrong-model" else body)
+
+    client, _ = client_for(handler, pins=pins, max_retries=2)
+    (outcome,) = client.complete([ask(0)])
+    assert isinstance(outcome, CallFailure) and outcome.kind is kind
+    assert outcome.route is InferenceRoute.PRIMARY
+    assert "fallback/model" not in models
+
+
+def test_output_that_fails_validation_is_never_handed_to_the_fallback():
+    """Moving only the personas whose answers were hard to parse onto another model biases a study toward
+    that model's answers for exactly those personas."""
+    pins = ModelPins.model_validate({"tier_a": TIER_A, "tier_b": PINS.tier_b, "embed": PINS.embed, "fallbacks": {"tier_a": "fallback/model"}})
+    models: list[str] = []
+    schema = json.dumps({"type": "object", "required": ["x"], "properties": {"x": {"type": "number"}}})
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        model = json.loads(request.content)["model"]
+        models.append(model)
+        return httpx.Response(200, content=chat_json(model, "not json" if model == TIER_A else '{"x": 1}'))
+
+    client, _ = client_for(handler, pins=pins)
+    (outcome,) = client.complete([ask(0).model_copy(update={"json_schema": schema})])
+    assert isinstance(outcome, CallFailure) and outcome.kind is FailureKind.INVALID_OUTPUT
+    assert "fallback/model" not in models
+
+
 def test_a_role_with_no_pinned_fallback_records_a_failure_after_its_retries():
     state = {"sent": 0}
 

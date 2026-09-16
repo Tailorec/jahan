@@ -449,14 +449,20 @@ class InferenceClient:
         for index, (route, route_pin) in enumerate(routes):
             if index:
                 span.add_event(SIMCORE_EVENT_FALLBACK, {GEN_AI_REQUEST_MODEL: route_pin.model_id})
-            last = await self._attempt_route(request, route_pin, route, span, call_context)
-            if isinstance(last, Completion):
+            last, exhausted = await self._attempt_route(request, route_pin, route, span, call_context)
+            # The pinned fallback serves only a call whose primary exhausted its retries on a failure that
+            # retrying could have cured. A refusal, a pin failure, an answer that failed validation or an
+            # oversized call is not cured by another model — and moving only the personas whose answers
+            # were hard to parse onto a different model would bias the study toward that model's answers.
+            if isinstance(last, Completion) or not exhausted:
                 break
         finish(span, ok=isinstance(last, Completion), attributes=_outcome_attributes(last))
         assert last is not None
         return last
 
-    async def _attempt_route(self, request: ChatRequest, pin: ModelPin, route: InferenceRoute, span, call_context) -> ChatOutcome:
+    async def _attempt_route(self, request: ChatRequest, pin: ModelPin, route: InferenceRoute, span, call_context) -> tuple[ChatOutcome, bool]:
+        """The outcome on one route, and whether it failed by exhausting retries on a retryable failure —
+        the only failure the pinned fallback exists to serve."""
         # A pin that honours seeds is sent one derived from the draw; a pin that does not is sent none,
         # because recording a seed the provider ignored would promise determinism nobody gave.
         seed = derive_seed(request.sample) if pin.honours_seed and request.sample is not None else None
@@ -467,7 +473,7 @@ class InferenceClient:
         # whichever attempt's they turned out to be, so a replay reproduces the warm run exactly.
         cached = await self._cache_hit(request, pin, route, data, hashed)
         if cached is not None:
-            return cached
+            return cached, False
         attempts = 0
         repaired = False
         if not self._limiter.admissible(request_estimate(request)):
@@ -476,10 +482,10 @@ class InferenceClient:
                 detail=_oversized(request_estimate(request), self._limiter.tokens_per_minute),
                 attempts=0,
                 route=route,
-            )
+            ), False
         while True:
             if self._circuit_detail is not None:
-                return CallFailure(kind=FailureKind.CIRCUIT_OPEN, detail=self._circuit_detail, attempts=attempts, route=route)
+                return CallFailure(kind=FailureKind.CIRCUIT_OPEN, detail=self._circuit_detail, attempts=attempts, route=route), False
             await self._ceiling.acquire()
             self.stats.in_flight_peak = max(self.stats.in_flight_peak, self._ceiling.in_flight)
             estimate = request_estimate(active)
@@ -515,9 +521,9 @@ class InferenceClient:
                             detail=f"output still invalid after one repair: {errors[:4]}",
                             attempts=attempts,
                             route=route,
-                        )
+                        ), False
                 await self._cache_store(request, pin, route, body_bytes(chat_body(request, pin, seed=seed)), reply.outcome)
-                return reply.outcome
+                return reply.outcome, False
             if reply.limited:
                 self.stats.rate_limited += 1
                 await self._ceiling.lower()
@@ -530,7 +536,7 @@ class InferenceClient:
             if not reply.retryable or attempts > self.settings.max_retries:
                 if isinstance(reply.outcome, CallFailure):
                     record(span, {SIMCORE_FAILURE_KIND: reply.outcome.kind.value, SIMCORE_FAILURE_DETAIL: reply.outcome.detail})
-                return reply.outcome
+                return reply.outcome, reply.retryable
             span.add_event(SIMCORE_EVENT_RETRY, {SIMCORE_ATTEMPTS: attempts, GEN_AI_REQUEST_MODEL: pin.model_id, SIMCORE_ROUTE: route.value})
             wait_s = reply.wait_s
             if wait_s is None:
