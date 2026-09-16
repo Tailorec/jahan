@@ -1,6 +1,6 @@
 # Evaluation: elicitation against the real embedding model
 
-*2026-09-16 · M5 Phase 9 · anchor check on Titan Text Embeddings v2 · both families FAILED, neither pinned · Bedrock spend < $0.01*
+*2026-09-17 · M5 Phase 9 · anchor check on Titan Text Embeddings v2 · both families FAILED, neither pinned · Bedrock spend < $0.01*
 
 ## Setup
 
