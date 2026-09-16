@@ -113,3 +113,51 @@ def test_reaching_a_quota_by_admitting_a_weaker_source_is_visible_in_preview_and
     )
     assert "amazon" in built.population.gate_report.source_mix
     assert built.population.gate_report.evidence is FieldOrigin.EXTRACTED
+
+
+class ReadRecorder:
+    """Delegates to a source and records every row id read, so a test can prove what a study touched."""
+
+    def __init__(self, source) -> None:
+        self._source = source
+        self.read: list[str] = []
+
+    def matching(self, predicates, present, *, sources=None):
+        return self._source.matching(predicates, present, sources=sources)
+
+    def rows(self, ids):
+        for row in self._source.rows(ids):
+            self.read.append(row.source)
+            yield row
+
+    def __getattr__(self, name):
+        return getattr(self._source, name)
+
+
+def test_restricting_sources_still_fills_the_study_when_the_admitted_sources_hold_enough_rows():
+    """Admissible sources were once applied after the draw: a 300-persona study admitting two of three
+    sources built 193 personas, recorded no relaxation and raised nothing."""
+    built = build(
+        pack(), 300, 4021, coreset=multi_source(), inference=FakeChat(),
+        parameters=parameters(admissible_sources=frozenset({"gss", "stackoverflow"})),
+    )
+    assert len(built.population.personas) == 300
+    assert set(built.population.gate_report.source_mix) == {"gss", "stackoverflow"}
+
+
+def test_a_restriction_that_thins_an_audience_climbs_the_recorded_ladder_rather_than_shrinking_silently():
+    """Admitting only one source once built 99 of 300 personas with no relaxation, though 400 rows of
+    that source existed. The restriction now reaches eligibility, so a thin audience is a recorded rung."""
+    built = build(
+        pack(), 300, 4021, coreset=multi_source(), inference=FakeChat(),
+        parameters=parameters(admissible_sources=frozenset({"gss"})),
+    )
+    report = built.population.gate_report
+    assert len(built.population.personas) > 99
+    assert report.relaxations, "a study that could not fill its quota from its admitted sources must say so"
+
+
+def test_no_row_from_a_source_the_study_does_not_admit_is_ever_read():
+    recorder = ReadRecorder(multi_source())
+    build(pack(), 200, 4021, coreset=recorder, inference=FakeChat(), parameters=parameters(admissible_sources=frozenset({"gss"})))
+    assert recorder.read and set(recorder.read) == {"gss"}

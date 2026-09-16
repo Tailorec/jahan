@@ -76,9 +76,17 @@ def sample(
     brief, ontology = pack.brief, pack.ontology
     conditioning = tuple(sorted(ontology.conditioning_set))
 
-    eligible = coreset.matching({}, present=conditioning)
+    def eligible_rows(filters):
+        # Admissible sources restrict the pool itself, so the quotas and the relaxation ladder see exactly
+        # the rows a study may draw — excluding a source after the draw would silently shrink the study.
+        if admissible is None:
+            return coreset.matching(filters, present=conditioning)
+        return coreset.matching(filters, present=conditioning, sources=admissible)
+
+    eligible = eligible_rows({})
     if not eligible:
-        raise GateFailure("no row in the source carries every attribute the category's conditioning set requires")
+        restriction = "" if admissible is None else f" among the admissible sources {sorted(admissible)}"
+        raise GateFailure(f"no row{restriction} carries every attribute the category's conditioning set requires")
 
     audiences = tuple(audience.name for audience in brief.audiences)
     shares = brief.audience_shares
@@ -89,11 +97,8 @@ def sample(
     if audiences:
         quotas = _quotas(shares, n, audiences)
 
-        def match(filters, *, _conditioning=conditioning):
-            return coreset.matching(filters, present=_conditioning)
-
         resolved = [
-            (audience.name, quotas[audience.name], resolve(audience, quotas[audience.name], ontology, match, conditioning))
+            (audience.name, quotas[audience.name], resolve(audience, quotas[audience.name], ontology, eligible_rows, conditioning))
             for audience in brief.audiences
         ]
         drawn = _draw(resolved, sampling_seed)
@@ -106,10 +111,6 @@ def sample(
         raise GateFailure("no eligible row was drawn: every audience's eligible pool is empty")
 
     rows = {row.row_id: row for row in coreset.rows([row_id for _, row_id in drawn])}
-    if admissible is not None:
-        drawn = [(audience, row_id) for audience, row_id in drawn if rows[row_id].source in admissible]
-        if not drawn:
-            raise GateFailure(f"no drawn row came from an admissible source {sorted(admissible)}")
     sample_rows = tuple(rows[row_id] for _, row_id in drawn)
     if audiences:
         references = tuple(
