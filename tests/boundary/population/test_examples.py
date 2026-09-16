@@ -77,7 +77,12 @@ _real_only = pytest.mark.skipif(_real_cache() is None, reason="the corpus shards
 def test_the_real_study_previews_assesses_and_builds_against_cached_shards():
     real = _load("ai_code_review")
     forecast, report, population = real.run(n=1500, cache=_real_cache())
-    assert report.evidence.value == "measured"
+    # Demographic and professional fields are survey answers; part of the attitude fields was inferred by a
+    # model, so the report is only as strong as those — it once graded measured by grading whole sources.
+    origins = {attribute: tier.value for attribute, tier in report.attribute_origins.items()}
+    assert {origins[a] for a in ("age_bracket", "region", "dev_professional_status")} == {"measured"}
+    assert origins["att_ai"] == "extracted"
+    assert report.evidence.value == "extracted"
     assert set(report.source_mix) == {"stackoverflow"}
     assert report.overall is True
     assert len(population.personas) > 0

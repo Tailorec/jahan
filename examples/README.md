@@ -23,8 +23,11 @@ python examples/ai_code_review.py
 
 The download is explicit and opt-in; the study never fetches a shard on its own. Point it at an existing
 cache with `CONSUMERSIM_CORESET_CACHE=/path/to/persona_1m`. Stack Overflow is the one source carrying
-demographics and developer attitudes on the same person, so both audiences are grounded filters on
-measured attributes — not projections — and the gate report grades `measured`.
+demographics and developer attitudes on the same person, so both audiences filter real survey rows
+rather than projections. The gate report grades `extracted`, not `measured`: the demographic and
+professional fields are survey answers, but part of `att_ai` and `coding_ai_sentiment` was inferred by a
+model from other answers — and filtering for skeptics draws an inferred `att_ai` for 430 of 1,500
+personas, about twice the corpus rate. The grade says so rather than rounding it up.
 
 ### Reading coverage: the worked preview
 
@@ -35,14 +38,16 @@ shard is decoded to answer it), on the cached Stack Overflow rows:
 stackoverflow    matched 34,373  carrying 100,662  total 113,120
     age_bracket              measured
     region                   measured
-    demo_employment_status   measured
-    highest_education        measured
-    years_experience         measured
+    demo_employment_status   extracted
+    highest_education        extracted
+    years_experience         extracted
     dev_professional_status  measured
-    att_ai                   measured
-    coding_ai_sentiment      measured
-evidence measured   synthesized 0   relaxations none
+    att_ai                   extracted
+    coding_ai_sentiment      extracted
+evidence extracted   synthesized 0   relaxations none
 ```
+
+A preview grades each attribute at the weakest tier anywhere in the pool, so it is a worst case: `demo_employment_status` shows `extracted` because 3 of about 107,000 Stack Overflow values were inferred, though a drawn population almost always grades it `measured`.
 
 Every count is a different fact and the three denominators keep them apart. `total` 113,120 is what the
 source holds that passes the conditioning set's eligibility check. `carrying` 100,662 is how many of

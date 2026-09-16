@@ -1,6 +1,6 @@
 # The real-data study: an AI code-review assistant, tested on the one source that measures both
 # demographics and developer attitudes on the same person — Stack Overflow (ADR 0018, ADR 0019).
-# Its audiences are grounded filters on measured attributes, not projections.
+# Its audiences filter real survey rows, not projections; part of att_ai was inferred, so it grades extracted.
 
 product:
   name: Codepilot Review

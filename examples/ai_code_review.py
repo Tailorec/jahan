@@ -2,9 +2,11 @@
 
 Run it with ``python examples/ai_code_review.py`` **after** fetching the shards it needs. Nothing here
 downloads on its own — a missing shard is refused with the exact command that fetches it (ADR 0016).
-This is the study the corpus exists to run: its audiences are grounded filters on measured attributes
-(Stack Overflow is the one source carrying demographics and developer attitudes on the same person), and
-its gate report grades as measured.
+This is the study the corpus exists to run: Stack Overflow is the one source carrying demographics and
+developer attitudes on the same person, so its audiences filter real survey rows rather than projections.
+Its gate report grades as *extracted*, and that is the point: the demographic and professional fields are
+measured, but part of `att_ai` and `coding_ai_sentiment` was inferred by a model from other answers —
+and filtering for skeptics draws inferred `att_ai` values at about twice the corpus rate.
 
     hf download MatrAIx2026/MatrAIx_Persona_1M_Public_Release --repo-type dataset --local-dir "$HOME/.cache/consumersim/coreset/MatrAIx2026__MatrAIx_Persona_1M_Public_Release"
 """
@@ -92,7 +94,7 @@ def main() -> None:
     except MissingShard as error:
         print(str(error))
         raise SystemExit(2) from error
-    print("software_dev / code-review AI — real rows, measured evidence")
+    print("software_dev / code-review AI — real survey rows")
     print(f"  preview evidence {forecast.evidence.value}; report evidence {report.evidence.value}")
     print(f"  source mix {dict(report.source_mix)}")
     print(f"  gates overall {report.overall}; {len(population.personas)} personas; hash {population.population_hash[:12]}")

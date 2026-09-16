@@ -146,10 +146,18 @@ def test_the_adapter_never_reaches_the_network():
         ("gss", "direct", FieldOrigin.MEASURED),
         ("gss", None, FieldOrigin.MEASURED),
         ("stackoverflow", "direct", FieldOrigin.MEASURED),
+        ("stackoverflow", "structured_claim", FieldOrigin.MEASURED),
+        # A survey source's inferred value is a model's reading, not an answer.
+        ("stackoverflow", "summary_inference", FieldOrigin.EXTRACTED),
+        ("prism", "direct", FieldOrigin.MEASURED),
+        ("prism", "unsupported", FieldOrigin.EXTRACTED),
+        ("real_human_survey", None, FieldOrigin.MEASURED),
         ("amazon", "direct", FieldOrigin.EXTRACTED),
         ("wiki", "unsupported", FieldOrigin.EXTRACTED),
         ("amazon", "summary_inference", FieldOrigin.EXTRACTED),
         ("synthetic", "direct", FieldOrigin.SYNTHESIZED),
+        # A source the adapter does not know never earns a measured claim by default.
+        ("some_new_panel", "direct", FieldOrigin.EXTRACTED),
     ],
 )
 def test_tier_is_the_source_and_assignment_read_together(source, assignment, expected):

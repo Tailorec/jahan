@@ -45,26 +45,22 @@ def default_cache_dir(repo: str = REPO) -> Path:
     return base / "consumersim" / "coreset" / repo.replace("/", "__")
 
 # The tier cannot be read from the source alone (`gss` and `amazon` both report `direct`) or from the
-# assignment type alone (`wiki` varies within a source). It is read from the pair: what kind of
-# instrument or reader produced the value, together with how that reading was assigned (ADR 0017).
-_INSTRUMENT_SOURCES = frozenset({"gss", "stackoverflow", "real_human_survey"})
-_TEXT_SOURCES = frozenset({"wiki", "amazon", "prism"})
-_MEASURED_ASSIGNMENTS = frozenset({"direct", "structured_claim"})
+# assignment type alone (`wiki` varies within a source). It is read from the pair (ADR 0017): a survey
+# source's value is measured when the instrument recorded it — `direct`, a `structured_claim` mapped from
+# answers, or no grounding entry at all, which is how `real_human_survey` records every field — and
+# extracted when a model inferred it (`summary_inference`, `unsupported`): 15% of Stack Overflow's
+# `att_ai` is inferred. A text source is read by a model whatever the assignment says. A source the
+# adapter does not know is never granted a measured claim by default.
+_SURVEY_SOURCES = frozenset({"gss", "stackoverflow", "prism", "real_human_survey"})
+_TEXT_SOURCES = frozenset({"wiki", "amazon"})
+_RECORDED_ASSIGNMENTS = frozenset({"direct", "structured_claim"})
 
 
 def tier_for(source: PersonaSource, assignment_type: str | None) -> FieldOrigin:
-    """Grade one field's value from the source it came from and the way it was assigned.
-
-    A survey answer grades as measured even when its evidence is empty; a model's reading of text
-    grades as extracted, whether it was direct, summarised, or unsupported; a synthetic row's
-    skeleton grades as synthesized."""
+    """Grade one field's value from the source it came from and the way it was assigned."""
     if source == "synthetic":
         return FieldOrigin.SYNTHESIZED
-    if source in _INSTRUMENT_SOURCES:
-        return FieldOrigin.MEASURED
-    if source in _TEXT_SOURCES:
-        return FieldOrigin.EXTRACTED
-    if assignment_type in _MEASURED_ASSIGNMENTS:
+    if source in _SURVEY_SOURCES and (assignment_type is None or assignment_type in _RECORDED_ASSIGNMENTS):
         return FieldOrigin.MEASURED
     return FieldOrigin.EXTRACTED
 
@@ -90,6 +86,7 @@ class _ShardArrays:
     sources: np.ndarray  # object [rows]: each row's source, from the release's `source` column
     full: object  # the pyarrow table, kept for the lazy per-row decode
     overrides: Mapping[int, Mapping[int, str]]  # field_index -> row -> raw override value
+    inferred: Mapping[int, np.ndarray]  # field_index -> rows whose grounding says a model inferred it
     labels: dict = field(default_factory=dict)  # attribute -> decoded-label array, cached
 
 
@@ -275,6 +272,7 @@ class HfCoresetSource:
         for index, entry_overrides in enumerate(full["attribute_overrides"].to_pylist()):
             for item in entry_overrides or ():
                 overrides.setdefault(int(item["field_index"]), {})[index] = str(item["value"])
+        inferred = _inferred_rows(full["grounding"])
         return _ShardArrays(
             row_ids=row_ids,
             attributes=attributes,
@@ -283,7 +281,22 @@ class HfCoresetSource:
             sources=sources,
             full=full,
             overrides=overrides,
+            inferred=inferred,
         )
+
+    def tiers(self, arrays: _ShardArrays, attribute: AttributeId) -> np.ndarray:
+        """The tier of one attribute for every row in a shard, as ``tier_for`` grades a decoded row —
+        computed as vectors, so an index can grade millions of fields without building a persona."""
+        index = self._field_of[attribute]
+        tiers = np.empty(len(arrays.row_ids), dtype=object)
+        tiers[:] = FieldOrigin.EXTRACTED
+        tiers[np.isin(arrays.sources, np.asarray(tuple(_SURVEY_SOURCES), dtype=object))] = FieldOrigin.MEASURED
+        tiers[arrays.sources == "synthetic"] = FieldOrigin.SYNTHESIZED
+        rows = arrays.inferred.get(index)
+        if rows is not None and len(rows):
+            downgraded = rows[tiers[rows] == FieldOrigin.MEASURED]
+            tiers[downgraded] = FieldOrigin.EXTRACTED
+        return tiers
 
     def labels(self, arrays: _ShardArrays, attribute: AttributeId) -> np.ndarray:
         """The decoded label of one attribute for every row in a shard, `None` where the field is absent —
@@ -336,6 +349,31 @@ class HfCoresetSource:
         assignments = {int(item["field_index"]): item.get("assignment_type") for item in (record.get("grounding") or ())}
         tiers = {attribute: tier_for(source, assignments.get(self._field_of[attribute])) for attribute in values}
         return DecodedRow(row_id=row_id, source=source, values=FrozenDict(values), tiers=FrozenDict(tiers))
+
+
+def _inferred_rows(grounding) -> dict[int, np.ndarray]:
+    """For each field, the rows whose grounding entry names an assignment other than a recorded one.
+
+    Read with vector compute: a wiki shard carries tens of millions of grounding entries, far too many to
+    walk as Python objects. A null assignment type is not an inference, so nullness is tested explicitly —
+    `is_in` reports a null as a non-member rather than as null."""
+    import pyarrow as pa
+    import pyarrow.compute as pc
+
+    column = grounding.combine_chunks() if hasattr(grounding, "combine_chunks") else grounding
+    entries = column.flatten()
+    if len(entries) == 0:
+        return {}
+    parents = pc.list_parent_indices(column).to_numpy()
+    fields = entries.field("field_index").to_numpy(zero_copy_only=False)
+    types = entries.field("assignment_type")
+    recorded = pc.or_(pc.is_in(types, value_set=pa.array(sorted(_RECORDED_ASSIGNMENTS))), pc.is_null(types))
+    inferred = ~recorded.to_numpy(zero_copy_only=False)
+    fields, parents = fields[inferred], parents[inferred]
+    order = np.argsort(fields, kind="stable")
+    fields, parents = fields[order], parents[order]
+    boundaries = np.flatnonzero(np.diff(fields)) + 1
+    return {int(group[0]): rows for group, rows in zip(np.split(fields, boundaries), np.split(parents, boundaries)) if len(group)}
 
 
 def _field_codes(attributes: np.ndarray, index: int) -> np.ndarray:

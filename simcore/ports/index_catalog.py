@@ -111,12 +111,10 @@ def from_source(source: CoresetSource, attributes: Iterable[AttributeId] | None 
 def from_hf_source(hf_source, attributes: Iterable[AttributeId], sources: Sequence[PersonaSource] | None = None) -> IndexCoresetCatalog:
     """Build the index from the packed arrays of a real shard source, without decoding a persona.
 
-    Presence and codes are read as numpy vectors and a field's tier is graded at source level (the
-    instrument/text/synthetic distinction that decides a preview's grade), so a hundred-thousand-row
+    Presence, codes and each field's tier are read as numpy vectors — the tier from the source and the
+    field's own assignment type, as a decoded row would carry it — so a hundred-thousand-row
     shard indexes in the time it takes to read its bytes rather than the time it would take to build a
     hundred thousand personas."""
-    from simcore.ports.hf import tier_for
-
     wanted = tuple(attributes)
     totals: dict[PersonaSource, int] = {}
     base: dict[PersonaSource, int] = {}
@@ -135,7 +133,6 @@ def from_hf_source(hf_source, attributes: Iterable[AttributeId], sources: Sequen
             positions = ordinals[source_mask] + base.get(source, 0)
             totals[source] = totals.get(source, 0) + int(source_mask.sum())
             base[source] = totals[source]
-            tier = tier_for(source, None).value  # type: ignore[union-attr]
             for attribute in wanted:
                 labels = hf_source.labels(arrays, attribute)[source_mask]
                 cell = coverage[attribute].setdefault(source, {"total": 0, "present": 0, "measured": 0, "extracted": 0, "synthesized": 0, "calibrated": 0})
@@ -143,7 +140,9 @@ def from_hf_source(hf_source, attributes: Iterable[AttributeId], sources: Sequen
                 carried = labels != None  # noqa: E711 - numpy object-array presence test
                 present_positions = positions[carried]
                 cell["present"] += int(len(present_positions))
-                cell[tier] += int(len(present_positions))
+                # Graded per field, not per source: a survey source's inferred values are extracted.
+                for tier, count in zip(*np.unique(hf_source.tiers(arrays, attribute)[source_mask][carried], return_counts=True)):
+                    cell[tier.value] += int(count)
                 present.setdefault((source, attribute), []).extend(present_positions.tolist())
                 for label in np.unique(labels[carried]):
                     hits = positions[(labels == label) & carried]

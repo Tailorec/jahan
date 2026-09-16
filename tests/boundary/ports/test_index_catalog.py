@@ -12,7 +12,7 @@ from simcore.ports import CoresetCatalog, from_hf_source, from_source
 from simcore.ports.hf import HfCoresetSource
 from simcore.ports.index_catalog import IndexCoresetCatalog
 from simcore.ports.synthetic import AttributeShape, SyntheticCoresetSource, SyntheticShape
-from simcore.schemas import BriefPack, Exactly, OneOf
+from simcore.schemas import BriefPack, Exactly, FieldOrigin, OneOf
 
 COLUMNS = [
     {"id": "age_bracket", "values": ["Under 5", "5-12", "13-17", "18-24", "25-34"]},
@@ -128,6 +128,37 @@ def test_a_built_index_reports_the_weakest_tier_and_absent_attributes(tmp_path):
     # gss carries age_bracket as measured; region too, but employment is economic and present here.
     coverage = index.coverage(["age_bracket"], ["gss"])
     assert coverage["age_bracket"]["gss"].tier.value == "measured"
+
+
+def test_a_survey_sources_inferred_values_grade_as_extracted_in_the_index_as_in_its_rows(tmp_path):
+    """The index once graded a whole source at one tier, so every Stack Overflow value counted as measured —
+    including the 15% of `att_ai` a model inferred. It grades each field as the decoded row does."""
+    cache = tmp_path / "coreset"
+    write_hf_cache(
+        cache,
+        codebook_columns=COLUMNS,
+        shards={
+            "data/persona-1m-0000.parquet": [
+                {"codes": [3, 2, 0, 1, 1, 2, 2, 1], "source": "stackoverflow", "grounding": [(0, "direct"), (3, "summary_inference")]},
+                {"codes": [4, 5, 1, 0, 2, 0, 0, 3], "source": "stackoverflow", "grounding": [(0, "summary_inference"), (3, None)]},
+                {"codes": [1, 0, 0, 2, 0, 1, 1, 0], "source": "real_human_survey", "grounding": []},
+                {"codes": [2, 1, 1, 1, 1, 1, 1, 1], "source": "amazon", "grounding": [(0, "direct")]},
+            ],
+        },
+    )
+    source = HfCoresetSource(cache_dir=cache)
+    index = from_hf_source(source, ATTRIBUTES)
+    coverage = index.coverage(["age_bracket", "trait_optimism"], ["stackoverflow", "real_human_survey", "amazon"])
+    assert (coverage["age_bracket"]["stackoverflow"].measured, coverage["age_bracket"]["stackoverflow"].extracted) == (1, 1)
+    assert (coverage["trait_optimism"]["stackoverflow"].measured, coverage["trait_optimism"]["stackoverflow"].extracted) == (1, 1)
+    assert coverage["age_bracket"]["real_human_survey"].measured == 1
+    assert coverage["age_bracket"]["amazon"].extracted == 1
+    rows = list(source.rows(source.matching({}, present=[])))
+    for attribute in ("age_bracket", "trait_optimism"):
+        for name in ("stackoverflow", "real_human_survey", "amazon"):
+            decoded = [row.tiers[attribute] for row in rows if row.source == name and attribute in row.values]
+            cell = coverage[attribute][name]
+            assert (cell.measured, cell.extracted) == (decoded.count(FieldOrigin.MEASURED), decoded.count(FieldOrigin.EXTRACTED))
 
 
 def test_the_index_can_be_built_from_an_in_memory_source():
