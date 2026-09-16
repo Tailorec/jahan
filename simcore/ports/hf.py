@@ -162,9 +162,21 @@ class HfCoresetSource:
         *,
         sources: Iterable[PersonaSource] | None = None,
     ) -> tuple[str, ...]:
+        selected: list[str] = []
+        for shard, mask in self._masks(predicates, present, sources):
+            selected.extend(shard.row_ids[index] for index in np.nonzero(mask)[0])
+        return tuple(selected)
+
+    def _masks(
+        self,
+        predicates: Mapping[AttributeId, AttributeFilter],
+        present: Iterable[AttributeId],
+        sources: Iterable[PersonaSource] | None = None,
+    ) -> Iterator[tuple[_ShardArrays, np.ndarray]]:
+        """Each loaded shard with the boolean mask of its rows that are eligible — the one computation
+        `matching` and `count` share, so counting never has to revisit a matched row."""
         present = tuple(present)
         requested = None if sources is None else tuple(sources)
-        selected: list[str] = []
         for shard in self._loaded():
             mask = np.ones(len(shard.row_ids), dtype=bool)
             for attribute in present:
@@ -175,8 +187,7 @@ class HfCoresetSource:
                 mask &= np.isin(shard.sources, np.asarray(self.admissible, dtype=object))
             if requested is not None:
                 mask &= np.isin(shard.sources, np.asarray(requested, dtype=object))
-            selected.extend(shard.row_ids[index] for index in np.nonzero(mask)[0])
-        return tuple(selected)
+            yield shard, mask
 
     def rows(self, ids: Iterable[str]) -> Iterator[DecodedRow]:
         by_shard: dict[str, list[int]] = {}
@@ -195,16 +206,13 @@ class HfCoresetSource:
         *,
         by_source: bool = True,
     ) -> Mapping[PersonaSource, int] | int:
-        # Answered from the packed arrays, so it costs a scan of the loaded shards, not a row decode.
-        selected = self.matching(predicates, present)
-        if not by_source:
-            return len(selected)
+        # Answered from the packed arrays as vectors: a scan of the loaded shards, never a row decode and
+        # never a pass over the matched rows one at a time.
         counts: dict[PersonaSource, int] = {}
-        for row_id in selected:
-            shard, _, index = row_id.partition(":")
-            source = str(self._arrays(shard).sources[int(index)])
-            counts[source] = counts.get(source, 0) + 1
-        return counts
+        for shard, mask in self._masks(predicates, present):
+            for source, count in zip(*np.unique(shard.sources[mask].astype(str), return_counts=True)):
+                counts[str(source)] = counts.get(str(source), 0) + int(count)
+        return counts if by_source else sum(counts.values())
 
     # --- reading machinery ---------------------------------------------------------------------
 
@@ -336,12 +344,8 @@ class HfCoresetSource:
         if index is None:
             return np.zeros(len(arrays.row_ids), dtype=bool)
         labels = self.labels(arrays, attribute)
-        allowed = set(_allowed_labels(predicate, [str(value) for value in self._codebook.columns[index]["values"]]))
-        mask = np.zeros(len(arrays.row_ids), dtype=bool)
-        for position, label in enumerate(labels):
-            if label is not None and label in allowed:
-                mask[position] = True
-        return mask
+        allowed = _allowed_labels(predicate, [str(value) for value in self._codebook.columns[index]["values"]])
+        return np.isin(labels, np.asarray(allowed, dtype=object)) if allowed else np.zeros(len(arrays.row_ids), dtype=bool)
 
     def _decode(self, arrays: _ShardArrays, index: int) -> DecodedRow:
         record = arrays.full.slice(index, 1).to_pylist()[0]
