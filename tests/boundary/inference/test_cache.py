@@ -181,3 +181,16 @@ def test_deleting_the_cache_changes_cost_and_never_changes_a_result(tmp_path):
     warm_again = cached_client(root, Endpoint()).complete([unsampled(0)])[0]
     assert warm_again.cost.route is InferenceRoute.CACHE and warm_again.cost.cost == 0.0
     assert cold.cost.cost == 0.5
+
+
+def test_a_baseline_rerun_of_the_same_seeds_hits_the_cache_at_least_thirty_percent(tmp_path):
+    endpoint = Endpoint()
+    requests = [unsampled(index) for index in range(200)]
+    warm = cached_client(tmp_path, endpoint)
+    warm.complete(requests)
+    assert endpoint.sent == 200
+    replay = cached_client(tmp_path, endpoint)
+    outcomes = replay.complete(requests)
+    hits = sum(1 for outcome in outcomes if outcome.cost.cache_hit)
+    assert hits / len(outcomes) >= 0.30  # and a seed-for-seed replay should be total: it is 1.0
+    assert hits == 200

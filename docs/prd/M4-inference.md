@@ -44,7 +44,7 @@ Around that, five commitments. A call answered by a model outside its pin is a f
 12. As a methodologist, I want the model that actually served each call recorded beside the pinned one, so a gateway substitution is visible.
 13. As a methodologist, I want a call served by a model outside its pin's declared aliases recorded as a pin failure, so no result comes from a model the study did not name.
 14. As an analyst, I want every cost to state whether a gateway reported it, a declared price computed it, or it is unknown, so a budget is never enforced against invented prices.
-15. As a researcher, I want budget enforcement to refuse unknown costs unless I explicitly accept unbudgeted spend, so a study cannot overspend silently.
+15. As a researcher, I want budget enforcement to refuse unknown costs unless I explicitly accept unbudgeted spend, so a study cannot overspend silently. **(Deferred to `runner`, not done in M4:** inference records every cost's source truthfully; the refusal belongs to the module that owns the budget.**)**
 16. As a researcher, I want a pinned fallback used only after the primary is exhausted and recorded as the fallback route, so a substitution is bounded and visible.
 17. As a researcher, I want a re-run of the same seeds served from the cache and a new seed never served another replicate's sample, so re-runs are cheap and replicate spread stays real.
 18. As a maintainer, I want the seed each call was sent with recorded where the provider honours seeds, so provenance is complete without promising determinism a provider does not give.

@@ -249,8 +249,8 @@ The documentation that makes one endpoint usable, and the documents brought back
 
 ### Acceptance criteria
 
-- [ ] LiteLLM, vLLM and Ollama each have a configuration a user can follow without reading source
-- [ ] The LiteLLM configuration turns off its retries, fallbacks and caching, and explains why
-- [ ] Running several engine processes against one gateway's shared limits is documented
-- [ ] `FINAL_ARCH.md` §5.4, `SALVAGE.md` and `CONTEXT.md` describe what was built, and no claim contradicts the code
-- [ ] Refusing unknown costs is recorded as owed to `runner`, with story 15 marked deferred rather than done
+- [x] LiteLLM, vLLM and Ollama each have a configuration a user can follow without reading source
+- [x] The LiteLLM configuration turns off its retries, fallbacks and caching, and explains why
+- [x] Running several engine processes against one gateway's shared limits is documented
+- [x] `FINAL_ARCH.md` §5.4, `SALVAGE.md` and `CONTEXT.md` describe what was built, and no claim contradicts the code
+- [x] Refusing unknown costs is recorded as owed to `runner`, with story 15 marked deferred rather than done

@@ -237,7 +237,7 @@ _Avoid_: trust, certainty, significance
 ### Models
 
 **Pinned Model**:
-The model a study names for a role, fixed for the whole run. A study's results are a property of the models that produced them, so a model is never chosen, swapped or upgraded while a study runs.
+The model a study names for a role, fixed for the whole run. A pin is a full specification, not a bare name: the identifier sent to the endpoint, the served identifiers it accepts as answers, whether it follows a strict output schema, whether it honours a seed, and what it costs. A study's results are a property of the models that produced them, so a model is never chosen, swapped or upgraded while a study runs.
 _Avoid_: default model, preferred model, current model
 
 **Served Model**:
