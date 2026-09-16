@@ -819,7 +819,10 @@ def _repair_request(request: ChatRequest, answer: str, errors: list[str], schema
     messages = (
         *request.messages,
         FrozenDict({"role": "assistant", "content": answer}),
-        FrozenDict({"role": "system", "content": REPAIR_SYSTEM.format(errors="; ".join(errors[:6]), schema=schema or "{}")}),
+        # A user turn, not a system one: strict chat templates — Mistral's among them — allow system messages
+        # only at the start, and Bedrock refused the repair outright ("Unexpected role 'system' after role
+        # 'assistant'"), so every repair became a 400 that failed its whole batch.
+        FrozenDict({"role": "user", "content": REPAIR_SYSTEM.format(errors="; ".join(errors[:6]), schema=schema or "{}")}),
     )
     return request.model_copy(update={"messages": messages})
 

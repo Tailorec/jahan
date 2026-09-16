@@ -158,7 +158,10 @@ def test_output_that_fails_validation_is_repaired_once_and_accepted():
     assert isinstance(outcome, Completion) and outcome.text == '{"answer": "forty-two"}'
     assert state["n"] == 2
     stricter = state["bodies"][1]["messages"][-1]
-    assert stricter["role"] == "system" and "failed validation" in stricter["content"]
+    assert stricter["role"] == "user" and "failed validation" in stricter["content"]
+    roles = [message["role"] for message in state["bodies"][1]["messages"]]
+    # Strict chat templates refuse a system message anywhere but the start; a real endpoint answered 400.
+    assert "system" not in roles[roles.index("assistant"):]
     assert outcome.prompt_hash == hashlib.sha256(body_bytes(state["bodies"][1])).hexdigest()  # the accepted attempt's hash is the repaired request's own bytes
 
 
