@@ -17,7 +17,7 @@ from simcore.brief import load_brief
 from simcore.population import PreviewRequest, assess, build, preview
 from simcore.ports.fake import FakeChat
 from simcore.ports.hf import HfCoresetSource, MissingShard, default_cache_dir
-from simcore.ports.index_catalog import from_hf_source
+from simcore.ports.index_catalog import cached_hf_index
 from simcore.schemas import DistributionThresholds, PopulationParameters
 
 HERE = Path(__file__).resolve().parent
@@ -64,7 +64,7 @@ def coresets(cache: Path):
             f'hf download {REPO} --repo-type dataset --local-dir "{cache}"'
         )
     source = HfCoresetSource(cache_dir=cache, shards=shards, sources=SOURCES)
-    index = from_hf_source(source, tuple(pack().ontology.relevance_order), sources=SOURCES)
+    index = cached_hf_index(source, tuple(pack().ontology.relevance_order), sources=SOURCES)
     return source, index
 
 
