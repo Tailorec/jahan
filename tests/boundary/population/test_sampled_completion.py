@@ -157,3 +157,16 @@ def test_through_the_real_client_one_malformed_persona_never_costs_its_batch_the
     batches = -(-missing // COMPLETION_BATCH_SIZE)
     assert done == missing - batches  # exactly the one malformed persona per batch goes uncompleted
     assert sent["calls"] == 2 * batches  # one call per batch, one strict retry for its one leftover
+
+
+def test_a_distribution_with_an_impossible_value_never_fails_the_build_when_renormalised():
+    """The rounding residual of renormalising went to the last probability, so a valid distribution whose last
+    value was impossible, tempered at 0.5, came out a hair below zero and the build raised."""
+    from simcore.population._project import _Batch, _accepted_distributions
+
+    batch = _Batch("spend_band", ("a", "b", "c"), ("p",), False)
+    accepted = _accepted_distributions({"p": [0.7836484902155307, 0.21635150978446926, 0.0]}, batch, 0.5)
+    probabilities = accepted["p"].probabilities
+    assert all(probability >= 0.0 for probability in probabilities)
+    assert probabilities[2] == 0.0
+    assert abs(sum(probabilities) - 1.0) <= 1e-12

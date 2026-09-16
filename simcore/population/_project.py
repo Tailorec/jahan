@@ -294,7 +294,10 @@ def _normalised(names: tuple[str, ...], probabilities: list[float]) -> Completed
     """Probabilities that sum to one exactly, so what a population records is what it drew from."""
     total = sum(probabilities)
     scaled = [probability / total for probability in probabilities]
-    scaled[-1] += 1.0 - sum(scaled)
+    # The rounding residual is absorbed by the largest probability, which is at least one over the width:
+    # given to the last one instead, a residual of -2e-16 on a zero made it negative and failed the build.
+    largest = max(range(len(scaled)), key=scaled.__getitem__)
+    scaled[largest] += 1.0 - sum(scaled)
     return CompletedDistribution(values=names, probabilities=tuple(scaled))
 
 
