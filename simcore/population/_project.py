@@ -47,6 +47,13 @@ COMPLETION_TEMPLATE_ID = "field_completion"
 COMPLETION_BATCH_SIZE = 25
 ANSWER_TOKENS_PER_VALUE = 8
 ANSWER_TOKENS_OVERHEAD = 64
+# A persona's answer is its id as a JSON key as well as its probabilities, and identifiers and digits tokenize
+# poorly. The budget once counted only the probabilities: Ministral 3 8B on Bedrock wrote 1,414 characters in
+# 1,132 tokens (1.25 characters a token, 45 tokens a persona) for twenty-five personas, overran a budget of
+# 1,064, and stopped mid-list, leaving the whole batch unparseable. A budget is a ceiling, not a charge, so
+# ids are counted at a token a character.
+CHARACTERS_PER_ID_TOKEN = 1
+ANSWER_TOKENS_PER_ENTRY = 12
 # How far a stated distribution may drift from summing to one before it is refused rather than trusted.
 DISTRIBUTION_TOLERANCE = 1e-3
 COMPLETION_SYSTEM = (
@@ -235,7 +242,7 @@ def _chat_request(batch: _Batch, drafts: Mapping[str, _Draft]) -> ChatRequest:
         {"role": "system", "content": COMPLETION_RETRY_SYSTEM if batch.strict else COMPLETION_SYSTEM},
         {"role": "user", "content": json.dumps(payload, sort_keys=True)},
     )
-    budget = ANSWER_TOKENS_OVERHEAD + ANSWER_TOKENS_PER_VALUE * max(1, len(batch.values)) * len(batch.persona_ids)
+    budget = _answer_budget(batch)
     return ChatRequest(
         role=InferenceRole.TIER_A,
         messages=tuple(FrozenDict(message) for message in messages),
@@ -251,6 +258,15 @@ def _chat_request(batch: _Batch, drafts: Mapping[str, _Draft]) -> ChatRequest:
             {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "number"}}},
             sort_keys=True,
         ),
+    )
+
+
+def _answer_budget(batch: _Batch) -> int:
+    """Tokens enough for every persona's entry: its id as a key, its probabilities, and the punctuation between."""
+    width = max(1, len(batch.values))
+    return ANSWER_TOKENS_OVERHEAD + sum(
+        -(-len(persona_id) // CHARACTERS_PER_ID_TOKEN) + ANSWER_TOKENS_PER_ENTRY + ANSWER_TOKENS_PER_VALUE * width
+        for persona_id in batch.persona_ids
     )
 
 

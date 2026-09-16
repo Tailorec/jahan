@@ -183,3 +183,15 @@ def test_a_very_small_completion_temperature_concentrates_on_the_likeliest_value
         assert probabilities[1] > 0.99 and abs(sum(probabilities) - 1.0) <= 1e-12
     widened = _accepted_distributions({"p": [0.4, 0.6]}, batch, 1000.0)["p"].probabilities
     assert abs(widened[0] - widened[1]) < 0.01  # a high temperature still flattens toward uniform
+
+
+def test_the_answer_budget_fits_a_full_batch_in_the_format_a_real_model_writes():
+    """A real model (Ministral 3 8B on Bedrock) answered a batch of twenty-five in fenced, indented JSON and stopped
+    at max_tokens mid-list: the budget counted each persona's probabilities but not its id. Measured on a full
+    answer, it spent 1.25 characters a token; the budget must hold the same answer at that rate."""
+    from simcore.population._project import _answer_budget, _Batch
+
+    ids = tuple(f"p-persona-1m-0004:{21979 + index}" for index in range(COMPLETION_BATCH_SIZE))
+    batch = _Batch("att_ai", ("Opposed", "Skeptical", "Neutral", "Positive", "Enthusiast"), ids, False)
+    written = "```json\n{\n" + ",\n".join(f'  "{persona_id}": [0.0, 0.0, 0.3, 0.5, 0.2]' for persona_id in ids) + "\n}\n```"
+    assert _answer_budget(batch) >= len(written) / 1.25
