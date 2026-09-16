@@ -1,0 +1,48 @@
+{
+  "construct": "purchase_intent",
+  "version": "v1",
+  "sets": [
+    [
+      "I would never buy this.",
+      "I probably would not buy this.",
+      "I might or might not buy this.",
+      "I probably would buy this.",
+      "I would definitely buy this."
+    ],
+    [
+      "This is not for me at all.",
+      "I am unlikely to pick this up.",
+      "I am on the fence about getting it.",
+      "I am likely to get this.",
+      "I will certainly be getting this."
+    ],
+    [
+      "No chance I purchase this.",
+      "I doubt I will end up purchasing it.",
+      "Purchasing it is a toss-up for me.",
+      "I expect to purchase it.",
+      "I am sure to purchase it."
+    ],
+    [
+      "I have no interest in buying it.",
+      "Buying it seems improbable for me.",
+      "I could go either way on buying it.",
+      "I lean strongly toward buying it.",
+      "Buying it is a certainty for me."
+    ],
+    [
+      "I will pass on this completely.",
+      "I am disinclined to try it.",
+      "Trying it is fifty-fifty for me.",
+      "I am inclined to try it.",
+      "I am eager to try it and will."
+    ],
+    [
+      "Not something I would ever choose.",
+      "I would most likely skip this.",
+      "I am undecided about choosing this.",
+      "Choosing this appeals to me.",
+      "I have decided I want this."
+    ]
+  ]
+}

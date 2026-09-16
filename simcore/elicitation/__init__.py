@@ -4,6 +4,16 @@ Batch-first: `score(responses, construct) -> outcomes`, one per response in requ
 The computation is the paper's (ADR 0026), ported with attribution from the reference
 `compute.py` — never a dependency, never `sentence-transformers`."""
 
+from ._anchors import AnchorVersion, anchor_hash, anchor_path, load_anchor_version, resolve_anchors
 from ._compute import aggregate, per_set_distribution, similarities
 
-__all__ = ["aggregate", "per_set_distribution", "similarities"]
+__all__ = [
+    "AnchorVersion",
+    "aggregate",
+    "anchor_hash",
+    "anchor_path",
+    "load_anchor_version",
+    "per_set_distribution",
+    "resolve_anchors",
+    "similarities",
+]

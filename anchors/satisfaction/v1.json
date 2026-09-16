@@ -1,0 +1,48 @@
+{
+  "construct": "satisfaction",
+  "version": "v1",
+  "sets": [
+    [
+      "I am very dissatisfied with it.",
+      "I am somewhat dissatisfied with it.",
+      "I feel neutral about it.",
+      "I am somewhat satisfied with it.",
+      "I am very satisfied with it."
+    ],
+    [
+      "It was a terrible experience.",
+      "It left me rather disappointed.",
+      "It was neither good nor bad.",
+      "It left me quite pleased.",
+      "It was an excellent experience."
+    ],
+    [
+      "I dislike it a great deal.",
+      "I dislike it a little.",
+      "I have no strong feelings either way.",
+      "I like it a fair amount.",
+      "I like it a great deal."
+    ],
+    [
+      "It fell far short of what I hoped.",
+      "It fell somewhat short of my hopes.",
+      "It met my expectations, no more.",
+      "It went beyond what I hoped.",
+      "It went far beyond what I hoped."
+    ],
+    [
+      "I regret it completely.",
+      "I have some regrets about it.",
+      "I neither regret nor treasure it.",
+      "I am glad about it on the whole.",
+      "I treasure it completely."
+    ],
+    [
+      "This was a waste for me.",
+      "This was mostly a letdown.",
+      "This was acceptable, nothing more.",
+      "This worked well for me.",
+      "This worked wonderfully for me."
+    ]
+  ]
+}
