@@ -17,6 +17,7 @@ from simcore.schemas import ElicitationFailure, SsrOutcome, SsrResult
 
 from ._anchors import anchor_hash, resolve_anchors
 from ._compute import aggregate, per_set_distribution, similarities
+from ._question import is_numeric_answer
 
 DEFAULT_CHUNK_SIZE = 64
 
@@ -87,7 +88,7 @@ def score(
     cap = max(1, chunk_size)
     for start in range(0, len(responses), cap):
         chunk = list(responses[start : start + cap])
-        indices = [index for index, text in enumerate(chunk, start=start) if responses[index].strip()]
+        indices: list[int] = []
         for index, text in enumerate(chunk, start=start):
             if not text.strip():
                 outcomes[index] = ElicitationFailure(
@@ -96,6 +97,16 @@ def score(
                     response_text=text,
                     construct_id=construct,
                 )
+            elif is_numeric_answer(text):
+                # No code path scores a model-emitted rating: a numeric answer is a failure.
+                outcomes[index] = ElicitationFailure(
+                    kind="numeric_answer",
+                    detail="the response carries a rating-like number, so it is never scored as prose",
+                    response_text=text,
+                    construct_id=construct,
+                )
+            else:
+                indices.append(index)
         if not indices:
             continue
         try:
