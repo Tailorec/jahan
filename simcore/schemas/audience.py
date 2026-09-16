@@ -1,4 +1,4 @@
-"""The audience-preview domain: what a request would draw, answered before anything is downloaded.
+"""The audience-preview domain: what a request would draw, answered from an index without decoding a row.
 
 A preview is a forecast, not a verdict: it says how many rows match per source, which attributes are
 measured, extracted or absent, how many fields a draw would synthesize, which relaxation rungs it would

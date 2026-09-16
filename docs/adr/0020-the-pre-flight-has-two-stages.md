@@ -2,7 +2,9 @@
 
 An ontology could declare a conditioning set no row populates, and nothing said so until a study ran. `assess()` would raise "no row in the source carries every attribute the category's conditioning set requires" — correct, and far too late and too quiet to tell an author that `spend_band` is populated on 1.3% of `stackoverflow` rows and 0.0% of `gss` rows. The gap that hid a whole category of mismatch is that the engine could answer *whether this draw is sound* but never *what is in here to draw from*.
 
-`preview()` answers the second question from an index alone. Per-value counts across 1,290 fields, sixteen values and seven sources are about a megabyte; conjunctions come from the posting bitmaps the dataset already ships. Neither needs the 4.17 GB of shards, so audience exploration costs nothing and can be repeated freely before anything is downloaded. A χ² statistic cannot be computed from counts, so the statistical verdict stays where it was.
+`preview()` answers the second question from an index alone, never from decoded rows. The index is built once from the cached shards holding the admitted sources and saved beside the cache, keyed by the manifest's shard digests; every later preview over the same attributes and sources loads it without opening a shard. For the eight attributes of the Stack Overflow example it is 2.66 MB and turns a 5.9 s preview into a 0.3 s one. A χ² statistic cannot be computed from counts, so the statistical verdict stays where it was.
+
+*Amended after review.* This decision first said per-value counts were "about a megabyte" and that conjunctions came from "the posting bitmaps the dataset already ships", so exploration could happen "before anything is downloaded". The release ships no count table, and its index is `indexes/postings.sqlite` at 2,636 MB — larger than half the shards. The first preview therefore needs the shards for the sources it admits; what the saved index buys is that it is the only one that does.
 
 ## Considered options
 
@@ -10,7 +12,7 @@ Adding counts and coverage to `CoresetSource` was rejected: the port promises th
 
 ## Consequences
 
-`preview()` reports, per source, how many rows match and how many carry the attributes at all, which of them are `MEASURED`, `EXTRACTED` or absent, how many fields would be synthesized, which constraints the relaxation ladder would drop, and the resulting evidence grade. It always states denominators, because `0 / 0 / 63,532` — nobody was asked — and `0 / 12,400 / 63,532` — 12,400 were asked and none are like that — look identical as "no matches" and mean opposite things. The first says look elsewhere; the second is an empirical finding.
+`preview()` reports, per source, how many rows match and how many carry the attributes at all, which of them are `MEASURED`, `EXTRACTED` or absent, how many recorded a value the vocabulary cannot express, how many fields would be synthesized, which constraints the relaxation ladder would drop, and the resulting evidence grade. It always states denominators, because `0 / 0 / 63,532` — nobody was asked — and `0 / 12,400 / 63,532` — 12,400 were asked and none are like that — look identical as "no matches" and mean opposite things. The first says look elsewhere; the second is an empirical finding.
 
 The natural-language step is bounded by the same index: the model proposing filters is given only the coverage table for the admissible sources as its vocabulary, and a proposed filter naming a field with no fill anywhere is refused rather than passed through to fail later. The interpretation is shown back for confirmation, as ADR 0014 requires of anything drafted from the corpus.
 

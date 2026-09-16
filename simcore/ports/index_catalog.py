@@ -1,11 +1,11 @@
 """The index-backed catalog: coverage and counts answered from a compact postings index, never a shard.
 
-`preview()` is typed to `CoresetCatalog`, so the whole value of M3.5's pre-flight — that audience
-exploration costs megabytes, not gigabytes — depends on there being a catalog that answers from an index
-rather than by holding rows. This is that catalog: it materialises, once, the per-value posting sets and
-coverage counts for a chosen attribute set, and thereafter reads nothing but its own structures. The
-release ships this as `postings.sqlite`; it is rebuilt from a source here so the shape and the guarantee
-are proven in this repository, and a shard-backed index can be dropped in beside it unchanged."""
+`preview()` is typed to `CoresetCatalog`, so the value of M3.5's pre-flight — that repeated audience
+exploration reads megabytes, not gigabytes — depends on a catalog that answers from an index rather than
+by holding rows. This is that catalog: it materialises, once, the per-value posting sets and coverage
+counts for a chosen attribute set, and `cached_hf_index` saves them beside the cache so a later process
+loads them without opening a shard. The release's own index, `indexes/postings.sqlite`, is 2.6 GB — larger
+than most shards — so the engine builds the part a study needs instead."""
 
 import hashlib
 import json

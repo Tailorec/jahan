@@ -45,7 +45,7 @@ A persona field whose value an instrument recorded — a survey answer, a datase
 _Avoid_: grounded, real, actual, true
 
 **Extracted**:
-A persona field whose value is a model's reading of corpus text — not what a person said, but what a model took from what was written. It is a claim about the corpus, not a measurement of the respondent.
+A persona field whose value a model took rather than an instrument recorded — a reading of corpus text, or an inference from a respondent's other answers. Even in a survey, a value no question asked is extracted. It is a claim about the corpus, not a measurement of the respondent.
 _Avoid_: inferred, guessed, derived, grounded
 
 **Synthesized**:
@@ -59,6 +59,10 @@ _Avoid_: validated, tuned, fitted
 **Evidence Tier**:
 How strongly a value is supported — measured, extracted, calibrated or synthesized — ordered strongest to weakest. A tier grades a claim and never gates one: a report carries the weakest tier among the things it gated, so a pass is never read as stronger than its weakest evidence. The one refusal is that a report may not claim to match the measured category on anything short of measured evidence.
 _Avoid_: confidence, provenance, grounding level
+
+**Unexpressible**:
+A value a respondent did give that the attribute's vocabulary has no place for — an open band like "65+" against bands that split at 75. It is neither present nor missing: the field is left empty rather than guessed, and counted, because the loss falls on particular values rather than at random.
+_Avoid_: invalid, unmapped, dropped, missing
 
 **Coverage**:
 How much of a source actually holds a given attribute, stated with its denominators so "nobody was asked" and "nobody is like this" cannot look identical. The reason a study can fail before it runs is almost always absent coverage, not absent matches.
