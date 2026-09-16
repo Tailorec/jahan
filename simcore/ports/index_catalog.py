@@ -7,8 +7,11 @@ coverage counts for a chosen attribute set, and thereafter reads nothing but its
 release ships this as `postings.sqlite`; it is rebuilt from a source here so the shape and the guarantee
 are proven in this repository, and a shard-backed index can be dropped in beside it unchanged."""
 
+import hashlib
+import json
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 import numpy as np
 
@@ -178,8 +181,6 @@ def _coverage_of(cell: Mapping[str, int]) -> AttributeCoverage:
 
 
 def _stem(path: str) -> str:
-    from pathlib import Path
-
     return Path(str(path)).stem
 
 
@@ -224,3 +225,110 @@ class _IndexBuilder:
             _present=present,
             _value=value,
         )
+
+
+# --- persistence: build once from the shards, answer from the cache thereafter ----------------------
+
+INDEX_FORMAT = 1
+INDEX_DIRECTORY = "consumersim-index"
+
+
+def cached_hf_index(hf_source, attributes: Iterable[AttributeId], sources: Sequence[PersonaSource] | None = None) -> IndexCoresetCatalog:
+    """The index for these attributes and sources, loaded from the cache when a valid one exists and built
+    from the shards — then saved — only when none does.
+
+    This is what makes a preview cheap after the first: loading reads the manifest and the saved index,
+    never a shard. The saved index is keyed by the manifest's shard digests, so a changed release builds a
+    new one rather than answering from a stale one, and its own digest is verified on every load."""
+    fingerprint = _fingerprint(hf_source, attributes, sources)
+    path = _index_path(hf_source.cache_dir, fingerprint)
+    loaded = load_index(path, fingerprint)
+    if loaded is not None:
+        return loaded
+    built = from_hf_source(hf_source, attributes, sources=sources)
+    save_index(built, path, fingerprint)
+    return built
+
+
+def save_index(catalog: IndexCoresetCatalog, path: Path, fingerprint: Mapping[str, object]) -> None:
+    """Write an index as a postings archive and a JSON sidecar recording what it indexes and its digest."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    arrays: dict[str, np.ndarray] = {}
+    present_keys, value_keys = [], []
+    for position, ((source, attribute), rows) in enumerate(sorted(catalog._present.items())):
+        arrays[f"p{position}"] = np.asarray(sorted(rows), dtype=np.int64)
+        present_keys.append([source, attribute])
+    position = 0
+    for (source, attribute), by_value in sorted(catalog._value.items()):
+        for value, rows in sorted(by_value.items()):
+            arrays[f"v{position}"] = np.asarray(sorted(rows), dtype=np.int64)
+            value_keys.append([source, attribute, value])
+            position += 1
+    archive = path.with_suffix(".npz")
+    partial = archive.with_suffix(".partial.npz")
+    np.savez_compressed(partial, **arrays)
+    partial.replace(archive)
+    sidecar = {
+        "format": INDEX_FORMAT,
+        "fingerprint": fingerprint,
+        "sha256": _digest(archive),
+        "admitted_sources": list(catalog.admitted_sources),
+        "totals": dict(catalog.totals),
+        "vocabulary": {attribute: list(values) for attribute, values in catalog.vocabulary.items()},
+        "coverage": {attribute: {source: asdict(cell) for source, cell in by_source.items()} for attribute, by_source in catalog._coverage.items()},
+        "present": present_keys,
+        "values": value_keys,
+    }
+    path.with_suffix(".json").write_text(json.dumps(sidecar, sort_keys=True), encoding="utf-8")
+
+
+def load_index(path: Path, fingerprint: Mapping[str, object]) -> IndexCoresetCatalog | None:
+    """A saved index, or nothing when there is none or it was built for different inputs. An archive whose
+    digest no longer matches its sidecar is refused, as a cached shard would be."""
+    sidecar_path, archive = path.with_suffix(".json"), path.with_suffix(".npz")
+    if not (sidecar_path.is_file() and archive.is_file()):
+        return None
+    sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
+    if sidecar.get("format") != INDEX_FORMAT or sidecar.get("fingerprint") != json.loads(json.dumps(fingerprint)):
+        return None
+    if _digest(archive) != sidecar["sha256"]:
+        from .hf import ShardMismatch
+
+        raise ShardMismatch(f"the saved index {str(archive)!r} does not match its recorded digest; delete it to rebuild")
+    with np.load(archive) as arrays:
+        present = {(source, attribute): frozenset(arrays[f"p{i}"].tolist()) for i, (source, attribute) in enumerate(sidecar["present"])}
+        value: dict[tuple[PersonaSource, AttributeId], dict[AttributeValue, frozenset[int]]] = {}
+        for i, (source, attribute, label) in enumerate(sidecar["values"]):
+            value.setdefault((source, attribute), {})[label] = frozenset(arrays[f"v{i}"].tolist())
+    return IndexCoresetCatalog(
+        admitted_sources=tuple(sidecar["admitted_sources"]),
+        totals=dict(sidecar["totals"]),
+        vocabulary={attribute: tuple(values) for attribute, values in sidecar["vocabulary"].items()},
+        _coverage={
+            attribute: {source: AttributeCoverage(**cell) for source, cell in by_source.items()}
+            for attribute, by_source in sidecar["coverage"].items()
+        },
+        _present=present,
+        _value=value,
+    )
+
+
+def _fingerprint(hf_source, attributes: Iterable[AttributeId], sources: Sequence[PersonaSource] | None) -> dict[str, object]:
+    return {
+        "attributes": sorted(attributes),
+        "sources": sorted(sources) if sources is not None else None,
+        "shards": {str(path): str(entry.get("sha256", "")) for path, entry in sorted(hf_source._entries.items())},
+    }
+
+
+def _index_path(cache_dir: Path, fingerprint: Mapping[str, object]) -> Path:
+    key = hashlib.sha256(json.dumps(fingerprint, sort_keys=True).encode("utf-8")).hexdigest()[:16]
+    return Path(cache_dir) / INDEX_DIRECTORY / f"catalog-{key}"
+
+
+def _digest(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as handle:
+        while block := handle.read(1 << 20):
+            hasher.update(block)
+    return hasher.hexdigest()

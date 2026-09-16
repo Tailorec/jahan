@@ -1,6 +1,7 @@
 """The index-backed catalog: coverage and counts answered without ever opening a shard."""
 
 import copy
+import json
 from pathlib import Path
 
 import pytest
@@ -8,8 +9,8 @@ import pytest
 from tests.packed_fixture import write_hf_cache
 
 from simcore.population import PreviewRequest, preview
-from simcore.ports import CoresetCatalog, from_hf_source, from_source
-from simcore.ports.hf import HfCoresetSource
+from simcore.ports import CoresetCatalog, cached_hf_index, from_hf_source, from_source
+from simcore.ports.hf import HfCoresetSource, MissingShard, ShardMismatch
 from simcore.ports.index_catalog import IndexCoresetCatalog
 from simcore.ports.synthetic import AttributeShape, SyntheticCoresetSource, SyntheticShape
 from simcore.schemas import BriefPack, Exactly, FieldOrigin, OneOf
@@ -102,13 +103,40 @@ def test_single_attribute_counts_agree_with_a_row_scan(tmp_path):
         assert index.count({}, [attribute], by_source=False) == len(source.matching({}, present=[attribute]))
 
 
-def test_the_catalog_holds_no_source_and_a_preview_reads_no_shard(tmp_path):
+def test_a_saved_index_answers_a_fresh_preview_with_no_shard_on_disk(tmp_path):
+    """The index was once rebuilt from every shard in every process and its test deleted the shards only
+    after building it, proving that a finished in-memory structure did not need its source. A fresh source
+    over a cache with no shards at all now previews: any shard read would raise `MissingShard`."""
     cache = fake_cache(tmp_path)
-    index = from_hf_source(HfCoresetSource(cache_dir=cache), ATTRIBUTES)
+    request = PreviewRequest(pack(), 5, filters={"age_bracket": "18-24"})
+    built = cached_hf_index(HfCoresetSource(cache_dir=cache), ATTRIBUTES)
+    expected = preview(request, catalog=built)
     for shard in (cache / "data").glob("*.parquet"):
         shard.unlink()
-    report = preview(PreviewRequest(pack(), 5, filters={"age_bracket": "18-24"}), catalog=index)
-    assert report.sources
+    loaded = cached_hf_index(HfCoresetSource(cache_dir=cache), ATTRIBUTES)
+    assert preview(request, catalog=loaded) == expected
+    assert loaded.coverage(ATTRIBUTES, loaded.sources()) == built.coverage(ATTRIBUTES, built.sources())
+
+
+def test_a_saved_index_for_a_different_release_is_rebuilt_not_trusted(tmp_path):
+    cache = fake_cache(tmp_path)
+    cached_hf_index(HfCoresetSource(cache_dir=cache), ATTRIBUTES)
+    manifest = json.loads((cache / "manifest.json").read_text())
+    manifest["files"][0]["sha256"] = "0" * 64
+    (cache / "manifest.json").write_text(json.dumps(manifest))
+    for shard in (cache / "data").glob("*.parquet"):
+        shard.unlink()
+    with pytest.raises(MissingShard):
+        cached_hf_index(HfCoresetSource(cache_dir=cache), ATTRIBUTES)
+
+
+def test_a_saved_index_whose_archive_was_altered_is_refused(tmp_path):
+    cache = fake_cache(tmp_path)
+    cached_hf_index(HfCoresetSource(cache_dir=cache), ATTRIBUTES)
+    (archive,) = (cache / "consumersim-index").glob("*.npz")
+    archive.write_bytes(archive.read_bytes() + b"tampered")
+    with pytest.raises(ShardMismatch, match="saved index"):
+        cached_hf_index(HfCoresetSource(cache_dir=cache), ATTRIBUTES)
 
 
 def test_the_catalogs_counts_agree_with_the_manifest_source_totals(tmp_path):

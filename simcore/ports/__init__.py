@@ -10,7 +10,7 @@ from .chat import ChatPort
 from .coreset import CoresetSource
 from .embed import EmbedPort
 from .evidence import EvidencePort
-from .index_catalog import IndexCoresetCatalog, from_hf_source, from_source
+from .index_catalog import IndexCoresetCatalog, cached_hf_index, from_hf_source, from_source
 from .patch import NullPatchSource, PersonaPatchSource
 
 __all__ = [
@@ -23,6 +23,7 @@ __all__ = [
     "IndexCoresetCatalog",
     "NullPatchSource",
     "PersonaPatchSource",
+    "cached_hf_index",
     "from_hf_source",
     "from_source",
 ]
