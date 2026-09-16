@@ -31,6 +31,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed", type=int, default=4021, help="the holdout split seed")
     parser.add_argument("--population-seed", type=int, default=None, help="the draw seed for the engine's sampling")
     parser.add_argument("--temperature", type=float, default=1.0, help="the study's completion temperature")
+    parser.add_argument(
+        "--information",
+        choices=("demographics", "all"),
+        default="demographics",
+        help="what projection and its baseline both see: only the conditioning set (ADR 0019's question), or every other declared attribute",
+    )
     parser.add_argument("--endpoint", action="store_true", help="run against the configured OpenAI-compatible endpoint")
     parser.add_argument("--model", default=None, help="the tier_a model name to pin (with --endpoint)")
     parser.add_argument("--cache", type=Path, default=None, help="cached corpus shards (default: $CONSUMERSIM_CORESET_CACHE)")
@@ -60,6 +66,7 @@ def main(argv: list[str] | None = None) -> int:
         pins=pins,
         # The models that actually answered are known only once the evaluation has run them through.
         served_models=getattr(inference, "served_models", {}),
+        information=args.information,
     )
     text = report.to_json()
     if args.out:

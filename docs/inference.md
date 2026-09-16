@@ -146,12 +146,15 @@ One command, from the repository root:
 
 ```bash
 SIMCORE_INFERENCE_BASE_URL=http://127.0.0.1:4000/v1 SIMCORE_INFERENCE_API_KEY=... \
-  python -m simcore.holdout --endpoint --model tier-a --hidden att_ai --pool 600 --seed 4021 --out holdout.json
+  python -m simcore.holdout --endpoint --model tier-a --information demographics --hidden att_ai --pool 600 --seed 4021 --out holdout.json
 ```
 
 It hides Stack Overflow's measured attitudes, projects them through the production path on the pinned
 model, and writes a report naming the pins, the models that actually served the calls, the seeds, the
-completion temperature and the row counts behind every number (ADR 0019). Read log loss and Brier score
+completion temperature and the row counts behind every number (ADR 0019). `--information` picks the arm: `demographics` (the default, and ADR 0019's question) gives projection only the
+conditioning set; `all` gives it every other declared attribute. Either way the baseline sees exactly what
+projection saw, so a correlated attitude can never make a model look better than the comparison it is held to.
+Read log loss and Brier score
 first, each beside the demographic-conditional baseline's: they are proper scoring rules, so neither
 uniform guessing nor ignoring demographics can score well. Marginal distance cannot see demographics and
 calibration rewards uniform guessing, so neither is a verdict on its own; recovered dependence is
