@@ -239,3 +239,17 @@ def test_one_set_that_disagrees_with_the_rest_fails_on_rank_stability_alone(stag
     assert result.collapse_distance > 0.1
     assert result.spearman_min <= 0.8
     assert not result.passed and result.detail.startswith("rank stability")
+
+
+def test_an_embedding_model_named_by_a_gateway_alias_is_refused_for_checking_and_pinning(staged: Path, tmp_path: Path):
+    """Titan's committed check records name the model `embed`, the alias a LiteLLM proxy was given: nothing in them
+    says which model failed, and repointing the alias would have let another model inherit a result."""
+    levels = _levels_for(staged)
+    with pytest.raises(ValueError, match="names no provider"):
+        check_anchors("purchase-intent-v1", "purchase_intent", "v1", LexiconEmbed(levels, model_id="embed"), staged, write_record=False)
+    passing = check_anchors("purchase-intent-v1", "purchase_intent", "v1", LexiconEmbed(levels), staged)
+    assert passing.passed and passing.embed_model_id == "lexicon/v1" and passing.served_model_id == "lexicon/v1"
+    record_path = staged / "purchase_intent" / "v1.check.json"
+    record_path.write_text(record_path.read_text().replace('"lexicon/v1"', '"embed"'))
+    with pytest.raises(ValueError, match="names no provider"):
+        assert_pinnable("purchase-intent-v1", "purchase_intent", "v1", staged)

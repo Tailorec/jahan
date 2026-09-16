@@ -98,6 +98,8 @@ class AnchorCheckResult(BaseModel):
     version: str
     anchor_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     embed_model_id: str
+    # What the endpoint reported serving. Absent on records written before it was kept.
+    served_model_id: str | None = None
     passed: bool
     expected_ratings: tuple[float, ...]
     spearman_min: float
@@ -161,12 +163,14 @@ def check_anchors(
     """Run the gate over one frozen version against the model it will be used with."""
     parsed = load_anchor_version(Path(anchors_dir) / construct / f"{version}.json")
     digest = anchor_hash(parsed)
-    model_id = embed.model_id
+    model_id = require_provider_model(embed.model_id)
     ladder = ladder_for(construct)
     varied = varied_for(construct)
 
     flat = [statement for anchor_set in parsed.sets for statement in anchor_set]
-    anchor_vectors = np.asarray(embed.embed(flat).vectors, dtype=np.float32).reshape(len(parsed.sets), 5, -1)
+    anchor_result = embed.embed(flat)
+    served_model_id = getattr(anchor_result, "served_model_id", None)
+    anchor_vectors = np.asarray(anchor_result.vectors, dtype=np.float32).reshape(len(parsed.sets), 5, -1)
     ladder_vectors = np.asarray(embed.embed(list(ladder)).vectors, dtype=np.float32)
     varied_vectors = np.asarray(embed.embed(list(varied)).vectors, dtype=np.float32)
 
@@ -211,6 +215,7 @@ def check_anchors(
         version=version,
         anchor_hash=digest,
         embed_model_id=model_id,
+        served_model_id=served_model_id,
         passed=not reasons,
         expected_ratings=tuple(headline_expected),
         spearman_min=spearman_min,
@@ -220,6 +225,22 @@ def check_anchors(
     if write_record:
         check_record_path(anchors_dir, construct, version).write_text(result.model_dump_json(indent=2) + "\n")
     return result
+
+
+def require_provider_model(model_id: str) -> str:
+    """Refuse an embedding model named only by a gateway alias.
+
+    A check result is evidence about one model. Titan's records once named the model `embed` — the name a LiteLLM
+    proxy was given — so nothing in them said which model passed or failed, and pointing that alias at another
+    model would have let the new model inherit the result. A provider's own identifier carries a `.` or a `/`
+    (`amazon.titan-embed-text-v2:0`, `openai/text-embedding-3-small`); a bare name does not. This refuses the
+    alias that happened; it cannot catch a qualified name deliberately pointed at another model."""
+    if "." not in model_id and "/" not in model_id:
+        raise ValueError(
+            f"embedding model {model_id!r} names no provider, so a check result cannot say which model it judged; "
+            "serve and pin the provider's own model id (e.g. amazon.titan-embed-text-v2:0) rather than a gateway alias"
+        )
+    return model_id
 
 
 def read_check_record(anchors_dir: str | Path, construct: str, version: str) -> AnchorCheckResult | None:
@@ -251,7 +272,8 @@ def assert_pinnable(
         raise ValueError("the anchor file changed since its check passed: a changed statement is a new version")
     if record.anchor_set_id != anchor_set_id:
         raise ValueError(f"the check passed for {record.anchor_set_id!r}, not {anchor_set_id!r}: it cannot be pinned")
-    if embed_model_id is not None and record.embed_model_id != embed_model_id:
+    require_provider_model(record.embed_model_id)
+    if embed_model_id is not None and record.embed_model_id != require_provider_model(embed_model_id):
         raise ValueError(
             f"the check passed against {record.embed_model_id!r}, not {embed_model_id!r}: re-check on the new model"
         )

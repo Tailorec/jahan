@@ -137,7 +137,7 @@ chat models, one base URL for both (ADR 0028). The pinned model is Amazon Titan 
 
 ```yaml
 model_list:
-  - model_name: embed                          # the name the engine sends — use it as the pin's model_id
+  - model_name: amazon.titan-embed-text-v2:0   # the provider's own id: the pin's model_id, and what a check records
     litellm_params:
       model: bedrock/amazon.titan-embed-text-v2:0
       aws_region_name: us-east-1
@@ -145,10 +145,13 @@ model_list:
     tpm: 2000000
 ```
 
-Point the engine at `SIMCORE_INFERENCE_BASE_URL=http://127.0.0.1:4000/v1` as usual. The pin's
-`model_id` is `embed` only if that is the name the proxy serves; in practice pin the served name
-`amazon.titan-embed-text-v2:0` with `serves` accepting whatever LiteLLM reports back in `model`
-(read it from the first call's cost record, as with chat). Titan returns 1024-dimensional vectors;
+Point the engine at `SIMCORE_INFERENCE_BASE_URL=http://127.0.0.1:4000/v1` as usual, and pin
+`amazon.titan-embed-text-v2:0` with `serves` accepting whatever LiteLLM reports back in `model` (read it
+from the first call's cost record, as with chat). **Name the embedding model by the provider's own id, never
+by a short alias.** An anchor check is evidence about one model, and its record names the model it judged:
+Titan's first records named it `embed`, which says nothing about what passed or failed, and repointing that
+alias would let another model inherit the result. The anchor check and pinning refuse a model id with no
+provider qualifier (no `.` or `/`). Titan returns 1024-dimensional vectors;
 the run fixes its embedding space on the first batch and refuses a later dimension change. The
 mapping validation (`python -m simcore.elicitation`) measures whether SSR survives this
 substitution; Cohere Embed v4 is the next candidate if it does not.

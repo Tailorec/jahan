@@ -10,11 +10,12 @@ from pathlib import Path
 from simcore.elicitation import anchor_hash, load_anchor_version
 from simcore.elicitation._check import AnchorCheckResult, check_record_path
 
+FAKE_MODEL = "fake/embed-v1"
 REPO_ANCHORS = Path(__file__).resolve().parents[3] / "anchors"
 FAMILIES = (("purchase_intent", "purchase-intent-v1"), ("satisfaction", "satisfaction-v1"))
 
 
-def stage_passing(tmp_path: Path, *, model_id: str = "fake-embed", version: str = "v1") -> Path:
+def stage_passing(tmp_path: Path, *, model_id: str = FAKE_MODEL, version: str = "v1") -> Path:
     staged = tmp_path / "anchors"
     shutil.copytree(REPO_ANCHORS, staged)
     for construct, set_id in FAMILIES:
