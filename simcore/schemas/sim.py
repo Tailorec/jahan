@@ -18,7 +18,7 @@ from .base import (
     UnitInterval,
 )
 from .brief import ClaimId
-from .enums import ActionKind, BeliefDim, Channel, ExposureReason, StimulusKind
+from .enums import ActionKind, BeliefDim, Channel, ElicitationFailureKind, ExposureReason, StimulusKind
 from .run import PinnedModelId
 
 ImpressionId = Annotated[str, StringConstraints(pattern=rf"^im-{ULID_PATTERN}$")]
@@ -46,6 +46,47 @@ PMF5 = Annotated[
     AfterValidator(_strictly_positive),
     AfterValidator(_mass_sums_to_one),
 ]
+
+
+def _non_negative(mass: tuple[float, ...]) -> tuple[float, ...]:
+    if any(value < 0.0 for value in mass):
+        raise ValueError("a per-set mass contains a negative value")
+    return mass
+
+
+def _range_check(mass: tuple[float, ...], low: float, high: float) -> tuple[float, ...]:
+    if any(not (low <= value <= high) for value in mass):
+        raise ValueError(f"similarities must lie in [{low}, {high}]")
+    return mass
+
+
+AnchorSimplex5 = Annotated[
+    tuple[float, float, float, float, float],
+    AfterValidator(_non_negative),
+    AfterValidator(_mass_sums_to_one),
+]
+
+Similarity5 = Annotated[
+    tuple[float, float, float, float, float],
+    AfterValidator(lambda mass: _range_check(mass, 0.0, 1.0)),
+]
+
+
+def _tempered_mean(sets: tuple[tuple[float, ...], ...], temperature: float) -> tuple[float, float, float, float, float]:
+    """Temperature applied once, after the mean across sets; zero gives a one-hot at the most likely point."""
+    mean = [sum(mass[point] for mass in sets) / len(sets) for point in range(5)]
+    if temperature == 0.0:
+        if all(value == mean[0] for value in mean):
+            return (0.2, 0.2, 0.2, 0.2, 0.2)
+        top = max(range(5), key=lambda point: mean[point])
+        return tuple(1.0 if point == top else 0.0 for point in range(5))
+    if temperature == 1.0:
+        return (mean[0], mean[1], mean[2], mean[3], mean[4])
+    shaped = [value ** (1.0 / temperature) if value > 0 else 0.0 for value in mean]
+    total = sum(shaped)
+    if total <= 0.0:
+        return (0.2, 0.2, 0.2, 0.2, 0.2)
+    return tuple(value / total for value in shaped)
 
 
 class Exposure(SimBaseModel):
@@ -185,22 +226,45 @@ class MemoryView(SimBaseModel):
 class SsrResult(SimBaseModel):
     """The elicitation record: free text in, one response mass per anchor reference set, and every
     identifier needed to detect an anchor/response embedding-model mismatch from the record alone.
-    The headline mass is computed as the mean of the per-set masses, so it cannot disagree with them."""
+    The headline mass is temperature applied to the mean of the per-set masses, so it cannot
+    disagree with them. The raw per-set similarities make a change of ε or temperature arithmetic."""
 
     response_text: NonEmptyStr
-    per_set_pmfs: tuple[PMF5, ...] = Field(min_length=MIN_REFERENCE_SETS)
+    per_set_pmfs: tuple[AnchorSimplex5, ...] = Field(min_length=MIN_REFERENCE_SETS)
+    per_set_similarities: tuple[Similarity5, ...] = Field(min_length=MIN_REFERENCE_SETS)
     construct_id: Identifier
     category: Identifier
     anchor_set_id: Identifier
     anchor_version: Identifier
     embed_model_id: PinnedModelId
-    tau: Annotated[float, Field(gt=0.0)]
+    temperature: Annotated[float, Field(ge=0.0)] = 1.0
+    epsilon: Annotated[float, Field(ge=0.0)] = 0.0
+
+    @model_validator(mode="after")
+    def _similarities_match_the_distributions(self) -> Self:
+        if len(self.per_set_similarities) != len(self.per_set_pmfs):
+            raise ValueError(
+                f"one similarity vector of five per anchor set beside each set's distribution: "
+                f"{len(self.per_set_similarities)} similarities for {len(self.per_set_pmfs)} distributions"
+            )
+        return self
 
     @computed_field
     @property
     def pmf(self) -> tuple[float, float, float, float, float]:
-        sets = len(self.per_set_pmfs)
-        return tuple(sum(mass[point] for mass in self.per_set_pmfs) / sets for point in range(5))
+        return _tempered_mean(self.per_set_pmfs, self.temperature)
+
+
+class ElicitationFailure(SimBaseModel):
+    """A response that produced no distribution: what went wrong, with no mass to misread."""
+
+    kind: ElicitationFailureKind
+    detail: NonEmptyStr
+    response_text: str = ""
+    construct_id: Identifier
+
+
+SsrOutcome = SsrResult | ElicitationFailure
 
 
 _TEXT_ACTIONS = frozenset(

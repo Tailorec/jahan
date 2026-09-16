@@ -302,3 +302,11 @@ class GraphCheck(StrEnum):
     CLUSTERING = "clustering"
     CONNECTIVITY = "connectivity"
 
+
+class ElicitationFailureKind(StrEnum):
+    """Why an elicitation produced no distribution; a failure carries no mass."""
+
+    NUMERIC_ANSWER = "numeric_answer"
+    EMBEDDING_FAILURE = "embedding_failure"
+    EMPTY_RESPONSE = "empty_response"
+
