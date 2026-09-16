@@ -6,11 +6,15 @@ leaves, the request body is serialized once and sent as exactly those bytes, and
 recorded as a `Completion` naming the model that served it, its tokens, latency and cost with its
 source — or as a `CallFailure` (ADR 0023). A call answered by a model outside its pin's accepted
 identifiers is a pin failure, never a result.
-"""
+
+A batch runs on a bounded queue feeding workers under an adaptive in-flight ceiling and a limiter on
+requests and tokens per minute, so a tick's hundred thousand calls become neither a hundred thousand
+coroutines nor a storm of 429s."""
 
 import asyncio
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass
 
 import httpx
 
@@ -29,6 +33,13 @@ from simcore.schemas import (
     ModelPins,
 )
 
+from ._dispatch import (
+    AdaptiveCeiling,
+    DispatchStats,
+    RateLimiter,
+    request_estimate,
+    retry_after,
+)
 from ._loop import run
 from ._settings import ExecutionSettings
 from ._wire import (
@@ -48,6 +59,16 @@ class UnpinnedRoleError(ValueError):
     fails in a second rather than after spending."""
 
 
+@dataclass(frozen=True)
+class _Reply:
+    """One exchange's outcome plus what the dispatcher should make of it."""
+
+    outcome: ChatOutcome
+    retryable: bool = False
+    limited: bool = False
+    wait_s: float | None = None
+
+
 class InferenceClient:
     """The batch port: `complete(requests) -> outcomes`, synchronous and order-preserving outside,
     concurrent inside, with a `chat()` facade over a batch of one."""
@@ -58,11 +79,18 @@ class InferenceClient:
         settings: ExecutionSettings | None = None,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
-        clock: Callable[[], float] = time.monotonic,
+        clock: Callable[[], float] | None = None,
+        sleep: Callable[[float], Awaitable[None]] | None = None,
     ) -> None:
         self.pins = pins
         self.settings = settings or ExecutionSettings()
-        self._clock = clock
+        self._clock = clock or time.monotonic
+        self._sleep = sleep or asyncio.sleep
+        self._ceiling = AdaptiveCeiling(self.settings.max_concurrency)
+        self._limiter = RateLimiter(
+            self.settings.requests_per_minute, self.settings.tokens_per_minute, self._clock, self._sleep
+        )
+        self.stats = DispatchStats()
         self._http = httpx.AsyncClient(
             base_url=self.settings.base_url,
             transport=transport,
@@ -82,7 +110,9 @@ class InferenceClient:
         for request, pin in zip(requests, pins, strict=True):
             if request.role is InferenceRole.EMBED:
                 raise ValueError("embeddings are not chat: they go through the embedding endpoint, never complete()")
-        return run(self._gather(requests, pins))
+        if not requests:
+            return ()
+        return run(self._gather(list(requests), pins))
 
     def chat(
         self,
@@ -107,30 +137,79 @@ class InferenceClient:
         )
         return self.complete((request,))[0]
 
-    async def _gather(self, requests: Sequence[ChatRequest], pins: Sequence[ModelPin]) -> tuple[ChatOutcome, ...]:
-        outcomes = await asyncio.gather(
-            *(self._attempt(request, pin) for request, pin in zip(requests, pins, strict=True))
-        )
-        return tuple(outcomes)
-
     async def aclose(self) -> None:
         await self._http.aclose()
 
-    async def _attempt(self, request: ChatRequest, pin: ModelPin) -> ChatOutcome:
-        return await self._exchange(request, pin, InferenceRoute.PRIMARY)
+    # --- the batch: a bounded queue feeding workers under the ceiling -----------------------------------
 
-    async def _exchange(self, request: ChatRequest, pin: ModelPin, route: InferenceRoute) -> ChatOutcome:
+    async def _gather(self, requests: list[ChatRequest], pins: list[ModelPin]) -> tuple[ChatOutcome, ...]:
+        outcomes: list[ChatOutcome | None] = [None] * len(requests)
+        queue: asyncio.Queue = asyncio.Queue(maxsize=max(1, self.settings.queue_bound))
+        workers = min(self._ceiling.maximum, len(requests))
+        done = object()
+
+        async def produce() -> None:
+            for job in enumerate(zip(requests, pins, strict=True)):
+                await queue.put(job)
+                self.stats.queued_peak = max(self.stats.queued_peak, queue.qsize())
+            for _ in range(workers):
+                await queue.put(done)
+
+        async def work() -> None:
+            while True:
+                job = await queue.get()
+                if job is done:
+                    return
+                index, (request, pin) = job
+                outcomes[index] = await self._execute(request, pin)
+
+        producer = asyncio.create_task(produce())
+        crew = [asyncio.create_task(work()) for _ in range(workers)]
+        await asyncio.gather(producer, *crew)
+        self.stats.ceiling_final = self._ceiling.value
+        self.stats.ceiling_lowest = self._ceiling.lowest
+        return tuple(outcomes)  # type: ignore[arg-type]
+
+    async def _execute(self, request: ChatRequest, pin: ModelPin) -> ChatOutcome:
+        attempts = 0
+        while True:
+            await self._ceiling.acquire()
+            self.stats.in_flight_peak = max(self.stats.in_flight_peak, self._ceiling.in_flight)
+            estimate = request_estimate(request)
+            try:
+                await self._limiter.acquire(estimate)
+                attempts += 1
+                reply = await self._exchange(request, pin, InferenceRoute.PRIMARY, attempts)
+            finally:
+                await self._ceiling.release()
+            if isinstance(reply.outcome, Completion):
+                self._limiter.settle(estimate, float(reply.outcome.cost.input_tokens + reply.outcome.cost.output_tokens))
+            if reply.limited:
+                self.stats.rate_limited += 1
+                await self._ceiling.lower()
+            else:
+                await self._ceiling.restore()
+            if not reply.retryable or attempts > self.settings.max_retries:
+                return reply.outcome
+            wait_s = reply.wait_s
+            if wait_s is None:
+                wait_s = min(self.settings.backoff_cap_s, self.settings.backoff_base_s * 2.0 ** (attempts - 1))
+            else:
+                self._limiter.penalize(wait_s)
+            await self._sleep(wait_s)
+
+    async def _exchange(self, request: ChatRequest, pin: ModelPin, route: InferenceRoute, attempts: int) -> _Reply:
         body = chat_body(request, pin)
         data = body_bytes(body)
         started = self._clock()
         try:
             response = await self._http.post(CHAT_PATH, content=data, headers=self._headers())
         except httpx.TimeoutException:
-            return CallFailure(kind=FailureKind.TIMED_OUT, detail=f"the endpoint did not answer {request.template_id!r} within {self.settings.timeout_s}s", attempts=1, route=route)
+            return _Reply(CallFailure(kind=FailureKind.TIMED_OUT, detail=f"the endpoint did not answer {request.template_id!r} within {self.settings.timeout_s}s", attempts=attempts, route=route))
         except httpx.HTTPError as error:
-            return CallFailure(kind=FailureKind.FATAL_RESPONSE, detail=f"the endpoint could not be reached: {error}", attempts=1, route=route)
+            return _Reply(CallFailure(kind=FailureKind.FATAL_RESPONSE, detail=f"the endpoint could not be reached: {error}", attempts=attempts, route=route))
         latency_ms = max(0, int((self._clock() - started) * 1000))
-        return self._record(request, pin, route, response, latency_ms, prompt_hash(data))
+        return self._record(request, pin, route, response, latency_ms, prompt_hash(data), attempts)
 
     def _record(
         self,
@@ -140,28 +219,38 @@ class InferenceClient:
         response: httpx.Response,
         latency_ms: int,
         hashed: str,
-    ) -> ChatOutcome:
+        attempts: int,
+    ) -> _Reply:
         if response.status_code == 429:
-            return CallFailure(kind=FailureKind.RATE_LIMITED, detail="the endpoint rate limited the call", attempts=1, route=route)
+            return _Reply(
+                CallFailure(kind=FailureKind.RATE_LIMITED, detail="the endpoint rate limited the call", attempts=attempts, route=route),
+                retryable=True,
+                limited=True,
+                wait_s=retry_after(response.headers),
+            )
         if response.status_code >= 400:
-            return CallFailure(
-                kind=FailureKind.FATAL_RESPONSE,
-                detail=f"the endpoint answered {response.status_code}: {response.text[:200]}",
-                attempts=1,
-                route=route,
+            return _Reply(
+                CallFailure(
+                    kind=FailureKind.FATAL_RESPONSE,
+                    detail=f"the endpoint answered {response.status_code}: {response.text[:200]}",
+                    attempts=attempts,
+                    route=route,
+                )
             )
         try:
             payload = response.json()
         except ValueError:
-            return CallFailure(kind=FailureKind.INVALID_OUTPUT, detail="the endpoint answered with something that is not JSON", attempts=1, route=route)
+            return _Reply(CallFailure(kind=FailureKind.INVALID_OUTPUT, detail="the endpoint answered with something that is not JSON", attempts=attempts, route=route))
         served = payload.get("model")
         if not isinstance(served, str) or served not in pin.serves:
             named = repr(served) if served is not None else "no model at all"
-            return CallFailure(
-                kind=FailureKind.PIN_FAILURE,
-                detail=f"{pin.model_id!r} was served by {named}, which the pin does not accept",
-                attempts=1,
-                route=route,
+            return _Reply(
+                CallFailure(
+                    kind=FailureKind.PIN_FAILURE,
+                    detail=f"{pin.model_id!r} was served by {named}, which the pin does not accept",
+                    attempts=attempts,
+                    route=route,
+                )
             )
         text = _completion_text(payload)
         usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
@@ -172,20 +261,22 @@ class InferenceClient:
             role=request.role,
             model_id=pin.model_id,
             served_model_id=served,
-            **self._cost_fields(request.role, pin, payload, response.headers, input_tokens, output_tokens),
+            **self._cost_fields(pin, payload, response.headers, input_tokens, output_tokens),
             route=route,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
-        return Completion(
-            text=text,
-            template_id=request.template_id,
-            prompt_hash=hashed,
-            latency_ms=latency_ms,
-            cost=cost,
+        return _Reply(
+            Completion(
+                text=text,
+                template_id=request.template_id,
+                prompt_hash=hashed,
+                latency_ms=latency_ms,
+                cost=cost,
+            )
         )
 
-    def _cost_fields(self, role, pin, payload, headers, input_tokens, output_tokens) -> dict:
+    def _cost_fields(self, pin: ModelPin, payload: dict, headers, input_tokens: int, output_tokens: int) -> dict:
         reported = gateway_cost(payload, headers)
         if reported is not None:
             return {"cost_source": CostSource.GATEWAY, "cost": reported}

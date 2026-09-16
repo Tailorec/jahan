@@ -97,12 +97,12 @@ A tick's worth of calls held without a coroutine per call and without a storm of
 
 ### Acceptance criteria
 
-- [ ] A batch far larger than the concurrency ceiling never has more calls in flight than the ceiling, asserted at the transport
-- [ ] Memory held by queued requests does not grow with batch size beyond the queue's bound
-- [ ] Neither the request nor the token rate limit is exceeded over a measured window
-- [ ] Token estimates are corrected by reported usage, so a systematic underestimate stops exceeding the token limit
-- [ ] A run of 429s lowers the in-flight ceiling, and a run of successes raises it back toward the configured maximum
-- [ ] A `Retry-After` delays the next attempt by at least what it says
+- [x] A batch far larger than the concurrency ceiling never has more calls in flight than the ceiling, asserted at the transport
+- [x] Memory held by queued requests does not grow with batch size beyond the queue's bound
+- [x] Neither the request nor the token rate limit is exceeded over a measured window
+- [x] Token estimates are corrected by reported usage, so a systematic underestimate stops exceeding the token limit
+- [x] A run of 429s lowers the in-flight ceiling, and a run of successes raises it back toward the configured maximum
+- [x] A `Retry-After` delays the next attempt by at least what it says
 
 ---
 
