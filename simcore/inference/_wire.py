@@ -50,6 +50,14 @@ def prompt_hash(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def derive_seed(sample) -> int:
+    """The seed for one draw, derived from its world seed, persona, tick and sequence. Sending it is a
+    request for repeatability, never a promise: determinism in this engine comes from replay."""
+    material = f"{int(sample.world_seed)}:{sample.persona_id or ''}:{int(sample.tick)}:{int(sample.seq)}"
+    digest = hashlib.sha256(material.encode("utf-8")).digest()
+    return int.from_bytes(digest[:8], "big") % (2**63) + 1
+
+
 def estimate_tokens(text: str) -> int:
     """A pre-send token count from text length: roughly four characters a token, never zero."""
     return max(1, len(text) // CHARACTERS_PER_TOKEN)

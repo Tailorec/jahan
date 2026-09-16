@@ -153,11 +153,11 @@ What a pin's declared capabilities change about a request. A pin that honours se
 
 ### Acceptance criteria
 
-- [ ] A seed-honouring pin is sent a seed derived from world seed, persona, tick and sequence, and the seed is recorded
-- [ ] A pin that does not honour seeds is sent no seed
-- [ ] A structured-output pin receives a strict schema and one without that capability does not
-- [ ] Leniently parseable output is accepted after validation, and output that fails validation is repaired once
-- [ ] Output still invalid after repair is an invalid-output failure, never a coerced value
+- [x] A seed-honouring pin is sent a seed derived from world seed, persona, tick and sequence, and the seed is recorded
+- [x] A pin that does not honour seeds is sent no seed
+- [x] A structured-output pin receives a strict schema and one without that capability does not
+- [x] Leniently parseable output is accepted after validation, and output that fails validation is repaired once
+- [x] Output still invalid after repair is an invalid-output failure, never a coerced value
 
 ---
 

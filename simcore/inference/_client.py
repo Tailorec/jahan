@@ -12,6 +12,7 @@ requests and tokens per minute, so a tick's hundred thousand calls become neithe
 coroutines nor a storm of 429s."""
 
 import asyncio
+import json
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -43,10 +44,12 @@ from ._dispatch import (
 )
 from ._loop import run
 from ._settings import ExecutionSettings
+from ._parsing import coerce_json, validate_schema
 from ._wire import (
     CHAT_PATH,
     body_bytes,
     chat_body,
+    derive_seed,
     estimate_tokens,
     gateway_cost,
     messages_text,
@@ -193,28 +196,55 @@ class InferenceClient:
         return last
 
     async def _attempt_route(self, request: ChatRequest, pin: ModelPin, route: InferenceRoute) -> ChatOutcome:
-        data = body_bytes(chat_body(request, pin))
+        # A pin that honours seeds is sent one derived from the draw; a pin that does not is sent none,
+        # because recording a seed the provider ignored would promise determinism nobody gave.
+        seed = derive_seed(request.sample) if pin.honours_seed and request.sample is not None else None
+        schema = json.loads(request.json_schema) if request.json_schema is not None else None
+        active, data, hashed = request, body_bytes(chat_body(request, pin, seed=seed)), None
         hashed = prompt_hash(data)
+        # The cache is keyed on the request the study issued; the accepted bytes recorded beside it are
+        # whichever attempt's they turned out to be, so a replay reproduces the warm run exactly.
         cached = await self._cache_hit(request, pin, route, data, hashed)
         if cached is not None:
             return cached
         attempts = 0
+        repaired = False
         while True:
             if self._circuit_detail is not None:
                 return CallFailure(kind=FailureKind.CIRCUIT_OPEN, detail=self._circuit_detail, attempts=attempts, route=route)
             await self._ceiling.acquire()
             self.stats.in_flight_peak = max(self.stats.in_flight_peak, self._ceiling.in_flight)
-            estimate = request_estimate(request)
+            estimate = request_estimate(active)
             try:
                 await self._limiter.acquire(estimate)
                 attempts += 1
-                reply = await self._exchange(request, pin, route, attempts, data, hashed)
+                reply = await self._exchange(active, pin, route, attempts, data, hashed, seed)
             finally:
                 await self._ceiling.release()
             if isinstance(reply.outcome, Completion):
                 self._limiter.settle(estimate, float(reply.outcome.cost.input_tokens + reply.outcome.cost.output_tokens))
                 self._consecutive_fatals.clear()
-                await self._cache_store(request, pin, route, data, reply.outcome)
+                await self._ceiling.restore()
+                if schema is not None:
+                    errors = _validation_errors(reply.outcome.text, schema)
+                    if errors and not repaired:
+                        # Once, and only once: a stricter prompt naming what was wrong. Small models
+                        # that cannot follow a schema complete where they can; what they cannot answer
+                        # is refused, never coerced.
+                        repaired = True
+                        active = _repair_request(active, reply.outcome.text, errors, request.json_schema)
+                        data = body_bytes(chat_body(active, pin, seed=seed))
+                        hashed = prompt_hash(data)
+                        continue
+                    if errors:
+                        return CallFailure(
+                            kind=FailureKind.INVALID_OUTPUT,
+                            detail=f"output still invalid after one repair: {errors[:4]}",
+                            attempts=attempts,
+                            route=route,
+                        )
+                await self._cache_store(request, pin, route, body_bytes(chat_body(request, pin, seed=seed)), reply.outcome)
+                return reply.outcome
             if reply.limited:
                 self.stats.rate_limited += 1
                 await self._ceiling.lower()
@@ -247,7 +277,7 @@ class InferenceClient:
             )
 
     async def _exchange(
-        self, request: ChatRequest, pin: ModelPin, route: InferenceRoute, attempts: int, data: bytes, hashed: str
+        self, request: ChatRequest, pin: ModelPin, route: InferenceRoute, attempts: int, data: bytes, hashed: str, seed: int | None = None
     ) -> _Reply:
         started = self._clock()
         try:
@@ -263,7 +293,7 @@ class InferenceClient:
                 retryable=True,
             )
         latency_ms = max(0, int((self._clock() - started) * 1000))
-        return self._record(request, pin, route, response, latency_ms, hashed, attempts)
+        return self._record(request, pin, route, response, latency_ms, hashed, attempts, seed)
 
     def _record(
         self,
@@ -274,6 +304,7 @@ class InferenceClient:
         latency_ms: int,
         hashed: str,
         attempts: int,
+        seed: int | None = None,
     ) -> _Reply:
         if response.status_code == 429:
             return _Reply(
@@ -341,6 +372,7 @@ class InferenceClient:
                 prompt_hash=hashed,
                 latency_ms=latency_ms,
                 cost=cost,
+                seed=seed,
             )
         )
 
@@ -370,7 +402,7 @@ class InferenceClient:
         return Completion(
             text=entry.get("text", ""),
             template_id=request.template_id,
-            prompt_hash=hashed,
+            prompt_hash=entry.get("prompt_hash", hashed),
             latency_ms=0,
             seed=entry.get("seed"),
             cost=CostRecorded(
@@ -395,6 +427,7 @@ class InferenceClient:
             self._cache_key(request, pin, data),
             {
                 "text": outcome.text,
+                "prompt_hash": outcome.prompt_hash,
                 "served_model_id": outcome.cost.served_model_id,
                 "input_tokens": outcome.cost.input_tokens,
                 "output_tokens": outcome.cost.output_tokens,
@@ -427,3 +460,28 @@ def _completion_text(payload: dict) -> str:
     message = choices[0].get("message") if isinstance(choices[0], dict) else None
     content = message.get("content") if isinstance(message, dict) else None
     return content if isinstance(content, str) else ""
+
+
+def _validation_errors(text: str, schema: dict) -> list[str]:
+    """Why this answer does not satisfy the schema — starting with the salvage, so a response the
+    schema would accept once its fences are stripped is never called invalid."""
+    try:
+        value = coerce_json(text)
+    except ValueError:
+        return ["no JSON value in the response"]
+    return validate_schema(value, schema)
+
+
+REPAIR_SYSTEM = (
+    "Your previous answer failed validation: {errors}. Reply only with a JSON value that satisfies "
+    "exactly this schema, no prose and no fences: {schema}"
+)
+
+
+def _repair_request(request: ChatRequest, answer: str, errors: list[str], schema: str | None) -> ChatRequest:
+    messages = (
+        *request.messages,
+        FrozenDict({"role": "assistant", "content": answer}),
+        FrozenDict({"role": "system", "content": REPAIR_SYSTEM.format(errors="; ".join(errors[:6]), schema=schema or "{}")}),
+    )
+    return request.model_copy(update={"messages": messages})
