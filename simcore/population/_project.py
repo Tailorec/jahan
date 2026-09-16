@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from simcore.ports.answers import coerce_json
 from simcore.ports import ChatPort, CoresetSource
 from simcore.ports.coreset import DecodedRow
 from simcore.schemas import (
@@ -342,10 +343,11 @@ def _sample(
 
 
 def _parse(text: str) -> dict[str, object]:
-    """Persona id to stated probabilities, as the model wrote them."""
+    """Persona id to stated probabilities, as the model wrote them — read with the same lenient parser the client
+    validated the answer with, so fences or a sentence around the JSON never make a valid answer vanish here."""
     try:
-        parsed = json.loads(text)
-    except json.JSONDecodeError:
+        parsed = coerce_json(text)
+    except ValueError:
         return {}
     if not isinstance(parsed, dict):
         return {}

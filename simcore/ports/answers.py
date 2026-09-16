@@ -1,5 +1,9 @@
-"""Lenient parsing and schema validation: the way a small model that cannot follow a strict schema
-still completes where it can.
+"""Lenient parsing and schema validation of a model's JSON answer — shared by the inference client, which
+validates and repairs, and by every caller that reads the answer, so the two can never disagree about what
+a response said. They once did: the client accepted a fenced answer while projection parsed the same text
+with a bare `json.loads`, got nothing, and a real run completed no field at all.
+
+The way a small model that cannot follow a strict schema still completes where it can.
 
 `coerce_json` salvages what a chat answer wrapped in prose or fences (a routine for models smaller
 than the schema's authors assume); the subset validator then checks the salvage against the schema

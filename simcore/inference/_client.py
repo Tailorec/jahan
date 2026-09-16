@@ -79,7 +79,7 @@ from ._otel import (
     traceparent,
 )
 from ._settings import ExecutionSettings
-from ._parsing import coerce_json, validate_schema
+from simcore.ports.answers import coerce_json, validate_schema
 from ._wire import (
     CHAT_PATH,
     EMBEDDINGS_PATH,

@@ -195,3 +195,20 @@ def test_the_answer_budget_fits_a_full_batch_in_the_format_a_real_model_writes()
     batch = _Batch("att_ai", ("Opposed", "Skeptical", "Neutral", "Positive", "Enthusiast"), ids, False)
     written = "```json\n{\n" + ",\n".join(f'  "{persona_id}": [0.0, 0.0, 0.3, 0.5, 0.2]' for persona_id in ids) + "\n}\n```"
     assert _answer_budget(batch) >= len(written) / 1.25
+
+
+def test_an_answer_wrapped_in_markdown_fences_still_completes_its_personas():
+    """Ministral 3 8B on Bedrock wraps its JSON in ```json fences. The client salvaged and accepted it, but projection
+    parsed the same text with a bare json.loads, read nothing, and a real run completed no field at all."""
+
+    def fenced(messages, template_id) -> str:
+        request = json.loads(messages[-1]["content"])
+        width = len(request["values"])
+        body = json.dumps({persona["persona_id"]: [1.0 / width] * width for persona in request["personas"]}, indent=2)
+        return "```json\n" + body + "\n```"
+
+    brief, source = pack(), synthetic()
+    rows = rows_of(source, brief)
+    missing = sum(1 for row in rows if "spend_band" not in row.values)
+    projection = project(brief, rows, source, inference=FakeChat(fenced), population_seed=4021)
+    assert len(completed(projection.personas)) == missing

@@ -9,7 +9,7 @@ import httpx
 import pytest
 
 from simcore.inference import ExecutionSettings, InferenceClient
-from simcore.inference._parsing import coerce_json, validate_schema
+from simcore.ports.answers import coerce_json, validate_schema
 from simcore.inference._wire import body_bytes, derive_seed
 from simcore.schemas import (
     CallFailure,
