@@ -5,7 +5,7 @@ trace must say: pin verification, cost sources, retries and the pinned fallback,
 the replicate-safe cache, seeds and structured output, embedding batching, and OTLP telemetry that is
 never the scientific record (ADR 0021, 0022, 0023, 0024, 0025)."""
 
-from ._client import InferenceClient, UnpinnedRoleError
+from ._client import EmbeddingFailure, EmbeddingResult, InferenceClient, UnpinnedRoleError
 from ._settings import ExecutionSettings
 
-__all__ = ["ExecutionSettings", "InferenceClient", "UnpinnedRoleError"]
+__all__ = ["EmbeddingFailure", "EmbeddingResult", "ExecutionSettings", "InferenceClient", "UnpinnedRoleError"]

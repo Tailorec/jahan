@@ -37,6 +37,7 @@ class ExecutionSettings:
     backoff_base_s: float = 0.5
     backoff_cap_s: float = 20.0
     circuit_threshold: int = 5
+    embeddings_batch_size: int = 64
     cache_dir: Path | None = None
     content_capture: bool = False
 
@@ -56,6 +57,7 @@ class ExecutionSettings:
             backoff_base_s=_number(source, "SIMCORE_INFERENCE_BACKOFF_BASE_S", cls.backoff_base_s),
             backoff_cap_s=_number(source, "SIMCORE_INFERENCE_BACKOFF_CAP_S", cls.backoff_cap_s),
             circuit_threshold=_integer(source, "SIMCORE_INFERENCE_CIRCUIT_THRESHOLD", cls.circuit_threshold),
+            embeddings_batch_size=_integer(source, "SIMCORE_INFERENCE_EMBEDDINGS_BATCH_SIZE", cls.embeddings_batch_size),
             cache_dir=(Path(cache) / "simcore" / "inference") if cache else Path.home() / ".cache" / "simcore" / "inference",
             content_capture=source.get("SIMCORE_OTEL_CAPTURE_CONTENT", "").lower() in {"1", "true", "yes"},
         )

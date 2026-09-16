@@ -18,6 +18,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 import httpx
+import numpy as np
 
 from simcore.schemas import (
     CallFailure,
@@ -47,9 +48,11 @@ from ._settings import ExecutionSettings
 from ._parsing import coerce_json, validate_schema
 from ._wire import (
     CHAT_PATH,
+    EMBEDDINGS_PATH,
     body_bytes,
     chat_body,
     derive_seed,
+    embeddings_body,
     estimate_tokens,
     gateway_cost,
     messages_text,
@@ -63,11 +66,54 @@ class UnpinnedRoleError(ValueError):
     fails in a second rather than after spending."""
 
 
+EMBEDDING_NORMALIZATION = "l2"
+EMBEDDINGS_TEMPLATE = "embeddings"
+
+
+@dataclass(frozen=True)
+class EmbeddingVectors:
+    """A batch's raw answer, before the run's dimension check and normalisation."""
+
+    vectors: list[list[float]]
+    served_model_id: str
+    input_tokens: int
+    payload: dict
+    headers: object
+
+
+@dataclass(frozen=True)
+class EmbeddingResult:
+    """The vectors one `embed` call produced, in input order, with the normalisation applied, the
+    dimension the run fixed on, and the cost record of every capped batch that answered."""
+
+    vectors: "np.ndarray"
+    model_id: str
+    served_model_id: str | None
+    normalization: str
+    dim: int
+    costs: tuple[CostRecorded, ...]
+
+
+class EmbeddingFailure(RuntimeError):
+    """A recorded call failure with no partially-usable form: some vectors of a batch are not the
+    vectors the caller asked for, so an exhausted embedding batch raises what it recorded."""
+
+    def __init__(self, failure: CallFailure) -> None:
+        super().__init__(f"embedding call failed: {failure.kind.value} — {failure.detail}")
+        self.failure = failure
+
+
+def _normalised(vectors: list[list[float]]) -> "np.ndarray":
+    array = np.asarray(vectors, dtype=np.float32)
+    norms = np.linalg.norm(array, axis=1, keepdims=True)
+    return array / np.where(norms == 0, 1.0, norms)
+
+
 @dataclass(frozen=True)
 class _Reply:
     """One exchange's outcome plus what the dispatcher should make of it."""
 
-    outcome: ChatOutcome
+    outcome: Completion | CallFailure | EmbeddingVectors
     retryable: bool = False
     limited: bool = False
     wait_s: float | None = None
@@ -103,6 +149,8 @@ class InferenceClient:
         # separate misfortunes. The run is counted here and opens one circuit for the client.
         self._consecutive_fatals: dict[int, int] = {}
         self._circuit_detail: str | None = None
+        # One embedding space per run: every vector's dimension is checked against the first the run received.
+        self._embedding_dim: int | None = None
         self._http = httpx.AsyncClient(
             base_url=self.settings.base_url,
             transport=transport,
@@ -148,6 +196,136 @@ class InferenceClient:
             json_schema=json_schema,
         )
         return self.complete((request,))[0]
+
+    def embed(self, texts: Sequence[str]) -> "EmbeddingResult":
+        """Capped batches to the one pinned embedding model, through the same endpoint, queue, ceiling
+        and limiter as every chat call. Embedding never falls back: anchors and vectors scored in
+        different embedding spaces are not comparable (ADR 0012), so an exhausted batch fails the call
+        rather than quietly changing the space.
+
+        A chat failure is an outcome because a caller can act on some and not others; a failed batch of
+        vectors has no partially-usable form, so it raises — with the recorded failure in hand."""
+        if not texts:
+            return EmbeddingResult(vectors=np.zeros((0, self._embedding_dim or 0), dtype=np.float32), model_id=self.resolve(InferenceRole.EMBED).model_id, served_model_id=None, normalization=EMBEDDING_NORMALIZATION, dim=self._embedding_dim or 0, costs=())
+        cap = max(1, self.settings.embeddings_batch_size)
+        batches = [list(texts[start : start + cap]) for start in range(0, len(texts), cap)]
+        results = run(self._embed_all(batches))
+        vectors = np.concatenate([result.vectors for result in results], axis=0)
+        costs = tuple(cost for result in results for cost in result.costs)
+        first = next((result.served_model_id for result in results if result.served_model_id), None)
+        return EmbeddingResult(
+            vectors=vectors,
+            model_id=self.resolve(InferenceRole.EMBED).model_id,
+            served_model_id=first,
+            normalization=EMBEDDING_NORMALIZATION,
+            dim=int(vectors.shape[1]),
+            costs=costs,
+        )
+
+    async def _embed_all(self, batches: list[list[str]]) -> list:
+        return list(await asyncio.gather(*(self._embed_batch(batch) for batch in batches)))
+
+    async def _embed_batch(self, batch: list[str]) -> "EmbeddingResult":
+        pin = self.resolve(InferenceRole.EMBED)
+        data = body_bytes(embeddings_body(batch, pin))
+        key = self._cache.key(pin, template_id=EMBEDDINGS_TEMPLATE, request_bytes=data) if self._cache else None
+        if key and (entry := self._cache.get(key)) is not None:  # type: ignore[union-attr]
+            self.stats.cache_hits += 1
+            vectors = np.asarray(entry["vectors"], dtype=np.float32)
+            cost = CostRecorded(
+                kind="cost", role=InferenceRole.EMBED, model_id=pin.model_id, served_model_id=entry.get("served_model_id"),
+                cost_source=CostSource.PRICE_TABLE, route=InferenceRoute.CACHE,
+                input_tokens=entry.get("input_tokens", 0), output_tokens=0, cost=0.0,
+            )
+            return EmbeddingResult(vectors=vectors, model_id=pin.model_id, served_model_id=entry.get("served_model_id"), normalization=EMBEDDING_NORMALIZATION, dim=int(vectors.shape[1]), costs=(cost,))
+        attempts = 0
+        while True:
+            if self._circuit_detail is not None:
+                raise EmbeddingFailure(CallFailure(kind=FailureKind.CIRCUIT_OPEN, detail=self._circuit_detail, attempts=attempts, route=InferenceRoute.PRIMARY))
+            await self._ceiling.acquire()
+            self.stats.in_flight_peak = max(self.stats.in_flight_peak, self._ceiling.in_flight)
+            estimate = float(sum(estimate_tokens(text) for text in batch))
+            try:
+                await self._limiter.acquire(estimate)
+                attempts += 1
+                reply = await self._embed_exchange(batch, pin, attempts, data)
+            finally:
+                await self._ceiling.release()
+            if reply.limited:
+                self.stats.rate_limited += 1
+                await self._ceiling.lower()
+            else:
+                await self._ceiling.restore()
+            if reply.fatal_status is not None:
+                self._trip(pin, InferenceRoute.PRIMARY, reply.fatal_status)
+            if isinstance(reply.outcome, EmbeddingVectors):
+                self._limiter.settle(estimate, float(reply.outcome.input_tokens))
+                self._consecutive_fatals.clear()
+                vectors = _normalised(reply.outcome.vectors)
+                dimension = int(vectors.shape[1])
+                if self._embedding_dim is None:
+                    self._embedding_dim = dimension
+                elif dimension != self._embedding_dim:
+                    raise ValueError(
+                        f"the pinned embedding model answered with {dimension} dimensions, but this run's "
+                        f"first vectors had {self._embedding_dim}; vectors from two spaces are not comparable"
+                    )
+                cost = CostRecorded(
+                    kind="cost", role=InferenceRole.EMBED, model_id=pin.model_id, served_model_id=reply.outcome.served_model_id,
+                    route=InferenceRoute.PRIMARY, input_tokens=reply.outcome.input_tokens, output_tokens=0,
+                    **self._cost_fields(pin, reply.outcome.payload, reply.outcome.headers, reply.outcome.input_tokens, 0),
+                )
+                if self._cache and key:
+                    self._cache.put(key, {"vectors": vectors.tolist(), "served_model_id": reply.outcome.served_model_id, "input_tokens": reply.outcome.input_tokens})
+                return EmbeddingResult(vectors=vectors, model_id=pin.model_id, served_model_id=reply.outcome.served_model_id, normalization=EMBEDDING_NORMALIZATION, dim=dimension, costs=(cost,))
+            assert isinstance(reply.outcome, CallFailure)
+            if not reply.retryable or attempts > self.settings.max_retries:
+                raise EmbeddingFailure(reply.outcome)
+            wait_s = reply.wait_s
+            if wait_s is None:
+                wait_s = min(self.settings.backoff_cap_s, self.settings.backoff_base_s * 2.0 ** (attempts - 1))
+            else:
+                self._limiter.penalize(wait_s)
+            await self._sleep(wait_s)
+
+    async def _embed_exchange(self, batch: list[str], pin: ModelPin, attempts: int, data: bytes) -> _Reply:
+        try:
+            response = await self._http.post(EMBEDDINGS_PATH, content=data, headers=self._headers())
+        except httpx.TimeoutException:
+            return _Reply(CallFailure(kind=FailureKind.TIMED_OUT, detail="the embedding endpoint timed out", attempts=attempts, route=InferenceRoute.PRIMARY), retryable=True)
+        except httpx.HTTPError as error:
+            return _Reply(CallFailure(kind=FailureKind.FATAL_RESPONSE, detail=f"the embedding endpoint could not be reached: {error}", attempts=attempts, route=InferenceRoute.PRIMARY), retryable=True)
+        if response.status_code == 429:
+            return _Reply(CallFailure(kind=FailureKind.RATE_LIMITED, detail="the embedding endpoint rate limited the batch", attempts=attempts, route=InferenceRoute.PRIMARY), retryable=True, limited=True, wait_s=retry_after(response.headers))
+        if response.status_code >= 400:
+            fatal = response.status_code >= 500
+            return _Reply(
+                CallFailure(kind=FailureKind.FATAL_RESPONSE, detail=f"the embedding endpoint answered {response.status_code}: {response.text[:200]}", attempts=attempts, route=InferenceRoute.PRIMARY),
+                retryable=fatal,
+                fatal_status=None if fatal else response.status_code,
+            )
+        try:
+            payload = response.json()
+        except ValueError:
+            return _Reply(CallFailure(kind=FailureKind.INVALID_OUTPUT, detail="the embedding endpoint answered with something that is not JSON", attempts=attempts, route=InferenceRoute.PRIMARY))
+        served = payload.get("model")
+        if not isinstance(served, str) or served not in pin.serves:
+            return _Reply(
+                CallFailure(
+                    kind=FailureKind.PIN_FAILURE,
+                    detail=f"{pin.model_id!r} was served by {served!r}, which the embedding pin does not accept",
+                    attempts=attempts,
+                    route=InferenceRoute.PRIMARY,
+                )
+            )
+        data_items = payload.get("data")
+        if not isinstance(data_items, list) or len(data_items) != len(batch):
+            return _Reply(CallFailure(kind=FailureKind.INVALID_OUTPUT, detail="the embedding endpoint returned something that is not one vector per text", attempts=attempts, route=InferenceRoute.PRIMARY))
+        ordered = sorted(data_items, key=lambda item: item.get("index", 0))
+        vectors = [[float(component) for component in item["embedding"]] for item in ordered]
+        usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+        input_tokens = _reported(usage.get("prompt_tokens")) or int(sum(estimate_tokens(text) for text in batch))
+        return _Reply(EmbeddingVectors(vectors=vectors, served_model_id=served, input_tokens=input_tokens, payload=payload, headers=response.headers))
 
     async def aclose(self) -> None:
         await self._http.aclose()
@@ -438,10 +616,12 @@ class InferenceClient:
     def _cache_key(self, request: ChatRequest, pin: ModelPin, data: bytes) -> str:
         assert self._cache is not None
         return self._cache.key(
-            request,
             pin,
-            data,
+            template_id=request.template_id,
+            request_bytes=data,
             template_hash=self._template_hashes.get(request.template_id),
+            temp=request.temp,
+            sample=request.sample,
         )
 
 

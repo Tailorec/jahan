@@ -171,11 +171,11 @@ Embeddings through the same endpoint, client and limiter, sent in capped batches
 
 ### Acceptance criteria
 
-- [ ] Texts are embedded through the same endpoint and limiter as chat calls
-- [ ] Batches respect a size cap and return vectors in input order
-- [ ] A vector whose dimension differs from the run's first is refused
-- [ ] The normalisation applied is recorded
-- [ ] An exhausted embedding call fails; it never falls back
+- [x] Texts are embedded through the same endpoint and limiter as chat calls
+- [x] Batches respect a size cap and return vectors in input order
+- [x] A vector whose dimension differs from the run's first is refused
+- [x] The normalisation applied is recorded
+- [x] An exhausted embedding call fails; it never falls back
 
 ---
 

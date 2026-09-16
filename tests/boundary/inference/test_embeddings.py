@@ -1,0 +1,160 @@
+"""Phase 8: embeddings through the same endpoint, client and limiter, in capped batches, to one
+pinned model — because anchors and responses scored in different embedding spaces are not comparable."""
+
+import json
+import math
+
+import httpx
+import numpy as np
+import pytest
+
+from simcore.inference import EmbeddingFailure, ExecutionSettings, InferenceClient
+from simcore.schemas import (
+    Completion,
+    CostSource,
+    FailureKind,
+    FrozenDict,
+    InferenceRole,
+    InferenceRoute,
+    ModelPins,
+)
+from tests.boundary.inference.test_scale import FakeTime, PINS
+
+EMBED = "openai/text-embedding-3-small"
+
+
+def signature(text: str) -> float:
+    return float(sum(text.encode("utf-8")) % 97)
+
+
+def embed_reply(model: str = EMBED, dim: int = 4, cost: float | None = None):
+    def build(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        usage = {"prompt_tokens": sum(len(t) // 4 + 1 for t in body["input"])}
+        if cost is not None:
+            usage["cost"] = cost
+        items = [
+            {"index": position, "embedding": [signature(text) + component for component in range(dim)]}
+            for position, text in enumerate(body["input"])
+        ]
+        return httpx.Response(200, content=json.dumps({"model": model, "data": list(reversed(items)), "usage": usage}).encode())
+
+    return build
+
+
+class Recorder:
+    def __init__(self, build) -> None:
+        self.build = build
+        self.paths: list[str] = []
+        self.bodies: list[dict] = []
+
+    def transport(self) -> httpx.MockTransport:
+        async def handler(request: httpx.Request) -> httpx.Response:
+            self.paths.append(request.url.path)
+            self.bodies.append(json.loads(request.content))
+            return self.build(request)
+
+        return httpx.MockTransport(handler)
+
+
+def client_for(recorder: Recorder, **settings) -> tuple[InferenceClient, FakeTime]:
+    time = FakeTime()
+    pins = ModelPins.model_validate(
+        {"tier_a": PINS.tier_a, "tier_b": PINS.tier_b, "embed": {"model_id": EMBED, "honours_seed": False}, "fallbacks": {"tier_a": "openrouter/qwen/qwen-2.5-7b-instruct"}}
+    )
+    return (
+        InferenceClient(
+            pins,
+            ExecutionSettings(base_url="http://gateway.test/v1", max_concurrency=2, **settings),
+            transport=recorder.transport(),
+            clock=time.clock,
+            sleep=time.sleep,
+        ),
+        time,
+    )
+
+
+TEXTS = [f"text number {index}" for index in range(8)]
+
+
+def test_embeddings_go_to_the_same_endpoint_as_chat_calls_under_the_same_limits():
+    recorder = Recorder(embed_reply())
+    client, time = client_for(recorder, requests_per_minute=6)
+    result = client.embed(TEXTS)
+    assert recorder.paths == ["/v1/embeddings"] * len(recorder.paths)
+    assert result.model_id == EMBED and result.served_model_id == EMBED
+    assert time.now > 0  # the shared request limiter made the batches wait, as it would a chat batch
+
+
+def test_batches_respect_the_size_cap_and_return_vectors_in_input_order():
+    recorder = Recorder(embed_reply())
+    client, _ = client_for(recorder, embeddings_batch_size=3)
+    result = client.embed(TEXTS)
+    assert len(recorder.bodies) == 3  # 3 + 3 + 2
+    assert all(len(body["input"]) <= 3 for body in recorder.bodies)
+    assert result.vectors.shape == (8, 4)
+    for position, text in enumerate(TEXTS):
+        raw = np.array([signature(text) + component for component in range(4)], dtype=np.float32)
+        assert np.allclose(result.vectors[position], raw / np.linalg.norm(raw), atol=1e-5)  # reversed per batch, restored overall
+
+
+def test_a_vector_outside_the_dimension_the_run_opened_with_is_refused():
+    state = {"n": 0}
+
+    def build(request: httpx.Request) -> httpx.Response:
+        state["n"] += 1
+        return embed_reply(dim=4 if state["n"] == 1 else 3)(request)
+
+    recorder = Recorder(build)
+    client, _ = client_for(recorder, embeddings_batch_size=1)
+    with pytest.raises(ValueError, match="dimensions"):
+        client.embed(["first", "second"])
+    assert client._embedding_dim == 4  # the run's first vectors fixed the space; the second batch broke it
+
+
+def test_the_normalisation_applied_is_recorded_and_the_rows_unit_length():
+    recorder = Recorder(embed_reply())
+    client, _ = client_for(recorder)
+    result = client.embed(TEXTS)
+    assert result.normalization == "l2"
+    norms = np.linalg.norm(result.vectors, axis=1)
+    assert np.allclose(norms, 1.0, atol=1e-5)
+
+
+def test_an_exhausted_embedding_call_fails_it_never_falls_back():
+    state = {"sent": 0}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        state["sent"] += 1
+        return httpx.Response(503, content=b"down")
+
+    time = FakeTime()
+    pins = ModelPins.model_validate({"tier_a": PINS.tier_a, "tier_b": PINS.tier_b, "embed": EMBED, "fallbacks": {"tier_a": "openrouter/qwen/qwen-2.5-7b-instruct"}})
+    client = InferenceClient(pins, ExecutionSettings(base_url="http://gateway.test/v1", max_retries=2), transport=httpx.MockTransport(handler), clock=time.clock, sleep=time.sleep)
+    with pytest.raises(EmbeddingFailure) as raised:
+        client.embed(TEXTS)
+    assert raised.value.failure.kind is FailureKind.FATAL_RESPONSE
+    assert raised.value.failure.route is InferenceRoute.PRIMARY
+    assert state["sent"] == 3  # bounded retries, one model, no substitution
+
+
+def test_an_undeclared_embedding_model_is_a_pin_failure_not_a_different_space():
+    recorder = Recorder(embed_reply(model="someone/else-large"))
+    client, _ = client_for(recorder, max_retries=0)
+    with pytest.raises(EmbeddingFailure) as raised:
+        client.embed(["a"])
+    assert raised.value.failure.kind is FailureKind.PIN_FAILURE
+
+
+def test_embeddings_are_billed_without_a_completion_and_replay_from_the_cache(tmp_path):
+    recorder = Recorder(embed_reply(cost=0.01))
+    warm, _ = client_for(recorder, cache_dir=tmp_path)
+    result = warm.embed(["a", "b"])
+    assert isinstance(result.costs[0], type(result.costs[0]))
+    cost = result.costs[0]
+    assert cost.role is InferenceRole.EMBED and cost.cost_source is CostSource.GATEWAY and cost.cost == 0.01
+    assert not isinstance(cost, Completion)
+    cold, _ = client_for(Recorder(embed_reply(cost=9.9)), cache_dir=tmp_path)
+    replay = cold.embed(["a", "b"])
+    assert np.allclose(replay.vectors, result.vectors)
+    assert replay.costs[0].route is InferenceRoute.CACHE and replay.costs[0].cost == 0.0

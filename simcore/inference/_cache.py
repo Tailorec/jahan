@@ -11,7 +11,7 @@ import hashlib
 import json
 from pathlib import Path
 
-from simcore.schemas import ChatRequest, ModelPin
+from simcore.schemas import ModelPin
 
 
 class SampleCache:
@@ -23,25 +23,26 @@ class SampleCache:
 
     def key(
         self,
-        request: ChatRequest,
         pin: ModelPin,
-        request_bytes: bytes,
         *,
-        template_hash: str | None,
+        template_id: str,
+        request_bytes: bytes,
+        template_hash: str | None = None,
+        temp: float = 0.0,
+        sample=None,
     ) -> str:
         material: dict = {
             "model_id": pin.model_id,
             "serves": sorted(pin.serves),
             "structured_output": pin.structured_output,
-            "template_id": request.template_id,
+            "template_id": template_id,
             "template_hash": template_hash,
             "request_sha256": hashlib.sha256(request_bytes).hexdigest(),
         }
         # A call above temperature zero is a draw of one replicate: its sample key joins the identity,
         # so two seeds can never be handed the same answer. A temperature-zero call has one true answer
         # and stays shareable (ADR 0025).
-        if request.temp > 0.0 and request.sample is not None:
-            sample = request.sample
+        if temp > 0.0 and sample is not None:
             material["sample"] = {
                 "world_seed": sample.world_seed,
                 "persona_id": sample.persona_id,
