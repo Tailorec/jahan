@@ -48,7 +48,7 @@ def beliefs_payload(**overrides) -> dict:
 
 TIER_A_FALLBACK = "openrouter/qwen/qwen-2.5-7b-instruct"
 TEMPLATE_HASHES = {"persona_turn": "ab" * 32, "reflection": "cd" * 32}
-ANCHOR_SET_HASHES = {"pi-beverage-v1": "ef" * 32}
+ANCHOR_SET_HASHES = {"purchase-intent-v1": "ef" * 32}
 
 
 def persona_payload(index: int = 0, **overrides) -> dict:
@@ -237,7 +237,7 @@ def ssr_payload(**overrides) -> dict:
         "per_set_similarities": similarities,
         "construct_id": "purchase_intent",
         "category": "beverage_protein",
-        "anchor_set_id": "pi-beverage-v1",
+        "anchor_set_id": "purchase-intent-v1",
         "anchor_version": "1.0.0",
         "embed_model_id": "openai/text-embedding-3-small",
         "temperature": 1.0,

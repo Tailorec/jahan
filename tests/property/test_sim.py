@@ -213,7 +213,7 @@ def test_elicitation_needs_the_minimum_number_of_reference_sets():
 
 def test_elicitation_result_carries_the_embedding_model_and_anchor_set():
     result = SsrResult.model_validate(ssr_payload())
-    assert (result.embed_model_id, result.anchor_set_id, result.anchor_version) == ("openai/text-embedding-3-small", "pi-beverage-v1", "1.0.0")
+    assert (result.embed_model_id, result.anchor_set_id, result.anchor_version) == ("openai/text-embedding-3-small", "purchase-intent-v1", "1.0.0")
     with pytest.raises(ValidationError):
         SsrResult.model_validate(ssr_payload(embed_model_id="openai/text-embedding-latest"))
 

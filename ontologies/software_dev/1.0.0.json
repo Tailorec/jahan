@@ -27,7 +27,7 @@
     "coding_ai_sentiment"
   ],
   "anchor_sets": {
-    "purchase_intent": "pi-software-dev-v1"
+    "purchase_intent": "purchase-intent-v1"
   },
   "completion_policy": {
     "completable_domains": [

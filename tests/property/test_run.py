@@ -327,7 +327,7 @@ def test_run_config_without_template_hashes_refused():
 def test_every_replay_pin_moves_the_config_hash(field):
     base_config = RunConfig.model_validate(run_config_payload())
     changed = {"template_hashes": {**TEMPLATE_HASHES, "persona_turn": "00" * 32},
-               "anchor_set_hashes": {**ANCHOR_SET_HASHES, "pi-beverage-v1": "11" * 32},
+               "anchor_set_hashes": {**ANCHOR_SET_HASHES, "purchase-intent-v1": "11" * 32},
                "graph_hash": "22" * 32}[field]
     assert canonical_hash(base_config) != canonical_hash(RunConfig.model_validate(run_config_payload(**{field: changed})))
 

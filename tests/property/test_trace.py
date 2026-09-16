@@ -437,7 +437,7 @@ def test_header_verifies_every_pin_against_the_object_it_pins(config_override, m
 
 def test_header_refuses_a_run_that_does_not_pin_an_anchor_set_its_ontology_names():
     config = partition_run_config(anchor_set_hashes={"pi-snacks-v9": "ef" * 32})
-    with pytest.raises(ValidationError, match=r"does not pin anchor sets this partition's ontology names: \['pi-beverage-v1'\]"):
+    with pytest.raises(ValidationError, match=r"does not pin anchor sets this partition's ontology names: \['purchase-intent-v1'\]"):
         PartitionHeader.model_validate({**partition_header_payload(), "config": config})
 
 
@@ -476,9 +476,9 @@ def test_events_must_honour_the_run_and_its_population(index, change, match):
 def test_an_elicitation_is_scored_against_the_anchor_set_its_ontology_names():
     data = partition_payload()
     # The run pins both anchor sets, so only the ontology decides which one purchase intent is scored against.
-    data["header"]["config"] = partition_run_config(anchor_set_hashes={"pi-beverage-v1": "ef" * 32, "pi-snacks-v9": "ab" * 32})
+    data["header"]["config"] = partition_run_config(anchor_set_hashes={"purchase-intent-v1": "ef" * 32, "pi-snacks-v9": "ab" * 32})
     data["events"][R["first_turn"]]["payload"]["turn"]["reaction"]["intent"]["anchor_set_id"] = "pi-snacks-v9"
-    with pytest.raises(ValidationError, match="but the ontology names 'pi-beverage-v1' for 'purchase_intent'"):
+    with pytest.raises(ValidationError, match="but the ontology names 'purchase-intent-v1' for 'purchase_intent'"):
         TracePartition.model_validate(data)
 
 
