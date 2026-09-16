@@ -46,7 +46,7 @@ def test_rewiring_candidate_sampling_keeps_graph_generation_from_growing_with_th
     source = SyntheticCoresetSource(shape(), seed=11)
     conditioning = tuple(sorted(pack_.ontology.conditioning_set))
     rows = list(source.rows(source.matching({}, present=conditioning)[:800]))
-    personas = project(pack_, rows[:800], source, inference=FakeChat()).personas
+    personas = project(pack_, rows[:800], source, inference=FakeChat(), population_seed=4021).personas
 
     calls: list[int] = []
     original = _graph._similarity
@@ -71,7 +71,7 @@ def test_graph_gates_hold_across_twenty_seeds():
     source = SyntheticCoresetSource(shape(), seed=11)
     conditioning = tuple(sorted(pack_.ontology.conditioning_set))
     rows = list(source.rows(source.matching({}, present=conditioning)[:300]))
-    personas = project(pack_, rows, source, inference=FakeChat()).personas
+    personas = project(pack_, rows, source, inference=FakeChat(), population_seed=4021).personas
     for population_seed in range(1, 21):
         graph_build = _graph.build_graph(pack_, personas, population_seed=population_seed)
         assert all(result.passed for result in graph_build.results), population_seed

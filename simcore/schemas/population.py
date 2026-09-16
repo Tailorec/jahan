@@ -294,6 +294,10 @@ class PopulationParameters(SimBaseModel):
     graph_gates: GraphThresholds = GraphThresholds()
     communities: CommunityThresholds = CommunityThresholds()
     distribution_gates: DistributionThresholds = DistributionThresholds()
+    # How widely a completed attitude may vary from the one its persona's demographics make likeliest.
+    # Chosen and recorded per study: an attitude with no variance makes every persona of a demographic
+    # think alike, and the network then looks more opinionated than any population is (ADR 0024).
+    completion_temperature: Annotated[float, Field(gt=0.0)] = 1.0
     # Which sources a study may draw from. None means every source the corpus holds; naming a subset is a
     # study parameter, recorded on the manifest, never read from the environment. A union is permitted and
     # never silent: the preview shows the mix and the weakest-tier rule grades it (ADR 0017, ADR 0020).
@@ -470,6 +474,15 @@ class Population(SimBaseModel):
             )
             if invented:
                 raise ValueError(f"{persona.persona_id} has synthesized demographic or psychographic fields: {invented}")
+            unearned = sorted(
+                attribute
+                for attribute in persona.completed_distributions
+                if persona.origins.get(attribute) is not FieldOrigin.SYNTHESIZED or attribute not in persona.attributes
+            )
+            if unearned:
+                raise ValueError(
+                    f"{persona.persona_id} records a completion distribution for fields it did not have completed: {unearned}"
+                )
         return self
 
     @model_validator(mode="after")

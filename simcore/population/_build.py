@@ -67,7 +67,14 @@ def build(
     # The verdict is the draw's, and it is enforced before any model is called: completion then cannot
     # touch it, assess() and build() cannot disagree about it, and a doomed study costs nothing.
     _reject_failed(distribution)
-    projection = project(pack, sampled.rows, coreset, inference=inference)
+    projection = project(
+        pack,
+        sampled.rows,
+        coreset,
+        inference=inference,
+        population_seed=population_seed,
+        completion_temperature=parameters.completion_temperature,
+    )
     personas = _patch(projection.personas, patches if patches is not None else NullPatchSource())
     embeddings = None
     if embed is not None:
@@ -176,15 +183,19 @@ def _patch(personas: Sequence[Persona], patches: PersonaPatchSource) -> tuple[Pe
         conditioning = dict(persona.conditioning)
         attributes = dict(persona.attributes)
         origins = dict(persona.origins)
+        distributions = dict(persona.completed_distributions)
         for attribute, value in updates.items():
             (conditioning if attribute in conditioning else attributes)[attribute] = value
             origins[attribute] = FieldOrigin.CALIBRATED
+            # A corrected value is no longer a sampled one: its distribution described the completion it replaced.
+            distributions.pop(attribute, None)
         patched.append(
             persona.model_copy(
                 update={
                     "conditioning": FrozenDict(conditioning),
                     "attributes": FrozenDict(attributes),
                     "origins": FrozenDict(origins),
+                    "completed_distributions": FrozenDict(distributions),
                 }
             )
         )

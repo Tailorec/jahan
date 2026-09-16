@@ -87,7 +87,7 @@ from .enums import (
     weakest_origin,
 )
 from .errors import BudgetExhausted, GateFailure, SchemaVersionError, SimError
-from .persona import KNOWN_PERSONA_SOURCES, AttributeValue, EmbeddingRef, Persona, PersonaSource
+from .persona import KNOWN_PERSONA_SOURCES, AttributeValue, CompletedDistribution, EmbeddingRef, Persona, PersonaSource
 from .population import (
     CategoricalGateResult,
     Community,
@@ -182,7 +182,7 @@ from .trace import (
     read_partition,
 )
 
-from .inference import CallFailure, ChatOutcome, ChatRequest, CompletedDistribution, Completion, SampleKey
+from .inference import CallFailure, ChatOutcome, ChatRequest, Completion, SampleKey
 from .world import DroppedExposure, WorldDelta
 
 __all__ = [

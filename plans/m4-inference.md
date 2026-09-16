@@ -189,14 +189,14 @@ Projection stops asking for a value at temperature zero and asks for a probabili
 
 ### Acceptance criteria
 
-- [ ] Projection submits its completion batches through one batch call
-- [ ] A completed field is sampled from the returned distribution under the population's seed, and the same seed and distributions reproduce it
-- [ ] A different population seed samples differently from the same distributions
-- [ ] Completion temperature is a recorded population parameter, and raising it measurably widens the sampled values
-- [ ] A distribution missing a vocabulary value or not summing to one leaves the field uncompleted
-- [ ] A population records the distribution behind each completed field, and it survives a round trip
-- [ ] Demographic and psychographic fields are still never completed
-- [ ] Moved population identities are re-pinned, with the change recorded in the commit that moves them
+- [x] Projection submits its completion batches through one batch call
+- [x] A completed field is sampled from the returned distribution under the population's seed, and the same seed and distributions reproduce it
+- [x] A different population seed samples differently from the same distributions
+- [x] Completion temperature is a recorded population parameter, and raising it measurably widens the sampled values
+- [x] A distribution missing a vocabulary value or not summing to one leaves the field uncompleted
+- [x] A population records the distribution behind each completed field, and it survives a round trip
+- [x] Demographic and psychographic fields are still never completed
+- [x] Moved population identities are re-pinned, with the change recorded in the commit that moves them
 
 ---
 

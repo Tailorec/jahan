@@ -90,25 +90,3 @@ class CallFailure(SimBaseModel):
 
 
 ChatOutcome = Completion | CallFailure
-
-
-class CompletedDistribution(SimBaseModel):
-    """The probability distribution a completed field was sampled from, in the vocabulary's own order.
-    Recorded so projection's calibration can be measured after the fact: a sampled value without its
-    distribution is a number nobody can check (ADR 0019, ADR 0024)."""
-
-    values: tuple[NonEmptyStr, ...] = Field(min_length=1)
-    probabilities: tuple[Annotated[float, Field(ge=0.0)], ...]
-
-    @model_validator(mode="after")
-    def _covers_the_vocabulary_once(self) -> Self:
-        if len(self.values) != len(self.probabilities):
-            raise ValueError(
-                f"a distribution names {len(self.probabilities)} probabilities for {len(self.values)} vocabulary values"
-            )
-        if len(set(self.values)) != len(self.values):
-            raise ValueError("a distribution's vocabulary repeats a value")
-        total = sum(self.probabilities)
-        if abs(total - 1.0) > 1e-6:
-            raise ValueError(f"a distribution must sum to one, got {total}")
-        return self

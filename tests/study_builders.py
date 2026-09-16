@@ -64,6 +64,9 @@ def persona_payload(index: int = 0, **overrides) -> dict:
             "diet_protein_focus": "measured",
             "spend_band": "synthesized",
         },
+        "completed_distributions": {
+            "spend_band": {"values": ["5_10", "10_20"], "probabilities": [0.6, 0.4]},
+        },
         "baseline_beliefs": beliefs_payload(),
     }
     payload.update(overrides)

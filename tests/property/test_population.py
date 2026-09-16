@@ -466,7 +466,11 @@ def test_gates_run_only_on_declared_gateable_attributes_of_the_right_kind(result
 
 def test_a_gate_may_run_on_an_extracted_attribute():
     personas = [
-        persona_payload(index, origins={**persona_payload(index)["origins"], "spend_band": "extracted"})
+        persona_payload(
+            index,
+            origins={**persona_payload(index)["origins"], "spend_band": "extracted"},
+            completed_distributions={},
+        )
         for index in range(len(PERSONA_IDS))
     ]
     population = build(

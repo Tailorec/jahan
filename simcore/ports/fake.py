@@ -106,7 +106,8 @@ def _first_offered(messages: Sequence[ChatMessage], template_id: str) -> str:
     personas = request.get("personas", [])
     if not isinstance(values, list) or not values:
         return "{}"
-    return json.dumps({persona["persona_id"]: values[0] for persona in personas}, sort_keys=True)
+    distribution = [1.0] + [0.0] * (len(values) - 1)
+    return json.dumps({persona["persona_id"]: distribution for persona in personas}, sort_keys=True)
 
 
 def _request(messages: Sequence[ChatMessage]) -> dict:

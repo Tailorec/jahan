@@ -52,13 +52,13 @@ def asked(call: str) -> dict:
 
 def off_list_responder(messages, template_id) -> str:
     request = json.loads(messages[-1]["content"])
-    return json.dumps({persona["persona_id"]: "invented" for persona in request["personas"]})
+    return json.dumps({persona["persona_id"]: "invented" for persona in request["personas"]})  # not even a probability vector
 
 
 def test_every_projected_field_states_an_origin():
     source = synthetic()
     brief = pack()
-    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(model_id=MODEL))
+    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(model_id=MODEL), population_seed=4021)
     for persona in projection.personas:
         assert set(persona.origins) == persona.projected_attributes
     with pytest.raises(Exception):
@@ -78,20 +78,20 @@ def test_projection_defaults_a_corpus_field_to_measured_and_honours_a_rows_tier(
     source = synthetic(diet_populated=1.0, spend_populated=1.0)
     brief = pack()
     rows = rows_of(source, brief)[:10]
-    projected = project(brief, rows, source, inference=FakeChat(model_id=MODEL))
+    projected = project(brief, rows, source, inference=FakeChat(model_id=MODEL), population_seed=4021)
     assert all(origin is FieldOrigin.MEASURED for persona in projected.personas for origin in persona.origins.values())
 
     first = rows[0]
     attribute = next(iter(first.values))
     tiered = DecodedRow(row_id=first.row_id, source=first.source, values=first.values, tiers={attribute: FieldOrigin.EXTRACTED})
-    extracted = project(brief, [tiered], source, inference=FakeChat(model_id=MODEL))
+    extracted = project(brief, [tiered], source, inference=FakeChat(model_id=MODEL), population_seed=4021)
     assert extracted.personas[0].origins[attribute] is FieldOrigin.EXTRACTED
 
 
 def test_completion_chooses_from_the_corpus_value_set():
     source = synthetic(spend_populated=0.5)
     brief = pack()
-    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(model_id=MODEL))
+    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(model_id=MODEL), population_seed=4021)
     completed = [persona for persona in projection.personas if "spend_band" in persona.origins and persona.origins["spend_band"] is FieldOrigin.SYNTHESIZED]
     assert completed
     assert all(persona.attributes["spend_band"] in source.values("spend_band") for persona in completed)
@@ -101,7 +101,7 @@ def test_an_off_list_answer_is_retried_once_then_the_field_is_left_absent():
     source = synthetic(spend_populated=0.5)
     brief = pack()
     fake = FakeChat(off_list_responder)
-    projection = project(brief, rows_of(source, brief), source, inference=fake)
+    projection = project(brief, rows_of(source, brief), source, inference=fake, population_seed=4021)
     assert projection.completion is None and projection.synthesized_share == 0.0
     assert all(persona.origins.get("spend_band") is not FieldOrigin.SYNTHESIZED for persona in projection.personas)
     assert any("spend_band" not in persona.origins for persona in projection.personas)
@@ -112,7 +112,7 @@ def test_an_off_list_answer_is_retried_once_then_the_field_is_left_absent():
 def test_no_demographic_or_psychographic_field_is_synthesized():
     source = synthetic(diet_populated=0.5)
     brief = pack()
-    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(model_id=MODEL))
+    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(model_id=MODEL), population_seed=4021)
     assert any("diet_protein_focus" not in persona.origins for persona in projection.personas)
     assert all(
         persona.origins.get("diet_protein_focus") is not FieldOrigin.SYNTHESIZED for persona in projection.personas
@@ -123,7 +123,7 @@ def test_completion_is_batched_rather_than_one_call_per_persona():
     source = synthetic(rows=400, spend_populated=0.3)
     brief = pack()
     fake = FakeChat()
-    projection = project(brief, rows_of(source, brief), source, inference=fake)
+    projection = project(brief, rows_of(source, brief), source, inference=fake, population_seed=4021)
     completed = [persona for persona in projection.personas if persona.origins.get("spend_band") is FieldOrigin.SYNTHESIZED]
     assert len(completed) > 20
     missing = missing_count(rows_of(source, brief), "spend_band")
@@ -134,7 +134,7 @@ def test_completion_is_batched_rather_than_one_call_per_persona():
 def test_the_projection_records_the_completing_model_template_and_synthesized_share():
     source = synthetic(spend_populated=0.5)
     brief = pack()
-    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(model_id=MODEL))
+    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(model_id=MODEL), population_seed=4021)
     assert projection.completion.model_id == MODEL
     assert projection.completion.template_id == COMPLETION_TEMPLATE_ID
     assert len(projection.completion.template_hash) == 64
@@ -145,8 +145,8 @@ def test_projecting_the_same_sample_twice_produces_identical_personas():
     source = synthetic(spend_populated=0.5)
     brief = pack()
     rows = rows_of(source, brief)
-    first = project(brief, rows, source, inference=FakeChat(model_id=MODEL))
-    second = project(brief, rows, source, inference=FakeChat(model_id=MODEL))
+    first = project(brief, rows, source, inference=FakeChat(model_id=MODEL), population_seed=4021)
+    second = project(brief, rows, source, inference=FakeChat(model_id=MODEL), population_seed=4021)
     assert canonical_hash(first.personas[0]) == canonical_hash(second.personas[0])
     assert [canonical_hash(persona) for persona in first.personas] == [canonical_hash(persona) for persona in second.personas]
 
@@ -155,7 +155,7 @@ def test_a_sample_needing_no_completion_calls_no_model():
     source = synthetic(diet_populated=1.0, spend_populated=1.0)
     brief = pack()
     fake = FakeChat()
-    projection = project(brief, rows_of(source, brief), source, inference=fake)
+    projection = project(brief, rows_of(source, brief), source, inference=fake, population_seed=4021)
     assert fake.calls == []
     assert projection.completion is None and projection.synthesized_share == 0.0
 
@@ -179,7 +179,7 @@ def test_a_non_conditioning_calibrated_domain_is_not_completed():
         ),
         seed=3,
     )
-    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(model_id=MODEL))
+    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(model_id=MODEL), population_seed=4021)
     assert any("income" not in persona.origins for persona in projection.personas)
 
 
@@ -189,29 +189,37 @@ def test_a_large_population_completes_within_the_answer_budget_it_is_given():
     source = synthetic(rows=2000, spend_populated=0.3)
     brief = pack()
     rows = rows_of(source, brief)
-    projection = project(brief, rows, source, inference=FakeChat(model_id=MODEL))
+    projection = project(brief, rows, source, inference=FakeChat(model_id=MODEL), population_seed=4021)
     completed = sum(1 for persona in projection.personas if persona.origins.get("spend_band") is FieldOrigin.SYNTHESIZED)
     assert completed == missing_count(rows, "spend_band") > 1000
 
 
 def test_a_retry_asks_only_about_the_personas_still_missing_and_keeps_accepted_answers():
-    requests: list[dict] = []
+    asked: list[tuple[dict, bool]] = []
 
-    def half_wrong_then_right(messages, template_id) -> str:
+    def half_malformed_then_right(messages, template_id) -> str:
         request = json.loads(messages[-1]["content"])
-        requests.append(request)
         strict = messages[0]["content"] == COMPLETION_RETRY_SYSTEM
+        asked.append((request, strict))
         return json.dumps({
-            persona["persona_id"]: (request["values"][0] if strict or index % 2 == 0 else "invented")
+            persona["persona_id"]: ([1.0, 0.0] if strict or index % 2 == 0 else "invented")
             for index, persona in enumerate(request["personas"])
         })
 
     source = synthetic(rows=40, spend_populated=0.0)
     brief = pack()
-    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(half_wrong_then_right))
-    first, retry = requests[0], requests[1]
-    assert len(retry["personas"]) == len(first["personas"]) // 2
-    assert {p["persona_id"] for p in retry["personas"]} == {p["persona_id"] for index, p in enumerate(first["personas"]) if index % 2}
+    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(half_malformed_then_right), population_seed=4021)
+    first_pass = [request for request, strict in asked if not strict]
+    retries = [request for request, strict in asked if strict]
+    assert retries  # whoever was left missing is asked once more, strictly
+    retried_ids = {persona["persona_id"] for request in retries for persona in request["personas"]}
+    missing_in_first_pass = {
+        persona["persona_id"]
+        for request in first_pass
+        for index, persona in enumerate(request["personas"])
+        if index % 2
+    }
+    assert retried_ids == missing_in_first_pass
     assert all(persona.origins.get("spend_band") is FieldOrigin.SYNTHESIZED for persona in projection.personas)
 
 
@@ -235,28 +243,37 @@ def test_an_integer_coded_vocabulary_is_completed_with_its_own_integers():
     """A correct answer to an integer-coded attribute was once refused for being spelled as text."""
     source = integer_coded()
     brief = pack()
-    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(model_id=MODEL))
+    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(model_id=MODEL), population_seed=4021)
     completed = [persona.attributes["spend_band"] for persona in projection.personas if persona.origins.get("spend_band") is FieldOrigin.SYNTHESIZED]
     assert len(completed) == len(projection.personas)
     assert all(value == 5 and type(value) is int for value in completed)
 
 
-def test_a_number_is_matched_by_its_value_and_an_off_list_number_is_refused():
+def test_a_distribution_missing_a_value_or_a_sum_is_refused_not_invented():
+    """A stated distribution that cannot be honoured as stated leaves its field uncompleted."""
     source = integer_coded()
     brief = pack()
     rows = rows_of(source, brief)
-    off_list = {f"p-{row.row_id}" for index, row in enumerate(rows) if index % 2}
+    malformed = {f"p-{row.row_id}" for index, row in enumerate(rows) if index % 2}
 
-    def spelled_or_invented(messages, template_id) -> str:
+    def short_or_unnormalised(messages, template_id) -> str:
         request = json.loads(messages[-1]["content"])
-        return json.dumps({persona["persona_id"]: (7 if persona["persona_id"] in off_list else " 10.0") for persona in request["personas"]})
+        return json.dumps({
+            persona["persona_id"]: (
+                [1.0] if persona["persona_id"] in malformed and len(request["values"]) > 1 and persona["persona_id"] == next(iter(malformed))
+                else [0.5, 0.2] if persona["persona_id"] in malformed
+                else [0.0, 0.0, 1.0]
+            )
+            for persona in request["personas"]
+        })
 
-    projection = project(brief, rows, source, inference=FakeChat(spelled_or_invented))
+    projection = project(brief, rows, source, inference=FakeChat(short_or_unnormalised, model_id=MODEL), population_seed=4021)
     for persona in projection.personas:
-        if persona.persona_id in off_list:
-            assert "spend_band" not in persona.origins
+        if persona.persona_id in malformed:
+            assert "spend_band" not in persona.origins  # refused, and not recorded as completed by anything
         else:
-            assert persona.attributes["spend_band"] == 10 and type(persona.attributes["spend_band"]) is int
+            assert persona.attributes["spend_band"] == 20 and type(persona.attributes["spend_band"]) is int
+    assert projection.completion is None or projection.completion.model_id == MODEL
 
 
 class RoutedChat(FakeChat):
@@ -284,7 +301,7 @@ def test_provenance_records_the_model_that_answered_not_the_one_expected():
     """A completion served by the fallback was once recorded as the primary the caller had named."""
     source = synthetic(spend_populated=0.5)
     brief = pack()
-    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(model_id=FALLBACK))
+    projection = project(brief, rows_of(source, brief), source, inference=FakeChat(model_id=FALLBACK), population_seed=4021)
     assert projection.completion.model_id == FALLBACK
 
 
@@ -293,14 +310,14 @@ def test_fields_completed_by_more_than_one_model_are_refused():
     brief = pack()
     alternating = RoutedChat(lambda served, messages: MODEL if served % 2 else FALLBACK)
     with pytest.raises(GateFailure, match="more than one model"):
-        project(brief, rows_of(source, brief), source, inference=alternating)
+        project(brief, rows_of(source, brief), source, inference=alternating, population_seed=4021)
 
 
 def test_a_model_whose_answers_were_all_refused_is_not_recorded_as_completing_anything():
     def invented_then_valid(messages, template_id) -> str:
         request = json.loads(messages[-1]["content"])
         strict = messages[0]["content"] == COMPLETION_RETRY_SYSTEM
-        return json.dumps({persona["persona_id"]: (request["values"][0] if strict else "invented") for persona in request["personas"]})
+        return json.dumps({persona["persona_id"]: ([1.0, 0.0] if strict else "invented") for persona in request["personas"]})
 
     source = synthetic(rows=20, spend_populated=0.0)
     brief = pack()
@@ -308,5 +325,5 @@ def test_a_model_whose_answers_were_all_refused_is_not_recorded_as_completing_an
         lambda served, messages: FALLBACK if messages[0]["content"] == COMPLETION_RETRY_SYSTEM else MODEL,
         invented_then_valid,
     )
-    projection = project(brief, rows_of(source, brief), source, inference=retried_on_fallback)
+    projection = project(brief, rows_of(source, brief), source, inference=retried_on_fallback, population_seed=4021)
     assert projection.completion.model_id == FALLBACK
