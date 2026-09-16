@@ -11,9 +11,12 @@ from ._check import (
     AnchorCheckResult,
     assert_pinnable,
     check_anchors,
+    check_record_path,
     expected_rating,
+    ladder_for,
     read_check_record,
     spearman,
+    varied_for,
 )
 from ._compute import aggregate, per_set_distribution, similarities
 from ._question import is_numeric_answer, question_hash, question_text, question_version
@@ -31,9 +34,11 @@ __all__ = [
     "anchor_path",
     "assert_pinnable",
     "check_anchors",
+    "check_record_path",
     "clear_anchor_cache",
     "expected_rating",
     "is_numeric_answer",
+    "ladder_for",
     "load_anchor_version",
     "per_set_distribution",
     "question_hash",
@@ -48,4 +53,5 @@ __all__ = [
     "spearman",
     "synthetic_reviews",
     "validate_mapping",
+    "varied_for",
 ]

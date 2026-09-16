@@ -21,8 +21,10 @@ from ._compute import aggregate, per_set_distribution, similarities
 MIN_SPEARMAN = 0.8
 MIN_COLLAPSE_DISTANCE = 0.1
 
-# Frozen ladder: graded responses from certainly-not to certainly-yes. Frozen means frozen — a
-# revision is a code change reviewed as one, never an adjustment to make a version pass.
+# Frozen ladders, one per construct: graded responses from the bottom of the scale to the top.
+# Frozen means frozen — a revision is a code change reviewed as one, never an adjustment to make a
+# version pass. Each ladder is worded in its own construct: scoring buy-intent prose on satisfaction
+# anchors cannot order by construction, so one ladder for every construct is a broken instrument.
 LADDER: tuple[str, ...] = (
     "I would never buy this, no chance at all.",
     "I probably would not buy this.",
@@ -33,6 +35,21 @@ LADDER: tuple[str, ...] = (
     "I would definitely buy this, certainly.",
 )
 
+SATISFACTION_LADDER: tuple[str, ...] = (
+    "I am very dissatisfied with it, completely unhappy.",
+    "I am somewhat dissatisfied with it.",
+    "I feel neutral about it, neither good nor bad.",
+    "It was acceptable, meeting my expectations on the whole.",
+    "I am somewhat satisfied with it.",
+    "I am very pleased with it.",
+    "I am completely satisfied, it exceeded everything.",
+)
+
+LADDERS: dict[str, tuple[str, ...]] = {
+    "purchase_intent": LADDER,
+    "satisfaction": SATISFACTION_LADDER,
+}
+
 # Varied responses for the non-collapse check: different ratings, lengths and angles.
 VARIED: tuple[str, ...] = (
     "I would never buy this.",
@@ -41,6 +58,34 @@ VARIED: tuple[str, ...] = (
     "I probably would buy this after payday.",
     "I would definitely buy this, twice over, and tell everyone.",
 )
+
+SATISFACTION_VARIED: tuple[str, ...] = (
+    "I am very dissatisfied with it.",
+    "Not for me, a complete waste.",
+    "It was fine, nothing special either way.",
+    "I am quite pleased with it overall.",
+    "I am thrilled with it and tell everyone.",
+)
+
+VARIED_SETS: dict[str, tuple[str, ...]] = {
+    "purchase_intent": VARIED,
+    "satisfaction": SATISFACTION_VARIED,
+}
+
+
+def ladder_for(construct: str) -> tuple[str, ...]:
+    """The frozen ladder grading the construct under check; an unknown construct is refused."""
+    try:
+        return LADDERS[construct]
+    except KeyError:
+        raise ValueError(f"the anchor check has no frozen ladder for construct {construct!r}") from None
+
+
+def varied_for(construct: str) -> tuple[str, ...]:
+    try:
+        return VARIED_SETS[construct]
+    except KeyError:
+        raise ValueError(f"the anchor check has no varied set for construct {construct!r}") from None
 
 
 class AnchorCheckResult(BaseModel):
@@ -117,15 +162,17 @@ def check_anchors(
     parsed = load_anchor_version(Path(anchors_dir) / construct / f"{version}.json")
     digest = anchor_hash(parsed)
     model_id = embed.model_id
+    ladder = ladder_for(construct)
+    varied = varied_for(construct)
 
     flat = [statement for anchor_set in parsed.sets for statement in anchor_set]
     anchor_vectors = np.asarray(embed.embed(flat).vectors, dtype=np.float32).reshape(len(parsed.sets), 5, -1)
-    ladder_vectors = np.asarray(embed.embed(list(LADDER)).vectors, dtype=np.float32)
-    varied_vectors = np.asarray(embed.embed(list(VARIED)).vectors, dtype=np.float32)
+    ladder_vectors = np.asarray(embed.embed(list(ladder)).vectors, dtype=np.float32)
+    varied_vectors = np.asarray(embed.embed(list(varied)).vectors, dtype=np.float32)
 
     per_set_expected: list[list[float]] = [[] for _ in parsed.sets]
     headline_expected: list[float] = []
-    for row in range(len(LADDER)):
+    for row in range(len(ladder)):
         gammas = [tuple(similarities(ladder_vectors[row], anchor_vectors[set_index])) for set_index in range(len(parsed.sets))]
         per_set = [per_set_distribution(gamma, epsilon=epsilon) for gamma in gammas]
         for set_index, mass in enumerate(per_set):
@@ -141,7 +188,7 @@ def check_anchors(
     spearman_min = min(correlations) if correlations else 1.0
 
     varied_headlines = []
-    for row in range(len(VARIED)):
+    for row in range(len(varied)):
         gammas = [tuple(similarities(varied_vectors[row], anchor_vectors[set_index])) for set_index in range(len(parsed.sets))]
         per_set = [per_set_distribution(gamma, epsilon=epsilon) for gamma in gammas]
         varied_headlines.append(aggregate(per_set, temperature=temperature))
