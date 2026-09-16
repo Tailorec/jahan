@@ -182,7 +182,7 @@ from .trace import (
     read_partition,
 )
 
-from .inference import CallFailure, ChatOutcome, CompletedDistribution, Completion
+from .inference import CallFailure, ChatOutcome, ChatRequest, CompletedDistribution, Completion, SampleKey
 from .world import DroppedExposure, WorldDelta
 
 __all__ = [
@@ -205,6 +205,7 @@ __all__ = [
     "BudgetExhausted",
     "CallFailure",
     "ChatOutcome",
+    "ChatRequest",
     "CONTRACT_MIGRATIONS",
     "CalibrationRef",
     "CategoricalGateResult",
@@ -315,6 +316,7 @@ __all__ = [
     "RunRegistryEntry",
     "RunResult",
     "RunStatus",
+    "SampleKey",
     "SCHEMA_VERSION",
     "Scenario",
     "SchemaVersionError",

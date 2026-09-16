@@ -4,9 +4,56 @@ from typing import Annotated, Self
 
 from pydantic import Field, model_validator
 
-from .base import HashDigest, Identifier, NonEmptyStr, NonNegativeInt, PositiveInt, SimBaseModel
+from .base import FrozenDict, HashDigest, Identifier, NonEmptyStr, NonNegativeInt, PersonaId, PositiveInt, SimBaseModel
 from .enums import FailureKind, InferenceRole, InferenceRoute
 from .trace import CostRecorded
+
+
+class SampleKey(SimBaseModel):
+    """The identity of one draw: which world, which persona, which tick, which call within it. A seed is
+    derived from it, and any sampled call is cached under it, so two replicates can never be handed the
+    same sample (ADR 0025)."""
+
+    world_seed: NonNegativeInt
+    persona_id: PersonaId | None = None
+    tick: NonNegativeInt = 0
+    seq: NonNegativeInt = 0
+
+
+class ChatRequest(SimBaseModel):
+    """One chat call as its caller states it: a role, the rendered messages, the sampling budget, the
+    template that produced the text, and — where the call is sampled — the draw it belongs to. A request
+    above temperature zero must name its sample key, or its answer could be served to another replicate.
+
+    `json_schema` is the JSON text of the schema a structured answer must satisfy: carried as text so a
+    request stays immutable, and sent as a strict response format only where the pin declares the
+    capability (ADR 0023)."""
+
+    role: InferenceRole
+    messages: tuple[FrozenDict[str, str], ...] = Field(min_length=1)
+    temp: Annotated[float, Field(ge=0.0, le=2.0)] = 0.0
+    max_tokens: PositiveInt
+    template_id: Identifier
+    sample: SampleKey | None = None
+    json_schema: str | None = None
+
+    @model_validator(mode="after")
+    def _messages_are_roles_with_content(self) -> Self:
+        for message in self.messages:
+            if "role" not in message or "content" not in message:
+                raise ValueError("every message carries a role and content")
+            if message["role"] not in ("system", "user", "assistant", "tool"):
+                raise ValueError(f"message role {message['role']!r} is not one a chat endpoint speaks")
+        return self
+
+    @model_validator(mode="after")
+    def _a_sampled_call_belongs_to_one_draw(self) -> Self:
+        if self.temp > 0.0 and self.sample is None:
+            raise ValueError(
+                "a call above temperature zero names the sample it is a draw of — replicate seed, persona, "
+                "tick and sequence — so its answer can never be shared with another replicate (ADR 0025)"
+            )
+        return self
 
 
 class Completion(SimBaseModel):

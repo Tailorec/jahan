@@ -55,14 +55,14 @@ It is proven against a scripted transport, so the suite still never opens a sock
 
 ### Acceptance criteria
 
-- [ ] An unpinned role is refused before any request is sent
-- [ ] The prompt hash is computed from exactly the bytes sent, and changing any request field changes it
-- [ ] A completion records served model, input and output tokens, latency and the route it came by
-- [ ] A gateway-reported cost is recorded as gateway; a declared price computes a price-table cost; neither yields unknown
-- [ ] A response served by an undeclared model is a pin failure, and one served by a declared alias is a completion
-- [ ] A served model that changes mid-run is caught on the first call it changes
-- [ ] The engine imports no provider SDK or gateway library, asserted rather than assumed
-- [ ] No test reaches the network
+- [x] An unpinned role is refused before any request is sent
+- [x] The prompt hash is computed from exactly the bytes sent, and changing any request field changes it
+- [x] A completion records served model, input and output tokens, latency and the route it came by
+- [x] A gateway-reported cost is recorded as gateway; a declared price computes a price-table cost; neither yields unknown
+- [x] A response served by an undeclared model is a pin failure, and one served by a declared alias is a completion
+- [x] A served model that changes mid-run is caught on the first call it changes
+- [x] The engine imports no provider SDK or gateway library, asserted rather than assumed
+- [x] No test reaches the network
 
 ---
 
