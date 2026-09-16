@@ -249,7 +249,7 @@ A call answered by a model other than its pinned model or that model's declared 
 _Avoid_: model drift, mismatch warning, fallback
 
 **Cost Source**:
-Where a call's recorded cost came from — reported by the gateway, computed from a price the study declared, or unknown. An unknown cost stays unknown rather than becoming zero, because a budget enforced against invented prices is not enforced.
+Where a call's recorded cost came from — reported by the gateway, computed from a price the study declared and the usage the response reported, estimated from that price and guessed usage, known to be nothing because the answer came from the cache, or unknown. An unknown cost stays unknown rather than becoming zero, and an estimate is never recorded as a price, because a budget enforced against invented prices is not enforced.
 _Avoid_: estimated cost, pricing, spend
 
 **Completion Temperature**:

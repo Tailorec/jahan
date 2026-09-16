@@ -11,7 +11,7 @@ Durable across every phase:
 - **Batch first** — `complete(requests) -> outcomes` is synchronous to its caller and concurrent inside, returns one outcome per request in request order, and an outcome is a `Completion` or a `CallFailure`. `chat()` is one request over it. A failed call is recorded, never raised for one request and never dropped.
 - **The engine owns every policy that changes the trace** — retries, the pinned fallback, the cache and rate limiting live in the engine; the gateway is a translator with its own retries, fallbacks and caching documented off.
 - **A pin is a specification** — the model name sent, the served identifiers accepted, structured-output and seed capability, and an optional price. A call served outside its pin is a pin failure. Embedding never falls back.
-- **A cost says where it came from** — `gateway`, `price_table` or `unknown`; unknown is recorded as absent, never as zero. Budget enforcement belongs to `runner`.
+- **A cost says where it came from** — `gateway`, `price_table`, `estimate`, `cache` or `unknown`; unknown is recorded as absent, never as zero. Budget enforcement belongs to `runner`.
 - **A sampled answer belongs to one replicate** — the cache key carries a sample key for any call above temperature zero; replay reads the trace, never the cache.
 - **Variance is the engine's** — completed attitudes are sampled by the engine from the model's distribution under the population seed at a recorded temperature.
 - **Execution configuration is not study configuration** — endpoint, key, concurrency, rate limits, timeouts and retry counts come from the environment and are never hashed; pins, prices, temperatures and templates are on `RunConfig` and `PopulationParameters` and are.
@@ -226,12 +226,12 @@ OpenTelemetry spans for every batch and call, exported over OTLP to whatever col
 
 ### What to build
 
-The measurement projection's credibility rests on. On Stack Overflow rows carrying measured attitudes, a declared attitude set is hidden, projected from the conditioning set through the production path, and scored: per-attribute marginal distance, calibration of the sampled distributions, and how much of the attitudes' dependence on demographics is recovered — all beside a baseline that samples each attitude from its demographic-conditional marginal in rows not held out. The report records the pins, served models, seeds and parameters that produced it. It runs on the fake in CI and against a real endpoint when a user configures one.
+The measurement projection's credibility rests on. On Stack Overflow rows carrying measured attitudes, a declared attitude set is hidden, projected from the conditioning set through the production path, and scored: per-attribute log loss and Brier score of the stated distributions, marginal distance, calibration, and how much of the attitudes' dependence on demographics is recovered above chance — all beside a baseline that samples each attitude from its demographic-conditional marginal in rows not held out. The report records the pins, served models, seeds and parameters that produced it. It runs on the fake in CI and against a real endpoint when a user configures one.
 
 ### Acceptance criteria
 
 - [x] Held-out rows are never used to build the baseline
-- [x] The evaluation reports marginal distance, calibration and recovered demographic dependence per attribute, beside the baseline's
+- [x] The evaluation reports log loss, Brier score, marginal distance, calibration and chance-corrected recovered demographic dependence per attribute, beside the baseline's
 - [x] The report records pins, served models, seeds, completion temperature and row counts
 - [x] A fake that returns the true conditional marginals scores at the baseline, and one that returns uniform distributions scores worse — so the metrics are proven to discriminate
 - [x] It runs on the fake in CI, and against the cached real shards when they are present

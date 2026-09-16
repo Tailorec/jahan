@@ -59,7 +59,7 @@ Around that, five commitments. A call answered by a model outside its pin is a f
 
 **Evidence**
 
-24. As a researcher, I want a holdout evaluation that hides measured Stack Overflow attitudes, projects them from demographics and reports marginal distance and calibration against a demographic-conditional baseline, so whether projected attitudes mean anything is measured rather than asserted.
+24. As a researcher, I want a holdout evaluation that hides measured Stack Overflow attitudes, projects them from demographics and scores the stated distributions with proper scoring rules against a demographic-conditional baseline, so whether projected attitudes mean anything is measured rather than asserted.
 25. As a maintainer, I want that evaluation to run on the fake in CI and on a real endpoint when configured, so it cannot rot and can produce a real number.
 
 **Observing a run**
@@ -76,11 +76,11 @@ Around that, five commitments. A call answered by a model outside its pin is a f
 
 **Queue and limiting.** A bounded queue, a concurrency ceiling configured to the endpoint's capacity, and an adaptive limiter on requests and tokens per minute. Token counts are estimated from text length before sending and corrected from reported usage; sustained 429s lower the ceiling and successes restore it. `Retry-After` is honoured.
 
-**Retry, fallback and circuit breaking.** 429, 5xx, timeouts and connection errors retry with backoff; 400, 401, 403, 404 and 422 are fatal at once. A short run of identical fatal errors opens a circuit that fails the remaining batch with one error. Exhausted retries move to the role's pinned fallback; an unpinned fallback is never used, and embedding has none.
+**Retry, fallback and circuit breaking.** 429, 5xx, timeouts and connection errors retry with backoff; 400, 401, 403, 404 and 422 are fatal at once. A short run of identical refusals opens a circuit that fails the remaining batch with one error; server errors never open it. Only exhausted retries on a retryable failure move to the role's pinned fallback; an unpinned fallback is never used, and embedding has none.
 
 **Pins.** A pin becomes a specification rather than a bare identifier: the model name sent, the served identifiers it accepts, whether it supports structured output, whether it honours `seed`, and an optional price. The first success records the served model; any later call served outside the accepted set is a pin failure.
 
-**Cost.** `CostRecorded` gains `served_model_id` and `cost_source` of `gateway`, `price_table` or `unknown`; an unknown cost is recorded as absent rather than zero, and a cached call bills zero as today. The runner's budget refuses unknown costs unless unbudgeted spend is accepted.
+**Cost.** `CostRecorded` gains `served_model_id` and `cost_source` of `gateway`, `price_table`, `estimate`, `cache` or `unknown`; an unknown cost is recorded as absent rather than zero, a declared price on estimated usage is an estimate, and a cached call bills zero and names the cache. The runner's budget refuses unknown costs unless unbudgeted spend is accepted.
 
 **Cache.** Persistent, in the user cache directory, keyed by served model, template id and hash, the exact request bytes, and for calls above temperature zero a sample key from replicate seed, persona and tick. Replay reads the trace and never the cache.
 
@@ -88,7 +88,7 @@ Around that, five commitments. A call answered by a model outside its pin is a f
 
 **Sampled completion.** Projection asks, per persona and attribute, for a probability distribution over the attribute's vocabulary. The engine validates coverage and normalisation, applies the recorded `completion_temperature`, and samples with the population's seeded stream. `completion_temperature` joins `PopulationParameters`. A population records the distribution each completed field was drawn from, so projection's calibration is measurable after the fact.
 
-**Holdout evaluation.** A command selects Stack Overflow rows carrying measured attitudes, hides a declared attitude set, projects it from the conditioning set through the production path, and reports per-attribute marginal distance, calibration of the sampled distributions, and the share of demographic dependence recovered, beside a baseline that samples each attitude from its demographic-conditional marginal in the non-held-out rows. Results are written as a report with the pins, served models and seeds that produced them.
+**Holdout evaluation.** A command selects Stack Overflow rows carrying measured attitudes, hides a declared attitude set, projects it from the conditioning set through the production path, and reports per-attribute log loss and Brier score of the stated distributions, marginal distance, calibration, and the share of demographic dependence recovered above chance, beside a baseline that samples each attitude from its demographic-conditional marginal in the non-held-out rows. Results are written as a report with the pins, served models and seeds that produced them.
 
 **Telemetry.** Spans per batch and per call, retries and fallbacks as span events, attributes under `gen_ai.*` defined in one module, world, tick and persona identifiers as attributes, content capture off unless enabled. The core depends on `opentelemetry-api`; the SDK and OTLP exporter are the optional `otel` extra.
 
