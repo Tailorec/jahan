@@ -8,7 +8,7 @@ concrete adapter (FINAL_ARCH §4).
 from .catalog import AttributeCoverage, CoresetCatalog
 from .chat import ChatPort
 from .coreset import CoresetSource
-from .embed import EmbedPort
+from .embed import EmbedPort, EmbedResult
 from .evidence import EvidencePort
 from .index_catalog import IndexCoresetCatalog, cached_hf_index, from_hf_source, from_source
 from .patch import NullPatchSource, PersonaPatchSource
@@ -19,6 +19,7 @@ __all__ = [
     "CoresetCatalog",
     "CoresetSource",
     "EmbedPort",
+    "EmbedResult",
     "EvidencePort",
     "IndexCoresetCatalog",
     "NullPatchSource",
