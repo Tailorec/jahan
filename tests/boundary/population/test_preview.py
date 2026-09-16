@@ -115,6 +115,16 @@ def test_preview_reports_the_fields_a_draw_would_synthesize_and_their_share():
     assert report.synthesized_share > 0.0
 
 
+def test_the_synthesized_count_is_for_the_requested_draw_not_the_whole_pool():
+    """The count once summed over every matched row, so a five-persona study read as thousands of invented
+    fields. spend_band is absent everywhere, so a draw of five invents exactly five, whatever the pool."""
+    small = preview(PreviewRequest(pack(audiences=[]), 5), catalog=synthetic())
+    large = preview(PreviewRequest(pack(audiences=[]), 50), catalog=synthetic())
+    assert small.synthesized_fields == 5
+    assert large.synthesized_fields == 50
+    assert small.synthesized_share == large.synthesized_share
+
+
 def test_preview_forecasts_the_rungs_the_ladder_would_climb():
     request = PreviewRequest(pack(audiences=[]), 50, filters={"exercise_frequency": "3_plus_weekly"})
     report = preview(request, catalog=fixture())

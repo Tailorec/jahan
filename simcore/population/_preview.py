@@ -105,6 +105,10 @@ def preview(request: PreviewRequest, *, catalog: CoresetCatalog) -> AudiencePrev
     matched_total = sum(matched.get(source, 0) for source in sources)
     projected = matched_total * len(declared)
     share = min(1.0, synthesized / projected) if projected else 0.0
+    # The share is measured over the whole matched pool, but the count a study author reads is for the
+    # draw they asked for: 38,000 fields across a pool says nothing about a study of 300.
+    drawn = min(request.n, matched_total)
+    synthesized = round(share * drawn * len(declared))
 
     relaxations = ()
     if filters:

@@ -37,6 +37,8 @@ class AudiencePreview(SimBaseModel):
     the resulting population would carry."""
 
     sources: tuple[SourcePreview, ...] = Field(min_length=1)
+    # The fields a draw of the requested size would synthesize, expected from the pool's share — not the
+    # count across the whole pool, which scales with the corpus rather than the study.
     synthesized_fields: NonNegativeInt
     synthesized_share: UnitInterval
     relaxations: tuple[Relaxation, ...] = ()
