@@ -205,7 +205,8 @@ def _patch(personas: Sequence[Persona], patches: PersonaPatchSource) -> tuple[Pe
 def _embed(personas: Sequence[Persona], embed: EmbedPort, pack) -> tuple[tuple[Persona, ...], np.ndarray]:
     """One embedding call for the population, and a positional reference on each persona."""
     texts = [_persona_text(persona, pack.ontology) for persona in personas]
-    vectors = np.asarray(embed.embed(texts), dtype=np.float32)
+    result = embed.embed(texts)
+    vectors = np.asarray(result.vectors if hasattr(result, "vectors") else result, dtype=np.float32)
     if vectors.ndim != 2 or vectors.shape[0] != len(personas):
         raise GateFailure(
             f"the embedding port returned shape {vectors.shape}; expected one vector per persona for "

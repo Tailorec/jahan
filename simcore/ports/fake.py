@@ -129,8 +129,31 @@ class FakeEmbed:
         self.model_id = model_id
         self._dim = dim
 
-    def embed(self, texts: Sequence[str]) -> np.ndarray:
-        return np.asarray([self._vector(text) for text in texts], dtype=np.float32)
+    def embed(self, texts: Sequence[str]):
+        from simcore.schemas import CostRecorded, InferenceRole, InferenceRoute
+
+        from .embed import EmbedResult
+
+        vectors = np.asarray([self._vector(text) for text in texts], dtype=np.float32)
+        cost = CostRecorded(
+            kind="cost",
+            role=InferenceRole.EMBED,
+            model_id=self.model_id,
+            served_model_id=self.model_id,
+            cost_source="gateway",
+            route=InferenceRoute.PRIMARY,
+            input_tokens=sum(len(text.split()) for text in texts),
+            output_tokens=0,
+            cost=0.0,
+        )
+        return EmbedResult(
+            vectors=vectors,
+            model_id=self.model_id,
+            served_model_id=self.model_id if texts else None,
+            normalization="l2",
+            dim=self._dim,
+            costs=() if not texts else (cost,),
+        )
 
     def _vector(self, text: str) -> list[float]:
         digest = hashlib.sha256(text.encode("utf-8")).digest()

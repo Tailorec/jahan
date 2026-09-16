@@ -115,17 +115,11 @@ class EmbeddingVectors:
     headers: object
 
 
-@dataclass(frozen=True)
-class EmbeddingResult:
-    """The vectors one `embed` call produced, in input order, with the normalisation applied, the
-    dimension the run fixed on, and the cost record of every capped batch that answered."""
+from simcore.ports.embed import EmbedResult as EmbeddingResult
 
-    vectors: "np.ndarray"
-    model_id: str
-    served_model_id: str | None
-    normalization: str
-    dim: int
-    costs: tuple[CostRecorded, ...]
+# The inference client satisfies `EmbedPort`: it returns vectors in input order with the pinned
+# and served model and the cost of every batch, so it can be passed wherever the fake is.
+EmbedResultAlias = EmbeddingResult
 
 
 class EmbeddingFailure(RuntimeError):
@@ -208,6 +202,11 @@ class InferenceClient:
         if pin is None:
             raise UnpinnedRoleError(f"the study pins no model for role {role.value!r}; refuse before spending")
         return pin
+
+    @property
+    def model_id(self) -> str:
+        """The pinned embedding model, so the client satisfies `EmbedPort` wherever the fake is accepted."""
+        return self.resolve(InferenceRole.EMBED).model_id
 
     def complete(self, requests: Sequence[ChatRequest]) -> tuple[ChatOutcome, ...]:
         """One outcome per request in request order, whatever order the responses arrive in. Every pin is
