@@ -14,7 +14,6 @@ from simcore.ports.hf import (
     MissingShard,
     ShardMismatch,
     default_cache_dir,
-    derive_source,
     fetch_command,
     tier_for,
 )
@@ -157,19 +156,19 @@ def test_tier_is_the_source_and_assignment_read_together(source, assignment, exp
     assert tier_for(source, assignment) is expected
 
 
-@pytest.mark.parametrize(
-    ("record_id", "metadata", "expected"),
-    [
-        ("Q37340", '{"qid":"Q37340"}', "wiki"),
-        ("gss-2024-1", None, "gss"),
-        ("stackoverflow_2024_1_1", None, "stackoverflow"),
-        ("AFTJOXGXMUMEN6", '{"review_count":9,"user_bucket":"c1"}', "amazon"),
-        (None, None, "synthetic"),
-        (None, '{"user_id":"user123"}', "prism"),
-    ],
-)
-def test_the_source_of_a_row_is_derived_from_its_identifiers(record_id, metadata, expected):
-    assert derive_source(record_id, metadata) == expected
+def test_a_rows_source_is_the_releases_own_column_not_a_guess_from_its_identifiers(tmp_path):
+    """The source was once inferred from the shape of identifiers, on the mistaken belief that the release
+    did not record it; an identifier the guess did not recognise fell through to a measured survey source."""
+    cache = tmp_path / "cache"
+    write_hf_cache(
+        cache,
+        codebook_columns=CODEBOOK_COLUMNS,
+        shards={"data/persona-1m-0000.parquet": [
+            {"codes": [3, 0, 0, 0, 0, 0, 0, 0], "source": "amazon", "source_record_id": "gss-looks-like-a-survey", "metadata_json": '{"user_id":"gss-1"}'},
+        ]},
+    )
+    (row,) = HfCoresetSource(cache_dir=cache).rows(["persona-1m-0000:0"])
+    assert row.source == "amazon"
 
 
 # --- integration against the real shards, skipped when they are absent ------------------------
@@ -202,7 +201,6 @@ def test_real_rows_decode_from_each_cached_shard(shard):
     reader = pq.ParquetFile(path)
     batch = next(reader.iter_batches(batch_size=25))
     for record in batch.to_pylist():
-        assert derive_source(record["source_record_id"], record["metadata_json"]) == record["source"]
         overrides = [(int(item["field_index"]), str(item["value"])) for item in (record.get("attribute_overrides") or ())]
         values = decode_row(
             codebook,
@@ -216,23 +214,15 @@ def test_real_rows_decode_from_each_cached_shard(shard):
 
 
 @real_only
-def test_derived_sources_match_the_manifest_source_counts():
+def test_the_adapters_source_counts_match_the_manifest():
+    """The survey sources all live in shards 0004 and 0005, so the adapter's counts over those two shards
+    must reproduce the manifest's totals exactly — read through the adapter, not from the parquet."""
     import json as _json
 
-    import pyarrow.parquet as pq
-
     manifest = _json.loads((REAL / "manifest.json").read_text())
-    derived = Counter()
-    for entry in manifest["files"]:
-        path = REAL / entry["path"]
-        if not path.is_file():
-            continue
-        table = pq.read_table(path, columns=["source_record_id", "metadata_json"])
-        ids = table["source_record_id"].to_pylist()
-        metas = table["metadata_json"].to_pylist()
-        derived.update(derive_source(ids[i], metas[i]) for i in range(table.num_rows))
-    manifest_counts = manifest["sources"]
-    # Stack Overflow is the one fully-cached, instrument source; its derived count proves the derivation.
-    assert derived["stackoverflow"] == manifest_counts["stackoverflow"]
-    for source in ("gss", "prism", "real_human_survey"):
-        assert derived[source] == manifest_counts[source]
+    shards = [f"data/persona-1m-{n}.parquet" for n in ("0004", "0005")]
+    if not all((REAL / shard).is_file() for shard in shards):
+        pytest.skip("shards 0004 and 0005 are not both cached")
+    counts = HfCoresetSource(cache_dir=REAL, shards=shards).count({}, [], by_source=True)
+    for source in ("stackoverflow", "gss", "prism", "real_human_survey"):
+        assert counts[source] == manifest["sources"][source]

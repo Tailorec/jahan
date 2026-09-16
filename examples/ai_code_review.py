@@ -14,7 +14,7 @@ from pathlib import Path
 from simcore.brief import load_brief
 from simcore.population import PreviewRequest, assess, build, preview
 from simcore.ports.fake import FakeChat
-from simcore.ports.hf import HfCoresetSource, MissingShard, default_cache_dir, derive_source
+from simcore.ports.hf import HfCoresetSource, MissingShard, default_cache_dir
 from simcore.ports.index_catalog import from_hf_source
 from simcore.schemas import DistributionThresholds, PopulationParameters
 
@@ -36,9 +36,8 @@ def pack():
 
 
 def _shards_holding(cache: Path, sources: tuple[str, ...]) -> list[str]:
-    """Which cached shards actually carry a source, read from row identifiers — the corpus segregates
-    sources across shards and the release does not record the mapping anywhere a study can read without
-    the postings index."""
+    """Which cached shards actually carry a source, read from each shard's `source` column — the corpus
+    segregates sources across shards, and the manifest records counts per source but not per shard."""
     import json
 
     import pyarrow.parquet as pq
@@ -50,10 +49,7 @@ def _shards_holding(cache: Path, sources: tuple[str, ...]) -> list[str]:
         path = cache / entry["path"]
         if not path.is_file():
             continue
-        columns = pq.read_table(path, columns=["source_record_id", "metadata_json"])
-        ids = columns["source_record_id"].to_pylist()
-        metas = columns["metadata_json"].to_pylist()
-        if any(derive_source(ids[i], metas[i]) in wanted for i in range(columns.num_rows)):
+        if wanted & set(pq.read_table(path, columns=["source"])["source"].to_pylist()):
             found.append(entry["path"])
     return found
 

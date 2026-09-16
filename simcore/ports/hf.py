@@ -1,8 +1,8 @@
 """The corpus, readable: rows from real shards, fetched explicitly and verified on every use.
 
-The adapter owns dataset knowledge (ADR 0016): the packed decoding, the derivation of a row's source
-from its identifiers, the mapping from source and assignment type to a tier, and the layout of the
-release. Nothing here downloads a shard: an absent file raises with the exact command that fetches it.
+The adapter owns dataset knowledge (ADR 0016): the packed decoding, the mapping from source and
+assignment type to a tier, and the layout of the release. A row's source is the release's own `source`
+column — read, never inferred from the shape of its identifiers. Nothing here downloads a shard: an absent file raises with the exact command that fetches it.
 Every cached file is verified against `manifest.json` when it is opened, not only at fetch, because a
 partial write, a corrupted read, or a substituted file must never reach a study.
 
@@ -13,7 +13,6 @@ personas; only the rows a draw actually selects are decoded."""
 import hashlib
 import json
 import os
-import re
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -70,48 +69,6 @@ def tier_for(source: PersonaSource, assignment_type: str | None) -> FieldOrigin:
     return FieldOrigin.EXTRACTED
 
 
-_AMAZON_ID = re.compile(r"^A[A-Z0-9]{13,}$")
-_STACKOVERFLOW_ID = re.compile(r"^stackoverflow_")
-_GSS_ID = re.compile(r"^gss-")
-_WIKIDATA_ID = re.compile(r"^Q\d+$")
-
-
-def derive_source(source_record_id: str | None, metadata_json: str | None) -> PersonaSource:
-    """Which corpus a row came from, read from the identifiers only the source itself knows.
-
-    The metadata shape differs per source — a Wikidata qid for `wiki`, a survey user id for
-    `stackoverflow`, a reviewer id for `amazon`, nothing at all for the synthetic rows — so the row's
-    source is a derivation, not a lookup the engine would otherwise trust."""
-    if source_record_id is None and metadata_json is None:
-        return "synthetic"
-    if source_record_id:
-        if _GSS_ID.match(source_record_id):
-            return "gss"
-        if _STACKOVERFLOW_ID.match(source_record_id):
-            return "stackoverflow"
-        if _WIKIDATA_ID.match(source_record_id):
-            return "wiki"
-        if _AMAZON_ID.match(source_record_id):
-            return "amazon"
-    if metadata_json:
-        try:
-            metadata = json.loads(metadata_json)
-        except json.JSONDecodeError:
-            metadata = {}
-        user = str(metadata.get("user_id") or "")
-        if _STACKOVERFLOW_ID.match(user):
-            return "stackoverflow"
-        if _GSS_ID.match(user):
-            return "gss"
-        if metadata.get("qid"):
-            return "wiki"
-        if re.match(r"^user\d+$", user):
-            return "prism"
-        if metadata.get("review_count") is not None or metadata.get("user_bucket"):
-            return "amazon"
-    return "real_human_survey"
-
-
 class MissingShard(FileNotFoundError):
     """A shard the study needs is not cached; the refusal names the command that fetches it, so no
     download is ever implicit and the reader can act without looking the command up."""
@@ -130,7 +87,7 @@ class _ShardArrays:
     attributes: np.ndarray  # uint8 [rows, row_bytes]
     bitmap: np.ndarray | None  # uint8 [rows, bitmap_bytes] or None when every field is present
     vocabulary_sizes: np.ndarray  # int16 [fields]: how many values each code may take
-    sources: np.ndarray  # object [rows]: the derived source of each row
+    sources: np.ndarray  # object [rows]: each row's source, from the release's `source` column
     full: object  # the pyarrow table, kept for the lazy per-row decode
     overrides: Mapping[int, Mapping[int, str]]  # field_index -> row -> raw override value
     labels: dict = field(default_factory=dict)  # attribute -> decoded-label array, cached
@@ -246,7 +203,8 @@ class HfCoresetSource:
             return len(selected)
         counts: dict[PersonaSource, int] = {}
         for row_id in selected:
-            source = derive_source(*self._identifiers(row_id))
+            shard, _, index = row_id.partition(":")
+            source = str(self._arrays(shard).sources[int(index)])
             counts[source] = counts.get(source, 0) + 1
         return counts
 
@@ -292,8 +250,7 @@ class HfCoresetSource:
         entry = self._find_entry(shard)
         path = self.cache_dir / str(entry["path"])
         columns = [
-            "source_record_id",
-            "metadata_json",
+            "source",
             "attributes",
             "null_bitmap",
             "attribute_overrides",
@@ -312,9 +269,7 @@ class HfCoresetSource:
                 dtype=np.uint8,
             ).reshape(rows, -1)
         )
-        source_record_ids = full["source_record_id"].to_pylist()
-        metadatas = full["metadata_json"].to_pylist()
-        sources = np.asarray([derive_source(source_record_ids[i], metadatas[i]) for i in range(rows)], dtype=object)
+        sources = np.asarray(full["source"].to_pylist(), dtype=object)
         row_ids = tuple(f"{shard}:{index}" for index in range(rows))
         overrides: dict[int, dict[int, str]] = {}
         for index, entry_overrides in enumerate(full["attribute_overrides"].to_pylist()):
@@ -364,12 +319,6 @@ class HfCoresetSource:
             if label is not None and label in allowed:
                 mask[position] = True
         return mask
-
-    def _identifiers(self, row_id: str) -> tuple[str | None, str | None]:
-        shard, _, index = row_id.partition(":")
-        arrays = self._arrays(shard)
-        record = arrays.full.slice(int(index), 1).to_pylist()[0]
-        return record["source_record_id"], record["metadata_json"]
 
     def _decode(self, arrays: _ShardArrays, index: int) -> DecodedRow:
         record = arrays.full.slice(index, 1).to_pylist()[0]
