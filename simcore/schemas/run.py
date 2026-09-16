@@ -4,8 +4,8 @@ the run configuration, and the derivation of world identity."""
 import hashlib
 import re
 from collections import Counter
-from collections.abc import Iterable
-from typing import Annotated, ClassVar, Self
+from collections.abc import Iterable, Mapping
+from typing import Annotated, Any, ClassVar, Self
 
 from pydantic import AfterValidator, Field, StringConstraints, model_validator
 
@@ -47,16 +47,56 @@ PinnedModelId = Annotated[
     AfterValidator(_versioned_model_id),
 ]
 
+NonNegativeFloat = Annotated[float, Field(ge=0.0)]
+
+
+class PinPrice(SimBaseModel):
+    """What a pinned model charges per million tokens, as the study declared it. A price the study states
+    is what makes a `price_table` cost a computation rather than an invention."""
+
+    input_per_million: NonNegativeFloat
+    output_per_million: NonNegativeFloat
+    currency: CurrencyCode = "USD"
+
+
+class ModelPin(SimBaseModel):
+    """A pin as a specification, not a bare identifier: the name sent to the endpoint, the served
+    identifiers that answer counts as this model, whether it follows a strict output schema, whether a
+    `seed` it is sent is honoured, and what it costs. A call served by anything outside `serves` is a
+    pin failure: an answer from an unnamed model would silently change what the study measured."""
+
+    model_id: PinnedModelId
+    serves: frozenset[PinnedModelId]
+    structured_output: bool = False
+    honours_seed: bool = False
+    price: PinPrice | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reads_as_a_bare_identifier(cls, data: Any) -> Any:
+        # A bare model identifier is a pin that accepts only itself and promises no capability.
+        if isinstance(data, str):
+            return {"model_id": data, "serves": {data}}
+        if isinstance(data, Mapping) and isinstance(data.get("model_id"), str) and "serves" not in data:
+            return {**data, "serves": {data["model_id"]}}
+        return data
+
+    @model_validator(mode="after")
+    def _the_name_sent_answers_as_itself(self) -> Self:
+        if self.model_id not in self.serves:
+            raise ValueError(f"pin {self.model_id!r} must accept its own name among the identifiers it serves")
+        return self
+
 
 class ModelPins(SimBaseModel):
     """The model every role resolves to, and at most one pinned fallback per role. Embedding never falls back:
     anchors and responses scored with different embedding models are not comparable (ADR 0012)."""
 
-    tier_a: PinnedModelId
-    tier_b: PinnedModelId
-    embed: PinnedModelId
-    safety: PinnedModelId | None = None
-    fallbacks: FrozenDict[InferenceRole, PinnedModelId] = FrozenDict({})
+    tier_a: ModelPin
+    tier_b: ModelPin
+    embed: ModelPin
+    safety: ModelPin | None = None
+    fallbacks: FrozenDict[InferenceRole, ModelPin] = FrozenDict({})
 
     @model_validator(mode="after")
     def _fallbacks_are_real_alternatives(self) -> Self:
@@ -66,8 +106,8 @@ class ModelPins(SimBaseModel):
             primary = getattr(self, role.value)
             if primary is None:
                 raise ValueError(f"{role.value} has a fallback but no primary model")
-            if fallback == primary:
-                raise ValueError(f"{role.value}'s fallback {fallback} is its primary model")
+            if fallback.model_id == primary.model_id:
+                raise ValueError(f"{role.value}'s fallback {fallback.model_id} is its primary model")
         return self
 
 

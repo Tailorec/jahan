@@ -54,6 +54,8 @@ class FakeChat:
                 kind="cost",
                 role=role,
                 model_id=self._model_id,
+                served_model_id=self._model_id,
+                cost_source="gateway",
                 route=InferenceRoute.PRIMARY,
                 input_tokens=len(prompt.split()),
                 output_tokens=len(text.split()),

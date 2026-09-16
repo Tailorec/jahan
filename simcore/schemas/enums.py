@@ -133,6 +133,27 @@ class InferenceRoute(StrEnum):
     CACHE = "cache"
 
 
+class CostSource(StrEnum):
+    """Where a call's recorded cost came from — reported by the gateway, computed from a price the study
+    declared, or unknown. An unknown cost stays unknown rather than becoming zero, because a budget enforced
+    against invented prices is not enforced."""
+
+    GATEWAY = "gateway"
+    PRICE_TABLE = "price_table"
+    UNKNOWN = "unknown"
+
+
+class FailureKind(StrEnum):
+    """What went wrong on a call that returned no completion: the closed set a `CallFailure` names."""
+
+    RATE_LIMITED = "rate_limited"
+    TIMED_OUT = "timed_out"
+    FATAL_RESPONSE = "fatal_response"
+    CIRCUIT_OPEN = "circuit_open"
+    PIN_FAILURE = "pin_failure"
+    INVALID_OUTPUT = "invalid_output"
+
+
 class ExposureReason(StrEnum):
     """Why a stimulus got through to a persona; the random arm separates filter-driven from organic reach."""
 

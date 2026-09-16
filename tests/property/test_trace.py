@@ -544,7 +544,7 @@ def test_paused_world_may_resume_and_events_after_completion_are_refused():
 
 
 PAUSE_RUNG = {"kind": "degraded", "rung": "pause", "activation_rate": 0.40, "tier_b_frozen": True}
-COST_AT_TICK = {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-ai/persona-8b", "route": "cache", "input_tokens": 1, "output_tokens": 1, "cost": 0.0}
+COST_AT_TICK = {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-ai/persona-8b", "cost_source": "price_table", "route": "cache", "input_tokens": 1, "output_tokens": 1, "cost": 0.0}
 
 
 # --- views ------------------------------------------------------------------------------------
@@ -829,7 +829,7 @@ def pins(**overrides) -> dict:
 
 def test_pins_accept_one_fallback_per_role():
     parsed = ModelPins.model_validate(pins(fallbacks={"tier_a": "openrouter/qwen/qwen-2.5-7b-instruct", "tier_b": "openai/gpt-4o-2024-08-06"}))
-    assert dict(parsed.fallbacks) == {InferenceRole.TIER_A: "openrouter/qwen/qwen-2.5-7b-instruct", InferenceRole.TIER_B: "openai/gpt-4o-2024-08-06"}
+    assert {role: pin.model_id for role, pin in parsed.fallbacks.items()} == {InferenceRole.TIER_A: "openrouter/qwen/qwen-2.5-7b-instruct", InferenceRole.TIER_B: "openai/gpt-4o-2024-08-06"}
     assert ModelPins.model_validate(pins(fallbacks={})).fallbacks == {}
 
 

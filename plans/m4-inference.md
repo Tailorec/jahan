@@ -33,13 +33,13 @@ Nothing produces these yet. The phase is done when the shapes exist, refuse cont
 
 ### Acceptance criteria
 
-- [ ] A pin carries the model name sent, its accepted served identifiers, its structured-output and seed capabilities and an optional price, and a bare model identifier still reads as a pin accepting only itself
-- [ ] The embedding role still refuses a fallback, and a fallback identical to its primary is still refused
-- [ ] A cost event records the served model beside the pinned one and a cost source of gateway, price table or unknown
-- [ ] An unknown cost is absent rather than zero, a known cost is present, and a contradiction between the two is refused
-- [ ] A cached call still bills nothing
-- [ ] A call failure names its kind — rate limited, timed out, fatal response, circuit open, pin failure or invalid output — its attempts and its last route
-- [ ] Pinned identities in `tests/fixtures/hash_stability.json` are re-pinned with the change recorded in the commit that moves them
+- [x] A pin carries the model name sent, its accepted served identifiers, its structured-output and seed capabilities and an optional price, and a bare model identifier still reads as a pin accepting only itself
+- [x] The embedding role still refuses a fallback, and a fallback identical to its primary is still refused
+- [x] A cost event records the served model beside the pinned one and a cost source of gateway, price table or unknown
+- [x] An unknown cost is absent rather than zero, a known cost is present, and a contradiction between the two is refused
+- [x] A cached call still bills nothing
+- [x] A call failure names its kind — rate limited, timed out, fatal response, circuit open, pin failure or invalid output — its attempts and its last route
+- [x] Pinned identities in `tests/fixtures/hash_stability.json` are re-pinned with the change recorded in the commit that moves them
 
 ---
 

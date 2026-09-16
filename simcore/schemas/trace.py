@@ -22,7 +22,7 @@ from .base import (
     canonical_hash,
 )
 from .brief import BriefPack
-from .enums import ActionKind, Channel, DegradationRung, DropReason, GuardrailRule, InferenceRole, InferenceRoute, InterventionKind, LifecyclePhase, ReflectionTrigger, RUNG_ORDER, RunStatus
+from .enums import ActionKind, Channel, CostSource, DegradationRung, DropReason, GuardrailRule, InferenceRole, InferenceRoute, InterventionKind, LifecyclePhase, ReflectionTrigger, RUNG_ORDER, RunStatus
 from .errors import SchemaVersionError
 from .population import Population, PopulationManifest
 from .run import PinnedModelId, RunConfig, Scenario, WorldId, check_scenario_against_brief, derive_world_id
@@ -100,19 +100,35 @@ class ReflectionRecorded(SimBaseModel):
 
 
 class CostRecorded(SimBaseModel):
-    """What one model call billed, and which route served it; whether the cache served it follows from the route."""
+    """What one model call billed: the model the study pinned, the model that actually served it as the
+    response reported, which route served it, and where the cost came from. A cost nobody knows stays
+    absent rather than becoming zero; a cached call bills nothing. The runner appends this record to the
+    trace as-is, so cost has one source."""
 
     kind: Literal["cost"]
     role: InferenceRole
     model_id: PinnedModelId
+    served_model_id: PinnedModelId | None = None
+    cost_source: CostSource
     route: InferenceRoute
     input_tokens: NonNegativeInt
     output_tokens: NonNegativeInt
-    cost: Annotated[float, Field(ge=0.0)]
+    cost: Annotated[float, Field(ge=0.0)] | None = None
+
+    @model_validator(mode="after")
+    def _cost_states_its_source(self) -> Self:
+        if (self.cost is None) != (self.cost_source is CostSource.UNKNOWN):
+            raise ValueError(
+                f"an unknown cost is recorded as absent and a known cost names its source, but this record "
+                f"states source {self.cost_source.value!r} with cost {self.cost!r}"
+            )
+        if self.route is not InferenceRoute.CACHE and self.served_model_id is None:
+            raise ValueError(f"a call on the {self.route.value} route must record the model that served it")
+        return self
 
     @model_validator(mode="after")
     def _cached_calls_bill_nothing(self) -> Self:
-        if self.route is InferenceRoute.CACHE and self.cost != 0.0:
+        if self.route is InferenceRoute.CACHE and self.cost not in (None, 0.0):
             raise ValueError(f"a call served from the cache bills nothing, but this one bills {self.cost}")
         return self
 
@@ -391,12 +407,12 @@ class TracePartition(SimBaseModel):
                 primary = getattr(config.pins, payload.role.value)
                 fallback = config.pins.fallbacks.get(payload.role)
                 allowed = {
-                    InferenceRoute.PRIMARY: {primary},
-                    InferenceRoute.FALLBACK: {fallback} - {None},
-                    InferenceRoute.CACHE: {primary, fallback} - {None},
+                    InferenceRoute.PRIMARY: {primary.model_id if primary else None},
+                    InferenceRoute.FALLBACK: {fallback.model_id if fallback else None},
+                    InferenceRoute.CACHE: {p.model_id for p in (primary, fallback) if p},
                 }[payload.route]
                 if payload.model_id not in allowed:
-                    pinned = f"primary {primary}" + (f" and fallback {fallback}" if fallback else " and no fallback")
+                    pinned = f"primary {primary.model_id if primary else None}" + (f" and fallback {fallback.model_id}" if fallback else " and no fallback")
                     raise ValueError(
                         f"{where} bills {payload.model_id} for {payload.role.value} on the {payload.route.value} route, but the run pins {pinned}"
                     )
@@ -408,8 +424,8 @@ class TracePartition(SimBaseModel):
                         raise ValueError(f"{where} recalls {memory}, which is not an earlier turn or reflection of {event.persona_id}")
                 intent = payload.turn.reaction.intent
                 if intent is not None:
-                    if intent.embed_model_id != config.pins.embed:
-                        raise ValueError(f"{where} elicited with {intent.embed_model_id}, but the run pins {config.pins.embed} for every embedding")
+                    if intent.embed_model_id != config.pins.embed.model_id:
+                        raise ValueError(f"{where} elicited with {intent.embed_model_id}, but the run pins {config.pins.embed.model_id} for every embedding")
                     if intent.anchor_set_id not in config.anchor_set_hashes:
                         raise ValueError(f"{where} scored against anchor set {intent.anchor_set_id!r}, which the run does not pin")
                     named = ontology.anchor_sets.get(intent.construct_id)

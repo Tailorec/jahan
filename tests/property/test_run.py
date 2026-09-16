@@ -95,7 +95,7 @@ def test_model_pins_refuse_empty_wildcarded_and_version_floating_ids(bad):
 
 @pytest.mark.parametrize("pin", ["openai/text-embedding-3-small", "anthropic/claude-sonnet-4-5-20250929", "vllm/latestmodel-1.2"])
 def test_model_pins_accept_fixed_versions(pin):
-    assert ModelPins.model_validate({**PINS, "tier_a": pin}).tier_a == pin
+    assert ModelPins.model_validate({**PINS, "tier_a": pin}).tier_a.model_id == pin
 
 
 def test_budget_refuses_non_positive_cost():

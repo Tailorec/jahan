@@ -399,6 +399,7 @@ def partition_payload(**header_overrides) -> dict:
             "subject_stimulus_id": stimulus_id(1), "action": "comment", "verbatim": "the protein claim would get me",
             "belief_change": {"dimensions": {"value": 0.1}, "claim_credence": {"C1": 0.2}}, "intent": ssr_payload()}, n=1), "p-000001")),
         event(R["first_turn_cost"], 1, {"kind": "cost", "role": "tier_b", "model_id": "anthropic/claude-sonnet-4-5-20250929",
+                     "served_model_id": "anthropic/claude-sonnet-4-5-20250929", "cost_source": "gateway",
                      "route": "primary", "input_tokens": 812, "output_tokens": 96, "cost": 0.004}, "p-000001"),
         event(R["drop"], 1, {"kind": "exposure_dropped", "stimulus_id": stimulus_id(2), "channel": "social_feed", "reason": "budget_exhausted"}, "p-000002"),
         event(R["close_1"], 1, {"kind": "tick_closed"}),
@@ -416,6 +417,7 @@ def partition_payload(**header_overrides) -> dict:
             n=2), "p-000002"),
         # The second turn was served by tier A's pinned fallback.
         event(R["second_turn_cost"], 3, {"kind": "cost", "role": "tier_a", "model_id": TIER_A_FALLBACK,
+                                         "served_model_id": TIER_A_FALLBACK, "cost_source": "gateway",
                                          "route": "fallback", "input_tokens": 540, "output_tokens": 41, "cost": 0.0002}, "p-000002"),
         event(R["close_3"], 3, {"kind": "tick_closed"}),
         turn_event(R["third_turn"], 4, turn_payload("p-000003", 4, [(3, "wom", 0.5), (4, "forum", 0.3)], {

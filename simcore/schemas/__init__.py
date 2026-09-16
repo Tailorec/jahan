@@ -62,9 +62,11 @@ from .enums import (
     Channel,
     ClaimSource,
     Confidence,
+    CostSource,
     DegradationRung,
     DropReason,
     ExposureReason,
+    FailureKind,
     FieldOrigin,
     FindingKind,
     GateReference,
@@ -122,7 +124,9 @@ from .report import (
 from .run import (
     Budget,
     Intervention,
+    ModelPin,
     ModelPins,
+    PinPrice,
     PinnedModelId,
     RunConfig,
     Scenario,
@@ -178,7 +182,7 @@ from .trace import (
     read_partition,
 )
 
-from .inference import Completion
+from .inference import CallFailure, ChatOutcome, CompletedDistribution, Completion
 from .world import DroppedExposure, WorldDelta
 
 __all__ = [
@@ -199,6 +203,8 @@ __all__ = [
     "BriefPack",
     "Budget",
     "BudgetExhausted",
+    "CallFailure",
+    "ChatOutcome",
     "CONTRACT_MIGRATIONS",
     "CalibrationRef",
     "CategoricalGateResult",
@@ -213,11 +219,13 @@ __all__ = [
     "Competitor",
     "Completion",
     "CompletionPolicy",
+    "CompletedDistribution",
     "CompletionProvenance",
     "Confidence",
     "ConfigHash",
     "ContractMigration",
     "ContractVersion",
+    "CostSource",
     "CostRecorded",
     "CurrencyCode",
     "DegradationRung",
@@ -232,6 +240,7 @@ __all__ = [
     "Exposure",
     "ExposureDropped",
     "ExposureReason",
+    "FailureKind",
     "FieldOrigin",
     "Finding",
     "FindingKind",
@@ -263,6 +272,7 @@ __all__ = [
     "MIN_RANK_ATTAINMENT",
     "MIN_REFERENCE_SETS",
     "MemoryView",
+    "ModelPin",
     "ModelPins",
     "NonEmptyStr",
     "NonNegativeInt",
@@ -291,6 +301,7 @@ __all__ = [
     "Price",
     "Product",
     "ProductBrief",
+    "PinPrice",
     "Reaction",
     "ReactionId",
     "ReflectionRecorded",
