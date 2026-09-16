@@ -486,6 +486,7 @@ class InferenceClient:
             return cached, False
         attempts = 0
         repaired = False
+        billed: list[CostRecorded] = []  # answers the endpoint charged for that this call then discarded
         if not self._limiter.admissible(request_estimate(request)):
             return CallFailure(
                 kind=FailureKind.EXCEEDS_RATE_LIMIT,
@@ -524,12 +525,14 @@ class InferenceClient:
                             detail=f"the answer was cut off at max_tokens={active.max_tokens} before it was valid JSON",
                             attempts=attempts,
                             route=route,
+                            costs=(*billed, reply.outcome.cost),
                         ), False
                     if errors and not repaired:
                         # Once, and only once: a stricter prompt naming what was wrong. Small models
                         # that cannot follow a schema complete where they can; what they cannot answer
                         # is refused, never coerced.
                         repaired = True
+                        billed.append(reply.outcome.cost)
                         active = _repair_request(active, reply.outcome.text, errors, request.json_schema)
                         data = body_bytes(chat_body(active, pin, seed=seed))
                         hashed = prompt_hash(data)
@@ -540,8 +543,11 @@ class InferenceClient:
                             detail=f"output still invalid after one repair: {errors[:4]}",
                             attempts=attempts,
                             route=route,
+                            costs=(*billed, reply.outcome.cost),
                         ), False
                 await self._cache_store(request, pin, route, body_bytes(chat_body(request, pin, seed=seed)), reply.outcome)
+                if billed:
+                    return reply.outcome.model_copy(update={"discarded_costs": tuple(billed)}), False
                 return reply.outcome, False
             if reply.limited:
                 self.stats.rate_limited += 1
@@ -655,10 +661,16 @@ class InferenceClient:
                     detail=f"{pin.model_id!r} was served by {named}, which the pin does not accept",
                     attempts=attempts,
                     route=route,
+                    costs=self._substitute_cost(request, pin, route, served, payload, response.headers),
                 )
             )
         if (drift := self._drift(pin, served)) is not None:
-            return _Reply(CallFailure(kind=FailureKind.PIN_FAILURE, detail=drift, attempts=attempts, route=route))
+            return _Reply(
+                CallFailure(
+                    kind=FailureKind.PIN_FAILURE, detail=drift, attempts=attempts, route=route,
+                    costs=self._substitute_cost(request, pin, route, served, payload, response.headers),
+                )
+            )
         text = _completion_text(payload)
         truncated = _finish_reason(payload) == "length"
         usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
@@ -685,6 +697,27 @@ class InferenceClient:
                 seed=seed,
             ),
             truncated=truncated,
+        )
+
+    def _substitute_cost(self, request: ChatRequest, pin: ModelPin, route: InferenceRoute, served, payload: dict, headers) -> tuple[CostRecorded, ...]:
+        """What an answer from a model outside the pin was billed. The pin's declared price belongs to the pinned
+        model, so it is never applied to a substitute: the gateway's reported cost, or unknown."""
+        if not isinstance(served, str) or not served:
+            return ()
+        usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+        reported = gateway_cost(payload, headers)
+        return (
+            CostRecorded(
+                kind="cost",
+                role=request.role,
+                model_id=pin.model_id,
+                served_model_id=served,
+                route=route,
+                input_tokens=_reported(usage.get("prompt_tokens")) or 0,
+                output_tokens=_reported(usage.get("completion_tokens")) or 0,
+                cost_source=CostSource.GATEWAY if reported is not None else CostSource.UNKNOWN,
+                cost=reported,
+            ),
         )
 
     def _cost_fields(self, pin: ModelPin, payload: dict, headers, input_tokens: int, output_tokens: int, *, usage_reported: bool) -> dict:

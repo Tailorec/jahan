@@ -12,6 +12,7 @@ from simcore.inference import ExecutionSettings, InferenceClient
 from simcore.ports.answers import coerce_json, validate_schema
 from simcore.inference._wire import body_bytes, derive_seed
 from simcore.schemas import (
+    CostSource,
     CallFailure,
     ChatRequest,
     Completion,
@@ -229,3 +230,56 @@ def test_an_answer_cut_off_at_max_tokens_is_not_repaired_at_the_same_budget():
     assert isinstance(outcome, CallFailure) and outcome.kind is FailureKind.INVALID_OUTPUT
     assert "max_tokens=16" in outcome.detail
     assert state["n"] == 1
+
+
+def billed_answer(content: str, prompt: int, completion: int, finish: str = "stop") -> bytes:
+    return json.dumps({"model": TIER_A, "choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": finish}], "usage": {"prompt_tokens": prompt, "completion_tokens": completion}}).encode()
+
+
+def test_every_billed_attempt_is_recorded_whether_or_not_a_completion_came_of_it():
+    """A real run lost billed tokens: eight answers cut off at max_tokens were charged and never counted, because a
+    failure carried no cost. A repair's discarded first answer was lost the same way, even when the repair succeeded."""
+    # cut off: one billed attempt, carried by the failure
+    async def cut_off(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=billed_answer('{"answer": "a very lo', 40, 16, finish="length"))
+
+    client, _ = client_with(PIN_BARE, cut_off)
+    failure = client.complete([sampled(json_schema=OBJECT_SCHEMA)])[0]
+    assert isinstance(failure, CallFailure)
+    assert [(cost.input_tokens, cost.output_tokens) for cost in failure.costs] == [(40, 16)]
+
+    # repaired and accepted: the discarded first answer rides on the completion
+    replies = iter([billed_answer('{"answer": 42}', 40, 5), billed_answer('{"answer": "forty-two"}', 60, 7)])
+
+    async def repaired(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=next(replies))
+
+    client, _ = client_with(PIN_BARE, repaired)
+    completion = client.complete([sampled(json_schema=OBJECT_SCHEMA)])[0]
+    assert isinstance(completion, Completion)
+    assert (completion.cost.input_tokens, completion.cost.output_tokens) == (60, 7)
+    assert [(cost.input_tokens, cost.output_tokens) for cost in completion.discarded_costs] == [(40, 5)]
+
+    # still invalid after its repair: both billed attempts ride on the failure
+    async def never_valid(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=billed_answer("not json", 40, 3))
+
+    client, _ = client_with(PIN_BARE, never_valid)
+    failure = client.complete([sampled(json_schema=OBJECT_SCHEMA)])[0]
+    assert isinstance(failure, CallFailure) and len(failure.costs) == 2
+
+
+def test_an_answer_from_a_substitute_model_is_recorded_as_billed_but_never_priced_as_the_pin():
+    priced = ModelPins.model_validate(
+        {"tier_a": {"model_id": TIER_A, "price": {"input_per_million": 1.0, "output_per_million": 2.0}}, "tier_b": "anthropic/claude-sonnet-4-5-20250929", "embed": "openai/text-embedding-3-small"}
+    )
+
+    async def substitute(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=json.dumps({"model": "some/other-model", "choices": [{"message": {"content": "hi"}}], "usage": {"prompt_tokens": 30, "completion_tokens": 4}}).encode())
+
+    client, _ = client_with(priced, substitute)
+    failure = client.complete([sampled()])[0]
+    assert isinstance(failure, CallFailure) and failure.kind is FailureKind.PIN_FAILURE
+    (cost,) = failure.costs
+    assert cost.served_model_id == "some/other-model" and (cost.input_tokens, cost.output_tokens) == (30, 4)
+    assert cost.cost_source is CostSource.UNKNOWN and cost.cost is None

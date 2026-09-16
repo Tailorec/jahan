@@ -69,6 +69,9 @@ class Completion(SimBaseModel):
     latency_ms: NonNegativeInt
     cost: CostRecorded
     seed: PositiveInt | None = None
+    # Attempts the endpoint billed whose answers were discarded before this one — a repair's first answer.
+    # Only `cost` produced the text; these are what else the call spent, so a ledger never undercounts it.
+    discarded_costs: tuple[CostRecorded, ...] = ()
 
     @model_validator(mode="after")
     def _chat_roles_only(self) -> Self:
@@ -87,6 +90,10 @@ class CallFailure(SimBaseModel):
     detail: NonEmptyStr
     attempts: NonNegativeInt
     route: InferenceRoute
+    # Every attempt the endpoint billed although no completion came of it: an answer cut off at max_tokens,
+    # one that stayed invalid after its repair, one served by a model outside the pin. A first real run lost
+    # these entirely — eight cut-off answers were billed and never counted.
+    costs: tuple[CostRecorded, ...] = ()
 
 
 ChatOutcome = Completion | CallFailure
