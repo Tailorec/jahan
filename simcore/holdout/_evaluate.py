@@ -1,0 +1,269 @@
+"""The holdout evaluation itself: hide measured attitudes, project them through the production path,
+and score the result against the truth and against a demographic-conditional baseline.
+
+Held-out rows never touch the baseline: the baseline is what a statistician would build from the data
+they had, and a baseline that peeked at the answers would measure nothing. The report records the pins,
+served models, seeds, completion temperature and row counts that produced every number in it."""
+
+import hashlib
+import json
+from collections import Counter, defaultdict
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+import numpy as np
+
+from simcore.population._project import project
+from simcore.ports import ChatPort, CoresetSource
+from simcore.ports.coreset import DecodedRow, RowId
+from simcore.schemas import BriefPack, FieldOrigin
+
+
+@dataclass(frozen=True)
+class AttributeScore:
+    """How projection did on one hidden attitude, beside how the baseline did on the same rows."""
+
+    vocabulary: tuple[str, ...]
+    projected_rows: int
+    marginal_distance: float  # total variation between projected and true marginals
+    calibration_error: float  # expected-minus-observed accuracy over the sampled distributions
+    recovered_dependence: float | None  # share of the attitude's demographic mutual information regained
+    baseline_marginal_distance: float
+    baseline_calibration_error: float | None
+    baseline_recovered_dependence: float | None
+
+
+@dataclass
+class HoldoutReport:
+    hidden: tuple[str, ...]
+    holdout_seed: int
+    population_seed: int
+    completion_temperature: float
+    pool_rows: int
+    held_out_rows: int
+    inference: str
+    pins: Mapping[str, Any]
+    served_models: Mapping[str, tuple[str, ...]]
+    attributes: Mapping[str, AttributeScore] = field(default_factory=dict)
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self), indent=2, sort_keys=True, default=str)
+
+
+def select_measured_rows(rows: Sequence[DecodedRow], attributes: Sequence[str]) -> list[DecodedRow]:
+    """Only rows on which every hidden attribute was recorded by an instrument can be hidden and scored:
+    an extracted attitude is a claim about corpus text, not a measurement to hold out against."""
+    wanted = set(attributes)
+    return [
+        row
+        for row in rows
+        if wanted <= set(row.values)
+        and all(row.tiers.get(attribute, FieldOrigin.MEASURED) is FieldOrigin.MEASURED for attribute in wanted)
+    ]
+
+
+def evaluate(
+    pack: BriefPack,
+    coreset: CoresetSource,
+    rows: Sequence[DecodedRow],
+    *,
+    hidden: Sequence[str],
+    inference: ChatPort,
+    holdout_seed: int,
+    population_seed: int | None = None,
+    completion_temperature: float = 1.0,
+    holdout_share: float = 0.25,
+    inference_label: str = "fake",
+    pins: Mapping[str, Any] | None = None,
+    served_models: Mapping[str, Sequence[str]] | None = None,
+) -> HoldoutReport:
+    """The whole evaluation: split, hide, project, score, and state every choice the numbers rest on."""
+    hidden = tuple(hidden)
+    candidates = select_measured_rows(rows, hidden)
+    if len(candidates) < 8:
+        raise ValueError(f"the holdout needs rows carrying every hidden attitude as measured; found {len(candidates)}")
+    holdout_ids = _draw_holdout(candidates, holdout_seed, holdout_share)
+    held_out = [row for row in candidates if row.row_id in holdout_ids]
+    pool = [row for row in candidates if row.row_id not in holdout_ids]
+    ontology = pack.ontology
+    conditioning = tuple(sorted(ontology.conditioning_set))
+
+    # The answers are hidden before the projection path ever sees the rows; the baseline is built from
+    # the pool alone, so no held-out value informs the comparison it is scored against.
+    visible = [_hide(row, hidden) for row in held_out]
+    projection = project(
+        pack,
+        visible,
+        coreset,
+        inference=inference,
+        population_seed=population_seed if population_seed is not None else holdout_seed,
+        completion_temperature=completion_temperature,
+        evaluatable=frozenset(hidden),
+    )
+    projected_by_id = {persona.persona_id: persona for persona in projection.personas}
+
+    scores: dict[str, AttributeScore] = {}
+    for attribute in hidden:
+        vocabulary = tuple(str(value) for value in coreset.values(attribute))
+        truth = [row.values[attribute] for row in held_out if attribute in row.values]
+        predicted: list[Any] = []
+        assigned: list[float] = []
+        correct: list[bool] = []
+        known: list[dict[str, Any]] = []
+        for row in held_out:
+            persona = projected_by_id.get(f"p-{row.row_id}")
+            value = persona.attributes.get(attribute) if persona is not None else None
+            if value is None:
+                continue
+            predicted.append(value)
+            distribution = persona.completed_distributions.get(attribute)
+            if distribution is not None:
+                name = str(value)
+                assigned.append(distribution.probabilities[distribution.values.index(name)] if name in distribution.values else 0.0)
+                correct.append(value == row.values[attribute])
+            known.append({key: str(row.values[key]) for key in conditioning if key in row.values})
+        truth_known = [
+            {key: str(row.values[key]) for key in conditioning if key in row.values}
+            for row in held_out
+        ]
+        baseline_predicted, baseline_assigned, baseline_correct = _baseline_draws(
+            pool, held_out, attribute, vocabulary, holdout_seed, conditioning
+        )
+        scores[attribute] = AttributeScore(
+            vocabulary=vocabulary,
+            projected_rows=len(predicted),
+            marginal_distance=_marginal_distance(predicted, truth, vocabulary) if predicted else 1.0,
+            calibration_error=_calibration(assigned, correct) if assigned else 1.0,
+            recovered_dependence=_recovered_dependence(known, predicted, truth_known, truth, vocabulary),
+            baseline_marginal_distance=_marginal_distance(baseline_predicted, truth, vocabulary),
+            baseline_calibration_error=_calibration(baseline_assigned, baseline_correct) if baseline_assigned else None,
+            baseline_recovered_dependence=_recovered_dependence(
+                truth_known, baseline_predicted, truth_known, truth, vocabulary
+            ),
+        )
+    return HoldoutReport(
+        hidden=hidden,
+        holdout_seed=holdout_seed,
+        population_seed=population_seed if population_seed is not None else holdout_seed,
+        completion_temperature=completion_temperature,
+        pool_rows=len(pool),
+        held_out_rows=len(held_out),
+        inference=inference_label,
+        pins=dict(pins or {}),
+        served_models={model: tuple(sorted(served)) for model, served in (served_models or {}).items()},
+        attributes=scores,
+    )
+
+
+def _draw_holdout(rows: Sequence[DecodedRow], seed: int, share: float) -> set[RowId]:
+    """A deterministic draw of which rows are held out, from the holdout seed alone."""
+    count = max(4, round(len(rows) * share))
+    order = sorted(
+        range(len(rows)),
+        key=lambda index: hashlib.sha256(f"{seed}|{rows[index].row_id}".encode()).digest(),
+    )
+    return {rows[index].row_id for index in order[:count]}
+
+
+def _hide(row: DecodedRow, hidden: Sequence[str]) -> DecodedRow:
+    values = {key: value for key, value in row.values.items() if key not in set(hidden)}
+    return DecodedRow(row_id=row.row_id, source=row.source, values=values, tiers=row.tiers)
+
+
+def _baseline_draws(
+    pool: Sequence[DecodedRow],
+    held_out: Sequence[DecodedRow],
+    attribute: str,
+    vocabulary: tuple[str, ...],
+    seed: int,
+    conditioning: Sequence[str],
+) -> tuple[list[Any], list[float], list[bool]]:
+    """Sample each held-out row's attitude from its demographic-conditional marginal in the pool.
+
+    The pool alone decides every marginal, and only the conditioning attributes — never the hidden one —
+    define a cell; an empty cell falls back to the pool-wide marginal, and a value that never appears
+    in the pool draws nothing rather than a guess."""
+    cells: dict[tuple, Counter] = defaultdict(Counter)
+    overall: Counter = Counter()
+    for row in pool:
+        value = row.values.get(attribute)
+        if value is None:
+            continue
+        overall[str(value)] += 1
+        key = tuple(str(row.values[name]) for name in conditioning if name in row.values)
+        cells[key][str(value)] += 1
+    predicted: list[Any] = []
+    assigned: list[float] = []
+    correct: list[bool] = []
+    for row in held_out:
+        distribution = cells.get(tuple(str(row.values[name]) for name in conditioning if name in row.values), overall) or overall
+        total = sum(distribution.values())
+        if not total:
+            continue
+        probabilities = [distribution.get(name, 0) / total for name in vocabulary]
+        material = f"baseline|{seed}|{row.row_id}|{attribute}".encode("utf-8")
+        child = int.from_bytes(hashlib.sha256(material).digest()[:8], "big")
+        index = int(np.random.default_rng(child).choice(len(vocabulary), p=np.asarray(probabilities, dtype=np.float64)))
+        drawn = vocabulary[index]
+        predicted.append(drawn)
+        assigned.append(probabilities[index])
+        correct.append(drawn == str(row.values.get(attribute)))
+    return predicted, assigned, correct
+
+
+def _marginal_distance(predicted: Sequence[Any], truth: Sequence[Any], vocabulary: tuple[str, ...]) -> float:
+    """Total variation between the projected and true marginals over the hidden attribute's vocabulary."""
+    left = _marginal(predicted, vocabulary)
+    right = _marginal(truth, vocabulary)
+    return 0.5 * sum(abs(a - b) for a, b in zip(left, right, strict=True))
+
+
+def _marginal(values: Sequence[Any], vocabulary: tuple[str, ...]) -> list[float]:
+    counts = Counter(str(value) for value in values)
+    total = sum(counts.get(name, 0) for name in vocabulary) or 1
+    return [counts.get(name, 0) / total for name in vocabulary]
+
+
+def _calibration(assigned: Sequence[float], correct: Sequence[bool]) -> float:
+    """Expected-minus-observed accuracy over ten probability bins: a well-calibrated projection is
+    right as often as it says it will be."""
+    bins: list[tuple[list[float], list[bool]]] = [([], []) for _ in range(10)]
+    for probability, hit in zip(assigned, correct, strict=True):
+        bins[min(9, int(probability * 10))][0].append(probability)
+        bins[min(9, int(probability * 10))][1].append(hit)
+    total = len(assigned)
+    return sum(
+        (len(probabilities) / total) * abs(sum(probabilities) / len(probabilities) - sum(hits) / len(hits))
+        for probabilities, hits in bins
+        if probabilities
+    )
+
+
+def _recovered_dependence(
+    known: Sequence[Mapping[str, str]],
+    predicted: Sequence[Any],
+    truth_known: Sequence[Mapping[str, str]],
+    truth: Sequence[Any],
+    vocabulary: tuple[str, ...],
+) -> float | None:
+    """The share of the attitude's mutual information with its demographic cells that the projection
+    regains. When the truth carries no demographic dependence, nothing is recovered and nothing claims to."""
+    true_mi = _mutual_information(truth_known, [str(value) for value in truth])
+    if true_mi <= 1e-9:
+        return None
+    predicted_mi = _mutual_information(list(known), [str(value) for value in predicted])
+    return min(1.0, predicted_mi / true_mi)
+
+
+def _mutual_information(keys: Sequence[Mapping[str, str]], values: Sequence[str]) -> float:
+    if not keys:
+        return 0.0
+    joint: Counter = Counter((tuple(sorted(row.items())), value) for row, value in zip(keys, values, strict=True))
+    row_counts: Counter = Counter(tuple(sorted(row.items())) for row in keys)
+    value_counts: Counter = Counter(values)
+    total = len(keys)
+    mi = 0.0
+    for (row, value), count in joint.items():
+        mi += (count / total) * np.log((count * total) / (row_counts[row] * value_counts[value]))
+    return float(mi)

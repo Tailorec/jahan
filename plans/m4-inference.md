@@ -230,12 +230,12 @@ The measurement projection's credibility rests on. On Stack Overflow rows carryi
 
 ### Acceptance criteria
 
-- [ ] Held-out rows are never used to build the baseline
-- [ ] The evaluation reports marginal distance, calibration and recovered demographic dependence per attribute, beside the baseline's
-- [ ] The report records pins, served models, seeds, completion temperature and row counts
-- [ ] A fake that returns the true conditional marginals scores at the baseline, and one that returns uniform distributions scores worse — so the metrics are proven to discriminate
-- [ ] It runs on the fake in CI, and against the cached real shards when they are present
-- [ ] Pointed at a real endpoint, it runs from one documented command
+- [x] Held-out rows are never used to build the baseline
+- [x] The evaluation reports marginal distance, calibration and recovered demographic dependence per attribute, beside the baseline's
+- [x] The report records pins, served models, seeds, completion temperature and row counts
+- [x] A fake that returns the true conditional marginals scores at the baseline, and one that returns uniform distributions scores worse — so the metrics are proven to discriminate
+- [x] It runs on the fake in CI, and against the cached real shards when they are present
+- [x] Pointed at a real endpoint, it runs from one documented command
 
 ---
 

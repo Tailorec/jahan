@@ -185,6 +185,9 @@ class InferenceClient:
         self._circuit_detail: str | None = None
         # One embedding space per run: every vector's dimension is checked against the first the run received.
         self._embedding_dim: int | None = None
+        # Which models actually answered this client, per pinned name: the evidence a holdout report
+        # carries, because a study's results are a property of the models that produced them.
+        self.served_models: dict[str, set[str]] = {}
         self._http = httpx.AsyncClient(
             base_url=self.settings.base_url,
             transport=transport,
@@ -471,6 +474,7 @@ class InferenceClient:
                 self._limiter.settle(estimate, float(reply.outcome.cost.input_tokens + reply.outcome.cost.output_tokens))
                 self._consecutive_fatals.clear()
                 await self._ceiling.restore()
+                self.served_models.setdefault(pin.model_id, set()).add(reply.outcome.cost.served_model_id)
                 if attempts > 1 or repaired:
                     record(span, {SIMCORE_ATTEMPTS: attempts, SIMCORE_PROMPT_HASH: hashed, SIMCORE_ROUTE: route.value})
                 if self.settings.content_capture:

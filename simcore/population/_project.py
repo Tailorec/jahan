@@ -95,13 +95,18 @@ def project(
     inference: ChatPort,
     population_seed: int,
     completion_temperature: float = 1.0,
+    evaluatable: frozenset[AttributeId] = frozenset(),
 ) -> Projection:
     """Project each decoded row into a persona, sampling sparse fields from distributions the model states.
 
     The completing model is read from the completions themselves, never supplied by the caller: a model a
     caller expected is not evidence of the model that answered, and a fallback route would otherwise be
     recorded as the primary it replaced.
-    """
+
+    `evaluatable` exists for one caller, the holdout evaluation: attitudes deliberately measured on real
+    rows are psychographic and no study may synthesize them, but the technique of projecting them can
+    only be judged by running it — through this same path — against answers that were recorded and then
+    hidden. It joins no study input; a study population is still refused by the contract."""
     ontology = pack.ontology
     conditioning = set(ontology.conditioning_set)
     drafts: dict[str, _Draft] = {}
@@ -112,7 +117,7 @@ def project(
             raise GateFailure(f"the sample drew row {row.row_id!r} more than once; one row is one persona")
         drafts[persona_id] = _draft(row, declared, conditioning)
     synthesized, models = _complete(
-        _missing(drafts, ontology, conditioning),
+        _missing(drafts, ontology, conditioning, evaluatable),
         drafts,
         coreset,
         inference,
@@ -135,10 +140,11 @@ def _draft(row: DecodedRow, declared: set[AttributeId], conditioning: set[Attrib
 
 
 def _missing(
-    drafts: Mapping[str, _Draft], ontology, conditioning: set[AttributeId]
+    drafts: Mapping[str, _Draft], ontology, conditioning: set[AttributeId], evaluatable: frozenset[AttributeId] = frozenset()
 ) -> dict[AttributeId, list[str]]:
     """The personas missing each attribute a model may complete: declared, non-conditioning, and in a
-    domain the completion policy allows. Demographics and psychographics are never offered."""
+    domain the completion policy allows — or named for evaluation, which is the holdout's one exception
+    and reaches no study. Demographics and psychographics are never offered otherwise."""
     completable = ontology.completion_policy.completable_domains
     missing: dict[AttributeId, list[str]] = defaultdict(list)
     for persona_id, draft in drafts.items():
@@ -146,7 +152,7 @@ def _missing(
         for attribute, domain in ontology.attribute_domains.items():
             if attribute in projected or attribute in conditioning:
                 continue
-            if domain not in completable or domain in _NEVER_SYNTHESIZED:
+            if attribute not in evaluatable and (domain not in completable or domain in _NEVER_SYNTHESIZED):
                 continue
             missing[attribute].append(persona_id)
     return missing
