@@ -152,6 +152,8 @@ class FailureKind(StrEnum):
     CIRCUIT_OPEN = "circuit_open"
     PIN_FAILURE = "pin_failure"
     INVALID_OUTPUT = "invalid_output"
+    # A call larger than the whole token budget per minute can never be admitted: waiting would never end.
+    EXCEEDS_RATE_LIMIT = "exceeds_rate_limit"
 
 
 class ExposureReason(StrEnum):

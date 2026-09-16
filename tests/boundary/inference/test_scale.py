@@ -8,7 +8,7 @@ import httpx
 import pytest
 
 from simcore.inference import ExecutionSettings, InferenceClient
-from simcore.schemas import ChatRequest, Completion, FrozenDict, InferenceRole, ModelPins
+from simcore.schemas import CallFailure, ChatRequest, Completion, FailureKind, FrozenDict, InferenceRole, ModelPins
 
 TIER_A = "openrouter/camel-ai/persona-8b"
 PINS = ModelPins.model_validate({"tier_a": TIER_A, "tier_b": "anthropic/claude-sonnet-4-5-20250929", "embed": "openai/text-embedding-3-small"})
@@ -221,3 +221,30 @@ def test_a_retry_after_delays_the_next_attempt_by_at_least_what_it_says():
     assert isinstance(outcome, Completion)
     assert time.now - state["when_first_failed"] >= 2.0
     assert any(slept >= 2.0 for slept in time.slept)
+
+
+def test_a_call_larger_than_the_token_budget_per_minute_fails_at_once_instead_of_waiting_forever():
+    """A bucket holds at most one minute of tokens, so a call estimated above that could never be admitted:
+    it once waited on, sleeping thousands of simulated seconds, with nothing ever raised."""
+    time = FakeTime()
+    sent = {"calls": 0}
+
+    async def handler(request):
+        sent["calls"] += 1
+        return httpx.Response(200, content=answer())
+
+    client = InferenceClient(
+        PINS,
+        ExecutionSettings(base_url="http://gateway.test/v1", tokens_per_minute=1000),
+        transport=httpx.MockTransport(handler),
+        clock=time.clock,
+        sleep=time.sleep,
+    )
+    oversized = ask(0).model_copy(update={"max_tokens": 5000})
+    fits = ask(1)
+    first, second = client.complete([oversized, fits])
+    assert isinstance(first, CallFailure) and first.kind is FailureKind.EXCEEDS_RATE_LIMIT and first.attempts == 0
+    assert "1000 tokens per minute" in first.detail
+    assert isinstance(second, Completion)
+    assert sent["calls"] == 1
+    assert sum(time.slept) < 60.0

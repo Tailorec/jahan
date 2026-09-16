@@ -287,6 +287,11 @@ class InferenceClient:
             )
             return EmbeddingResult(vectors=vectors, model_id=pin.model_id, served_model_id=entry.get("served_model_id"), normalization=EMBEDDING_NORMALIZATION, dim=int(vectors.shape[1]), costs=(cost,))
         attempts = 0
+        oversized = float(sum(estimate_tokens(text) for text in batch))
+        if not self._limiter.admissible(oversized):
+            raise EmbeddingFailure(
+                CallFailure(kind=FailureKind.EXCEEDS_RATE_LIMIT, detail=_oversized(oversized, self._limiter.tokens_per_minute), attempts=0, route=InferenceRoute.PRIMARY)
+            )
         while True:
             if self._circuit_detail is not None:
                 raise EmbeddingFailure(CallFailure(kind=FailureKind.CIRCUIT_OPEN, detail=self._circuit_detail, attempts=attempts, route=InferenceRoute.PRIMARY))
@@ -458,6 +463,13 @@ class InferenceClient:
             return cached
         attempts = 0
         repaired = False
+        if not self._limiter.admissible(request_estimate(request)):
+            return CallFailure(
+                kind=FailureKind.EXCEEDS_RATE_LIMIT,
+                detail=_oversized(request_estimate(request), self._limiter.tokens_per_minute),
+                attempts=0,
+                route=route,
+            )
         while True:
             if self._circuit_detail is not None:
                 return CallFailure(kind=FailureKind.CIRCUIT_OPEN, detail=self._circuit_detail, attempts=attempts, route=route)
@@ -704,6 +716,13 @@ class InferenceClient:
             temp=request.temp,
             sample=request.sample,
         )
+
+
+def _oversized(estimate: float, per_minute: float | None) -> str:
+    return (
+        f"this call is estimated at {int(estimate)} tokens, more than the {int(per_minute or 0)} tokens per minute "
+        "the limiter may ever admit; raise the token limit or send smaller requests"
+    )
 
 
 def _frozen(message: dict) -> FrozenDict:

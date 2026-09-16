@@ -202,7 +202,7 @@ def test_a_call_failure_names_its_kind_its_attempts_and_its_last_route():
 
 @pytest.mark.parametrize(
     "kind",
-    ["rate_limited", "timed_out", "fatal_response", "circuit_open", "pin_failure", "invalid_output"],
+    ["rate_limited", "timed_out", "fatal_response", "circuit_open", "pin_failure", "invalid_output", "exceeds_rate_limit"],
 )
 def test_the_closed_set_of_failure_kinds(kind):
     assert CallFailure(kind=kind, detail="x", attempts=1, route="primary").kind is FailureKind(kind)

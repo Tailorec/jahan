@@ -124,6 +124,15 @@ class RateLimiter:
         if self._tokens is not None:
             await self._tokens.acquire(estimated_tokens)
 
+    def admissible(self, estimated_tokens: float) -> bool:
+        """Whether a call this size can ever be admitted: a bucket holds at most one minute's tokens, so a
+        call estimated above that would wait forever rather than fail."""
+        return self._tokens is None or estimated_tokens <= self._tokens.capacity
+
+    @property
+    def tokens_per_minute(self) -> float | None:
+        return self._tokens.capacity if self._tokens is not None else None
+
     def settle(self, estimated_tokens: float, actual_tokens: float) -> None:
         if self._tokens is not None:
             self._tokens.settle(estimated_tokens - actual_tokens)
