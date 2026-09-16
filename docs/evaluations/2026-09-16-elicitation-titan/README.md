@@ -1,74 +1,86 @@
-# Evaluation: elicitation against the real embedding model (attempted)
+# Evaluation: elicitation against the real embedding model
 
-*2026-09-16 · M5 Phase 9 · anchor check + mapping validation on Titan Text Embeddings v2 · status: BLOCKED, no endpoint*
+*2026-09-16 · M5 Phase 9 · anchor check on Titan Text Embeddings v2 · both families FAILED, neither pinned · Bedrock spend < $0.01*
 
-## What was attempted
+## Setup
 
-The module was to be proven on the real embedding model: the anchor check on the purchase-intent
-and satisfaction versions, and the mapping validation on ~500 human product reviews, through Titan
-Text Embeddings v2 behind a local LiteLLM proxy, via the new `python -m simcore.elicitation` command.
+| | |
+|---|---|
+| Embedding model | Amazon Titan Text Embeddings v2 (`amazon.titan-embed-text-v2:0`), 1024 dims, `eu-north-1` |
+| Route | Local LiteLLM proxy on `127.0.0.1:4000`, one base URL, retries/fallbacks/cache off (`/tmp/litellm_config.yaml`); engine pin `embed` serving `embed` |
+| Vectors verified | Proxy vectors byte-identical to direct `bedrock-runtime` invocation on probes |
+| Anchor versions | `purchase_intent/v1` (`7b253b23…09d516e`), `satisfaction/v1` (`85b73867…e5efe5eec69ce`) |
+| Check parameters | ε = 0, temperature = 1 (the paper's defaults — the gate judges the version, not a tuning) |
 
-The run was attempted and could not start. This environment provides no model endpoint and no
-credentials: nothing answers at the LiteLLM default (`127.0.0.1:4000`), vLLM (`127.0.0.1:8000`) or
-Ollama (`127.0.0.1:11434`) addresses, and no `SIMCORE_INFERENCE_BASE_URL`, `OPENAI_BASE_URL`,
-`SIMCORE_INFERENCE_API_KEY` or AWS/Bedrock credentials are set. The probes and their `ConnectError`
-outcomes are recorded here instead of a report with numbers in it.
+## Outcome
 
-## Status per gate
+Neither family passes the gate it must pass before pinning (ADR 0027). Both check records sit beside
+their versions under `anchors/`; `assert_pinnable` refuses both.
 
-| Gate | Status | Consequence |
-|---|---|---|
-| Anchor check, `purchase_intent/v1` vs Titan v2 | NOT RUN | version is **not pinned** |
-| Anchor check, `satisfaction/v1` vs Titan v2 | NOT RUN | version is **not pinned** |
-| Mapping validation on real reviews via Titan v2 | NOT RUN | no mapping numbers exist |
-| Mapping plumbing on the fake (CI) | PASSING | `tests/boundary/elicitation/test_validation.py`, deterministic |
+**Purchase intent** — ladder strictly increasing ✓ (1.93 → 4.05), no collapse ✓ (0.73),
+rank stability **0.500** ✗ (needs > 0.8). One set breaks ranks: set 4's top rung. Titan places the
+ladder's top rung *"I would definitely buy this, certainly."* nearest to position 4,
+*"I am inclined to try it."* (γ = 0.5959), ahead of position 5, *"I am eager to try it and will."*
+(γ = 0.5870). All five similarities sit in a 0.09 band — Titan compresses near-paraphrases tightly,
+so small wording differences decide the peak, and set 4 scores the top rung at 3.37, below rung 5's 3.95.
 
-Per ADR 0027 a version without a passing check result cannot be pinned, and the gate enforces it:
-`assert_pinnable` refuses both families until a passing `v1.check.json` sits beside them. No check
-record was written for the real anchors, and none is faked in.
+**Satisfaction** — rank stability **0.714** ✗, ladder not increasing ✗
+(2.00, 2.26, 3.41, 3.59, **3.37**, 4.15, **3.89**). Rung 5 (*"somewhat satisfied"*) falls below rung 4
+(*"acceptable … on the whole"*), and rung 7 (*"completely satisfied"*) below rung 6 (*"very pleased"*).
+Same pattern as purchase intent: the top end of the scale does not order under Titan.
 
-## What is ready for the run
+## Reading
 
-- `python -m simcore.elicitation --reviews reviews.jsonl --seed 7 --out mapping.json` draws a
-  star-balanced sample from a run-time-downloaded JSONL file (`{text, stars}` per line), verifies the
-  satisfaction anchors against their pinned hash, embeds through the pinned model, and reports SSR's
-  log loss, Brier score and expected-rating rank correlation beside a text-blind uniform baseline.
-- The anchor check entrypoint is `check_anchors("purchase-intent-v1", "purchase_intent", "v1", embed)` (and
-  the same for satisfaction); it writes `anchors/<construct>/v1.check.json` and refuses to pin on failure.
-- The gateway side is documented in `docs/inference.md` (Titan entry beside the chat models).
+This is the failure mode ADR 0027 warned about: the paper's reported agreement was tuned to its own
+anchors on its own embedding model, and hand-written anchors to the paper's description do not transfer
+to Titan v2 with rank stability. The headline means still increase, so a study scored on these anchors
+would look plausible — which is exactly why the gate exists and why both versions stay unpinned. No
+anchor, ε or temperature was adjusted on the basis of these numbers; a revision would be a new version,
+and one fitted to this ladder would be a fit to its own test.
 
-## Runbook (when access exists)
+## What was not run, and why
+
+The mapping validation was not run on real reviews. It requires a pinned satisfaction version with a
+passing check (plan Phase 8), and none exists — scoring reviews against anchors the gate refused would
+break the chain the design was built to enforce. No review dataset was downloaded and none is committed.
+The command (`python -m simcore.elicitation --reviews reviews.jsonl --seed 7 --out mapping.json`) and the
+runbook below stand ready for a future passing version.
+
+## Engine defect the real run exposed
+
+The first satisfaction run failed trivially ([2.75, 2.60, …]) because the check graded buy-intent prose
+on satisfaction anchors: one ladder for every construct is a broken instrument. The check now carries a
+frozen ladder and varied set per construct (`ladder_for` / `varied_for`, unknown constructs refused).
+Fixed with tests that fail on the pre-fix code (`ladder_for` did not exist there), and the satisfaction
+numbers above are from the corrected, frozen satisfaction ladder — a single run, no iteration.
+
+## Runbook (re-run or next candidate)
 
 ```bash
 export SIMCORE_INFERENCE_BASE_URL=http://127.0.0.1:4000/v1
-export SIMCORE_INFERENCE_API_KEY=...   # if the proxy wants one
 # 1. Anchor checks against the model the versions will be used with:
 uv run python -c "
 from simcore.inference import ExecutionSettings, InferenceClient
 from simcore.schemas import ModelPins
 from simcore.elicitation import check_anchors, assert_pinnable
 pins = ModelPins.model_validate({'tier_a': 'tier-a/model', 'tier_b': 'tier-b/model',
-    'embed': {'model_id': 'amazon.titan-embed-text-v2:0', 'serves': ['amazon.titan-embed-text-v2:0']}})
+    'embed': {'model_id': 'embed', 'serves': ['embed']}})
 client = InferenceClient(pins, ExecutionSettings())
 for construct, set_id in (('purchase_intent', 'purchase-intent-v1'), ('satisfaction', 'satisfaction-v1')):
     result = check_anchors(set_id, construct, 'v1', client)
     print(construct, result.passed, result.detail)
-    assert_pinnable(set_id, construct, 'v1', embed_model_id='amazon.titan-embed-text-v2:0')
 "
-# 2. Mapping validation on downloaded human reviews (never committed):
-uv run python -m simcore.elicitation --reviews /tmp/reviews.jsonl --seed 7 --out mapping.json
+# 2. Only a passing version pins; only a pinned satisfaction version validates:
+#    assert_pinnable(set_id, construct, 'v1', embed_model_id='embed')
+#    uv run python -m simcore.elicitation --reviews /tmp/reviews.jsonl --seed 7 --out mapping.json
 ```
 
-## Engine defects exposed by the real run
-
-None — there was no real run. No code was changed on the basis of this attempt, so there is no
-regression test owed to it. (Every defect found during the build already carries one; see the
-`tests/boundary/elicitation/` suite.)
+Per ADR 0028 the next embedding candidate, if these anchors are ever re-tested, is Cohere Embed v4.
 
 ## Caveats, stated plainly
 
-- The mapping claim is unmeasured on the real model: whether SSR recovers human ratings with Titan
-  v2 and these anchors is unknown, not assumed.
+- The mapping claim is unmeasured on any model: whether SSR recovers human ratings with these anchors
+  is unknown, not assumed.
 - A passing mapping validation would still not establish the simulation claim. Reviews measure
   satisfaction with products people bought; the study needs purchase intent for products that do not
   exist yet, from simulated personas. That check needs a purchase-intent benchmark with real
@@ -79,7 +91,5 @@ regression test owed to it. (Every defect found during the build already carries
 ## Dataset
 
 No review dataset was downloaded and none is committed (ADR 0016). The validation command accepts any
-star-balanced JSONL file at run time and records its location in the report. A suggested candidate for
-the real run is a 5-star product-review corpus (e.g. Amazon Reviews); its exact location and terms are
-to be confirmed and recorded in the mapping report when the run happens — not here, where asserting
-them would be unverifiable.
+star-balanced JSONL file at run time and records its location in the report; the exact location and
+terms are to be confirmed and recorded in the mapping report when that run happens.

@@ -182,6 +182,6 @@ The module proven on a real embedding model, and the documents in step. The anch
 
 - [x] The anchor check passes on the purchase-intent and satisfaction versions against Titan Text Embeddings v2, or its failure is recorded and the version is not pinned
 - [ ] The mapping validation runs on real reviews through the real embedding model, and its report is committed as an evaluation with its caveats
-- [ ] Any engine defect the real run exposes is fixed with a test that fails on the old code
+- [x] Any engine defect the real run exposes is fixed with a test that fails on the old code
 - [x] The evaluation states plainly that the mapping claim does not establish the simulation claim, and the trust level stays uncalibrated
 - [x] `FINAL_ARCH.md` §5.5, `SALVAGE.md` and `CONTEXT.md` describe what was built, and no claim contradicts the code
