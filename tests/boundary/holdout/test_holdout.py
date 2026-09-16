@@ -119,6 +119,50 @@ def test_a_fake_that_returns_the_true_conditionals_scores_at_the_baseline_and_a_
     assert conditional.baseline_recovered_dependence is not None and conditional.baseline_recovered_dependence > 0.5
 
 
+def marginal_only_responder(messages, template_id) -> str:
+    """A model that ignores demographics: every persona gets the population's overall marginal."""
+    request = json.loads(messages[-1]["content"])
+    overall = {value: sum(cell[value] for cell in CELLS.values()) / len(CELLS) for value in request["values"]}
+    return json.dumps({persona["persona_id"]: [overall[value] for value in request["values"]] for persona in request["personas"]}, sort_keys=True)
+
+
+def test_the_proper_scores_rank_the_true_conditionals_above_ignoring_demographics_above_uniform():
+    """Marginal distance scored a model ignoring demographics as well as the true one, and calibration scored
+    uniform guessing as perfectly calibrated. Log loss and Brier reward being right and sharp at once."""
+    conditional = run(oracle_responder).attributes["att"]
+    ignoring = run(marginal_only_responder).attributes["att"]
+    uniform = run(uniform_responder).attributes["att"]
+    assert conditional.log_loss < ignoring.log_loss < uniform.log_loss
+    assert conditional.brier < ignoring.brier < uniform.brier
+    assert conditional.log_loss <= conditional.baseline_log_loss + 0.1  # the truth scores at the baseline
+    assert ignoring.recovered_dependence is not None and ignoring.recovered_dependence < 0.25
+
+
+def test_recovered_dependence_is_not_manufactured_by_sparse_cells():
+    """At Stack Overflow's scale — tens of thousands of rows over hundreds of demographic cells, with the weak
+    dependence real attitudes have — count-based mutual information credited uniform guessing with 64% of
+    the dependence recovered and a model ignoring demographics with 69%. Both were estimation bias."""
+    import numpy as np
+
+    from simcore.holdout._evaluate import _recovered_dependence
+
+    generator = np.random.default_rng(20260916)
+    cells, rows = 880, 28000
+    conditionals = generator.dirichlet(np.array([0.5, 0.3, 0.2]) * 60, size=cells)
+    keys = generator.integers(0, cells, size=rows)
+    truth = [VOCABULARY[generator.choice(3, p=conditionals[key])] for key in keys]
+    known = [{"cell": str(key)} for key in keys]
+    overall = np.array([truth.count(value) for value in VOCABULARY]) / rows
+
+    def recovered(stated_for):
+        predicted = [VOCABULARY[generator.choice(3, p=stated_for(key))] for key in keys]
+        return _recovered_dependence(known, predicted, known, truth, VOCABULARY, seed="weak")
+
+    assert recovered(lambda key: conditionals[key]) > 0.8
+    assert recovered(lambda key: overall) < 0.1
+    assert recovered(lambda key: np.ones(3) / 3) < 0.1
+
+
 def test_the_report_records_the_pins_served_models_seeds_temperature_and_row_counts():
     report = run(oracle_responder)
     assert report.hidden == ("att",)

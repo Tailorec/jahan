@@ -26,9 +26,15 @@ class AttributeScore:
 
     vocabulary: tuple[str, ...]
     projected_rows: int
-    marginal_distance: float  # total variation between projected and true marginals
-    calibration_error: float  # expected-minus-observed accuracy over the sampled distributions
-    recovered_dependence: float | None  # share of the attitude's demographic mutual information regained
+    # The headline scores: proper scoring rules of the stated distribution against the recorded answer.
+    # They reward a distribution for being both right and sharp, so an uninformative one cannot win.
+    log_loss: float | None  # mean negative log probability given to the recorded answer (floored at 1e-6)
+    brier: float | None  # mean squared distance between the stated distribution and the recorded answer
+    marginal_distance: float  # total variation between projected and true marginals — blind to demographics
+    calibration_error: float  # expected-minus-observed accuracy — perfect for uniform guessing, never a score alone
+    recovered_dependence: float | None  # share of the attitude's demographic dependence regained, bias-corrected
+    baseline_log_loss: float | None
+    baseline_brier: float | None
     baseline_marginal_distance: float
     baseline_calibration_error: float | None
     baseline_recovered_dependence: float | None
@@ -111,6 +117,7 @@ def evaluate(
         assigned: list[float] = []
         correct: list[bool] = []
         known: list[dict[str, Any]] = []
+        stated: list[tuple[Sequence[float], int]] = []
         for row in held_out:
             persona = projected_by_id.get(f"p-{row.row_id}")
             value = persona.attributes.get(attribute) if persona is not None else None
@@ -122,6 +129,9 @@ def evaluate(
                 name = str(value)
                 assigned.append(distribution.probabilities[distribution.values.index(name)] if name in distribution.values else 0.0)
                 correct.append(value == row.values[attribute])
+                recorded = str(row.values[attribute])
+                if tuple(distribution.values) == vocabulary and recorded in vocabulary:
+                    stated.append((distribution.probabilities, vocabulary.index(recorded)))
             known.append({key: str(row.values[key]) for key in conditioning if key in row.values})
         truth_known = [
             {key: str(row.values[key]) for key in conditioning if key in row.values}
@@ -130,16 +140,22 @@ def evaluate(
         baseline_predicted, baseline_assigned, baseline_correct = _baseline_draws(
             pool, held_out, attribute, vocabulary, holdout_seed, conditioning
         )
+        baseline_stated = _baseline_distributions(pool, held_out, attribute, vocabulary, conditioning)
+        dependence_seed = f"{holdout_seed}|{attribute}"
         scores[attribute] = AttributeScore(
             vocabulary=vocabulary,
             projected_rows=len(predicted),
+            log_loss=_log_loss(stated),
+            brier=_brier(stated, len(vocabulary)),
+            baseline_log_loss=_log_loss(baseline_stated),
+            baseline_brier=_brier(baseline_stated, len(vocabulary)),
             marginal_distance=_marginal_distance(predicted, truth, vocabulary) if predicted else 1.0,
             calibration_error=_calibration(assigned, correct) if assigned else 1.0,
-            recovered_dependence=_recovered_dependence(known, predicted, truth_known, truth, vocabulary),
+            recovered_dependence=_recovered_dependence(known, predicted, truth_known, truth, vocabulary, seed=dependence_seed),
             baseline_marginal_distance=_marginal_distance(baseline_predicted, truth, vocabulary),
             baseline_calibration_error=_calibration(baseline_assigned, baseline_correct) if baseline_assigned else None,
             baseline_recovered_dependence=_recovered_dependence(
-                truth_known, baseline_predicted, truth_known, truth, vocabulary
+                truth_known, baseline_predicted, truth_known, truth, vocabulary, seed=dependence_seed
             ),
         )
     return HoldoutReport(
@@ -246,14 +262,83 @@ def _recovered_dependence(
     truth_known: Sequence[Mapping[str, str]],
     truth: Sequence[Any],
     vocabulary: tuple[str, ...],
+    *,
+    seed: str,
 ) -> float | None:
     """The share of the attitude's mutual information with its demographic cells that the projection
-    regains. When the truth carries no demographic dependence, nothing is recovered and nothing claims to."""
-    true_mi = _mutual_information(truth_known, [str(value) for value in truth])
+    regains, both measured above what chance alone produces. When the truth carries no dependence beyond
+    chance, nothing is recovered and nothing claims to.
+
+    Mutual information counted over many sparse cells is biased upward: on Stack Overflow-sized samples
+    with weak dependence, uniform guessing once scored 64% recovered. Subtracting the information the same
+    values carry once shuffled across cells removes that bias."""
+    true_mi = _dependence_above_chance(truth_known, [str(value) for value in truth], f"{seed}|truth")
     if true_mi <= 1e-9:
         return None
-    predicted_mi = _mutual_information(list(known), [str(value) for value in predicted])
+    predicted_mi = _dependence_above_chance(list(known), [str(value) for value in predicted], f"{seed}|predicted")
     return min(1.0, predicted_mi / true_mi)
+
+
+# How many shuffles estimate the information chance alone puts between values and cells.
+NULL_PERMUTATIONS = 20
+
+
+def _dependence_above_chance(keys: Sequence[Mapping[str, str]], values: Sequence[str], seed: str) -> float:
+    if not keys:
+        return 0.0
+    plugin = _mutual_information(keys, values)
+    generator = np.random.default_rng(int.from_bytes(hashlib.sha256(seed.encode("utf-8")).digest()[:8], "big"))
+    null = float(np.mean([_mutual_information(keys, list(generator.permutation(list(values)))) for _ in range(NULL_PERMUTATIONS)]))
+    return max(0.0, plugin - null)
+
+
+# The least probability a stated distribution is charged for, so one zero cannot make a mean infinite.
+LOG_LOSS_FLOOR = 1e-6
+
+
+def _log_loss(stated: Sequence[tuple[Sequence[float], int]]) -> float | None:
+    """Mean negative log probability given to the recorded answer: a proper scoring rule, so a sharp and
+    right distribution beats a vague one and neither uniform guessing nor ignoring demographics can win."""
+    if not stated:
+        return None
+    return float(np.mean([-np.log(max(float(probabilities[index]), LOG_LOSS_FLOOR)) for probabilities, index in stated]))
+
+
+def _brier(stated: Sequence[tuple[Sequence[float], int]], width: int) -> float | None:
+    """Mean squared distance between the stated distribution and the recorded answer, bounded where log
+    loss is not."""
+    if not stated:
+        return None
+    return float(np.mean([sum((float(p) - (1.0 if i == index else 0.0)) ** 2 for i, p in enumerate(probabilities)) for probabilities, index in stated]))
+
+
+def _baseline_distributions(
+    pool: Sequence[DecodedRow],
+    held_out: Sequence[DecodedRow],
+    attribute: str,
+    vocabulary: tuple[str, ...],
+    conditioning: Sequence[str],
+) -> list[tuple[list[float], int]]:
+    """The baseline's stated distribution for each held-out row — its demographic cell's marginal in the
+    pool, with add-one smoothing so a value the cell never showed is improbable rather than impossible —
+    beside the index of the recorded answer."""
+    cells: dict[tuple, Counter] = defaultdict(Counter)
+    overall: Counter = Counter()
+    for row in pool:
+        value = row.values.get(attribute)
+        if value is None:
+            continue
+        overall[str(value)] += 1
+        cells[tuple(str(row.values[name]) for name in conditioning if name in row.values)][str(value)] += 1
+    stated = []
+    for row in held_out:
+        recorded = row.values.get(attribute)
+        if recorded is None or str(recorded) not in vocabulary:
+            continue
+        counts = cells.get(tuple(str(row.values[name]) for name in conditioning if name in row.values)) or overall
+        total = sum(counts.get(name, 0) for name in vocabulary) + len(vocabulary)
+        stated.append(([(counts.get(name, 0) + 1) / total for name in vocabulary], vocabulary.index(str(recorded))))
+    return stated
 
 
 def _mutual_information(keys: Sequence[Mapping[str, str]], values: Sequence[str]) -> float:
