@@ -122,6 +122,11 @@ class CostRecorded(SimBaseModel):
                 f"an unknown cost is recorded as absent and a known cost names its source, but this record "
                 f"states source {self.cost_source.value!r} with cost {self.cost!r}"
             )
+        if (self.route is InferenceRoute.CACHE) != (self.cost_source is CostSource.CACHE):
+            raise ValueError(
+                f"a cached call names the cache as its cost source and only a cached call does, but this record "
+                f"came by the {self.route.value} route with source {self.cost_source.value!r}"
+            )
         if self.route is not InferenceRoute.CACHE and self.served_model_id is None:
             raise ValueError(f"a call on the {self.route.value} route must record the model that served it")
         return self

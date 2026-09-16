@@ -331,3 +331,22 @@ def test_a_cached_answer_from_another_alias_is_not_replayed_into_a_run_served_by
     assert isinstance(replayed, Completion)
     assert replayed.cost.route is InferenceRoute.PRIMARY and replayed.cost.served_model_id == "persona-8b-q4"
     assert replayed.text == "answer from persona-8b-q4"
+
+
+def test_a_declared_price_applied_to_estimated_tokens_is_recorded_as_an_estimate():
+    """A response reporting no usage had its tokens estimated, and the declared price applied to those guesses
+    was recorded as a price-table cost — an estimate presented as a price."""
+    priced = ModelPins.model_validate(
+        {"tier_a": {"model_id": TIER_A, "serves": [TIER_A], "price": {"input_per_million": 1.0, "output_per_million": 2.0}}, "tier_b": TIER_B, "embed": EMBED}
+    )
+    outcome = client(Script(completion_json(TIER_A)), pins=priced).complete([chat_request()])[0]
+    assert outcome.cost.cost_source is CostSource.ESTIMATE and outcome.cost.cost is not None
+
+
+def test_a_cached_call_names_the_cache_as_its_source_whatever_the_pin_declares(tmp_path):
+    """A cache hit was recorded as a price-table cost even for a pin with no price at all."""
+    unpriced = InferenceClient(PINS, ExecutionSettings(cache_dir=tmp_path), transport=httpx.MockTransport(lambda request: httpx.Response(200, content=completion_json(TIER_A).encode())))
+    fresh = unpriced.complete([chat_request()])[0]
+    cached = unpriced.complete([chat_request()])[0]
+    assert fresh.cost.cost_source is CostSource.UNKNOWN
+    assert cached.cost.route is InferenceRoute.CACHE and cached.cost.cost_source is CostSource.CACHE and cached.cost.cost == 0.0

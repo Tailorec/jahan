@@ -544,7 +544,7 @@ def test_paused_world_may_resume_and_events_after_completion_are_refused():
 
 
 PAUSE_RUNG = {"kind": "degraded", "rung": "pause", "activation_rate": 0.40, "tier_b_frozen": True}
-COST_AT_TICK = {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-ai/persona-8b", "cost_source": "price_table", "route": "cache", "input_tokens": 1, "output_tokens": 1, "cost": 0.0}
+COST_AT_TICK = {"kind": "cost", "role": "tier_a", "model_id": "openrouter/camel-ai/persona-8b", "cost_source": "cache", "route": "cache", "input_tokens": 1, "output_tokens": 1, "cost": 0.0}
 
 
 # --- views ------------------------------------------------------------------------------------
@@ -802,7 +802,8 @@ def cost(**overrides) -> dict:
 
 @pytest.mark.parametrize(("route", "cached"), [("primary", False), ("fallback", False), ("cache", True)])
 def test_a_cost_names_its_route_and_cache_service_follows_from_it(route, cached):
-    record = CostRecorded.model_validate(cost(route=route, cost=0.0))
+    source = {"cost_source": "cache"} if route == "cache" else {}
+    record = CostRecorded.model_validate(cost(route=route, cost=0.0, **source))
     assert record.cache_hit is cached
     assert "cache_hit" not in CostRecorded.model_fields
     assert CostRecorded.model_validate_json(record.model_dump_json()) == record
@@ -817,7 +818,7 @@ def test_a_stated_cache_hit_contradicting_the_route_is_refused():
 
 def test_a_call_served_from_the_cache_bills_nothing():
     with pytest.raises(ValidationError, match="bills nothing"):
-        CostRecorded.model_validate(cost(route="cache", cost=0.004))
+        CostRecorded.model_validate(cost(route="cache", cost_source="cache", cost=0.004))
 
 
 # --- fallbacks --------------------------------------------------------------------------------
@@ -859,9 +860,9 @@ def test_representative_partition_bills_a_fallback_served_turn():
         ("first_turn_cost", {"route": "primary", "model_id": "anthropic/claude-sonnet-4-5-20250929"}, True),
         ("first_turn_cost", {"route": "fallback", "model_id": "anthropic/claude-sonnet-4-5-20250929"}, False),
         ("second_turn_cost", {"route": "primary", "model_id": "openrouter/qwen/qwen-2.5-7b-instruct"}, False),
-        ("second_turn_cost", {"route": "cache", "model_id": "openrouter/qwen/qwen-2.5-7b-instruct", "cost": 0.0}, True),
-        ("second_turn_cost", {"route": "cache", "model_id": "openrouter/camel-ai/persona-8b", "cost": 0.0}, True),
-        ("second_turn_cost", {"route": "cache", "model_id": "openai/gpt-4o-2024-08-06", "cost": 0.0}, False),
+        ("second_turn_cost", {"route": "cache", "cost_source": "cache", "model_id": "openrouter/qwen/qwen-2.5-7b-instruct", "cost": 0.0}, True),
+        ("second_turn_cost", {"route": "cache", "cost_source": "cache", "model_id": "openrouter/camel-ai/persona-8b", "cost": 0.0}, True),
+        ("second_turn_cost", {"route": "cache", "cost_source": "cache", "model_id": "openai/gpt-4o-2024-08-06", "cost": 0.0}, False),
         ("second_turn_cost", {"route": "fallback", "model_id": "openrouter/camel-ai/persona-8b"}, False),
     ],
     ids=["primary-on-primary", "tier-b-without-fallback", "fallback-on-primary-route", "cached-fallback",

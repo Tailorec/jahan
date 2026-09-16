@@ -289,7 +289,7 @@ class InferenceClient:
             vectors = np.asarray(entry["vectors"], dtype=np.float32)
             cost = CostRecorded(
                 kind="cost", role=InferenceRole.EMBED, model_id=pin.model_id, served_model_id=entry.get("served_model_id"),
-                cost_source=CostSource.PRICE_TABLE, route=InferenceRoute.CACHE,
+                cost_source=CostSource.CACHE, route=InferenceRoute.CACHE,
                 input_tokens=entry.get("input_tokens", 0), output_tokens=0, cost=0.0,
             )
             return EmbeddingResult(vectors=vectors, model_id=pin.model_id, served_model_id=entry.get("served_model_id"), normalization=EMBEDDING_NORMALIZATION, dim=int(vectors.shape[1]), costs=(cost,))
@@ -334,7 +334,7 @@ class InferenceClient:
                 cost = CostRecorded(
                     kind="cost", role=InferenceRole.EMBED, model_id=pin.model_id, served_model_id=reply.outcome.served_model_id,
                     route=InferenceRoute.PRIMARY, input_tokens=reply.outcome.input_tokens, output_tokens=0,
-                    **self._cost_fields(pin, reply.outcome.payload, reply.outcome.headers, reply.outcome.input_tokens, 0),
+                    **self._cost_fields(pin, reply.outcome.payload, reply.outcome.headers, reply.outcome.input_tokens, 0, usage_reported=not reply.outcome.payload.get("_usage_estimated", False)),
                 )
                 if self._cache and key:
                     self._cache.put(key, {"vectors": vectors.tolist(), "served_model_id": reply.outcome.served_model_id, "input_tokens": reply.outcome.input_tokens})
@@ -392,7 +392,10 @@ class InferenceClient:
         ordered = sorted(data_items, key=lambda item: item.get("index", 0))
         vectors = [[float(component) for component in item["embedding"]] for item in ordered]
         usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
-        input_tokens = _reported(usage.get("prompt_tokens")) or int(sum(estimate_tokens(text) for text in batch))
+        reported_input = _reported(usage.get("prompt_tokens"))
+        input_tokens = reported_input if reported_input is not None else int(sum(estimate_tokens(text) for text in batch))
+        if reported_input is None:
+            payload = {**payload, "_usage_estimated": True}
         return _Reply(EmbeddingVectors(vectors=vectors, served_model_id=served, input_tokens=input_tokens, payload=payload, headers=response.headers))
 
     async def aclose(self) -> None:
@@ -647,14 +650,15 @@ class InferenceClient:
             return _Reply(CallFailure(kind=FailureKind.PIN_FAILURE, detail=drift, attempts=attempts, route=route))
         text = _completion_text(payload)
         usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
-        input_tokens = _reported(usage.get("prompt_tokens")) or estimate_tokens(messages_text(request.messages))
-        output_tokens = _reported(usage.get("completion_tokens")) or estimate_tokens(text)
+        reported_input, reported_output = _reported(usage.get("prompt_tokens")), _reported(usage.get("completion_tokens"))
+        input_tokens = reported_input if reported_input is not None else estimate_tokens(messages_text(request.messages))
+        output_tokens = reported_output if reported_output is not None else estimate_tokens(text)
         cost = CostRecorded(
             kind="cost",
             role=request.role,
             model_id=pin.model_id,
             served_model_id=served,
-            **self._cost_fields(pin, payload, response.headers, input_tokens, output_tokens),
+            **self._cost_fields(pin, payload, response.headers, input_tokens, output_tokens, usage_reported=reported_input is not None and reported_output is not None),
             route=route,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
@@ -670,12 +674,15 @@ class InferenceClient:
             )
         )
 
-    def _cost_fields(self, pin: ModelPin, payload: dict, headers, input_tokens: int, output_tokens: int) -> dict:
+    def _cost_fields(self, pin: ModelPin, payload: dict, headers, input_tokens: int, output_tokens: int, *, usage_reported: bool) -> dict:
+        """Where a call's cost came from. A declared price applied to estimated tokens is an estimate, not a
+        price-table cost: an estimate presented as a price is the invention a cost source exists to prevent."""
         reported = gateway_cost(payload, headers)
         if reported is not None:
             return {"cost_source": CostSource.GATEWAY, "cost": reported}
         if pin.price is not None:
-            return {"cost_source": CostSource.PRICE_TABLE, "cost": price_table_cost(pin.price, input_tokens, output_tokens)}
+            source = CostSource.PRICE_TABLE if usage_reported else CostSource.ESTIMATE
+            return {"cost_source": source, "cost": price_table_cost(pin.price, input_tokens, output_tokens)}
         return {"cost_source": CostSource.UNKNOWN, "cost": None}
 
     def _headers(self, context=None) -> dict:
@@ -709,7 +716,7 @@ class InferenceClient:
                 role=request.role,
                 model_id=pin.model_id,
                 served_model_id=entry.get("served_model_id"),
-                cost_source=CostSource.PRICE_TABLE,
+                cost_source=CostSource.CACHE,
                 route=InferenceRoute.CACHE,
                 input_tokens=entry.get("input_tokens", 0),
                 output_tokens=entry.get("output_tokens", 0),

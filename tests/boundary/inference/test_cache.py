@@ -98,7 +98,7 @@ def test_a_rerun_of_the_same_seed_is_served_from_the_cache_at_the_cache_route_an
     assert isinstance(second, Completion)
     assert second.text == first.text and second.prompt_hash == first.prompt_hash
     assert second.cost.route is InferenceRoute.CACHE
-    assert second.cost.cost == 0.0 and second.cost.cost_source is CostSource.PRICE_TABLE
+    assert second.cost.cost == 0.0 and second.cost.cost_source is CostSource.CACHE
     assert second.cost.input_tokens == 10 and second.cost.output_tokens == 3  # it still states what it drew
 
 

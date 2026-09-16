@@ -139,7 +139,12 @@ class CostSource(StrEnum):
     against invented prices is not enforced."""
 
     GATEWAY = "gateway"
+    # The study's declared price applied to the token counts the response reported.
     PRICE_TABLE = "price_table"
+    # The declared price applied to token counts the engine estimated, because the response reported none.
+    ESTIMATE = "estimate"
+    # Served from the cache: nothing was billed, so the zero is known rather than priced.
+    CACHE = "cache"
     UNKNOWN = "unknown"
 
 

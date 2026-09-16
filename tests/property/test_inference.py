@@ -171,7 +171,7 @@ def test_a_contradiction_between_a_cost_and_its_source_is_refused(overrides):
 def test_a_call_on_a_model_route_records_which_model_served_it(route, served, valid):
     payload = cost(route=route, served_model_id=served)
     if route == "cache":
-        payload["cost"] = 0.0
+        payload["cost"], payload["cost_source"] = 0.0, "cache"
     if valid:
         assert CostRecorded.model_validate(payload).route.value == route
     else:
@@ -180,9 +180,9 @@ def test_a_call_on_a_model_route_records_which_model_served_it(route, served, va
 
 
 def test_a_cached_call_still_bills_nothing():
-    assert CostRecorded.model_validate(cost(route="cache", cost=0.0)).cache_hit is True
+    assert CostRecorded.model_validate(cost(route="cache", cost_source="cache", cost=0.0)).cache_hit is True
     with pytest.raises(ValidationError, match="bills nothing"):
-        CostRecorded.model_validate(cost(route="cache", cost=0.004))
+        CostRecorded.model_validate(cost(route="cache", cost_source="cache", cost=0.004))
 
 
 # --- a failed call is an outcome ----------------------------------------------------------------
@@ -218,3 +218,13 @@ def test_a_call_failure_refuses_an_ungrounded_record(overrides):
     payload.update(overrides)
     with pytest.raises(ValidationError):
         CallFailure.model_validate(payload)
+
+
+@pytest.mark.parametrize(("route", "source", "valid"), [("cache", "cache", True), ("cache", "price_table", False), ("primary", "cache", False)])
+def test_the_cache_is_the_cost_source_of_a_cached_call_and_of_nothing_else(route, source, valid):
+    payload = cost(route=route, cost_source=source, cost=0.0, served_model_id="openrouter/camel-ai/persona-8b")
+    if valid:
+        assert CostRecorded.model_validate(payload).cost_source is CostSource.CACHE
+    else:
+        with pytest.raises(ValidationError, match="cost source"):
+            CostRecorded.model_validate(payload)
