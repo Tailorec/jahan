@@ -150,6 +150,8 @@ class _Reply:
     outcome: Completion | CallFailure | EmbeddingVectors
     # The raw error body, kept only to attach to a span when content capture is enabled — never recorded.
     body: str | None = None
+    # The endpoint stopped at max_tokens: the answer is cut off, and asking again at the same budget cannot cure it.
+    truncated: bool = False
     retryable: bool = False
     limited: bool = False
     wait_s: float | None = None
@@ -514,6 +516,15 @@ class InferenceClient:
                     record(span, {GEN_AI_INPUT_MESSAGES: json.dumps([dict(m) for m in active.messages]), GEN_AI_OUTPUT_MESSAGES: reply.outcome.text})
                 if schema is not None:
                     errors = _validation_errors(reply.outcome.text, schema)
+                    if errors and reply.truncated:
+                        # Cut off by the budget, not answered wrongly: a repair at the same max_tokens is cut off
+                        # again, so it is recorded as what it was instead of spending a second call.
+                        return CallFailure(
+                            kind=FailureKind.INVALID_OUTPUT,
+                            detail=f"the answer was cut off at max_tokens={active.max_tokens} before it was valid JSON",
+                            attempts=attempts,
+                            route=route,
+                        ), False
                     if errors and not repaired:
                         # Once, and only once: a stricter prompt naming what was wrong. Small models
                         # that cannot follow a schema complete where they can; what they cannot answer
@@ -649,6 +660,7 @@ class InferenceClient:
         if (drift := self._drift(pin, served)) is not None:
             return _Reply(CallFailure(kind=FailureKind.PIN_FAILURE, detail=drift, attempts=attempts, route=route))
         text = _completion_text(payload)
+        truncated = _finish_reason(payload) == "length"
         usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
         reported_input, reported_output = _reported(usage.get("prompt_tokens")), _reported(usage.get("completion_tokens"))
         input_tokens = reported_input if reported_input is not None else estimate_tokens(messages_text(request.messages))
@@ -671,7 +683,8 @@ class InferenceClient:
                 latency_ms=latency_ms,
                 cost=cost,
                 seed=seed,
-            )
+            ),
+            truncated=truncated,
         )
 
     def _cost_fields(self, pin: ModelPin, payload: dict, headers, input_tokens: int, output_tokens: int, *, usage_reported: bool) -> dict:
@@ -788,6 +801,14 @@ def _frozen(message: dict) -> FrozenDict:
 
 def _reported(value) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def _finish_reason(payload: dict) -> str | None:
+    choices = payload.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        reason = choices[0].get("finish_reason")
+        return reason if isinstance(reason, str) else None
+    return None
 
 
 def _completion_text(payload: dict) -> str:

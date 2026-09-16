@@ -212,3 +212,20 @@ def test_validate_schema_states_its_disagreements():
     assert validate_schema({"answer": "x"}, json.loads(OBJECT_SCHEMA)) == []
     errors = validate_schema({"answer": 7, "extra": 1}, json.loads(OBJECT_SCHEMA))
     assert any("string" in error for error in errors)
+
+
+def test_an_answer_cut_off_at_max_tokens_is_not_repaired_at_the_same_budget():
+    """A real model stopped at max_tokens mid-answer; the engine then asked for a repair at the same budget, which
+    can only be cut off again. It is recorded as cut off, in one call."""
+    state = {"n": 0}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        state["n"] += 1
+        payload = {"model": TIER_A, "choices": [{"message": {"role": "assistant", "content": '{"answer": "it is a very lo'}, "finish_reason": "length"}]}
+        return httpx.Response(200, content=json.dumps(payload).encode())
+
+    client, _ = client_with(PIN_BARE, handler)
+    outcome = client.complete([sampled(json_schema=OBJECT_SCHEMA)])[0]
+    assert isinstance(outcome, CallFailure) and outcome.kind is FailureKind.INVALID_OUTPUT
+    assert "max_tokens=16" in outcome.detail
+    assert state["n"] == 1
