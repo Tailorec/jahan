@@ -192,6 +192,9 @@ class InferenceClient:
         # Which models actually answered this client, per pinned name: the evidence a holdout report
         # carries, because a study's results are a property of the models that produced them.
         self.served_models: dict[str, set[str]] = {}
+        # The served identifier each pin's first answer came from. A pin may accept several aliases, but a
+        # run answered by one of them and then another has changed model mid-run, which is a pin failure.
+        self._first_served: dict[str, str] = {}
         self._http = httpx.AsyncClient(
             base_url=self.settings.base_url,
             transport=transport,
@@ -381,6 +384,8 @@ class InferenceClient:
                     route=InferenceRoute.PRIMARY,
                 )
             )
+        if (drift := self._drift(pin, served)) is not None:
+            return _Reply(CallFailure(kind=FailureKind.PIN_FAILURE, detail=drift, attempts=attempts, route=InferenceRoute.PRIMARY))
         data_items = payload.get("data")
         if not isinstance(data_items, list) or len(data_items) != len(batch):
             return _Reply(CallFailure(kind=FailureKind.INVALID_OUTPUT, detail="the embedding endpoint returned something that is not one vector per text", attempts=attempts, route=InferenceRoute.PRIMARY))
@@ -545,6 +550,16 @@ class InferenceClient:
                 self._limiter.penalize(wait_s)
             await self._sleep(wait_s)
 
+    def _drift(self, pin: ModelPin, served: str) -> str | None:
+        """Fix the served identifier a pin's first answer came from, and name any later answer from another."""
+        first = self._first_served.setdefault(pin.model_id, served)
+        if served == first:
+            return None
+        return (
+            f"{pin.model_id!r} was served by {served!r}, but this run's first call to it was served by {first!r}; "
+            "an accepted alias is not a licence to change model mid-run"
+        )
+
     def _trip(self, pin: ModelPin, route: InferenceRoute, status: int) -> None:
         """Count a run of identical fatal responses. One that repeats past the threshold opens the
         circuit, so a batch meets one clear error instead of thousands of identical ones."""
@@ -628,6 +643,8 @@ class InferenceClient:
                     route=route,
                 )
             )
+        if (drift := self._drift(pin, served)) is not None:
+            return _Reply(CallFailure(kind=FailureKind.PIN_FAILURE, detail=drift, attempts=attempts, route=route))
         text = _completion_text(payload)
         usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
         input_tokens = _reported(usage.get("prompt_tokens")) or estimate_tokens(messages_text(request.messages))
@@ -675,6 +692,10 @@ class InferenceClient:
             return None
         entry = self._cache.get(self._cache_key(request, pin, data))
         if entry is None:
+            return None
+        first = self._first_served.get(pin.model_id)
+        if first is not None and entry.get("served_model_id") not in (None, first):
+            # Cached from a run served by a different alias: replaying it would mix two models in this one.
             return None
         self.stats.cache_hits += 1
         return Completion(

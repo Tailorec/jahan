@@ -282,3 +282,52 @@ def test_no_source_file_in_the_package_names_a_provider_import():
     package = Path("simcore")
     offenders = [str(path) for path in package.rglob("*.py") if pattern.search(path.read_text())]
     assert offenders == []
+
+
+def test_a_run_that_moves_between_two_accepted_aliases_is_caught_on_the_call_it_moves():
+    """An accepted alias once licensed any mix: a run answered by one served model and then another recorded
+    both as completions, though the study had changed model mid-run."""
+    pins = ModelPins.model_validate({"tier_a": {"model_id": TIER_A, "serves": [TIER_A, "persona-8b-q4"]}, "tier_b": TIER_B, "embed": EMBED})
+    served = iter([TIER_A, TIER_A, "persona-8b-q4"])
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=completion_json(next(served)).encode())
+
+    client = InferenceClient(pins, ExecutionSettings(), transport=httpx.MockTransport(handler))
+    first, second, moved = (client.complete([chat_request()])[0] for _ in range(3))
+    assert isinstance(first, Completion) and isinstance(second, Completion)
+    assert isinstance(moved, CallFailure) and moved.kind is FailureKind.PIN_FAILURE
+    assert "persona-8b-q4" in moved.detail and TIER_A in moved.detail
+
+
+def test_a_run_served_throughout_by_one_accepted_alias_completes():
+    pins = ModelPins.model_validate({"tier_a": {"model_id": TIER_A, "serves": [TIER_A, "persona-8b-q4"]}, "tier_b": TIER_B, "embed": EMBED})
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=completion_json("persona-8b-q4").encode())
+
+    client = InferenceClient(pins, ExecutionSettings(), transport=httpx.MockTransport(handler))
+    assert all(isinstance(client.complete([chat_request()])[0], Completion) for _ in range(3))
+
+
+def test_a_cached_answer_from_another_alias_is_not_replayed_into_a_run_served_by_a_different_one(tmp_path):
+    """The cache is keyed by the aliases a pin accepts, not by the one that answered, so without this a run
+    served by one alias could replay answers another alias gave an earlier run."""
+    pins = ModelPins.model_validate({"tier_a": {"model_id": TIER_A, "serves": [TIER_A, "persona-8b-q4"]}, "tier_b": TIER_B, "embed": EMBED})
+
+    def client_served_by(model: str, sent: list):
+        async def handler(request: httpx.Request) -> httpx.Response:
+            sent.append(json.loads(request.content)["messages"][0]["content"])
+            return httpx.Response(200, content=completion_json(model, f"answer from {model}").encode())
+
+        return InferenceClient(pins, ExecutionSettings(cache_dir=tmp_path), transport=httpx.MockTransport(handler))
+
+    warm: list = []
+    client_served_by(TIER_A, warm).complete([chat_request()])
+    later: list = []
+    client = client_served_by("persona-8b-q4", later)
+    client.complete([chat_request(messages=(FrozenDict({"role": "user", "content": "a different question"}),))])
+    (replayed,) = client.complete([chat_request()])
+    assert isinstance(replayed, Completion)
+    assert replayed.cost.route is InferenceRoute.PRIMARY and replayed.cost.served_model_id == "persona-8b-q4"
+    assert replayed.text == "answer from persona-8b-q4"
