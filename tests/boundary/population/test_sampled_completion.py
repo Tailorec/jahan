@@ -116,3 +116,44 @@ def test_a_distribution_that_misses_the_vocabulary_leaves_the_field_uncompleted(
     projection = project(brief, rows, source, inference=FakeChat(one_short, model_id="stub/only-1.0"), population_seed=4021)
     assert completed(projection.personas) == []
     assert projection.completion is None and projection.synthesized_share == 0.0
+
+
+def test_through_the_real_client_one_malformed_persona_never_costs_its_batch_the_others():
+    """Projection's tests ran on the fake, which never applies the client's schema validation. Through the
+    real client, a schema requiring every persona's exact vector failed a batch of twenty-five for one bad
+    answer: none of ninety fields was completed, and four calls became sixteen."""
+    import httpx
+
+    from simcore.inference import ExecutionSettings, InferenceClient
+    from simcore.schemas import ModelPins
+
+    model = "openrouter/camel-ai/persona-8b"
+    sent = {"calls": 0}
+
+    async def handler(request):
+        sent["calls"] += 1
+        body = json.loads(request.content)
+        ask = next(json.loads(m["content"]) for m in body["messages"] if m["role"] == "user" and m["content"].startswith("{"))
+        width = len(ask["values"])
+        answer = {persona["persona_id"]: [1.0 / width] * width for persona in ask["personas"]}
+        answer[ask["personas"][0]["persona_id"]] = [1.0]  # one persona per call answers with the wrong length
+        payload = {"model": model, "choices": [{"message": {"content": json.dumps(answer)}}], "usage": {"prompt_tokens": 9, "completion_tokens": 9}}
+        return httpx.Response(200, content=json.dumps(payload).encode())
+
+    async def no_sleep(_seconds):
+        return None
+
+    client = InferenceClient(
+        ModelPins.model_validate({"tier_a": model, "tier_b": "b/b", "embed": "e/e"}),
+        ExecutionSettings(max_retries=0),
+        transport=httpx.MockTransport(handler),
+        sleep=no_sleep,
+    )
+    brief, source = pack(), synthetic()
+    rows = rows_of(source, brief)
+    missing = sum(1 for row in rows if "spend_band" not in row.values)
+    projection = project(brief, rows, source, inference=client, population_seed=4021)
+    done = len(completed(projection.personas))
+    batches = -(-missing // COMPLETION_BATCH_SIZE)
+    assert done == missing - batches  # exactly the one malformed persona per batch goes uncompleted
+    assert sent["calls"] == 2 * batches  # one call per batch, one strict retry for its one leftover

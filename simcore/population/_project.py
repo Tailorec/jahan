@@ -242,23 +242,13 @@ def _chat_request(batch: _Batch, drafts: Mapping[str, _Draft]) -> ChatRequest:
         temp=0.0,
         max_tokens=budget,
         template_id=COMPLETION_TEMPLATE_ID,
-        # Every persona's answer is one probability vector over the offered values: this shape is what
-        # the engine's parse-and-repair pass checks, and the semantics (coverage, sum to one) are
-        # projection's own, because only projection knows what it asked.
+        # The schema states only the answer's structure — an object of probability lists — because that is
+        # what a repair can fix and what fails a whole call. Whether each persona is present, has one
+        # probability per offered value, in range, summing to one, is judged per persona by projection: a
+        # schema requiring all of it failed a batch of twenty-five for one malformed vector, and left none
+        # of the twenty-four good answers completed.
         json_schema=json.dumps(
-            {
-                "type": "object",
-                "required": list(batch.persona_ids),
-                "properties": {
-                    persona_id: {
-                        "type": "array",
-                        "minItems": len(batch.values),
-                        "maxItems": len(batch.values),
-                        "items": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-                    }
-                    for persona_id in batch.persona_ids
-                },
-            },
+            {"type": "object", "additionalProperties": {"type": "array", "items": {"type": "number"}}},
             sort_keys=True,
         ),
     )
