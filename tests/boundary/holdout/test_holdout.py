@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from simcore.holdout import evaluate, select_measured_rows
-from simcore.holdout._evaluate import _baseline_draws
+from simcore.holdout._evaluate import _BaselineCells, _baseline_draws
 from simcore.ports.coreset import DecodedRow, _DecodedRowSource
 from simcore.ports.fake import FakeChat
 from simcore.schemas import BriefPack, FieldOrigin, FrozenDict
@@ -189,8 +189,9 @@ def test_held_out_rows_are_never_used_to_build_the_baseline():
         DecodedRow(row_id=row.row_id, source="stackoverflow", values=FrozenDict({**dict(row.values), "att": "against" if row.values["att"] == "favor" else "favor"}))
         for row in held_out
     ]
-    _, assigned_a, _ = _baseline_draws(pool, held_out, "att", VOCABULARY, 4021, ("age", "sex"))
-    _, assigned_b, _ = _baseline_draws(pool, flipped, "att", VOCABULARY, 4021, ("age", "sex"))
+    cells = _BaselineCells(pool, "att", ("age", "sex"), ("age", "sex"))
+    _, assigned_a, _ = _baseline_draws(held_out, "att", VOCABULARY, 4021, cells)
+    _, assigned_b, _ = _baseline_draws(flipped, "att", VOCABULARY, 4021, cells)
     assert assigned_a == assigned_b  # cell marginals come from the pool alone
 
 
@@ -255,3 +256,82 @@ def test_the_real_shards_are_the_endpoint_of_the_same_command(tmp_path):
     assert main(["--hidden", "att_ai", "--pool", "240", "--seed", "4021", "--out", str(out)]) == 0
     report = json.loads(out.read_text())
     assert report["held_out_rows"] >= 4 and report["attributes"]["att_ai"]["projected_rows"] > 0
+
+
+# --- information arms: projection and its baseline always see the same attributes ------------------------------
+
+
+def leaky_pack() -> BriefPack:
+    """A study where a non-demographic attitude, `sentiment`, nearly determines the hidden one and demographics carry
+    nothing — the shape of the leak a real run found, where coding_ai_sentiment nearly was att_ai."""
+    payload = json.loads(pack().model_dump_json())
+    ontology = payload["ontology"]
+    ontology["attribute_domains"]["sentiment"] = "psychographic"
+    ontology["relevance_order"] = ["age", "sex", "sentiment", "att"]
+    return BriefPack.model_validate({"brief": payload["brief"], "ontology": ontology})
+
+
+def leaky_rows(per_cell: int = 30) -> list[DecodedRow]:
+    rows, index = [], 0
+    for age in ("young", "old"):
+        for sex in ("female", "male"):
+            for sentiment, counts in (("pos", {"favor": 27, "neutral": 2, "against": 1}), ("neg", {"favor": 1, "neutral": 2, "against": 27})):
+                for value, number in counts.items():
+                    for _ in range(number * per_cell // 30):
+                        index += 1
+                        rows.append(DecodedRow(row_id=f"{index:06d}", source="stackoverflow", values=FrozenDict({"age": age, "sex": sex, "sentiment": sentiment, "att": value})))
+    return rows
+
+
+def leaky_source() -> _DecodedRowSource:
+    return _DecodedRowSource(leaky_rows(), {"age": ("young", "old"), "sex": ("female", "male"), "sentiment": ("pos", "neg"), "att": VOCABULARY})
+
+
+class Recording(FakeChat):
+    """Records the attributes each persona's prompt carried, and answers by reading `sentiment` when it can see it."""
+
+    def __init__(self) -> None:
+        self.known: set[str] = set()
+
+        def answer(messages, template_id) -> str:
+            request = json.loads(messages[-1]["content"])
+            answers = {}
+            for persona in request["personas"]:
+                self.known |= set(persona["known"])
+                sentiment = persona["known"].get("sentiment")
+                probabilities = {"pos": [0.9, 0.07, 0.03], "neg": [0.03, 0.07, 0.9]}.get(sentiment, [1 / 3, 1 / 3, 1 / 3])
+                answers[persona["persona_id"]] = probabilities
+            return json.dumps(answers)
+
+        super().__init__(answer)
+
+
+def arm(information: str):
+    chat = Recording()
+    report = evaluate(leaky_pack(), leaky_source(), leaky_rows(), hidden=("att",), inference=chat, holdout_seed=4021, information=information)
+    return report, chat
+
+
+def test_under_the_demographics_arm_projection_sees_only_the_conditioning_set():
+    """A real run gave projection every known attribute, so coding_ai_sentiment reached it for 100 of 115 personas."""
+    report, chat = arm("demographics")
+    assert chat.known == {"age", "sex"}
+    assert report.information == "demographics" and report.projected_from == ("age", "sex")
+
+
+def test_a_model_reading_a_correlated_attitude_cannot_beat_a_baseline_that_never_saw_it():
+    """With the leak, a model that read `sentiment` looked far better than a demographics-only baseline. Each arm now
+    gives both sides the same attributes: without `sentiment` the model has nothing to read, and with it the baseline
+    knows it too, so neither arm reports an advantage the model did not earn."""
+    demographics, _ = arm("demographics")
+    everything, chat = arm("all")
+    assert "sentiment" in chat.known and everything.projected_from == ("age", "sentiment", "sex")
+    d, a = demographics.attributes["att"], everything.attributes["att"]
+    assert a.baseline_log_loss < d.baseline_log_loss - 0.3  # the baseline uses sentiment when the arm allows it
+    assert d.log_loss >= d.baseline_log_loss - 0.05  # nothing to read under demographics
+    assert abs(a.log_loss - a.baseline_log_loss) < 0.15  # and no unearned advantage when both can read it
+
+
+def test_an_unknown_information_arm_is_refused():
+    with pytest.raises(ValueError, match="information must be one of"):
+        evaluate(leaky_pack(), leaky_source(), leaky_rows(), hidden=("att",), inference=FakeChat(), holdout_seed=1, information="some")

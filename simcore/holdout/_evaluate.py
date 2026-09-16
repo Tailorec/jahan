@@ -43,6 +43,8 @@ class AttributeScore:
 @dataclass
 class HoldoutReport:
     hidden: tuple[str, ...]
+    information: str  # which arm: what projection and its baseline were both allowed to see
+    projected_from: tuple[str, ...]
     holdout_seed: int
     population_seed: int
     completion_temperature: float
@@ -83,8 +85,18 @@ def evaluate(
     inference_label: str = "fake",
     pins: Mapping[str, Any] | None = None,
     served_models: Mapping[str, Sequence[str]] | None = None,
+    information: str = "demographics",
 ) -> HoldoutReport:
-    """The whole evaluation: split, hide, project, score, and state every choice the numbers rest on."""
+    """The whole evaluation: split, hide, project, score, and state every choice the numbers rest on.
+
+    `information` decides what projection may see, and the baseline always sees exactly the same. Under
+    `demographics` — the question ADR 0019 asks — projection is given only the conditioning set. Under `all` it
+    is given every other declared attribute, and the baseline conditions on those too. A first real run gave
+    projection every known attribute and the baseline only demographics: `coding_ai_sentiment` rode along for
+    100 of 115 personas and nearly is `att_ai`, so a model "beat" the baseline by reading a near-copy of the
+    answer while the comparison claimed to measure demographics."""
+    if information not in INFORMATION_ARMS:
+        raise ValueError(f"information must be one of {sorted(INFORMATION_ARMS)}, got {information!r}")
     hidden = tuple(hidden)
     candidates = select_measured_rows(rows, hidden)
     if len(candidates) < 8:
@@ -94,10 +106,12 @@ def evaluate(
     pool = [row for row in candidates if row.row_id not in holdout_ids]
     ontology = pack.ontology
     conditioning = tuple(sorted(ontology.conditioning_set))
+    seen = conditioning if information == "demographics" else tuple(sorted(set(ontology.attribute_domains) - set(hidden)))
 
-    # The answers are hidden before the projection path ever sees the rows; the baseline is built from
-    # the pool alone, so no held-out value informs the comparison it is scored against.
-    visible = [_hide(row, hidden) for row in held_out]
+    # The answers are hidden before the projection path ever sees the rows, and projection sees exactly the
+    # attributes the arm allows; the baseline is built from the pool alone on the same attributes, so no
+    # held-out value informs the comparison and neither side knows what the other does not.
+    visible = [_restrict(row, seen) for row in held_out]
     projection = project(
         pack,
         visible,
@@ -137,10 +151,9 @@ def evaluate(
             {key: str(row.values[key]) for key in conditioning if key in row.values}
             for row in held_out
         ]
-        baseline_predicted, baseline_assigned, baseline_correct = _baseline_draws(
-            pool, held_out, attribute, vocabulary, holdout_seed, conditioning
-        )
-        baseline_stated = _baseline_distributions(pool, held_out, attribute, vocabulary, conditioning)
+        cells = _BaselineCells(pool, attribute, seen, conditioning)
+        baseline_predicted, baseline_assigned, baseline_correct = _baseline_draws(held_out, attribute, vocabulary, holdout_seed, cells)
+        baseline_stated = _baseline_distributions(held_out, attribute, vocabulary, cells)
         dependence_seed = f"{holdout_seed}|{attribute}"
         scores[attribute] = AttributeScore(
             vocabulary=vocabulary,
@@ -160,6 +173,8 @@ def evaluate(
         )
     return HoldoutReport(
         hidden=hidden,
+        information=information,
+        projected_from=seen,
         holdout_seed=holdout_seed,
         population_seed=population_seed if population_seed is not None else holdout_seed,
         completion_temperature=completion_temperature,
@@ -182,38 +197,64 @@ def _draw_holdout(rows: Sequence[DecodedRow], seed: int, share: float) -> set[Ro
     return {rows[index].row_id for index in order[:count]}
 
 
-def _hide(row: DecodedRow, hidden: Sequence[str]) -> DecodedRow:
-    values = {key: value for key, value in row.values.items() if key not in set(hidden)}
+def _restrict(row: DecodedRow, seen: Sequence[str]) -> DecodedRow:
+    """The row as the arm lets projection see it: only the allowed attributes, the hidden ones never among them."""
+    allowed = set(seen)
+    values = {key: value for key, value in row.values.items() if key in allowed}
     return DecodedRow(row_id=row.row_id, source=row.source, values=values, tiers=row.tiers)
 
 
+INFORMATION_ARMS = frozenset({"demographics", "all"})
+# A pool cell must hold this many rows to stand for its own marginal; thinner cells back off to the demographic
+# cell, then to the whole pool. Conditioning on every known attribute otherwise leaves most cells nearly empty,
+# and a baseline fitted to one or two rows would be as misleading as a leak.
+MIN_CELL_ROWS = 5
+
+
+class _BaselineCells:
+    """Each pool marginal of the hidden attribute, keyed by the arm's attributes, with backoff to thinner keys."""
+
+    def __init__(self, pool: Sequence[DecodedRow], attribute: str, seen: Sequence[str], conditioning: Sequence[str]) -> None:
+        self._levels = [tuple(seen)] if tuple(seen) == tuple(conditioning) else [tuple(seen), tuple(conditioning)]
+        self._cells: list[dict[tuple, Counter]] = [defaultdict(Counter) for _ in self._levels]
+        self.overall: Counter = Counter()
+        for row in pool:
+            value = row.values.get(attribute)
+            if value is None:
+                continue
+            self.overall[str(value)] += 1
+            for level, keys in enumerate(self._levels):
+                self._cells[level][_key(row, keys)][str(value)] += 1
+
+    def marginal(self, row: DecodedRow) -> Counter:
+        for level, keys in enumerate(self._levels):
+            counts = self._cells[level].get(_key(row, keys))
+            if counts is not None and sum(counts.values()) >= MIN_CELL_ROWS:
+                return counts
+        return self.overall
+
+
+def _key(row: DecodedRow, keys: Sequence[str]) -> tuple:
+    return tuple((name, str(row.values[name]) if name in row.values else None) for name in keys)
+
+
+
+
 def _baseline_draws(
-    pool: Sequence[DecodedRow],
     held_out: Sequence[DecodedRow],
     attribute: str,
     vocabulary: tuple[str, ...],
     seed: int,
-    conditioning: Sequence[str],
+    cells: "_BaselineCells",
 ) -> tuple[list[Any], list[float], list[bool]]:
-    """Sample each held-out row's attitude from its demographic-conditional marginal in the pool.
-
-    The pool alone decides every marginal, and only the conditioning attributes — never the hidden one —
-    define a cell; an empty cell falls back to the pool-wide marginal, and a value that never appears
-    in the pool draws nothing rather than a guess."""
-    cells: dict[tuple, Counter] = defaultdict(Counter)
-    overall: Counter = Counter()
-    for row in pool:
-        value = row.values.get(attribute)
-        if value is None:
-            continue
-        overall[str(value)] += 1
-        key = tuple(str(row.values[name]) for name in conditioning if name in row.values)
-        cells[key][str(value)] += 1
+    """Sample each held-out row's attitude from its cell's marginal in the pool, keyed by exactly the attributes the
+    arm let projection see. The pool alone decides every marginal, and a value that never appears in the pool draws
+    nothing rather than a guess."""
     predicted: list[Any] = []
     assigned: list[float] = []
     correct: list[bool] = []
     for row in held_out:
-        distribution = cells.get(tuple(str(row.values[name]) for name in conditioning if name in row.values), overall) or overall
+        distribution = cells.marginal(row)
         total = sum(distribution.values())
         if not total:
             continue
@@ -313,29 +354,20 @@ def _brier(stated: Sequence[tuple[Sequence[float], int]], width: int) -> float |
 
 
 def _baseline_distributions(
-    pool: Sequence[DecodedRow],
     held_out: Sequence[DecodedRow],
     attribute: str,
     vocabulary: tuple[str, ...],
-    conditioning: Sequence[str],
+    cells: "_BaselineCells",
 ) -> list[tuple[list[float], int]]:
-    """The baseline's stated distribution for each held-out row — its demographic cell's marginal in the
-    pool, with add-one smoothing so a value the cell never showed is improbable rather than impossible —
+    """The baseline's stated distribution for each held-out row — its cell's marginal in the pool, keyed by the arm's
+    attributes, with add-one smoothing so a value the cell never showed is improbable rather than impossible —
     beside the index of the recorded answer."""
-    cells: dict[tuple, Counter] = defaultdict(Counter)
-    overall: Counter = Counter()
-    for row in pool:
-        value = row.values.get(attribute)
-        if value is None:
-            continue
-        overall[str(value)] += 1
-        cells[tuple(str(row.values[name]) for name in conditioning if name in row.values)][str(value)] += 1
     stated = []
     for row in held_out:
         recorded = row.values.get(attribute)
         if recorded is None or str(recorded) not in vocabulary:
             continue
-        counts = cells.get(tuple(str(row.values[name]) for name in conditioning if name in row.values)) or overall
+        counts = cells.marginal(row)
         total = sum(counts.get(name, 0) for name in vocabulary) + len(vocabulary)
         stated.append(([(counts.get(name, 0) + 1) / total for name in vocabulary], vocabulary.index(str(recorded))))
     return stated
