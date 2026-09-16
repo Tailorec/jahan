@@ -1,0 +1,44 @@
+{
+  "purchase_intent": {
+    "anchor_set_id": "purchase-intent-v1",
+    "construct": "purchase_intent",
+    "version": "v1",
+    "anchor_hash": "7b253b23107a98b43380d3e1632397fad5cb370748641139e09dd2d1b09d516e",
+    "embed_model_id": "amazon.nova-2-multimodal-embeddings-v1:0",
+    "served_model_id": "amazon.nova-2-multimodal-embeddings-v1:0",
+    "passed": false,
+    "expected_ratings": [
+      1.9572970839325763,
+      2.020779457958735,
+      3.277505318237345,
+      3.7075578486009393,
+      3.7822751010423117,
+      3.9316983027796506,
+      3.9530144277996335
+    ],
+    "spearman_min": 0.5,
+    "collapse_distance": 0.6963841265875689,
+    "detail": "rank stability 0.500 is not above 0.8"
+  },
+  "satisfaction": {
+    "anchor_set_id": "satisfaction-v1",
+    "construct": "satisfaction",
+    "version": "v1",
+    "anchor_hash": "85b7386751157fdab44dd6660c898642e31612c7f4ca94d4012e5efe5eec69ce",
+    "embed_model_id": "amazon.nova-2-multimodal-embeddings-v1:0",
+    "served_model_id": "amazon.nova-2-multimodal-embeddings-v1:0",
+    "passed": false,
+    "expected_ratings": [
+      1.9063143739386954,
+      2.2774345250982133,
+      2.9272424972113416,
+      3.4511412445182454,
+      3.5010867018486764,
+      4.107367488258729,
+      3.868218742336699
+    ],
+    "spearman_min": 0.7142857142857143,
+    "collapse_distance": 0.7355188873764649,
+    "detail": "the ladder does not score in strictly increasing expected rating; rank stability 0.714 is not above 0.8"
+  }
+}

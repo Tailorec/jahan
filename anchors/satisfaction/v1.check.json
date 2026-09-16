@@ -3,18 +3,19 @@
   "construct_id": "satisfaction",
   "version": "v1",
   "anchor_hash": "85b7386751157fdab44dd6660c898642e31612c7f4ca94d4012e5efe5eec69ce",
-  "embed_model_id": "embed",
+  "embed_model_id": "amazon.nova-2-multimodal-embeddings-v1:0",
+  "served_model_id": "amazon.nova-2-multimodal-embeddings-v1:0",
   "passed": false,
   "expected_ratings": [
-    2.0001293404062634,
-    2.2602098941593844,
-    3.411027210647503,
-    3.5902746765409654,
-    3.3737787248802067,
-    4.1535837434203104,
-    3.8943424112158462
+    1.9063143739386954,
+    2.2774345250982133,
+    2.9272424972113416,
+    3.4511412445182454,
+    3.5010867018486764,
+    4.107367488258729,
+    3.868218742336699
   ],
   "spearman_min": 0.7142857142857143,
-  "collapse_distance": 0.6897928971995304,
+  "collapse_distance": 0.7355188873764649,
   "detail": "the ladder does not score in strictly increasing expected rating; rank stability 0.714 is not above 0.8"
 }

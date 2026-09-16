@@ -3,18 +3,19 @@
   "construct_id": "purchase_intent",
   "version": "v1",
   "anchor_hash": "7b253b23107a98b43380d3e1632397fad5cb370748641139e09dd2d1b09d516e",
-  "embed_model_id": "embed",
+  "embed_model_id": "amazon.nova-2-multimodal-embeddings-v1:0",
+  "served_model_id": "amazon.nova-2-multimodal-embeddings-v1:0",
   "passed": false,
   "expected_ratings": [
-    1.9317068972784674,
-    2.1115748724852508,
-    3.3042667585620746,
-    3.703029404627626,
-    3.873108947873842,
-    4.018379164941247,
-    4.048966573270634
+    1.9572970839325763,
+    2.020779457958735,
+    3.277505318237345,
+    3.7075578486009393,
+    3.7822751010423117,
+    3.9316983027796506,
+    3.9530144277996335
   ],
   "spearman_min": 0.5,
-  "collapse_distance": 0.7298857384143362,
+  "collapse_distance": 0.6963841265875689,
   "detail": "rank stability 0.500 is not above 0.8"
 }
