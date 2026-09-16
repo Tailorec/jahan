@@ -170,3 +170,16 @@ def test_a_distribution_with_an_impossible_value_never_fails_the_build_when_reno
     assert all(probability >= 0.0 for probability in probabilities)
     assert probabilities[2] == 0.0
     assert abs(sum(probabilities) - 1.0) <= 1e-12
+
+
+def test_a_very_small_completion_temperature_concentrates_on_the_likeliest_value_instead_of_raising():
+    """The contract allows any temperature above zero, but tempering as p ** (1/T) underflowed every probability
+    at T=0.0001 and raised ZeroDivisionError."""
+    from simcore.population._project import _Batch, _accepted_distributions
+
+    batch = _Batch("spend_band", ("5_10", "10_20"), ("p",), False)
+    for temperature in (0.01, 0.0001, 1e-9):
+        probabilities = _accepted_distributions({"p": [0.4, 0.6]}, batch, temperature)["p"].probabilities
+        assert probabilities[1] > 0.99 and abs(sum(probabilities) - 1.0) <= 1e-12
+    widened = _accepted_distributions({"p": [0.4, 0.6]}, batch, 1000.0)["p"].probabilities
+    assert abs(widened[0] - widened[1]) < 0.01  # a high temperature still flattens toward uniform

@@ -285,7 +285,12 @@ def _accepted_distributions(
         if not math.isfinite(total) or total <= 0.0 or abs(total - 1.0) > DISTRIBUTION_TOLERANCE:
             continue
         if completion_temperature != 1.0:
-            probabilities = [probability ** (1.0 / completion_temperature) for probability in probabilities]
+            # Tempered in log space, relative to the likeliest value: p ** (1/T) underflowed every probability
+            # to zero at small temperatures and the renormalisation divided by that zero. Here the likeliest
+            # value becomes exactly one first, so the total can never vanish; an impossible value stays zero.
+            logs = [math.log(probability) if probability > 0.0 else -math.inf for probability in probabilities]
+            top = max(logs)
+            probabilities = [math.exp((log - top) / completion_temperature) if log != -math.inf else 0.0 for log in logs]
         accepted[persona_id] = _normalised(names, probabilities)
     return accepted
 
