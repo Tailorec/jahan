@@ -139,6 +139,8 @@ def _break(staged: Path, mode: str) -> dict[str, int]:
     raw = json.loads((staged / "purchase_intent" / "v1.json").read_text())
     if mode == "reversed":
         raw["sets"] = [list(reversed(anchor_set)) for anchor_set in raw["sets"]]
+    elif mode == "one_set_reversed":
+        raw["sets"] = [list(reversed(raw["sets"][0])), *raw["sets"][1:]]
     elif mode == "duplicated":
         raw["sets"] = [[anchor_set[2]] * 5 for anchor_set in raw["sets"]]
     elif mode == "one_point":
@@ -154,7 +156,7 @@ def _break(staged: Path, mode: str) -> dict[str, int]:
         raise AssertionError(mode)
     (staged / "purchase_intent" / "v1.json").write_text(json.dumps(raw, indent=2))
     levels: dict[str, int] = {}
-    if mode == "reversed":
+    if mode in ("reversed", "one_set_reversed"):
         parsed_sets = raw["sets"]
         original = load_anchor_version(ANCHORS_DIR / "purchase_intent" / "v1.json")
         text_to_level = {}
@@ -225,3 +227,15 @@ def test_a_failing_check_record_still_refuses_pinning(staged: Path):
     check_record_path(staged, "purchase_intent", "v1").write_text(record.model_dump_json() + "\n")
     with pytest.raises(ValueError, match="failed its check"):
         assert_pinnable("purchase-intent-v1", "purchase_intent", "v1", staged)
+
+
+def test_one_set_that_disagrees_with_the_rest_fails_on_rank_stability_alone(staged: Path):
+    """Deleting the rank-stability requirement once left every test passing: each broken case also failed on the ladder
+    or on collapse. Here five sets order the ladder and one reverses it, so the mean still rises and nothing collapses —
+    only the disagreement between sets is wrong, and it alone must fail the check."""
+    levels = _break(staged, "one_set_reversed")
+    result = check_anchors("purchase-intent-v1", "purchase_intent", "v1", LexiconEmbed(levels), staged, write_record=False)
+    assert all(later > earlier for earlier, later in zip(result.expected_ratings, result.expected_ratings[1:]))
+    assert result.collapse_distance > 0.1
+    assert result.spearman_min <= 0.8
+    assert not result.passed and result.detail.startswith("rank stability")
