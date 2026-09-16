@@ -160,6 +160,32 @@ def test_content_appears_only_when_capture_is_explicitly_enabled():
     assert ANSWER_MARK in json.dumps(dict(call.attributes))
 
 
+def echoing_refusal(request, body, sent):
+    """A gateway validation error that quotes the request back, as many do."""
+    quoted = body["messages"][0]["content"]
+    return httpx.Response(400, content=json.dumps({"error": {"type": "invalid_request_error", "code": "bad_param", "message": f"rejected: {quoted}"}}).encode())
+
+
+def test_an_error_body_that_quotes_the_prompt_reaches_neither_a_span_nor_the_recorded_failure():
+    """Failures recorded the endpoint's error text, and a gateway's validation error quotes the request: with
+    capture off, persona content reached a span and the failure the trace records."""
+    client, exporter, _ = instrumented(handler=echoing_refusal, max_retries=0)
+    (outcome,) = client.complete([ask(0)])
+    assert PROMPT_MARK not in outcome.detail
+    assert "400" in outcome.detail and "type=invalid_request_error" in outcome.detail and "code=bad_param" in outcome.detail
+    for span in exporter.get_finished_spans():
+        for key, value in (span.attributes or {}).items():
+            assert PROMPT_MARK not in str(value), (span.name, key)
+
+
+def test_an_error_body_is_attached_to_the_span_only_when_capture_is_enabled():
+    client, exporter, _ = instrumented(capture=True, handler=echoing_refusal, max_retries=0)
+    (outcome,) = client.complete([ask(0)])
+    assert PROMPT_MARK not in outcome.detail  # the recorded failure never carries it, capture or not
+    (call,) = by_name(exporter, "inference.chat")
+    assert PROMPT_MARK in json.dumps(dict(call.attributes))
+
+
 def test_every_gen_ai_attribute_name_is_defined_in_one_module():
     offenders = []
     for path in Path("simcore").rglob("*.py"):

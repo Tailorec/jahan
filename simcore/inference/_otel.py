@@ -42,6 +42,8 @@ SIMCORE_COST = "simcore.inference.cost"
 SIMCORE_COST_SOURCE = "simcore.inference.cost_source"
 SIMCORE_FAILURE_KIND = "simcore.inference.failure.kind"
 SIMCORE_FAILURE_DETAIL = "simcore.inference.failure.detail"
+# An endpoint's error body can quote the request that caused it, so it is content: attached only with capture.
+SIMCORE_FAILURE_BODY = "simcore.inference.failure.body"
 SIMCORE_ATTEMPTS = "simcore.inference.attempts"
 SIMCORE_BATCH_SIZE = "simcore.inference.batch_size"
 SIMCORE_WORLD_SEED = "simcore.world_seed"

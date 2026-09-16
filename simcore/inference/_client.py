@@ -13,6 +13,7 @@ coroutines nor a storm of 429s."""
 
 import asyncio
 import json
+import re
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -61,6 +62,7 @@ from ._otel import (
     SIMCORE_COST_SOURCE,
     SIMCORE_EVENT_FALLBACK,
     SIMCORE_EVENT_RETRY,
+    SIMCORE_FAILURE_BODY,
     SIMCORE_FAILURE_DETAIL,
     SIMCORE_FAILURE_KIND,
     SIMCORE_LATENCY_MS,
@@ -146,6 +148,8 @@ class _Reply:
     """One exchange's outcome plus what the dispatcher should make of it."""
 
     outcome: Completion | CallFailure | EmbeddingVectors
+    # The raw error body, kept only to attach to a span when content capture is enabled — never recorded.
+    body: str | None = None
     retryable: bool = False
     limited: bool = False
     wait_s: float | None = None
@@ -334,6 +338,8 @@ class InferenceClient:
                 finish(span, ok=True, attributes={GEN_AI_RESPONSE_MODEL: reply.outcome.served_model_id, GEN_AI_USAGE_INPUT_TOKENS: reply.outcome.input_tokens, SIMCORE_COST: cost.cost, SIMCORE_COST_SOURCE: cost.cost_source.value, SIMCORE_ROUTE: cost.route.value})
                 return EmbeddingResult(vectors=vectors, model_id=pin.model_id, served_model_id=reply.outcome.served_model_id, normalization=EMBEDDING_NORMALIZATION, dim=dimension, costs=(cost,))
             assert isinstance(reply.outcome, CallFailure)
+            if self.settings.content_capture and reply.body:
+                record(span, {SIMCORE_FAILURE_BODY: reply.body})
             if not reply.retryable or attempts > self.settings.max_retries:
                 finish(span, ok=False, attributes=_outcome_attributes(reply.outcome))
                 raise EmbeddingFailure(reply.outcome)
@@ -356,7 +362,8 @@ class InferenceClient:
         if response.status_code >= 400:
             fatal = response.status_code >= 500
             return _Reply(
-                CallFailure(kind=FailureKind.FATAL_RESPONSE, detail=f"the embedding endpoint answered {response.status_code}: {response.text[:200]}", attempts=attempts, route=InferenceRoute.PRIMARY),
+                CallFailure(kind=FailureKind.FATAL_RESPONSE, detail=_refusal("the embedding endpoint", response), attempts=attempts, route=InferenceRoute.PRIMARY),
+                body=response.text,
                 retryable=fatal,
                 fatal_status=None if fatal else response.status_code,
             )
@@ -518,6 +525,8 @@ class InferenceClient:
                 await self._ceiling.restore()
             if reply.fatal_status is not None:
                 self._trip(pin, route, reply.fatal_status)
+            if self.settings.content_capture and reply.body:
+                record(span, {SIMCORE_FAILURE_BODY: reply.body})
             if not reply.retryable or attempts > self.settings.max_retries:
                 if isinstance(reply.outcome, CallFailure):
                     record(span, {SIMCORE_FAILURE_KIND: reply.outcome.kind.value, SIMCORE_FAILURE_DETAIL: reply.outcome.detail})
@@ -584,12 +593,8 @@ class InferenceClient:
             )
         if response.status_code >= 500:
             return _Reply(
-                CallFailure(
-                    kind=FailureKind.FATAL_RESPONSE,
-                    detail=f"the endpoint answered {response.status_code}: {response.text[:200]}",
-                    attempts=attempts,
-                    route=route,
-                ),
+                CallFailure(kind=FailureKind.FATAL_RESPONSE, detail=_refusal("the endpoint", response), attempts=attempts, route=route),
+                body=response.text,
                 retryable=True,
                 # An outage is not a refusal: a run of 503s is a provider recovering, and counting it toward
                 # the circuit would leave the client refusing every call after the endpoint came back.
@@ -598,12 +603,8 @@ class InferenceClient:
             # 400, 401, 403, 404 and 422 — a malformed request, an invalid key, a forbidden one, an
             # unknown model, an unprocessable body — are fatal at once. Retrying a refusal only spends.
             return _Reply(
-                CallFailure(
-                    kind=FailureKind.FATAL_RESPONSE,
-                    detail=f"the endpoint answered {response.status_code}: {response.text[:200]}",
-                    attempts=attempts,
-                    route=route,
-                ),
+                CallFailure(kind=FailureKind.FATAL_RESPONSE, detail=_refusal("the endpoint", response), attempts=attempts, route=route),
+                body=response.text,
                 fatal_status=response.status_code,
             )
         try:
@@ -716,6 +717,28 @@ class InferenceClient:
             temp=request.temp,
             sample=request.sample,
         )
+
+
+_ERROR_LABEL = re.compile(r"^[A-Za-z0-9_.:\-]{1,64}$")
+
+
+def _refusal(who: str, response: httpx.Response) -> str:
+    """What a failure records about an error response: its status and the error's machine-readable type
+    and code where they are plain identifiers — never the body's text. A gateway's validation error can
+    quote the request that caused it, and a request carries persona values from a research-only corpus,
+    so the body reaches neither the trace nor a span unless content capture is enabled (ADR 0016, 0022)."""
+    labels = []
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = None
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if isinstance(error, dict):
+        for name in ("type", "code"):
+            value = error.get(name)
+            if isinstance(value, (str, int)) and not isinstance(value, bool) and _ERROR_LABEL.match(str(value)):
+                labels.append(f"{name}={value}")
+    return f"{who} answered {response.status_code}" + (f" ({', '.join(labels)})" if labels else "")
 
 
 def _oversized(estimate: float, per_minute: float | None) -> str:
