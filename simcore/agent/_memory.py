@@ -69,12 +69,18 @@ def write_memory(
     importance: float,
     source: MemorySource,
     embed=None,
+    costs: list | None = None,
 ) -> MemoryEvent:
-    """A new memory event, embedded once through the port when written."""
+    """A new memory event, embedded once through the port when written.
+
+    `costs` collects what the embedding billed, so the turn that wrote the memory carries it.
+    """
     embedding: tuple[float, ...] | None = None
     model_id: str | None = None
     if embed is not None:
         result = embed.embed([description])
+        if costs is not None:
+            costs.extend(result.costs)
         embedding = tuple(float(value) for value in np.asarray(result.vectors[0], dtype=np.float64))
         model_id = result.served_model_id or result.model_id
     return MemoryEvent(
@@ -113,6 +119,7 @@ def retrieve(
     k: int,
     tau_r: float,
     embed=None,
+    costs: list | None = None,
 ) -> tuple[MemoryEvent, ...]:
     """The k most relevant of the given memories — the persona's own, never another's.
 
@@ -123,6 +130,8 @@ def retrieve(
     if embed is not None:
         result = embed.embed([stimulus_text])
         stimulus_vector = np.asarray(result.vectors[0], dtype=np.float64)
+        if costs is not None:
+            costs.extend(result.costs)
     ranked = sorted(
         memories,
         key=lambda memory: score_memory(memory, stimulus_vector=stimulus_vector, tick=tick, tau_r=tau_r),

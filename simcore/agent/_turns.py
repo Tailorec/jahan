@@ -92,6 +92,9 @@ def turns(
     cache = blocks if blocks is not None else PersonaBlockCache()
     prepared = [_prepare(job, cfg, ontology, cache, embed, stimulus_texts) for job in jobs]
     first = _dispatch(chat, [(position, item.request) for position, item in enumerate(prepared) if item.request is not None])
+    for position, item in enumerate(prepared):
+        if item.request is not None:
+            _bill(item, first[position])
     reacted = [_react(item, first[position], position) for position, item in enumerate(prepared) if item.request is not None]
 
     rejected = [entry for entry in reacted if entry.failure is None and _rejection(entry) is not None]
@@ -99,6 +102,7 @@ def turns(
         chat, [(entry.position, _strict_request(entry, cfg)) for entry in rejected]
     )
     for entry in rejected:
+        _bill(entry.item, retried[entry.position])
         _rereact(entry, retried[entry.position])
 
     answerable = [entry for entry in reacted if entry.failure is None and entry.parsed is not None]
@@ -113,11 +117,14 @@ def turns(
     )
     due = [entry for entry in answerable if _due(entry, cfg)]
     second = _dispatch(chat, [(entry.position, _reflection_request(entry, cfg)) for entry in due])
+    for entry in due:
+        _bill(entry.item, second.get(entry.position))
 
     probed = [_probe_entry(entry, cfg) for entry in answerable]
     probed = [entry for entry in probed if entry is not None]
     third = _dispatch(chat, [(entry.position, entry.request) for entry in probed])
     for entry in probed:
+        _bill(entry.entry.item, third.get(entry.position))
         entry.answers = parse_probe_answers(third[entry.position].text, len(entry.asked)) if isinstance(
             third[entry.position], Completion
         ) else None
@@ -141,6 +148,15 @@ def turns(
                 )
             )
     return tuple(results)
+
+
+def _bill(item: _Prepared, outcome: Completion | CallFailure | None) -> None:
+    """Fold what one call billed into the job's own record, answered or not."""
+    if isinstance(outcome, Completion):
+        item.costs.append(outcome.cost)
+        item.costs.extend(outcome.discarded_costs)
+    elif isinstance(outcome, CallFailure):
+        item.costs.extend(outcome.costs)
 
 
 def _dispatch(chat, calls: list[tuple[int, ChatRequest]]) -> dict[int, Completion | CallFailure]:
@@ -171,7 +187,7 @@ def _due(entry: _Reacted, cfg: AgentConfig) -> bool:
 
 
 class _Prepared:
-    __slots__ = ("assembled", "early", "job", "memory_ids", "persona_block", "persona_block_hash", "request", "retrieved")
+    __slots__ = ("assembled", "costs", "early", "job", "memory_ids", "persona_block", "persona_block_hash", "request", "retrieved")
 
     def __init__(
         self,
@@ -183,6 +199,7 @@ class _Prepared:
         persona_block: str = "",
         assembled: AssembledContext | None = None,
         retrieved: tuple[str, ...] = (),
+        costs: list | None = None,
     ) -> None:
         self.job = job
         self.request = request
@@ -191,6 +208,8 @@ class _Prepared:
         self.early = early
         self.persona_block = persona_block
         self.assembled = assembled
+        # Every call this job made, as the ports billed it; the outcome carries them out.
+        self.costs = list(costs or ())
         self.retrieved = retrieved
 
 
@@ -239,6 +258,7 @@ def _prepare(
     stimulus_texts: Mapping[str, str] | None,
 ) -> _Prepared:
     impression = job.presentation.impression
+    spent: list = []
     if ontology is None:
         block = render_persona_block(job.persona.conditioning, job.persona.attributes)
         block_hash = hash_text(block)
@@ -255,6 +275,7 @@ def _prepare(
                 impression_id=impression.impression_id,
                 kind=TurnFailureKind.UNCONDITIONED,
                 detail="refused before dispatch: the persona block is empty, so the turn would answer as nobody in particular",
+                costs=(),
             ),
             block,
         )
@@ -272,6 +293,7 @@ def _prepare(
         k=cfg.top_k[tier],
         tau_r=tau_r,
         embed=embed,
+        costs=spent,
     )
     memory_texts = tuple(f"[tick {memory.tick}] {memory.description}" for memory in recalled)
     memory_ids = tuple(memory.memory_id for memory in recalled)
@@ -298,6 +320,7 @@ def _prepare(
                 impression_id=impression.impression_id,
                 kind=TurnFailureKind.CONTEXT_BUDGET_EXCEEDED,
                 detail=f"refused before dispatch: {error}",
+                costs=tuple(spent),
             ),
             block,
         )
@@ -311,6 +334,7 @@ def _prepare(
     return _Prepared(
         job, request, block_hash, memory_ids, None, block, assembled,
         tuple(memory.description for memory in recalled),
+        spent,
     )
 
 
@@ -327,6 +351,7 @@ def _react(item: _Prepared, outcome: Completion | CallFailure, position: int) ->
                 impression_id=impression.impression_id,
                 kind=TurnFailureKind.CALL_FAILED,
                 detail=f"the {outcome.kind.value} call failed: {outcome.detail}",
+                costs=tuple(item.costs),
             ),
         )
     try:
@@ -354,6 +379,7 @@ def _rereact(entry: _Reacted, outcome: Completion | CallFailure) -> None:
             impression_id=impression.impression_id,
             kind=TurnFailureKind.CALL_FAILED,
             detail=f"the stricter retry's call failed: {outcome.detail}",
+            costs=tuple(entry.item.costs),
         )
         return
     try:
@@ -380,6 +406,7 @@ def _rereact(entry: _Reacted, outcome: Completion | CallFailure) -> None:
             detail=rejection.detail,
             rule=rejection.rule,
             prompt_hashes=(first_hash, outcome.prompt_hash),
+            costs=tuple(entry.item.costs),
         )
         return
     assert parsed is not None
@@ -462,6 +489,7 @@ def _reflection_memories(
                     importance=CONSOLIDATED_IMPORTANCE,
                     source=MemorySource.REFLECTION,
                     embed=embed,
+                    costs=entry.item.costs,
                 )
                 for index, sentence in enumerate(split_summary(parsed.summary))
             )
@@ -474,6 +502,7 @@ def _reflection_memories(
         importance=CONSOLIDATED_IMPORTANCE,
         source=MemorySource.REFLECTION,
         embed=embed,
+        costs=entry.item.costs,
     )
     return BeliefChange(), (fallback,)
 
@@ -529,6 +558,7 @@ def _finalize(
         importance=importance,
         source=MemorySource.TURN,
         embed=embed,
+        costs=entry.item.costs,
     )
     completed = CompletedTurn(
         turn=turn,
@@ -540,6 +570,7 @@ def _finalize(
         memories=(remembered, *consolidated),
         belief_change=change,
         probe=_probe_payload(probed, tick),
+        costs=tuple(entry.item.costs),
     )
     return completed
 
