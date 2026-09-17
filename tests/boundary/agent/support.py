@@ -50,10 +50,27 @@ def impression_of(messages: Sequence[ChatMessage]) -> dict:
 
 
 def answering(action: str = "comment", verbatim: str = "the protein claim would get me", subject: str | None = None):
-    """A responder that answers about the impression's first exposure (or the named subject)."""
+    """A responder that answers about the impression's first exposure (or the named subject).
+
+    Probe requests are answered from the persona block, so a shared responder keeps working
+    on probed ticks.
+    """
 
     def respond(messages: Sequence[ChatMessage], template_id: str) -> str:
-        shown = impression_of(messages)["exposures"]
+        user = json.loads(next(message for message in reversed(messages) if message.get("role") == "user")["content"])
+        if "questions" in user:
+            system = messages[0]["content"]
+            known = {}
+            for line in system.splitlines():
+                if line.startswith("- ") and ": " in line:
+                    name, _, value = line[2:].partition(": ")
+                    known[name.strip()] = value.strip()
+            answers = []
+            for question in user["questions"]:
+                attribute = question.replace("What is your ", "").rstrip("?")
+                answers.append(known.get(attribute, "?"))
+            return json.dumps({"answers": answers})
+        shown = json.loads(user["impression"])["exposures"]
         target = subject or shown[0]["stimulus_id"]
         return json.dumps({"subject_stimulus_id": target, "action": action, "verbatim": verbatim})
 
