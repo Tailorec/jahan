@@ -17,6 +17,7 @@ from .clock import (
 )
 from .env import ForumPreset, RecsysMode, World, WorldConfig, forget, reset, step
 from .platform import AFFORDANCES, is_supported
+from .recsys import exposure_concentration, random_order, reason_for
 from .replay import ReplayDivergence, check_replay, resume
 from .replay import run as replay_run
 
@@ -35,6 +36,7 @@ __all__ = [
     "check_replay",
     "forget",
     "is_supported",
+    "exposure_concentration",
     "replay_run",
     "reset",
     "resume",

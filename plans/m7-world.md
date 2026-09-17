@@ -125,12 +125,12 @@ How much a persona sees, and the baseline against which ranking effects are meas
 
 ### Acceptance criteria
 
-- [ ] The exposure budget is never exceeded, and no impression exceeds it
-- [ ] Every drop records the persona it was dropped for and its reason
-- [ ] The budget default is 3 and is configurable per scenario
-- [ ] `random` selects without reference to engagement, deterministically under a seed
-- [ ] Exposure concentration under `random` is measurable on a fixture, giving the baseline later modes are compared against
-- [ ] Exposures keep their per-stimulus attention, reason and seen flag
+- [x] The exposure budget is never exceeded, and no impression exceeds it
+- [x] Every drop records the persona it was dropped for and its reason
+- [x] The budget default is 3 and is configurable per scenario
+- [x] `random` selects without reference to engagement, deterministically under a seed
+- [x] Exposure concentration under `random` is measurable on a fixture, giving the baseline later modes are compared against
+- [x] Exposures keep their per-stimulus attention, reason and seen flag
 
 ---
 

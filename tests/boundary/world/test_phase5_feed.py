@@ -11,10 +11,12 @@ import json
 
 from simcore.schemas import Channel
 from simcore.world import WorldConfig
+from tests.study_builders import scenario_payload
 
 from .helpers import act_turn, answer_turn, make_population, make_world
 
-FEED = WorldConfig(platform="social_feed", exposure_budget=6)
+FEED = WorldConfig(platform="social_feed")
+WIDE = scenario_payload(exposure_budget=6)
 
 PLAN = {
     "p-000001": ("post", "tried it after the gym, genuinely smooth"),
@@ -32,7 +34,7 @@ def drive_feed(plan=None):
     and the deltas for ticks 1, 2 and 3.
     """
     population = make_population()
-    world = make_world(config=FEED, population=population)
+    world = make_world(config=FEED, population=population, scenario=WIDE)
     world.reset()
     first = world.step(1, [])
     by_persona = {p.impression.persona_id: p for p in first.presentations}
@@ -61,7 +63,7 @@ def test_the_feed_supports_post_comment_like_repost_quote_and_follow():
     assert "engagement:" in world.state_dump()
 
     population = make_population()
-    world2 = make_world(config=FEED, population=population)
+    world2 = make_world(config=FEED, population=population, scenario=WIDE)
     world2.reset()
     tick1 = world2.step(1, [])
     by_persona = {p.impression.persona_id: p for p in tick1.presentations}
@@ -89,16 +91,20 @@ def test_everything_seen_on_one_channel_in_one_tick_is_one_impression():
 
 def test_a_view_carries_counts_ancestry_tie_and_community_and_nothing_else():
     world, first, _, third = drive_feed()
-    commented = first.presentations[0].impression.exposures[0].stimulus_id
+    shown_at = {
+        p.impression.persona_id: p.impression.exposures[0].stimulus_id for p in first.presentations
+    }
+    liked, commented = shown_at["p-000003"], shown_at["p-000002"]
     rows = world._store.stimuli_published_before(4)
     post_id = next(s["stimulus_id"] for s in rows if s["kind"] == "peer_post")
     reply_id = next(s["stimulus_id"] for s in rows if s["kind"] == "peer_reply")
     for presentation in third.presentations:
         viewer = presentation.impression.persona_id
-        concept_view = presentation.view.contexts[commented]
-        assert concept_view.likes == 1
-        assert concept_view.replies == 1
-        assert concept_view.tie_strength is None and concept_view.shared_community is None
+        assert presentation.view.contexts[liked].likes == 1
+        assert presentation.view.contexts[commented].replies == 1
+        # Both targets are study stimuli, so no author relationship travels with them.
+        assert presentation.view.contexts[commented].tie_strength is None
+        assert presentation.view.contexts[commented].shared_community is None
         peer_view = presentation.view.contexts[post_id]
         assert peer_view.ancestry == ()
         if viewer == "p-000001":
@@ -151,7 +157,7 @@ def test_no_view_carries_private_state_or_aggregate_outcomes():
 
 def test_engagement_counts_include_only_engagement_from_earlier_ticks():
     population = make_population()
-    world = make_world(config=FEED, population=population)
+    world = make_world(config=FEED, population=population, scenario=WIDE)
     world.reset()
     first = world.step(1, [])
     by_persona = {p.impression.persona_id: p for p in first.presentations}

@@ -38,7 +38,7 @@ from simcore.schemas import (
     derive_world_seed,
 )
 
-from . import _ids
+from . import _ids, recsys
 from ._seeds import derive_int
 from .clock import activated_personas, activation_probability
 from .platform import is_supported
@@ -404,8 +404,16 @@ class World:
     _FEED_KINDS = frozenset({"concept", "claim_post", "peer_post", "peer_reply"})
 
     def _budget(self) -> int:
-        """Stimuli one persona can be shown per channel per tick; the survey room always shows one."""
-        return self._config.exposure_budget or self._scenario.exposure_budget
+        """Stimuli one persona can be shown per channel per tick.
+
+        The scenario's budget is the ceiling — a partition showing more would
+        not validate — and the study may tighten it, never loosen it. The
+        survey room always shows exactly one.
+        """
+        scenario_budget = self._scenario.exposure_budget
+        if self._config.exposure_budget is None:
+            return scenario_budget
+        return min(self._config.exposure_budget, scenario_budget)
 
     def _feed_presentations(self, tick: int) -> tuple[list[Presentation], list[DroppedExposure]]:
         """The social feed: ranked candidates grouped into one impression per persona.
@@ -423,17 +431,15 @@ class World:
         budget = self._budget()
         counts = self._store.counts_visible_at(tick)
         authors = {row["stimulus_id"]: row["author"] for row in candidates}
+        candidate_ids = [row["stimulus_id"] for row in candidates]
+        reason = recsys.reason_for(self._config.recsys_mode.value)
         presentations: list[Presentation] = []
         dropped: list[DroppedExposure] = []
         for persona_id in self._activated(tick):
-            shown = [row["stimulus_id"] for row in candidates[:budget]]
+            ordered = self._rank(persona_id, tick, candidate_ids, counts)
+            shown = ordered[:budget]
             exposures = tuple(
-                Exposure(
-                    stimulus_id=stimulus_id,
-                    reason=ExposureReason.INTEREST if authors[stimulus_id] is None else ExposureReason.SOCIAL_PROOF,
-                    attention=1.0,
-                )
-                for stimulus_id in shown
+                Exposure(stimulus_id=stimulus_id, reason=reason, attention=1.0) for stimulus_id in shown
             )
             impression = Impression(
                 impression_id=_ids.impression_id(self._world_seed, tick, persona_id, Channel.SOCIAL_FEED.value),
@@ -449,19 +455,29 @@ class World:
             presentations.append(
                 Presentation(impression=impression, view=View(impression_id=impression.impression_id, contexts=contexts))
             )
-            for row in candidates[budget:]:
+            missed = [stimulus_id for stimulus_id in ordered[budget:]]
+            for stimulus_id in missed:
                 dropped.append(
                     DroppedExposure(
                         persona_id=persona_id,
                         drop=ExposureDropped(
                             kind="exposure_dropped",
-                            stimulus_id=row["stimulus_id"],
+                            stimulus_id=stimulus_id,
                             channel=Channel.SOCIAL_FEED,
                             reason="budget_exhausted",
                         ),
                     )
                 )
         return presentations, dropped
+
+    def _rank(
+        self, persona_id: str, tick: int, candidate_ids: list[str], counts: dict[str, dict[str, int]]
+    ) -> list[str]:
+        """Order candidates for one persona under the world's recsys mode."""
+        mode = self._config.recsys_mode
+        if mode is RecsysMode.RANDOM:
+            return recsys.random_order(candidate_ids, self._world_seed, tick, persona_id)
+        raise ValueError(f"the {mode.value} recsys mode lands in a later phase")
 
     def _context_for(
         self, viewer: str, stimulus_id: str, author: str | None, counts: dict[str, dict[str, int]]
