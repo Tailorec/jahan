@@ -186,3 +186,24 @@ def memory_dict(n: int, tick: int, description: str, importance: float = 0.5, em
         payload["embedding"] = list(embedding)
         payload["embed_model_id"] = DictEmbed.model_id
     return payload
+
+
+class BatchCountingChat(FakeChat):
+    """A fake recording each batched call's template ids, so retry and reflection rounds are visible."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.batches: list[list[str]] = []
+
+    def complete(self, requests):
+        self.batches.append([request.template_id for request in requests])
+        return super().complete(requests)
+
+
+def inventing(target: str, verbatim: str = "I loved that other thing"):
+    """A responder that answers about a stimulus the impression never showed."""
+
+    def respond(messages: Sequence[ChatMessage], template_id: str) -> str:
+        return json.dumps({"subject_stimulus_id": target, "action": "comment", "verbatim": verbatim})
+
+    return respond
