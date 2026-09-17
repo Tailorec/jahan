@@ -33,12 +33,12 @@ The types the agent's boundary needs and the trace payloads its output requires.
 
 ### Acceptance criteria
 
-- [ ] `PersonaState` holds beliefs, that persona's memory events and its reflection counters, and is frozen like every other contract
-- [ ] A memory event carries its tick, description, importance, source and the embedding used to retrieve it
-- [ ] `TurnJob` and `TurnOutcome` exist, and an outcome is either a completed turn or a recorded failure naming its kind — never both, never neither
-- [ ] Trace payloads exist for a memory event, a belief snapshot and a probe result, and `TurnRecorded.memory_ids` resolves to memory events that exist
-- [ ] Pinned identities are re-pinned, with the change recorded in the commit that moves them
-- [ ] The existing suite passes unchanged in behaviour
+- [x] `PersonaState` holds beliefs, that persona's memory events and its reflection counters, and is frozen like every other contract
+- [x] A memory event carries its tick, description, importance, source and the embedding used to retrieve it
+- [x] `TurnJob` and `TurnOutcome` exist, and an outcome is either a completed turn or a recorded failure naming its kind — never both, never neither
+- [x] Trace payloads exist for a memory event, a belief snapshot and a probe result, and `TurnRecorded.memory_ids` resolves to memory events that exist
+- [x] Pinned identities are re-pinned, with the change recorded in the commit that moves them
+- [x] The existing suite passes unchanged in behaviour
 
 ---
 
@@ -52,12 +52,12 @@ The module's shape made true on the narrowest possible path: a batch of jobs in,
 
 ### Acceptance criteria
 
-- [ ] A batch returns one outcome per job, in request order
-- [ ] One persona's failed call is recorded as its own outcome, and every other job in the batch still produces one
-- [ ] `turns([job])[0]` is the single-persona path, with no separate code path behind it
-- [ ] Each job's prompt contains that persona's block and no other persona's attributes, beliefs or reactions
-- [ ] A reaction records the impression it saw and the `subject_stimulus_id` it is about, even when the impression held several exposures
-- [ ] A reaction carries no aggregate outcome, asserted over the assembled context
+- [x] A batch returns one outcome per job, in request order
+- [x] One persona's failed call is recorded as its own outcome, and every other job in the batch still produces one
+- [x] `turns([job])[0]` is the single-persona path, with no separate code path behind it
+- [x] Each job's prompt contains that persona's block and no other persona's attributes, beliefs or reactions
+- [x] A reaction records the impression it saw and the `subject_stimulus_id` it is about, even when the impression held several exposures
+- [x] A reaction carries no aggregate outcome, asserted over the assembled context
 
 ---
 
@@ -71,12 +71,12 @@ The invariant the module exists to own. Attributes the category ontology selects
 
 ### Acceptance criteria
 
-- [ ] The persona block renders from ontology-selected attributes, and a category that selects different attributes produces a different block
-- [ ] The block is rendered once per persona per run and reused across ticks, with its hash recorded on every turn
-- [ ] Dispatch is refused when the persona block is empty, and the refusal is loud and recorded
-- [ ] Conditioned and unconditioned contexts produce measurably different distributions, in the direction the literature reports
-- [ ] The token budget is respected per tier, dropping memories before beliefs
-- [ ] A budget that would drop the persona block fails the turn instead of dropping it
+- [x] The persona block renders from ontology-selected attributes, and a category that selects different attributes produces a different block
+- [x] The block is rendered once per persona per run and reused across ticks, with its hash recorded on every turn
+- [x] Dispatch is refused when the persona block is empty, and the refusal is loud and recorded
+- [x] Conditioned and unconditioned contexts produce measurably different distributions, in the direction the literature reports
+- [x] The token budget is respected per tier, dropping memories before beliefs
+- [x] A budget that would drop the persona block fails the turn instead of dropping it
 
 ---
 
@@ -90,12 +90,12 @@ What a persona remembers and what it recalls when it looks at something. A turn 
 
 ### Acceptance criteria
 
-- [ ] A turn writes memory events carrying tick, description, importance, source and embedding
-- [ ] Importance follows the rule deterministically, and no extra model call is made for it on tier A
-- [ ] Retrieval returns the k most relevant memories under a known fixture, k by tier
-- [ ] Retrieval never returns another persona's memory, asserted against a fixture where another persona's memories would score higher
-- [ ] A memory is embedded once when written and never re-embedded at retrieval
-- [ ] Retrieved memories appear in the assembled context and are dropped first when the budget binds
+- [x] A turn writes memory events carrying tick, description, importance, source and embedding
+- [x] Importance follows the rule deterministically, and no extra model call is made for it on tier A
+- [x] Retrieval returns the k most relevant memories under a known fixture, k by tier
+- [x] Retrieval never returns another persona's memory, asserted against a fixture where another persona's memories would score higher
+- [x] A memory is embedded once when written and never re-embedded at retrieval
+- [x] Retrieved memories appear in the assembled context and are dropped first when the budget binds
 
 ---
 
@@ -109,12 +109,12 @@ How a persona changes. Belief deltas apply across the closed dimension set and p
 
 ### Acceptance criteria
 
-- [ ] Belief deltas apply across dimensions and per claim, and a flip on a single claim is visible when aggregate belief barely moves
-- [ ] Reflection fires at the jittered cadence and at the delta threshold, and not otherwise
-- [ ] The jitter is derived from the run seed, so a rerun reflects on the same ticks
-- [ ] Reflection writes a belief snapshot and one to three consolidated high-importance memories
-- [ ] A persona's memories are capped, and consolidation keeps the cap without discarding the highest-importance items
-- [ ] State after N ticks is bounded in size, asserted over a long-horizon fixture
+- [x] Belief deltas apply across dimensions and per claim, and a flip on a single claim is visible when aggregate belief barely moves
+- [x] Reflection fires at the jittered cadence and at the delta threshold, and not otherwise
+- [x] The jitter is derived from the run seed, so a rerun reflects on the same ticks
+- [x] Reflection writes a belief snapshot and one to three consolidated high-importance memories
+- [x] A persona's memories are capped, and consolidation keeps the cap without discarding the highest-importance items
+- [x] State after N ticks is bounded in size, asserted over a long-horizon fixture
 
 ---
 
@@ -128,12 +128,12 @@ What happens when the model invents. Output is parsed per task type; a response 
 
 ### Acceptance criteria
 
-- [ ] A stimulus absent from context triggers the guardrail path exactly once
-- [ ] A turn accepted on retry records the hash of the prompt it rejected
-- [ ] A turn whose retry also fails records a violation and no reaction
-- [ ] Unparseable output follows the same one-retry path
-- [ ] The two rules are the only guardrails, asserted over the module so a third cannot be added silently
-- [ ] The violation's two prompt hashes differ, so a retry that changed nothing cannot be recorded as one
+- [x] A stimulus absent from context triggers the guardrail path exactly once
+- [x] A turn accepted on retry records the hash of the prompt it rejected
+- [x] A turn whose retry also fails records a violation and no reaction
+- [x] Unparseable output follows the same one-retry path
+- [x] The two rules are the only guardrails, asserted over the module so a third cannot be added silently
+- [x] The violation's two prompt hashes differ, so a retry that changed nothing cannot be recorded as one
 
 ---
 
@@ -147,12 +147,12 @@ Which model answers, and what happens to what it says. The routing table — `{f
 
 ### Acceptance criteria
 
-- [ ] Tier routing matches the configuration table for every event class, and the table is data a study can change
-- [ ] A purchase-intent turn with a pinned, passing anchor version records an `SsrResult` on the reaction
-- [ ] A purchase-intent turn with no pinned version records the verbatim and the elicitation failure, and no distribution
-- [ ] No code path asks a model for a rating, asserted over the module
-- [ ] Tier-B importance rating rides inside the call already being made, adding no call of its own
-- [ ] Tier-A turns in one tick coalesce into batches through the inference client rather than one call per persona
+- [x] Tier routing matches the configuration table for every event class, and the table is data a study can change
+- [x] A purchase-intent turn with a pinned, passing anchor version records an `SsrResult` on the reaction
+- [x] A purchase-intent turn with no pinned version records the verbatim and the elicitation failure, and no distribution
+- [x] No code path asks a model for a rating, asserted over the module
+- [x] Tier-B importance rating rides inside the call already being made, adding no call of its own
+- [x] Tier-A turns in one tick coalesce into batches through the inference client rather than one call per persona
 
 ---
 
@@ -166,12 +166,12 @@ Turning drift from a worry into a number. A seeded 2% sample of activated person
 
 ### Acceptance criteria
 
-- [ ] The probe samples the configured share of activated personas on the configured cadence, derived from the run seed
-- [ ] Probe questions are drawn from the persona's own attributes, and a persona with a different attribute is asked a different question
-- [ ] The probe runs on tier A and adds no tier-B call
-- [ ] A probe result is recorded with the persona, the questions, the answers and whether each agreed
-- [ ] The run's disagreement rate is derivable from the trace alone
-- [ ] A probe answer that disagrees does not fail the turn or alter the reaction — drift is measured, not corrected
+- [x] The probe samples the configured share of activated personas on the configured cadence, derived from the run seed
+- [x] Probe questions are drawn from the persona's own attributes, and a persona with a different attribute is asked a different question
+- [x] The probe runs on tier A and adds no tier-B call
+- [x] A probe result is recorded with the persona, the questions, the answers and whether each agreed
+- [x] The run's disagreement rate is derivable from the trace alone
+- [x] A probe answer that disagrees does not fail the turn or alter the reaction — drift is measured, not corrected
 
 ---
 
@@ -185,9 +185,9 @@ Proof that the state crossing the boundary is the state the trace describes, and
 
 ### Acceptance criteria
 
-- [ ] State rebuilt from replayed trace events equals the state carried through the run, memory for memory and belief for belief
-- [ ] Two processes produce identical outcomes from identical jobs under a fixed seed
-- [ ] A resumed run continues from checkpointed state without re-running completed turns
-- [ ] `FINAL_ARCH.md` §5.6 describes the batch interface and the state that crosses it, and no claim contradicts the code
-- [ ] `SALVAGE.md` and `CONTEXT.md` describe what was built
-- [ ] Any defect this phase exposes is fixed with a test that fails on the old code
+- [x] State rebuilt from replayed trace events equals the state carried through the run, memory for memory and belief for belief
+- [x] Two processes produce identical outcomes from identical jobs under a fixed seed
+- [x] A resumed run continues from checkpointed state without re-running completed turns
+- [x] `FINAL_ARCH.md` §5.6 describes the batch interface and the state that crosses it, and no claim contradicts the code
+- [x] `SALVAGE.md` and `CONTEXT.md` describe what was built
+- [x] Any defect this phase exposes is fixed with a test that fails on the old code
