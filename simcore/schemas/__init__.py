@@ -199,6 +199,7 @@ from .trace import (
     BeliefSnapshot,
     ProbeRecorded,
     WorldRecord,
+    check_registry_update,
     read_partition,
 )
 
@@ -409,6 +410,7 @@ __all__ = [
     "derive_world_seed",
     "ensure_same_tick_unit",
     "hash_payload",
+    "check_registry_update",
     "read_partition",
     "resolve_audience_weights",
     "weakest_origin",

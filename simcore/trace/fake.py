@@ -7,7 +7,7 @@ test that passes here constrains the production path too.
 
 from collections.abc import Iterable, Sequence
 
-from simcore.schemas import RunRegistryEntry, TraceEvent
+from simcore.schemas import check_registry_update, RunRegistryEntry, TraceEvent
 
 from . import derive as _derive
 from .errors import DuplicateEntryError, UnknownRunError, DuplicateSequenceError
@@ -84,15 +84,5 @@ class InMemoryRunRegistry:
         held = self._entries.get(entry.config.run_id)
         if held is None:
             raise UnknownRunError(f"no entry for run {entry.config.run_id}")
-        moved = [
-            name
-            for name, was, now in (
-                ("configuration", held.config_hash, entry.config_hash),
-                ("engine version", held.engine_version, entry.engine_version),
-                ("contract version", held.contract_version, entry.contract_version),
-            )
-            if was != now
-        ]
-        if moved:
-            raise ValueError(f"an update moves a run's progress, never what a replay pins: {', '.join(moved)}")
+        check_registry_update(held, entry)
         self._entries[entry.config.run_id] = entry

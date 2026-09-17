@@ -119,3 +119,25 @@ def test_an_update_cannot_rewrite_what_a_replay_rests_on(tmp_path):
         registry.update(entry.model_copy(update={"engine_version": "deadbee"}))
     with pytest.raises(ValueError, match="pins"):
         registry.update(entry.model_copy(update={"contract_version": "9.9.9"}))
+
+
+def test_a_recorded_forced_resume_may_re_pin_the_engine(tmp_path):
+    """ADR 0036 allows a forced resume and requires it to be recorded. Two implementations of
+    the same rule disagreed — the runner recorded the force on the entry, this registry refused
+    the re-pin outright — so a forced resume died on the real registry and passed against the
+    fake. One rule, in `schemas`, applied by both."""
+    from simcore.schemas import check_registry_update
+
+    store = TraceStore(tmp_path)
+    _, entry = seed_header_and_entry(store)
+    registry = store.registry
+
+    recorded = entry.model_copy(update={"engine_version": "9.9.9-other", "forced_from": (entry.engine_version,)})
+    registry.update(recorded)
+    assert registry.entry(entry.config.run_id).engine_version == "9.9.9-other"
+
+    # An unrecorded re-pin is still refused, and by the same rule.
+    with pytest.raises(ValueError, match="without recording the force"):
+        registry.update(recorded.model_copy(update={"engine_version": "8.8.8", "forced_from": ()}))
+    with pytest.raises(ValueError, match="pins"):
+        check_registry_update(recorded, recorded.model_copy(update={"contract_version": "9.9.9"}))

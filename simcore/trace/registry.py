@@ -9,7 +9,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from simcore.schemas import RunConfig, RunRegistryEntry
+from simcore.schemas import RunConfig, RunRegistryEntry, check_registry_update
 
 from .errors import DuplicateEntryError, UnknownRunError
 
@@ -83,16 +83,7 @@ class SqliteRunRegistry:
         held = self.entry(entry.config.run_id)
         if held is None:
             raise UnknownRunError(f"no entry for run {entry.config.run_id}")
-        pinned = (
-            ("configuration", held.config_hash, entry.config_hash),
-            ("engine version", held.engine_version, entry.engine_version),
-            ("contract version", held.contract_version, entry.contract_version),
-        )
-        moved = [f"{name} ({was} to {now})" for name, was, now in pinned if was != now]
-        if moved:
-            raise ValueError(
-                f"an update moves a run's progress, never what a replay pins: {', '.join(moved)}"
-            )
+        check_registry_update(held, entry)
         with _connect(self._path) as connection:
             cursor = connection.execute(
                 "UPDATE entries SET entry_json = ?, status = ?, engine_version = ?, recorded_cost = ?,"
