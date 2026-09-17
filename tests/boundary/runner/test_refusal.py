@@ -182,3 +182,28 @@ def test_engine_version_read_from_registry_not_process():
     with pytest.raises(ResumeRefused, match="engine_version"):
         run(config, pack=pack, population=population, trace=trace, registry=registry,
             world_factory=lambda header: FakeWorld(header), agent_fn=_agent, engine_version="other")
+
+
+def test_every_input_inside_the_configuration_hash_refuses_by_name():
+    """The named checks covered brief, ontology, graph, population, scenarios, pins and engine —
+    but a run's configuration also pins its templates, its anchor sets, its elicitation
+    parameters, its budget and its seeds. Those slipped past the refusal and then failed deep in
+    the registry with a hash-to-hash message naming nothing, which ADR 0036 exists to prevent.
+    Found by the first real study: a changed anchor pin produced exactly that."""
+    from simcore.runner import ResumeRefused
+
+    config, pack, population, trace, registry = _started_run()
+    moved = {
+        "template_hashes": {**dict(config.template_hashes), "persona_turn": "99" * 32},
+        "anchor_set_hashes": {"purchase-intent-v1": "88" * 32},
+        "budget": {"max_cost": float(config.budget.max_cost) + 1.0, "currency": config.budget.currency},
+        "seeds": [*config.seeds, 777],
+    }
+    for field, value in moved.items():
+        changed = RunConfig.model_validate({**config.model_dump(mode="json"), field: value})
+        with pytest.raises(ResumeRefused) as raised:
+            run(changed, pack=pack, population=population, trace=trace, registry=registry,
+                world_factory=lambda header: FakeWorld(header), agent_fn=_agent)
+        assert field.split("_")[0] in str(raised.value) or "configuration" in str(raised.value), (
+            f"a changed {field} was refused without naming it: {raised.value}"
+        )
