@@ -60,6 +60,7 @@ from .enums import (
     AnomalyKind,
     BeliefDim,
     MemorySource,
+    VerbatimGrouping,
     TurnFailureKind,
     TurnTask,
     Channel,
@@ -174,6 +175,7 @@ from .sim import (
     View,
 )
 from .agent import CompletedTurn, TurnFailure, TurnJob, TurnOutcome
+from .query import BeliefHistory, BeliefPoint, EventFilter, TraceEdge, VerbatimGroup, VerbatimRecord
 from .trace import (
     CONTRACT_MIGRATIONS,
     ContractMigration,
@@ -197,6 +199,7 @@ from .trace import (
     BeliefSnapshot,
     ProbeRecorded,
     WorldRecord,
+    check_registry_update,
     read_partition,
 )
 
@@ -216,6 +219,8 @@ __all__ = [
     "AudiencePreview",
     "BandRange",
     "BeliefChange",
+    "BeliefHistory",
+    "BeliefPoint",
     "BeliefDim",
     "Beliefs",
     "BriefHash",
@@ -366,6 +371,7 @@ __all__ = [
     "SweepPlan",
     "TickClosed",
     "TickUnit",
+    "TraceEdge",
     "TraceEvent",
     "TracePartition",
     "TracePayload",
@@ -373,6 +379,10 @@ __all__ = [
     "TrustStatement",
     "Turn",
     "TurnRecorded",
+    "EventFilter",
+    "VerbatimGroup",
+    "VerbatimGrouping",
+    "VerbatimRecord",
     "MemoryRecorded",
     "BeliefSnapshot",
     "ProbeRecorded",
@@ -400,6 +410,7 @@ __all__ = [
     "derive_world_seed",
     "ensure_same_tick_unit",
     "hash_payload",
+    "check_registry_update",
     "read_partition",
     "resolve_audience_weights",
     "weakest_origin",

@@ -171,6 +171,15 @@ class ExposureReason(StrEnum):
     FORUM = "forum"
 
 
+class VerbatimGrouping(StrEnum):
+    """How verbatims are gathered when a trace view is asked for them; the closed set of keys."""
+
+    PERSONA = "persona"
+    TICK = "tick"
+    SUBJECT = "subject"
+    CLAIM = "claim"
+
+
 class DropReason(StrEnum):
     """Why a stimulus that could have reached a persona did not."""
 

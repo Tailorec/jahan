@@ -376,7 +376,8 @@ def test_read_path_never_mutates_its_input_and_never_writes_a_legacy_shape():
 
 
 def registry_payload(**overrides):
-    payload = {"config": run_config_payload(), "contract_version": SCHEMA_VERSION, "status": "running"}
+    payload = {"config": run_config_payload(), "contract_version": SCHEMA_VERSION, "status": "running",
+               "engine_version": "0a35555"}
     payload.update(overrides)
     return payload
 

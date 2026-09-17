@@ -302,7 +302,8 @@ def registry_payload(**overrides) -> dict:
     """A registry entry for the representative run configuration."""
     from simcore.schemas import SCHEMA_VERSION
 
-    payload = {"config": run_config_payload(), "contract_version": SCHEMA_VERSION, "status": "running"}
+    payload = {"config": run_config_payload(), "contract_version": SCHEMA_VERSION, "status": "running",
+               "engine_version": "0a35555"}
     payload.update(overrides)
     return payload
 
