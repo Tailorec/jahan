@@ -156,3 +156,41 @@ def test_reddit_hot_concentrates_exposure_against_random_on_the_same_fixture():
     }
     assert exposure_concentration([random_fifth]) < exposure_concentration([hot_fifth])
     assert isinstance(Forum("reddit_global"), Forum)
+
+
+def test_the_hot_score_ranks_the_newer_post_first():
+    """Reddit's formula scores a post by *when it was published*, so a newer post outranks an
+    older one. Feeding it the post's age instead inverts that: the herding arm herded toward
+    the oldest thing in the world, and ten upvotes could not outweigh a day of age.
+    """
+    from simcore.world.recsys import UNIT_SECONDS, hot_order, hot_score
+
+    day = UNIT_SECONDS["day"]
+    assert hot_score(0, 0, 5 * day) > hot_score(0, 0, 0), "a later post must score above an earlier one"
+    # The ranking reads publication ticks; passing ages here is the defect, so the keyword
+    # is named for what the formula needs and the old signature cannot be called this way.
+    order = hot_order(["st-old", "st-new"], {}, {}, published_ticks={"st-old": 0, "st-new": 5},
+                      world_seed=7, tick=6, unit_seconds=day)
+    assert order == ["st-new", "st-old"]
+    # and votes still count: published together, the upvoted post leads
+    same_age = hot_order(["st-quiet", "st-loud"], {"st-loud": 10}, {}, published_ticks={"st-quiet": 3, "st-loud": 3},
+                         world_seed=7, tick=6, unit_seconds=day)
+    assert same_age == ["st-loud", "st-quiet"]
+
+
+def test_a_fresh_upvoted_post_outranks_an_old_silent_one_in_a_world():
+    """The same property through the interface, on the global forum."""
+    population = make_population()
+    world = make_world(config=FORUM, population=population, scenario=WIDE)
+    world.reset()
+    first = world.step(1, [])
+    by_persona = {p.impression.persona_id: p for p in first.presentations}
+    # p-000001 opens a thread at tick 1; the study's own stimuli are older by two ticks
+    second = world.step(2, [act_turn(by_persona["p-000001"], 1, "post", "brand new thread about flavour")]
+                        + [answer_turn(by_persona[pid], 5 + n, action="ignore")
+                           for n, pid in enumerate(sorted(by_persona)) if pid != "p-000001"])
+    fresh = second.published[0].stimulus_id
+    third = world.step(3, [answer_turn(p, 10 + n, action="ignore") for n, p in enumerate(second.presentations)])
+    for presentation in third.presentations:
+        shown = [exposure.stimulus_id for exposure in presentation.impression.exposures]
+        assert shown[0] == fresh, f"the oldest stimulus led the ranking instead of the newest: {shown[0]}"

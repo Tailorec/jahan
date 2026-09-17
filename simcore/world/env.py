@@ -712,14 +712,16 @@ class World:
         """
         ups: dict[str, int] = {}
         downs: dict[str, int] = {}
-        ages: dict[str, int] = {}
+        published: dict[str, int] = {}
         for row in rows:
             seen = counts.get(row["stimulus_id"], {})
             ups[row["stimulus_id"]] = seen.get("upvotes", 0) + (0 if not feed_votes else seen.get("likes", 0))
             downs[row["stimulus_id"]] = seen.get("downvotes", 0)
-            ages[row["stimulus_id"]] = tick - row["tick"]
+            # When it was published, not how old it is: the upstream score rewards later
+            # publication, and an age in its place ranks the oldest stimulus first.
+            published[row["stimulus_id"]] = row["tick"]
         return recsys.hot_order(
-            ids, ups, downs, ages, self._world_seed, tick, recsys.UNIT_SECONDS[self.tick_unit]
+            ids, ups, downs, published, self._world_seed, tick, recsys.UNIT_SECONDS[self.tick_unit]
         )
 
     def _scoped_rank(
