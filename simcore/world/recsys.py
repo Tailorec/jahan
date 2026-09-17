@@ -56,13 +56,15 @@ def random_order(candidate_ids: list[str], world_seed: int, tick: int, persona_i
     return ordered
 
 
-def hot_score(ups: int, downs: int, age_seconds: int) -> float:
+def hot_score(ups: int, downs: int, published_seconds: int) -> float:
     """Reddit's hot ranking, copied verbatim from upstream — fidelity, not improvement.
 
-    Only the time base is ours: upstream passes seconds since the Reddit epoch
-    for a wall-clock post, while a world passes ticks since publication times
-    the tick unit's seconds, because interventions and ages are expressed in
-    ticks, never wall-clock time.
+    The time argument is *when the post was published*, not how old it is: the
+    formula rewards later publication, so a newer post outranks an older one at
+    equal votes. Only the clock is ours — a world passes the publication tick
+    times the tick unit's seconds, because time here is declared in ticks and
+    never in wall-clock time. Feeding it an age inverts the ranking: it made a
+    five-day-old unvoted post beat a fresh one with ten upvotes.
     """
     score = ups - downs
     order = log10(max(abs(score), 1))
@@ -72,7 +74,7 @@ def hot_score(ups: int, downs: int, age_seconds: int) -> float:
         sign = -1
     else:
         sign = 0
-    seconds = age_seconds - 1134028003
+    seconds = published_seconds - 1134028003
     return round(sign * order + seconds / 45000, 7)
 
 
@@ -80,12 +82,15 @@ def hot_order(
     candidate_ids: list[str],
     ups: Mapping[str, int],
     downs: Mapping[str, int],
-    age_ticks: Mapping[str, int],
+    published_ticks: Mapping[str, int],
     world_seed: int,
     tick: int,
     unit_seconds: int,
 ) -> list[str]:
     """Highest hot score first; ties break from a derived seed, so ordering reproduces.
+
+    `published_ticks` is the tick each stimulus was published at, which is what the
+    upstream score expects — an age in its place ranks the oldest stimulus first.
 
     The tie-break stream derives from (world seed, tick, "recsys:hot") — one
     stream per tick, shared by every persona, because hot ranking is global.
@@ -96,7 +101,7 @@ def hot_order(
     return sorted(
         candidate_ids,
         key=lambda stimulus_id: (
-            -hot_score(ups.get(stimulus_id, 0), downs.get(stimulus_id, 0), age_ticks.get(stimulus_id, 0) * unit_seconds),
+            -hot_score(ups.get(stimulus_id, 0), downs.get(stimulus_id, 0), published_ticks.get(stimulus_id, 0) * unit_seconds),
             tiebreak[stimulus_id],
         ),
     )
