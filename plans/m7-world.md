@@ -31,12 +31,12 @@ The module's shape made true on the baseline environment. `reset` opens a world 
 
 ### Acceptance criteria
 
-- [ ] `reset` returns the opening delta as tick zero, built from trace record types only
-- [ ] `step` takes recorded turns and returns published stimuli, drops and one presentation per activated persona and channel
-- [ ] A survey-room impression holds exactly one exposure, and its view carries no social signal
-- [ ] The world assigns no event id and no sequence number anywhere in a delta
-- [ ] `step` is deterministic under a fixed seed and bit-identical across two processes
-- [ ] No world state appears in any delta, asserted over the whole structure
+- [x] `reset` returns the opening delta as tick zero, built from trace record types only
+- [x] `step` takes recorded turns and returns published stimuli, drops and one presentation per activated persona and channel
+- [x] A survey-room impression holds exactly one exposure, and its view carries no social signal
+- [x] The world assigns no event id and no sequence number anywhere in a delta
+- [x] `step` is deterministic under a fixed seed and bit-identical across two processes
+- [x] No world state appears in any delta, asserted over the whole structure
 
 ---
 
