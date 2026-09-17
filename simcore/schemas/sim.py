@@ -18,11 +18,12 @@ from .base import (
     UnitInterval,
 )
 from .brief import ClaimId
-from .enums import ActionKind, BeliefDim, Channel, ElicitationFailureKind, ExposureReason, StimulusKind
+from .enums import ActionKind, BeliefDim, Channel, ElicitationFailureKind, ExposureReason, MemorySource, StimulusKind
 from .run import PinnedModelId
 
 ImpressionId = Annotated[str, StringConstraints(pattern=rf"^im-{ULID_PATTERN}$")]
 ReactionId = Annotated[str, StringConstraints(pattern=rf"^rc-{ULID_PATTERN}$")]
+MemoryId = Annotated[str, StringConstraints(pattern=rf"^me-{ULID_PATTERN}$")]
 
 # The elicitation method averages several anchor reference sets; rank stability across them is its acceptance test.
 MIN_REFERENCE_SETS = 6
@@ -221,6 +222,81 @@ class MemoryView(SimBaseModel):
         if repeated:
             raise ValueError(f"memories retrieved more than once: {repeated}")
         return self
+
+
+class MemoryEvent(SimBaseModel):
+    """One thing that happened to one persona, as that persona would recall it.
+
+    Live state carries the embedding retrieval scores against; the trace records what was remembered
+    and not the vector it was indexed by, so a partition stays readable and small (ADR 0030).
+    """
+
+    memory_id: MemoryId
+    tick: NonNegativeInt
+    description: NonEmptyStr
+    importance: UnitInterval
+    source: MemorySource
+    embedding: tuple[float, ...] | None = None
+    embed_model_id: PinnedModelId | None = None
+
+    @model_validator(mode="after")
+    def _an_embedding_names_its_model(self) -> Self:
+        if (self.embedding is None) != (self.embed_model_id is None):
+            raise ValueError(
+                "an embedding names the model that produced it, and a model with no embedding indexes nothing: "
+                "give both, or neither for a memory read back from a trace"
+            )
+        if self.embedding is not None and not self.embedding:
+            raise ValueError("an embedding with no dimensions retrieves nothing")
+        return self
+
+
+class PersonaState(SimBaseModel):
+    """What one persona carries between ticks: what it believes, what it remembers, and when it last
+    reflected. It travels with the persona's job and is never shared between personas (ADR 0030)."""
+
+    persona_id: PersonaId
+    beliefs: Beliefs
+    memories: tuple[MemoryEvent, ...] = ()
+    last_reflection_tick: NonNegativeInt = 0
+    turns_since_reflection: NonNegativeInt = 0
+
+    @model_validator(mode="after")
+    def _each_memory_once(self) -> Self:
+        repeated = sorted(mid for mid, count in Counter(item.memory_id for item in self.memories).items() if count > 1)
+        if repeated:
+            raise ValueError(f"a persona remembers each thing once; held more than once: {repeated}")
+        return self
+
+
+class ProbeAnswer(SimBaseModel):
+    """One character-probe question, what the persona's own attributes say, and what it answered."""
+
+    question: NonEmptyStr
+    attribute: Identifier
+    expected: NonEmptyStr
+    answer: NonEmptyStr
+    agreed: bool
+
+
+class ProbeResult(SimBaseModel):
+    """Whether a persona still answers as itself. Drift is measured, never corrected."""
+
+    persona_id: PersonaId
+    tick: NonNegativeInt
+    answers: tuple[ProbeAnswer, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _each_attribute_once(self) -> Self:
+        repeated = sorted(a for a, count in Counter(item.attribute for item in self.answers).items() if count > 1)
+        if repeated:
+            raise ValueError(f"a probe asks about an attribute once; asked more than once: {repeated}")
+        return self
+
+    @computed_field
+    @property
+    def disagreement_rate(self) -> float:
+        return sum(not answer.agreed for answer in self.answers) / len(self.answers)
 
 
 class SsrResult(SimBaseModel):

@@ -270,6 +270,37 @@ class GuardrailRule(StrEnum):
     """The rule a guardrail violation broke."""
 
     REFERENCES_UNSHOWN_STIMULUS = "references_unshown_stimulus"
+    UNPARSEABLE_OUTPUT = "unparseable_output"
+
+
+class MemorySource(StrEnum):
+    """What put a memory into a persona's history: reacting to something, or consolidating by reflection."""
+
+    TURN = "turn"
+    REFLECTION = "reflection"
+
+
+class TurnTask(StrEnum):
+    """What a turn asks of a persona. Tier routing is a table over this set, kept as configuration."""
+
+    REACTION = "reaction"
+    FIRST_SEEN = "first_seen"
+    CONVERSATION = "conversation"
+    REFLECTION = "reflection"
+    PURCHASE = "purchase"
+    CLAIM_AUDIT = "claim_audit"
+    PROBE = "probe"
+
+
+class TurnFailureKind(StrEnum):
+    """Why a job produced no reaction. A failure is an outcome beside its batch, never an exception (ADR 0031)."""
+
+    CALL_FAILED = "call_failed"
+    GUARDRAIL_VIOLATION = "guardrail_violation"
+    # Refused before dispatch: a turn cannot proceed without a persona block.
+    UNCONDITIONED = "unconditioned"
+    # The context could not be fitted to the tier's budget without dropping the persona block.
+    CONTEXT_BUDGET_EXCEEDED = "context_budget_exceeded"
 
 
 class RelaxationRung(StrEnum):

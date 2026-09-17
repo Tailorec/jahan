@@ -26,7 +26,7 @@ from .enums import ActionKind, Channel, CostSource, DegradationRung, DropReason,
 from .errors import SchemaVersionError
 from .population import Population, PopulationManifest
 from .run import PinnedModelId, RunConfig, Scenario, WorldId, check_scenario_against_brief, derive_world_id
-from .sim import BeliefChange, Impression, Stimulus, Turn, View, check_view_covers_impression
+from .sim import BeliefChange, Beliefs, Impression, MemoryEvent, MemoryId, ProbeResult, Stimulus, Turn, View, check_view_covers_impression
 
 ContractVersion = Annotated[str, StringConstraints(pattern=r"^\d+\.\d+\.\d+$")]
 
@@ -54,8 +54,8 @@ class TurnRecorded(SimBaseModel):
     template_id: Identifier
     prompt_hash: HashDigest
     persona_block_hash: HashDigest
-    # A remembered experience is an earlier turn or reflection of the same persona, cited by its event id.
-    memory_ids: tuple[EventId, ...] = ()
+    # What the persona recalled: memories of its own, recorded earlier in this partition, cited by memory id.
+    memory_ids: tuple[MemoryId, ...] = ()
     # A turn accepted on its guardrail retry names the prompt it rejected, so a stricter retry is visible.
     rejected_prompt_hashes: tuple[HashDigest, ...] = ()
 
@@ -97,6 +97,34 @@ class ReflectionRecorded(SimBaseModel):
     kind: Literal["reflection"]
     trigger: ReflectionTrigger
     change: BeliefChange
+
+
+class MemoryRecorded(SimBaseModel):
+    """Something the event's persona will be able to recall. The trace keeps what was remembered; the
+    vector it is retrieved by belongs to live state, which is rebuilt from the description (ADR 0030)."""
+
+    kind: Literal["memory"]
+    memory: MemoryEvent
+
+    @model_validator(mode="after")
+    def _the_record_is_not_the_index(self) -> Self:
+        if self.memory.embedding is not None:
+            raise ValueError("a trace records what was remembered, not the vector it was indexed by")
+        return self
+
+
+class BeliefSnapshot(SimBaseModel):
+    """What the event's persona believes as of this tick, written whole so a resume needs no arithmetic."""
+
+    kind: Literal["belief_snapshot"]
+    beliefs: Beliefs
+
+
+class ProbeRecorded(SimBaseModel):
+    """Whether the event's persona still answers as itself."""
+
+    kind: Literal["probe"]
+    result: ProbeResult
 
 
 class CostRecorded(SimBaseModel):
@@ -187,6 +215,9 @@ TracePayload = Annotated[
     | TurnRecorded
     | GuardrailViolation
     | ReflectionRecorded
+    | MemoryRecorded
+    | BeliefSnapshot
+    | ProbeRecorded
     | CostRecorded
     | InterventionApplied
     | Degraded
@@ -195,7 +226,7 @@ TracePayload = Annotated[
     Field(discriminator="kind"),
 ]
 
-_PERSONA_EVENTS = frozenset({"exposure_dropped", "turn", "guardrail_violation", "reflection"})
+_PERSONA_EVENTS = frozenset({"exposure_dropped", "turn", "guardrail_violation", "reflection", "memory", "belief_snapshot", "probe"})
 _WORLD_EVENTS = frozenset({"stimulus_published", "intervention", "degraded", "tick_closed", "lifecycle"})
 
 
@@ -239,6 +270,14 @@ class TraceEvent(SimBaseModel):
                 raise ValueError(f"{kind} event at tick {self.tick} records an impression from tick {impression.tick}")
         if isinstance(self.payload, StimulusPublished) and self.payload.stimulus.tick != self.tick:
             raise ValueError(f"stimulus published at tick {self.tick} is dated tick {self.payload.stimulus.tick}")
+        if isinstance(self.payload, MemoryRecorded) and self.payload.memory.tick != self.tick:
+            raise ValueError(f"memory recorded at tick {self.tick} is dated tick {self.payload.memory.tick}")
+        if isinstance(self.payload, ProbeRecorded):
+            probed = self.payload.result
+            if probed.persona_id != self.persona_id:
+                raise ValueError(f"probe event for {self.persona_id} records answers from {probed.persona_id}")
+            if probed.tick != self.tick:
+                raise ValueError(f"probe event at tick {self.tick} records answers from tick {probed.tick}")
         return self
 
 
@@ -426,7 +465,7 @@ class TracePartition(SimBaseModel):
                     raise ValueError(f"{where} renders template {payload.template_id!r}, which the run does not pin")
                 for memory in payload.memory_ids:
                     if remembered.get(memory) != event.persona_id:
-                        raise ValueError(f"{where} recalls {memory}, which is not an earlier turn or reflection of {event.persona_id}")
+                        raise ValueError(f"{where} recalls {memory}, which is not an earlier memory of {event.persona_id}")
                 intent = payload.turn.reaction.intent
                 if intent is not None:
                     if intent.embed_model_id != config.pins.embed.model_id:
@@ -442,8 +481,10 @@ class TracePartition(SimBaseModel):
                         )
                     if intent.category != category:
                         raise ValueError(f"{where} scored against {intent.category!r} anchors for a {category!r} brief")
-            if isinstance(payload, (TurnRecorded, ReflectionRecorded)):
-                remembered[event.event_id] = event.persona_id
+            if isinstance(payload, MemoryRecorded):
+                if payload.memory.memory_id in remembered:
+                    raise ValueError(f"{where} records {payload.memory.memory_id} a second time; a memory is written once")
+                remembered[payload.memory.memory_id] = event.persona_id
         if lifecycle is None:
             raise ValueError("a partition opens with a started event")
         return self

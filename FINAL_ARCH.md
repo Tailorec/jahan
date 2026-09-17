@@ -60,7 +60,7 @@ Twelve modules. Every one is either a leaf contract, a deep behavioral module, o
 | 3 | `population` | who is in this study and how they are connected | 4-bit decode, conditioning filter, postings filter, audience-proportional sampling, distribution gates, sparse completion, graph generation, Leiden community detection | `build(brief, n, population_seed) -> Population` |
 | 4 | `inference` | every model call in the system | provider routing, retries, coalescing, caching, token accounting, model pinning, fake mode | `chat(role, msgs) -> Completion`, `embed(texts) -> Vectors` |
 | 5 | `elicitation` | free text → Likert PMF (SSR) | anchor sets, reference-set averaging, τ, non-collapse checks | `score(text) -> SsrResult` |
-| 6 | `agent` | one persona's reaction to one impression | context assembly, persona conditioning, memory retrieval, reflection, tier routing, output parsing, guardrails | `turn(persona, impression, view) -> Reaction` |
+| 6 | `agent` | one persona's reaction to one impression | context assembly, persona conditioning, memory retrieval, reflection, tier routing, output parsing, guardrails | `turns(jobs) -> outcomes` |
 | 7 | `world` | environment mechanics and who sees what | platform state, action handling, recsys ranking, activation clock, interventions | `reset(header) -> WorldDelta`, `step(tick, turns) -> WorldDelta` |
 | 8 | `runner` | executing a study within a budget | job expansion, worker pool, checkpointing, resume, budget governance and its enforcement, sweep | `run(RunConfig) -> RunResult` |
 | 9 | `trace` | the append-only record and its read views | SQLite→Parquet lifecycle, partitioning, registry, query shapes | `write(events)`, `view(run_id) -> TraceView` |
@@ -327,7 +327,14 @@ Sampling, graph rewiring and community detection draw from **independent streams
 **Owns:** one persona's reaction to one stimulus, and **the persona-conditioning invariant**.
 **Hides:** context assembly and token budgeting, persona rendering from 1,290 attributes, memory retrieval scoring, reflection triggering, belief updates, tier routing, output parsing, guardrail enforcement.
 
-**Interface:** `turn(persona: Persona, impression: Impression, view: View) -> Reaction`
+**Interface:** `turns(jobs: Sequence[TurnJob]) -> tuple[TurnOutcome, ...]`
+
+A job is one persona, its `PersonaState` and its presentation; an outcome is a completed turn or a recorded turn
+failure, one per job in request order (ADR 0031). A single turn is `turns([job])[0]`, and batching coalesces calls,
+never contexts — every persona still gets its own prompt. **The agent stores nothing:** beliefs, the persona's own
+memories and its reflection counters travel in and out, the trace is the store, and the runner is its only writer,
+so any worker can take any persona (ADR 0030). A turn that cannot be scored for purchase intent, because no anchor
+version is pinned, keeps its verbatim and records the elicitation failure in place of a distribution (ADR 0032).
 
 The `View` is the public context of exactly the stimuli in the impression: like, repost, reply, upvote and downvote counts, reply ancestry, and the persona's tie strength and shared community with each author. It never carries another persona's attributes, beliefs or private reactions, nor any aggregate outcome — a persona that could see running adoption would react to the result being measured. Counts include only engagement from earlier ticks. The impression and view travel together as a presentation, and the turn records the view it was given (ADR 0010).
 

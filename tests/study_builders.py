@@ -373,6 +373,23 @@ def partition_header_payload(scenario: dict | None = None, persona_ids: list[str
 
 # Events of the representative partition, in sequence order. Tests address them by role, so inserting an
 # event changes this list and nothing else.
+def memory_payload(n: int, tick: int, **overrides) -> dict:
+    """A memory as the trace records it: what was remembered, never the vector it was indexed by."""
+    payload = {"memory_id": f"me-{ulid(400 + n)}", "tick": tick, "source": "turn", "importance": 0.6,
+               "description": "the protein claim would get me"}
+    payload.update(overrides)
+    return payload
+
+
+def probe_payload(persona: str, tick: int, **overrides) -> dict:
+    """A character probe: questions whose answers sit in the persona's own attributes."""
+    payload = {"persona_id": persona, "tick": tick,
+               "answers": [{"question": "How often do you exercise?", "attribute": "exercise_frequency",
+                            "expected": "3_plus_weekly", "answer": "three or four times a week", "agreed": True}]}
+    payload.update(overrides)
+    return payload
+
+
 PARTITION_ROLES = (
     "started",
     "concept",
@@ -380,6 +397,7 @@ PARTITION_ROLES = (
     "close_0",
     "first_turn",
     "first_turn_cost",
+    "first_turn_memory",
     "drop",
     "close_1",
     "peer_post",
@@ -388,8 +406,11 @@ PARTITION_ROLES = (
     "warned",
     "launch",
     "reflection",
+    "reflection_memory",
+    "belief_snapshot",
     "second_turn",
     "second_turn_cost",
+    "probe",
     "close_3",
     "third_turn",
     "violation",
@@ -414,6 +435,8 @@ def partition_payload(**header_overrides) -> dict:
         event(R["first_turn_cost"], 1, {"kind": "cost", "role": "tier_b", "model_id": "anthropic/claude-sonnet-4-5-20250929",
                      "served_model_id": "anthropic/claude-sonnet-4-5-20250929", "cost_source": "gateway",
                      "route": "primary", "input_tokens": 812, "output_tokens": 96, "cost": 0.004}, "p-000001"),
+        # What the first persona took away from its turn, written so a later turn of its own can recall it.
+        event(R["first_turn_memory"], 1, {"kind": "memory", "memory": memory_payload(1, tick=1)}, "p-000001"),
         event(R["drop"], 1, {"kind": "exposure_dropped", "stimulus_id": stimulus_id(2), "channel": "social_feed", "reason": "budget_exhausted"}, "p-000002"),
         event(R["close_1"], 1, {"kind": "tick_closed"}),
         event(R["peer_post"], 2, {"kind": "stimulus_published", "stimulus": {"stimulus_id": stimulus_id(3), "tick": 2, "author": "p-000001", "kind": "peer_post", "text": "tried it after the gym"}}),
@@ -422,6 +445,9 @@ def partition_payload(**header_overrides) -> dict:
         event(R["warned"], 3, {"kind": "degraded", "rung": "warn", "activation_rate": 0.62, "tier_b_frozen": False}),
         event(R["launch"], 3, {"kind": "intervention", "intervention_kind": "launch"}),
         event(R["reflection"], 3, {"kind": "reflection", "trigger": "tick_cadence", "change": {"claim_credence": {"C2": -0.1}}}, "p-000001"),
+        event(R["reflection_memory"], 3, {"kind": "memory", "memory": memory_payload(2, tick=3, source="reflection",
+                                          description="on the whole the protein claim has held up", importance=0.9)}, "p-000001"),
+        event(R["belief_snapshot"], 3, {"kind": "belief_snapshot", "beliefs": beliefs_payload()}, "p-000001"),
         # Views count only engagement from earlier ticks: st4's reply (tick 2) is visible here, and this
         # turn's like is visible to the third turn. Ties follow the representative graph and communities.
         turn_event(R["second_turn"], 3, turn_payload("p-000002", 3, [(3, "wom", 0.6), (4, "forum", 0.4)], {
@@ -432,6 +458,7 @@ def partition_payload(**header_overrides) -> dict:
         event(R["second_turn_cost"], 3, {"kind": "cost", "role": "tier_a", "model_id": TIER_A_FALLBACK,
                                          "served_model_id": TIER_A_FALLBACK, "cost_source": "gateway",
                                          "route": "fallback", "input_tokens": 540, "output_tokens": 41, "cost": 0.0002}, "p-000002"),
+        event(R["probe"], 3, {"kind": "probe", "result": probe_payload("p-000002", 3)}, "p-000002"),
         event(R["close_3"], 3, {"kind": "tick_closed"}),
         turn_event(R["third_turn"], 4, turn_payload("p-000003", 4, [(3, "wom", 0.5), (4, "forum", 0.3)], {
             "subject_stimulus_id": stimulus_id(4), "action": "upvote"},

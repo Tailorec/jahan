@@ -66,7 +66,8 @@ def with_event(index: int, replacement: dict) -> dict:
 def test_payload_kinds_are_distinct_types_that_dispatch_on_kind_alone():
     adapter = TypeAdapter(TracePayload)
     kinds = {adapter.validate_python(e["payload"]).kind: type(adapter.validate_python(e["payload"])) for e in events_of(partition_payload())}
-    assert set(kinds) == {"lifecycle", "stimulus_published", "turn", "cost", "exposure_dropped", "intervention", "reflection", "tick_closed", "degraded", "guardrail_violation"}
+    assert set(kinds) == {"lifecycle", "stimulus_published", "turn", "cost", "exposure_dropped", "intervention", "reflection",
+                          "tick_closed", "degraded", "guardrail_violation", "memory", "belief_snapshot", "probe"}
     assert len(set(kinds.values())) == len(kinds)
 
 
@@ -482,15 +483,23 @@ def test_an_elicitation_is_scored_against_the_anchor_set_its_ontology_names():
         TracePartition.model_validate(data)
 
 
-def test_turns_recall_only_earlier_turns_or_reflections_of_the_same_persona():
+def test_turns_recall_only_earlier_memories_of_the_same_persona():
     data = partition_payload()
-    own_turn, own_reflection = data["events"][R["first_turn"]]["event_id"], data["events"][R["reflection"]]["event_id"]
-    data["events"][R["second_turn"]]["payload"]["memory_ids"] = [data["events"][R["first_turn"]]["event_id"]]
-    with pytest.raises(ValidationError, match="not an earlier turn or reflection of p-000002"):
+    own_turn = data["events"][R["first_turn_memory"]]["payload"]["memory"]["memory_id"]
+    own_reflection = data["events"][R["reflection_memory"]]["payload"]["memory"]["memory_id"]
+    # p-000002 recalling p-000001's memory
+    data["events"][R["second_turn"]]["payload"]["memory_ids"] = [own_turn]
+    with pytest.raises(ValidationError, match="not an earlier memory of p-000002"):
         TracePartition.model_validate(data)
+    # p-000001 recalling its own memory before it was written
     data = partition_payload()
-    data["events"][R["first_turn"]]["payload"]["memory_ids"] = [data["events"][R["reflection"]]["event_id"]]
-    with pytest.raises(ValidationError, match="not an earlier turn or reflection"):
+    data["events"][R["first_turn"]]["payload"]["memory_ids"] = [own_reflection]
+    with pytest.raises(ValidationError, match="not an earlier memory"):
+        TracePartition.model_validate(data)
+    # a memory written twice is not two memories
+    data = partition_payload()
+    data["events"][R["reflection_memory"]]["payload"]["memory"]["memory_id"] = own_turn
+    with pytest.raises(ValidationError, match="a second time; a memory is written once"):
         TracePartition.model_validate(data)
     data = partition_payload()
     data["events"][R["second_turn"]]["payload"]["turn"]["impression"]["persona_id"] = "p-000001"
