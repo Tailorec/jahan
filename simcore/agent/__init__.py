@@ -25,6 +25,7 @@ from ._context import ContextBudgetExceeded, estimate_tokens
 from ._memory import append_memories, importance_of, retrieve, score_memory, write_memory
 from ._render import PersonaBlockCache, render_block, selected_attributes
 from ._guard import GUARDRAILS
+from ._probe import disagreement_rate, probe_attributes, sampled_for_probe
 from ._turns import turns
 
 __all__ = [
@@ -37,14 +38,17 @@ __all__ = [
     "append_memories",
     "apply_change",
     "combine",
+    "disagreement_rate",
     "enforce_cap",
     "estimate_tokens",
     "importance_of",
     "max_abs_change",
+    "probe_attributes",
     "reflection_due",
     "reflection_interval_for",
     "render_block",
     "retrieve",
+    "sampled_for_probe",
     "score_memory",
     "selected_attributes",
     "split_summary",

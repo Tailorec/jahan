@@ -56,6 +56,15 @@ from ._ids import reaction_id, ulid_from
 from ._intent import PURCHASE_CONSTRUCT, score_intents, wants_intent
 from ._memory import describe_turn, importance_of, retrieve, write_memory
 from ._parse import ParsedReaction, parse_reaction, parse_reflection
+from ._probe import (
+    disagreement_rate,  # noqa: F401  (re-exported for the report path)
+    parse_probe_answers,
+    probe_attributes,
+    probe_question,
+    probe_request,
+    probe_result,
+    sampled_for_probe,
+)
 from ._prompt import REACTION_QUESTION, hash_text, render_persona_block
 from ._render import PersonaBlockCache
 
@@ -105,14 +114,32 @@ def turns(
     due = [entry for entry in answerable if _due(entry, cfg)]
     second = _dispatch(chat, [(entry.position, _reflection_request(entry, cfg)) for entry in due])
 
+    probed = [_probe_entry(entry, cfg) for entry in answerable]
+    probed = [entry for entry in probed if entry is not None]
+    third = _dispatch(chat, [(entry.position, entry.request) for entry in probed])
+    for entry in probed:
+        entry.answers = parse_probe_answers(third[entry.position].text, len(entry.asked)) if isinstance(
+            third[entry.position], Completion
+        ) else None
+
     by_position = {entry.position: entry for entry in reacted}
+    probe_by_position = {entry.position: entry for entry in probed}
     results: list[TurnOutcome] = []
     for position, item in enumerate(prepared):
         if item.request is None:
             assert item.early is not None
             results.append(item.early)
         else:
-            results.append(_finalize(by_position[position], second.get(position), intents.get(position), cfg, embed))
+            results.append(
+                _finalize(
+                    by_position[position],
+                    second.get(position),
+                    intents.get(position),
+                    probe_by_position.get(position),
+                    cfg,
+                    embed,
+                )
+            )
     return tuple(results)
 
 
@@ -165,6 +192,30 @@ class _Prepared:
         self.persona_block = persona_block
         self.assembled = assembled
         self.retrieved = retrieved
+
+
+@dataclass
+class _Probed:
+    position: int
+    entry: _Reacted
+    request: ChatRequest
+    asked: list[tuple[str, str]]
+    answers: list[str] | None = None
+
+
+def _probe_entry(entry: _Reacted, cfg: AgentConfig) -> _Probed | None:
+    """Whether the entry's persona is probed this tick, and the questions it is asked."""
+    job = entry.item.job
+    tick = job.presentation.impression.tick
+    if tick % cfg.probe_every_ticks != 0:
+        return None
+    if not sampled_for_probe(job.persona.persona_id, tick, cfg.run_seed, cfg.probe_share):
+        return None
+    asked = probe_attributes(job.persona, cfg.run_seed, tick, cfg.probe_questions)
+    if not asked:
+        return None
+    request = probe_request(entry.item.persona_block, [probe_question(name) for name, _ in asked], cfg.probe_template_id)
+    return _Probed(entry.position, entry, request, asked)
 
 
 @dataclass
@@ -438,6 +489,7 @@ def _finalize(
     entry: _Reacted,
     answer: Completion | CallFailure | None,
     intent: SsrOutcome | None,
+    probed: _Probed | None,
     cfg: AgentConfig,
     embed,
 ) -> TurnOutcome:
@@ -487,8 +539,20 @@ def _finalize(
         rejected_prompt_hashes=(entry.rejected_hash,) if entry.rejected_hash is not None else (),
         memories=(remembered, *consolidated),
         belief_change=change,
+        probe=_probe_payload(probed, tick),
     )
     return completed
+
+
+def _probe_payload(probed: _Probed | None, tick: int):
+    """The recorded probe result — or nothing, when the persona was not sampled.
+
+    A probe that disagrees never fails the turn or alters the reaction: drift is
+    measured, not corrected.
+    """
+    if probed is None:
+        return None
+    return probe_result(probed.entry.item.job.persona.persona_id, tick, probed.asked, probed.answers)
 
 
 def _settle(parsed: ParsedReaction, seen: list[str], first_shown: str) -> tuple[ActionKind, str | None, str]:
