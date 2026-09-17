@@ -54,6 +54,7 @@ from simcore.schemas.trace import (
 
 from ._ids import event_id
 from ._plans import LadderConfig, TickPlan
+from ._refusal import ResumeRefused, check_resume_inputs
 from ._resume import last_closed_tick, next_seq, rebuild_persona_states, turns_by_tick, validate_checkpoint
 from ._version import ENGINE_VERSION
 
@@ -287,6 +288,7 @@ def run(
     engine_version: str = ENGINE_VERSION,
     memory_cap: int = 50,
     checkpoints: dict[str, dict] | None = None,
+    force: bool = False,
 ) -> RunResult:
     """Run every world of the configuration to its horizon.
 
@@ -294,19 +296,31 @@ def run(
     up after their last closed tick, personas are rebuilt from the record,
     and completed ticks are never re-run. A checkpoint, if present, is a
     cache validated against the record and discarded on disagreement.
+
+    A resume whose inputs or engine moved is refused, naming what moved; a
+    forced resume proceeds, is recorded, and spans versions.
     """
     _ = ladder
-    running = RunRegistryEntry.model_validate(
-        {
-            "config": config.model_dump(mode="json"),
-            "contract_version": SCHEMA_VERSION,
-            "status": RunStatus.RUNNING.value,
-            "engine_version": engine_version,
-            "recorded_cost": 0.0,
-            "discarded_ticks": 0,
-        }
-    )
-    if registry.entry(config.run_id) is None:  # type: ignore[attr-defined]
+    stored = registry.entry(config.run_id)  # type: ignore[attr-defined]
+    if stored is not None:
+        try:
+            check_resume_inputs(config, pack, population, engine_version, stored.config, stored.engine_version)
+        except ResumeRefused:
+            if not force:
+                raise
+            if hasattr(registry, "mark_forced"):
+                registry.mark_forced(config.run_id)  # type: ignore[attr-defined]
+    else:
+        running = RunRegistryEntry.model_validate(
+            {
+                "config": config.model_dump(mode="json"),
+                "contract_version": SCHEMA_VERSION,
+                "status": RunStatus.RUNNING.value,
+                "engine_version": engine_version,
+                "recorded_cost": 0.0,
+                "discarded_ticks": 0,
+            }
+        )
         registry.record(running)  # type: ignore[attr-defined]
     outcomes: list[WorldOutcome] = []
     recorded_cost = 0.0

@@ -7,6 +7,7 @@ assigns every `event_id` and `seq`, buffers a tick, and writes it with its
 """
 
 from ._plans import LadderConfig, TickPlan, agent_routing_for
+from ._refusal import ResumeRefused, check_resume_inputs
 from ._resume import last_closed_tick, next_seq, rebuild_persona_states, turns_by_tick, validate_checkpoint
 from ._run import run, run_world
 from ._trace import InMemoryRegistry, InMemoryTraceSink
@@ -17,8 +18,10 @@ __all__ = [
     "InMemoryRegistry",
     "InMemoryTraceSink",
     "LadderConfig",
+    "ResumeRefused",
     "TickPlan",
     "agent_routing_for",
+    "check_resume_inputs",
     "last_closed_tick",
     "next_seq",
     "rebuild_persona_states",
