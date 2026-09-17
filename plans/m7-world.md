@@ -31,12 +31,12 @@ The module's shape made true on the baseline environment. `reset` opens a world 
 
 ### Acceptance criteria
 
-- [ ] `reset` returns the opening delta as tick zero, built from trace record types only
-- [ ] `step` takes recorded turns and returns published stimuli, drops and one presentation per activated persona and channel
-- [ ] A survey-room impression holds exactly one exposure, and its view carries no social signal
-- [ ] The world assigns no event id and no sequence number anywhere in a delta
-- [ ] `step` is deterministic under a fixed seed and bit-identical across two processes
-- [ ] No world state appears in any delta, asserted over the whole structure
+- [x] `reset` returns the opening delta as tick zero, built from trace record types only
+- [x] `step` takes recorded turns and returns published stimuli, drops and one presentation per activated persona and channel
+- [x] A survey-room impression holds exactly one exposure, and its view carries no social signal
+- [x] The world assigns no event id and no sequence number anywhere in a delta
+- [x] `step` is deterministic under a fixed seed and bit-identical across two processes
+- [x] No world state appears in any delta, asserted over the whole structure
 
 ---
 
@@ -50,11 +50,11 @@ The property the rest of the module is built to keep. A world reconstructed by `
 
 ### Acceptance criteria
 
-- [ ] Replaying recorded turns from `reset` reproduces every recorded delta, field for field
-- [ ] A world resumed at tick N continues identically to one that never stopped
-- [ ] An internal checkpoint changes speed and never output, asserted by replaying with and without one
-- [ ] A replay that diverges fails loudly, naming the first tick and field that differ
-- [ ] Replay needs nothing but the header and the recorded turns
+- [x] Replaying recorded turns from `reset` reproduces every recorded delta, field for field
+- [x] A world resumed at tick N continues identically to one that never stopped
+- [x] An internal checkpoint changes speed and never output, asserted by replaying with and without one
+- [x] A replay that diverges fails loudly, naming the first tick and field that differ
+- [x] Replay needs nothing but the header and the recorded turns
 
 ---
 
@@ -68,12 +68,12 @@ When personas act and when things happen to them. A scenario declares its `tick_
 
 ### Acceptance criteria
 
-- [ ] A scenario's tick unit and horizon are declared and carried forward in every delta
-- [ ] Activation probability comes from involvement × a rhythm curve keyed to the tick unit, with defaults overridable per scenario
-- [ ] An hour-tick and a day-tick scenario use different rhythm curves
-- [ ] A rerun under the same seed activates the same personas on the same ticks
-- [ ] Two interventions on one tick apply additively, and neither overwrites the other
-- [ ] Interventions are expressed in ticks against the declared horizon, never in wall-clock time
+- [x] A scenario's tick unit and horizon are declared and carried forward in every delta
+- [x] Activation probability comes from involvement × a rhythm curve keyed to the tick unit, with defaults overridable per scenario
+- [x] An hour-tick and a day-tick scenario use different rhythm curves
+- [x] A rerun under the same seed activates the same personas on the same ticks
+- [x] Two interventions on one tick apply additively, and neither overwrites the other
+- [x] Interventions are expressed in ticks against the declared horizon, never in wall-clock time
 
 ---
 
@@ -87,12 +87,12 @@ Where a platform's facts live. The salvaged OASIS schema, extended with provenan
 
 ### Acceptance criteria
 
-- [ ] Platform state is SQLite, internal to the module, and appears in no delta
-- [ ] Actions from recorded turns are applied, and the state they produce survives a replay
-- [ ] An action a channel does not support is recorded as rejected and changes no state
-- [ ] Provenance columns are written at write time, not backfilled
-- [ ] The salvaged schema is extended rather than rewritten, so an upstream diff stays mechanical
-- [ ] Two processes reach byte-identical state from the same turns
+- [x] Platform state is SQLite, internal to the module, and appears in no delta
+- [x] Actions from recorded turns are applied, and the state they produce survives a replay
+- [x] An action a channel does not support is recorded as rejected and changes no state
+- [x] Provenance columns are written at write time, not backfilled
+- [x] The salvaged schema is extended rather than rewritten, so an upstream diff stays mechanical
+- [x] Two processes reach byte-identical state from the same turns
 
 ---
 
@@ -106,12 +106,12 @@ The first environment with social signal. Posts, comments, likes, reposts and qu
 
 ### Acceptance criteria
 
-- [ ] The feed supports post, comment, like, repost, quote and follow
-- [ ] Everything a persona saw on one channel in one tick is one impression, grouped and not flattened
-- [ ] A view carries counts, ancestry, tie strength and shared community, and nothing else
-- [ ] No view carries another persona's attributes, beliefs or private reactions, asserted over the whole delta
-- [ ] Engagement counts include only engagement from earlier ticks
-- [ ] No aggregate outcome reaches any presentation
+- [x] The feed supports post, comment, like, repost, quote and follow
+- [x] Everything a persona saw on one channel in one tick is one impression, grouped and not flattened
+- [x] A view carries counts, ancestry, tie strength and shared community, and nothing else
+- [x] No view carries another persona's attributes, beliefs or private reactions, asserted over the whole delta
+- [x] Engagement counts include only engagement from earlier ticks
+- [x] No aggregate outcome reaches any presentation
 
 ---
 
@@ -125,12 +125,12 @@ How much a persona sees, and the baseline against which ranking effects are meas
 
 ### Acceptance criteria
 
-- [ ] The exposure budget is never exceeded, and no impression exceeds it
-- [ ] Every drop records the persona it was dropped for and its reason
-- [ ] The budget default is 3 and is configurable per scenario
-- [ ] `random` selects without reference to engagement, deterministically under a seed
-- [ ] Exposure concentration under `random` is measurable on a fixture, giving the baseline later modes are compared against
-- [ ] Exposures keep their per-stimulus attention, reason and seen flag
+- [x] The exposure budget is never exceeded, and no impression exceeds it
+- [x] Every drop records the persona it was dropped for and its reason
+- [x] The budget default is 3 and is configurable per scenario
+- [x] `random` selects without reference to engagement, deterministically under a seed
+- [x] Exposure concentration under `random` is measurable on a fixture, giving the baseline later modes are compared against
+- [x] Exposures keep their per-stimulus attention, reason and seen flag — attention falls with position across the impression (full notice at the first slot, half at the last). What fraction of a real feed goes unnoticed is an open modelling question: a study sets `attention_floor` to model it, and the default leaves everything shown noticed
 
 ---
 
@@ -144,11 +144,11 @@ The first ranking mode and the first forum preset. The hot score is copied verba
 
 ### Acceptance criteria
 
-- [ ] The hot-score computation is copied verbatim, with its upstream licence header intact
-- [ ] The global forum supports create_post, reply and vote, with threads open to any persona
-- [ ] `reddit_hot` produces measurably higher exposure concentration than `random` on the same fixture
-- [ ] Ranking ties break from a derived seed, so ordering is reproducible
-- [ ] Votes affect ranking only through the upstream score, with no additional weighting of ours
+- [x] The hot-score computation is copied verbatim, with its upstream licence header intact
+- [x] The global forum supports create_post, reply and vote, with threads open to any persona
+- [x] `reddit_hot` produces measurably higher exposure concentration than `random` on the same fixture
+- [x] Ranking ties break from a derived seed, so ordering is reproducible
+- [x] Votes affect ranking only through the upstream score, with no additional weighting of ours
 
 ---
 
@@ -162,11 +162,11 @@ The same forum class, the opposite dynamic. The `community_scoped` preset scopes
 
 ### Acceptance criteria
 
-- [ ] Threads are scoped to the population's communities, and a persona sees its own community's threads
-- [ ] Ranking uses recency and agreement, and no hot score is computed in this preset
-- [ ] Both presets are the same class with different configuration, asserted over the module
-- [ ] On one fixture, the two presets produce measurably different concentration and divergence
-- [ ] A persona with no community assignment is handled explicitly rather than silently excluded
+- [x] Threads are scoped to the population's communities, and a persona sees its own community's threads
+- [x] Ranking uses recency and agreement, and no hot score is computed in this preset
+- [x] Both presets are the same class with different configuration, asserted over the module
+- [x] On one fixture, the two presets produce measurably different concentration and divergence
+- [x] A persona with no community assignment is handled explicitly rather than silently excluded
 
 ---
 
@@ -180,11 +180,11 @@ The two remaining modes, both reading signals computed elsewhere. `twitter` rank
 
 ### Acceptance criteria
 
-- [ ] `twitter` ranks by interest match against profile embeddings from the manifest, with no embedding call at step time
-- [ ] `twhin` uses degree centralities from the generated graph, computed once
-- [ ] All four modes are selectable per scenario and produce measurably different exposure concentration on one fixture
-- [ ] A scenario naming a mode whose signal is missing fails at `reset`, not mid-run
-- [ ] Every mode remains deterministic under a fixed seed
+- [x] `twitter` ranks by interest match against profile embeddings from the manifest, with no embedding call at step time
+- [x] `twhin` uses degree centralities from the generated graph, computed once
+- [x] All four modes are selectable per scenario and produce measurably different exposure concentration on one fixture
+- [x] A scenario naming a mode whose signal is missing fails at `reset`, not mid-run
+- [x] Every mode remains deterministic under a fixed seed
 
 ---
 
@@ -198,9 +198,9 @@ The graph channel. After a reaction, `wants_to_talk(reaction, peer)` gates on se
 
 ### Acceptance criteria
 
-- [ ] Word of mouth delivers as a next-tick exposure, never within the tick that produced it
-- [ ] The delivered exposure's view records the correct tie strength and `reason=wom`
-- [ ] Both gates are configurable with documented defaults
-- [ ] The per-tick cap holds on a dense-community fixture
-- [ ] Targets are drawn from a derived seed, so deliveries reproduce
-- [ ] A persona with no ties produces no deliveries and no error
+- [x] Word of mouth delivers as a next-tick exposure, never within the tick that produced it
+- [x] The delivered exposure's view records the correct tie strength and `reason=wom`
+- [x] Both gates are configurable with documented defaults
+- [x] The per-tick cap holds on a dense-community fixture
+- [x] Targets are drawn from a derived seed, so deliveries reproduce
+- [x] A persona with no ties produces no deliveries and no error
