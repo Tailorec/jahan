@@ -158,7 +158,12 @@ def test_forced_resume_proceeds_recorded_and_marked():
                  engine_version="9.9.9-other-engine", force=True)
     assert result.status.value == "completed"
     assert registry.is_forced(config.run_id)
-    assert registry.entry(config.run_id).engine_version == "9.9.9-other-engine"
+    stored = registry.entry(config.run_id)
+    assert stored.engine_version == "9.9.9-other-engine"
+    # And the record says so too, not just the process that forced it: a result that spans
+    # engine versions is marked where a reader of the run can see it (ADR 0036).
+    assert stored.forced_from and stored.forced_from[-1] != "9.9.9-other-engine"
+    assert result.registry.forced_from == stored.forced_from
     assert len(trace.all_events()) > before
 
 

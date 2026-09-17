@@ -387,6 +387,20 @@ def run_world(
     return tuple(written), states, seq, current, paused
 
 
+def _remember(registry, entry: RunRegistryEntry) -> None:
+    """Pin a run's entry the first time and move it afterwards.
+
+    `record` refuses a second entry for a run, by design — nothing silently replaces a study —
+    so everything after the first write is an update. Calling `record` twice worked against an
+    upserting fake and raised against the real registry, which would have ended every real run
+    on its last write.
+    """
+    if registry.entry(entry.config.run_id) is None:
+        registry.record(entry)
+    else:
+        registry.update(entry)
+
+
 def run(
     config: RunConfig,
     *,
@@ -422,6 +436,7 @@ def run(
     from ._ledger import ledger_sum
 
     stored = registry.entry(config.run_id)  # type: ignore[attr-defined]
+    forced_from: tuple[str, ...] = tuple(stored.forced_from) if stored is not None else ()
     base_discarded = 0
     if stored is not None:
         base_discarded = int(stored.discarded_ticks)
@@ -432,6 +447,10 @@ def run(
                 raise
             if hasattr(registry, "mark_forced"):
                 registry.mark_forced(config.run_id)  # type: ignore[attr-defined]
+            # The version it ran under before goes on the entry, so a result that spans engines
+            # is marked in the record and not only in the process that forced it (ADR 0036).
+            if stored.engine_version != engine_version and stored.engine_version not in forced_from:
+                forced_from = (*forced_from, stored.engine_version)
     else:
         running = RunRegistryEntry.model_validate(
             {
@@ -443,7 +462,7 @@ def run(
                 "discarded_ticks": 0,
             }
         )
-        registry.record(running)  # type: ignore[attr-defined]
+        _remember(registry, running)
     # A resume that picks up an incomplete world lost the tick it was
     # interrupted in: unknown spend, counted before anything else resumes.
     pending_discarded = 0
@@ -455,7 +474,8 @@ def run(
                 if existing and last_closed_tick(tuple(existing)) < scenario.horizon_ticks - 1:
                     pending_discarded += 1
     if pending_discarded:
-        registry.record(  # type: ignore[attr-defined]
+        _remember(
+            registry,
             RunRegistryEntry.model_validate(
                 {
                     "config": stored.config.model_dump(mode="json"),
@@ -464,6 +484,7 @@ def run(
                     "engine_version": stored.engine_version,
                     "recorded_cost": float(stored.recorded_cost),
                     "discarded_ticks": base_discarded + pending_discarded,
+                    "forced_from": list(forced_from),
                 }
             )
         )
@@ -592,9 +613,10 @@ def run(
             "engine_version": engine_version,
             "recorded_cost": recorded_cost,
             "discarded_ticks": discarded_total,
+            "forced_from": list(forced_from),
         }
     )
-    registry.record(entry)  # type: ignore[attr-defined]
+    _remember(registry, entry)
     return RunResult.model_validate(
         {"registry": entry.model_dump(mode="json"), "outcomes": [o.model_dump(mode="json") for o in outcomes]}
     )

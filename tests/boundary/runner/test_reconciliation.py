@@ -182,3 +182,52 @@ def test_subsample_plan_reaches_real_world_activation():
             jobs, chat=chat, config=agent_config, ontology=pack.ontology, blocks=blocks, embed=embed),
         ladder=LadderConfig(warn_at=0.0, freeze_at=0.0, subsample_at=0.0, pause_at=10.0, subsample_rate=0.25))
     assert any(rate == 0.25 for rate in seen_rates)
+
+
+def test_a_run_moves_its_registry_entry_rather_than_recording_it_twice():
+    """`record` pins a new run and refuses a second entry; `update` moves what the run learns.
+    The runner called `record` at the start and again at the end, which the in-memory fake
+    accepted as an upsert and the real registry refuses — so every real run would have crashed
+    on its last write, and a resume on its first."""
+    from simcore.runner import InMemoryRegistry
+
+    registry = InMemoryRegistry()
+    assert hasattr(registry, "update"), "the fake cannot move an entry"
+
+    from simcore.agent import AgentConfig, PersonaBlockCache
+    from simcore.agent import turns as _turns
+    from simcore.ports.fake import FakeChat, FakeEmbed
+    from simcore.world import World, WorldConfig
+    from tests.boundary.agent.support import answering
+
+    pack, population = _pack(), _population()
+    pins = {"tier_a": "fake/chat", "tier_b": "fake/chat", "embed": "fake-embed"}
+    config, _ = _config(pins)
+    config = RunConfig.model_validate(
+        {**config.model_dump(mode="json"), "brief_hash": canonical_hash(pack.brief),
+         "ontology_hash": canonical_hash(pack.ontology),
+         "population_hash": population.manifest.population_hash, "graph_hash": population.manifest.graph_hash}
+    )
+    chat, embed, blocks = FakeChat(responder=answering("answer", "I would try it")), FakeEmbed(), PersonaBlockCache()
+    agent_config = AgentConfig(run_seed=4021, horizon_ticks=3, template_id="persona_turn")
+    trace = InMemoryTraceSink()
+
+    def world_factory(header):
+        return World(header, population=population, config=WorldConfig())
+
+    def agent_fn(jobs, plan=None):
+        return _turns(jobs, chat=chat, config=agent_config, ontology=pack.ontology, blocks=blocks, embed=embed)
+
+    result = run(config, pack=pack, population=population, trace=trace, registry=registry,
+                 world_factory=world_factory, agent_fn=agent_fn)
+    assert result.status.value in ("completed", "partial")
+    assert registry.records == 1, f"the run pinned its entry {registry.records} times"
+    assert registry.updates >= 1, "the run never moved its entry"
+    stored = registry.entry(config.run_id)
+    assert stored is not None and stored.status is result.status
+
+    # and a resume moves it again rather than re-pinning it
+    resumed = run(config, pack=pack, population=population, trace=trace, registry=registry,
+                  world_factory=world_factory, agent_fn=agent_fn)
+    assert registry.records == 1
+    assert resumed.status.value in ("completed", "partial")

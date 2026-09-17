@@ -7,7 +7,7 @@ must: one tick in one call, `(world_id, seq)` refusals on duplicates.
 
 from __future__ import annotations
 
-from simcore.schemas import RunRegistryEntry, TraceEvent
+from simcore.schemas import RunRegistryEntry, check_registry_update, TraceEvent
 
 
 class InMemoryTraceSink:
@@ -51,10 +51,26 @@ class InMemoryRegistry:
 
     def __init__(self) -> None:
         self._entries: dict[str, RunRegistryEntry] = {}
+        # Counted so a test can see the difference between pinning a run and moving it.
+        self.records = 0
+        self.updates = 0
         self.forced: set[str] = set()
 
     def record(self, entry: RunRegistryEntry) -> None:
+        """Pin a new run. A second entry is refused, as the real registry refuses it."""
+        if entry.config.run_id in self._entries:
+            raise ValueError(f"an entry for run {entry.config.run_id} already exists")
         self._entries[entry.config.run_id] = entry
+        self.records += 1
+
+    def update(self, entry: RunRegistryEntry) -> None:
+        """Move status, recorded cost and discarded ticks; never what a replay pins."""
+        held = self._entries.get(entry.config.run_id)
+        if held is None:
+            raise KeyError(f"no entry for run {entry.config.run_id}")
+        check_registry_update(held, entry)
+        self._entries[entry.config.run_id] = entry
+        self.updates += 1
 
     def entry(self, run_id: str) -> RunRegistryEntry | None:
         return self._entries.get(run_id)

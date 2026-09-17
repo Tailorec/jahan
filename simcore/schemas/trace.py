@@ -321,6 +321,29 @@ class PartitionHeader(SimBaseModel):
         return derive_world_id(self.scenario, self.replicate_seed, self.population.population_hash)
 
 
+def check_registry_update(held: "RunRegistryEntry", moved: "RunRegistryEntry") -> None:
+    """Refuse an update that rewrites what a replay rests on.
+
+    A run's progress moves: its status, its recorded cost, the ticks it discarded. Its identity
+    does not — the configuration and the contract are pinned when the run is first recorded. The
+    engine version moves only on a forced resume, and only when the entry records the version it
+    is moving from, so a result that spans engines is marked in the record (ADR 0036).
+    """
+    problems = []
+    if held.config_hash != moved.config_hash:
+        problems.append(f"configuration ({held.config_hash} to {moved.config_hash})")
+    if held.contract_version != moved.contract_version:
+        problems.append(f"contract version ({held.contract_version} to {moved.contract_version})")
+    if held.engine_version != moved.engine_version:
+        recorded = held.engine_version in moved.forced_from
+        if not recorded:
+            problems.append(
+                f"engine version ({held.engine_version} to {moved.engine_version}) without recording the force"
+            )
+    if problems:
+        raise ValueError(f"an update moves a run's progress, never what a replay pins: {', '.join(problems)}")
+
+
 class TracePartition(SimBaseModel):
     """One world's append-only record, checked as a whole. Events may be stored in any order —
     storage sorts by persona and tick — but in sequence order they must be gapless, never go back in
@@ -682,6 +705,10 @@ class RunRegistryEntry(SimBaseModel):
     # rather than implying the floor is the truth (ADR 0033).
     recorded_cost: Annotated[float, Field(ge=0.0)] = 0.0
     discarded_ticks: NonNegativeInt = 0
+    # The engine versions this run ran under before a resume was forced across them, oldest
+    # first. A forced resume is allowed and recorded, so a result that spans versions is marked
+    # in the record rather than only in the process that forced it (ADR 0036).
+    forced_from: tuple[Identifier, ...] = ()
 
     @computed_field
     @property
