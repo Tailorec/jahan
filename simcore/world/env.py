@@ -45,6 +45,10 @@ from .platform import Forum, ForumPreset, is_supported
 from .store import Store
 
 
+# A drop is recorded for a near miss: this many ranked candidates per budget place.
+CANDIDATE_WINDOW_MULTIPLE = 3
+
+
 class RecsysMode(StrEnum):
     """How the world ranks candidate stimuli: the control arm first, then the ranked modes."""
 
@@ -67,6 +71,10 @@ class WorldConfig:
     forum_preset: ForumPreset = ForumPreset.REDDIT_GLOBAL
     # None inherits the scenario's exposure budget; the survey room always shows exactly one.
     exposure_budget: int | None = None
+    # How many ranked candidates count as having nearly reached a persona. A drop means a
+    # stimulus the budget kept out, so only this window's near misses are recorded; ranking
+    # still considers everything published. None is `CANDIDATE_WINDOW_MULTIPLE x` the budget.
+    candidate_window: int | None = None
     # Activation: per-persona involvement is `involvement_default` unless named here.
     involvement_default: float = 1.0
     involvement: tuple[tuple[str, float], ...] = ()
@@ -558,6 +566,19 @@ class World:
 
     _FEED_KINDS = frozenset({"concept", "claim_post", "peer_post", "peer_reply"})
 
+    def _candidate_window(self) -> int:
+        """How far down the ranking a miss is still recorded, never fewer than the budget.
+
+        Every unshown stimulus was once recorded as dropped, so the trace grew with the
+        corpus: four personas and twenty stimuli wrote 52 drops in a tick, and a real study
+        would write millions no one reads. A drop is a near miss — what the budget kept out —
+        so the window bounds what is recorded, and never what is shown.
+        """
+        budget = self._budget()
+        if self._config.candidate_window is None:
+            return budget * CANDIDATE_WINDOW_MULTIPLE
+        return max(budget, self._config.candidate_window)
+
     def _budget(self) -> int:
         """Stimuli one persona can be shown per channel per tick.
 
@@ -591,7 +612,7 @@ class World:
         presentations: list[Presentation] = []
         dropped: list[DroppedExposure] = []
         for persona_id in self._activated(tick):
-            ordered = self._rank_feed(persona_id, tick, candidates, counts)
+            ordered = self._rank_feed(persona_id, tick, candidates, counts)[: self._candidate_window()]
             shown = ordered[:budget]
             exposures = tuple(
                 Exposure(stimulus_id=stimulus_id, reason=reason, attention=1.0) for stimulus_id in shown
@@ -744,6 +765,7 @@ class World:
                 ordered = self._hot_rank(ids, threads, counts, feed_votes=False, tick=tick)
             else:
                 ordered = self._scoped_rank(ids, threads, counts, tick=tick)
+            ordered = ordered[: self._candidate_window()]
             shown = ordered[:budget]
             exposures = tuple(
                 Exposure(stimulus_id=stimulus_id, reason=ExposureReason.FORUM, attention=1.0)

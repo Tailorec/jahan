@@ -127,3 +127,55 @@ def test_exposures_keep_their_attention_reason_and_seen_flag():
     for n, presentation in enumerate(first.presentations):
         turn = answer_turn(presentation, n)
         assert turn.impression.exposures == presentation.impression.exposures
+
+
+def test_a_drop_is_a_near_miss_not_the_whole_corpus():
+    """Recording every unshown stimulus as a drop makes the trace grow with the corpus.
+
+    A drop means a stimulus that would have reached this persona but for the budget, so the
+    candidates are a bounded window around it. Without the window, a world with 20 stimuli
+    and 4 personas wrote 52 drops in one tick, and a study with a thousand stimuli and ten
+    thousand personas would write millions per tick, none of them read by anything.
+    """
+    population = make_population()
+    world = make_world(config=WorldConfig(platform="social_feed", candidate_window=6), population=population)
+    world.reset()
+    turns = []
+    counts = []
+    for tick in range(1, 6):
+        delta = world.step(tick, turns)
+        counts.append(len(delta.dropped))
+        turns = [
+            act_turn(presentation, index, "post", f"post {index} at tick {tick}")
+            for index, presentation in enumerate(delta.presentations)
+        ]
+    published = len(world._store.stimuli_published_before(6))
+    assert published > 12, "the corpus grew, which is the case under test"
+    budget, window = world._budget(), 6
+    awake = len(PERSONA_IDS)
+    assert max(counts) <= (window - budget) * awake, f"{max(counts)} drops for {published} stimuli"
+
+
+def test_the_candidate_window_defaults_to_a_multiple_of_the_budget_and_is_recorded():
+    world = make_world(config=WorldConfig(platform="social_feed"), population=make_population())
+    assert world._candidate_window() >= world._budget()
+    narrow = make_world(config=WorldConfig(platform="social_feed", candidate_window=3), population=make_population())
+    assert narrow._candidate_window() == 3
+
+
+def test_a_stimulus_outside_the_window_is_not_shown_and_not_recorded_as_dropped():
+    """The window bounds what is recorded, never what the budget shows."""
+    population = make_population()
+    world = make_world(config=WorldConfig(platform="social_feed", candidate_window=4), population=population)
+    world.reset()
+    first = world.step(1, [])
+    shown = {
+        presentation.impression.persona_id: {exposure.stimulus_id for exposure in presentation.impression.exposures}
+        for presentation in first.presentations
+    }
+    dropped: dict[str, set[str]] = {}
+    for entry in first.dropped:
+        dropped.setdefault(entry.persona_id, set()).add(entry.drop.stimulus_id)
+    for persona_id, seen in shown.items():
+        assert seen & dropped.get(persona_id, set()) == set(), "a stimulus was shown to a persona and dropped for it too"
+        assert len(seen) <= world._budget()
