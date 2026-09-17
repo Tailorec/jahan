@@ -73,5 +73,6 @@ class ParquetTraceView(_ViewBase):
 
         events: list[TraceEvent] = []
         for world_id in self._worlds:
-            events.extend(read_finalized_events(self._root, self._run_id, world_id))
+            # The same visibility rule as the live view, so the two cannot disagree.
+            events.extend(_derive.visible_events(read_finalized_events(self._root, self._run_id, world_id)))
         return tuple(sorted(events, key=lambda e: (e.world_id, e.seq)))

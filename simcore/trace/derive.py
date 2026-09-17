@@ -202,11 +202,25 @@ def resolve_events(events: Sequence[TraceEvent], trace_ids: Iterable[str]) -> tu
 
 
 def closed_ticks(events: Sequence[TraceEvent]) -> set[int]:
-    """Ticks whose `tick_closed` is on record; a live view shows these and nothing else."""
+    """Ticks whose `tick_closed` is on record."""
     return {event.tick for event in events if event.payload.kind == "tick_closed"}
 
 
+# A world's own records are not a tick's content: a pause, a completion or a rung is written
+# when it happens and belongs to the world, not to the tick it interrupted. Hiding them until
+# a tick closed made a paused run's reason for stopping invisible to a live view while the
+# finalized view showed it — the one property the lifecycle rests on, broken in the case it
+# exists for (ADR 0034). Both backends apply this rule, so both answer the same.
+WORLD_RECORDS = frozenset({"lifecycle", "degraded"})
+
+
 def visible_events(events: Sequence[TraceEvent]) -> tuple[TraceEvent, ...]:
-    """Every closed tick whole: events of a tick without its `tick_closed` are not shown."""
+    """What a view shows: every closed tick whole, plus the world's own records.
+
+    A tick's content — turns, memories, costs, stimuli, drops — appears when that tick closed.
+    A world record appears as soon as it is written.
+    """
     closed = closed_ticks(events)
-    return tuple(event for event in events if event.tick in closed)
+    return tuple(
+        event for event in events if event.tick in closed or event.payload.kind in WORLD_RECORDS
+    )

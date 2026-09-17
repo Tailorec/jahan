@@ -17,6 +17,7 @@ import pytest
 from simcore.schemas import EventFilter, VerbatimGrouping
 from simcore.trace import TraceStore
 from simcore.trace.errors import FinalizedError
+from tests.boundary.trace.support import partition_events, seed_header_and_entry, seed_store, write_by_tick
 
 from .support import seed_store
 
@@ -101,3 +102,74 @@ def test_parquet_columns_are_typed_per_payload_kind(tmp_path):
         if name in ("event_id", "world_id", "persona_id", "kind"):
             continue
         assert not pa.types.is_string(schema.field(name).type) or name in (), f"{name} holds a blob"
+
+
+def test_a_paused_world_answers_the_same_live_and_finalized(tmp_path):
+    """A run that stopped short records the pause at a tick that never closed: the live view
+    hid those records while the finalized view showed them, so the one property the lifecycle
+    rests on (ADR 0034) failed in exactly the case it exists for — reading a paused run."""
+    from simcore.schemas import RunStatus, TraceEvent
+    from tests.study_builders import R
+
+    store = TraceStore(tmp_path)
+    header, entry = seed_header_and_entry(store)
+    events, _ = partition_events()
+    kept = [event for event in events if event.seq < R["completed"]]
+    write_by_tick(store, kept)
+    tick = max(event.tick for event in kept) + 1
+    seq = max(event.seq for event in kept) + 1
+    pause = [
+        TraceEvent.model_validate(
+            {"event_id": f"ev-{'0' * 22}{index:04d}", "world_id": header.world_id, "tick": tick,
+             "seq": seq + index, "persona_id": None, "payload": payload}
+        )
+        for index, payload in enumerate(
+            (
+                {"kind": "degraded", "rung": "pause", "activation_rate": 0.0, "tier_b_frozen": True},
+                {"kind": "lifecycle", "phase": "paused"},
+            )
+        )
+    ]
+    store.write(pause)
+
+    run_id = entry.config.run_id
+    before = store.view(run_id)
+    live_ids = {event.event_id for event in before.events(EventFilter())}
+    assert {record.event_id for record in pause} <= live_ids, "a live view hides why the run stopped"
+
+    store.registry.update(entry.model_copy(update={"status": RunStatus.PAUSED}))
+    store.finalize(header.world_id)
+    store.registry.update(entry.model_copy(update={"status": RunStatus.COMPLETED}))
+    after = store.view(run_id)
+    assert {event.event_id for event in after.events(EventFilter())} == live_ids
+    assert after.beliefs("p-000001") == before.beliefs("p-000001")
+    assert after.edges() == before.edges()
+
+
+def test_a_tick_that_never_closed_is_shown_by_neither_backend(tmp_path):
+    """The rule applies to a tick's content, not to the world's own lifecycle records."""
+    from simcore.schemas import RunStatus, TraceEvent
+    from tests.study_builders import R
+
+    store = TraceStore(tmp_path)
+    header, entry = seed_header_and_entry(store)
+    events, _ = partition_events()
+    kept = [event for event in events if event.seq < R["completed"]]
+    write_by_tick(store, kept)
+    orphan = TraceEvent.model_validate(
+        {
+            "event_id": f"ev-{'0' * 22}9999", "world_id": header.world_id,
+            "tick": max(event.tick for event in kept) + 1,
+            "seq": max(event.seq for event in kept) + 1, "persona_id": None,
+            "payload": {"kind": "stimulus_published", "stimulus": {
+                "stimulus_id": f"st-{'0' * 22}8888", "tick": max(event.tick for event in kept) + 1,
+                "kind": "concept", "text": "published into a tick that never closed"}},
+        }
+    )
+    store.write([orphan])
+    run_id = entry.config.run_id
+    live_ids = {event.event_id for event in store.view(run_id).events(EventFilter())}
+    assert orphan.event_id not in live_ids
+    store.registry.update(entry.model_copy(update={"status": RunStatus.COMPLETED}))
+    store.finalize(header.world_id)
+    assert orphan.event_id not in {event.event_id for event in store.view(run_id).events(EventFilter())}
