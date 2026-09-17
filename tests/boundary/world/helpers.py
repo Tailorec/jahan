@@ -1,8 +1,8 @@
 """Shared builders for world boundary tests: headers, worlds and turns."""
 
-from simcore.schemas import PartitionHeader, Presentation, Reaction, Turn
+from simcore.schemas import PartitionHeader, Population, Presentation, Reaction, Turn
 from simcore.world import World, WorldConfig
-from tests.study_builders import partition_header_payload, ulid
+from tests.study_builders import partition_header_payload, population_payload, ulid
 
 
 def make_header(**overrides):
@@ -10,9 +10,18 @@ def make_header(**overrides):
     return PartitionHeader.model_validate(partition_header_payload(**overrides))
 
 
-def make_world(config: WorldConfig | None = None, **overrides) -> World:
-    """A fresh world over the representative header."""
-    return World(make_header(**overrides), config=config)
+def make_population(**overrides):
+    """The representative population, matching the representative header's manifest."""
+    payload = population_payload()
+    payload.update(overrides)
+    return Population.model_validate(payload)
+
+
+def make_world(
+    config: WorldConfig | None = None, population: Population | None = None, **overrides
+) -> World:
+    """A fresh world over the representative header, optionally over its population."""
+    return World(make_header(**overrides), population=population, config=config)
 
 
 def answer_turn(presentation: Presentation, n: int, action: str = "answer") -> Turn:
@@ -33,6 +42,20 @@ def answer_turn(presentation: Presentation, n: int, action: str = "answer") -> T
             action="answer",
             verbatim="clear protein water after training, I would try it",
         )
+    return Turn(impression=presentation.impression, view=presentation.view, reaction=reaction)
+
+
+def act_turn(
+    presentation: Presentation, n: int, action: str, verbatim: str | None = None, subject_id: str | None = None
+) -> Turn:
+    """A turn performing a platform action, on the given stimulus or the first exposure."""
+    subject = subject_id or presentation.impression.exposures[0].stimulus_id
+    reaction = Reaction(
+        reaction_id=f"rc-{ulid(950 + n)}",
+        subject_stimulus_id=subject,
+        action=action,  # type: ignore[arg-type]
+        verbatim=verbatim,
+    )
     return Turn(impression=presentation.impression, view=presentation.view, reaction=reaction)
 
 

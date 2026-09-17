@@ -20,7 +20,9 @@ from enum import StrEnum
 from simcore.schemas import (
     ActionKind,
     Channel,
+    DroppedExposure,
     Exposure,
+    ExposureDropped,
     ExposureReason,
     Impression,
     InterventionKind,
@@ -86,13 +88,15 @@ class WorldConfig:
     profile_vectors: tuple[tuple[str, tuple[float, ...]], ...] = ()
     embedding_model_id: str | None = None
 
+    def __post_init__(self) -> None:
+        """Coerce plain strings to their channels and modes, so scenario files read naturally."""
+        object.__setattr__(self, "platform", Channel(self.platform))
+        object.__setattr__(self, "recsys_mode", RecsysMode(self.recsys_mode))
+        object.__setattr__(self, "forum_preset", ForumPreset(self.forum_preset))
+
     def involvement_for(self, persona_id: str) -> float:
         """This persona's involvement: its named value, else the study default."""
         return dict(self.involvement).get(persona_id, self.involvement_default)
-
-    def rhythm_for(self, tick_unit: str) -> float:
-        """The rhythm multiplier for a tick unit: its override, else flat."""
-        return dict(self.rhythm).get(tick_unit, 1.0)
 
     def profile_vector_for(self, persona_id: str) -> tuple[float, ...] | None:
         """This persona's profile vector for interest matching, if the study carried one."""
@@ -133,6 +137,15 @@ class World:
         )
         self._personas = sorted(set(members))
         self._store = Store(store_path)
+        self._ties: dict[frozenset[str], float] = {}
+        self._community_of: dict[str, str] = {}
+        if population is not None and population.graph is not None:
+            for edge in population.graph.edges:
+                self._ties[frozenset((edge.u, edge.v))] = edge.weight
+        if population is not None:
+            for community in population.communities:
+                for member in community.member_ids:
+                    self._community_of[member] = community.community_id
         self._concept_id: str | None = None
         self._opened = False
         self._last_tick = -1
@@ -191,12 +204,12 @@ class World:
                 )
         self._ingest_turns(tick, turns)
         published = self._publish_from_turns(tick, turns)
-        presentations = self._presentations(tick)
+        presentations, dropped = self._presentations(tick)
         delta = WorldDelta(
             tick=tick,
             published=tuple(published),
             interventions=self._interventions_at(tick),
-            dropped=self._drops(tick, presentations),
+            dropped=tuple(dropped),
             presentations=tuple(presentations),
         )
         self._last_tick = tick
@@ -281,10 +294,69 @@ class World:
                     world_id=self._world_id,
                     written_tick=tick,
                 )
+            elif action is ActionKind.FOLLOW:
+                # Following means following the author of the stimulus reacted to.
+                followee = self._store.stimulus_author(subject)
+                if followee is not None and followee != turn.impression.persona_id:
+                    self._store.record_follow(
+                        follower=turn.impression.persona_id,
+                        followee=followee,
+                        tick=turn.impression.tick,
+                        world_id=self._world_id,
+                        written_tick=tick,
+                    )
+
+    _AUTHORING = frozenset({ActionKind.POST, ActionKind.COMMENT, ActionKind.REPLY, ActionKind.QUOTE})
 
     def _publish_from_turns(self, tick: int, turns: tuple[Turn, ...]) -> list[Stimulus]:
-        """Persona-authored stimuli for this tick. The survey room authors none."""
-        return []
+        """Persona-authored stimuli for this tick: posts, comments, replies and quotes.
+
+        Turns publish in persona order so stimulus identifiers are stable
+        whatever order the runner hands turns in. What a persona authors this
+        tick becomes visible from the next tick onward, never within this one.
+        """
+        ordered = sorted(
+            turns,
+            key=lambda turn: (
+                turn.impression.persona_id,
+                turn.reaction.subject_stimulus_id,
+                turn.reaction.action.value,
+            ),
+        )
+        stimuli: list[Stimulus] = []
+        index = 0
+        for turn in ordered:
+            action = turn.reaction.action
+            if action not in self._AUTHORING or not is_supported(turn.impression.channel, action):
+                continue
+            if turn.reaction.verbatim is None:
+                continue
+            if action in (ActionKind.COMMENT, ActionKind.REPLY):
+                kind, parent = StimulusKind.PEER_REPLY, turn.reaction.subject_stimulus_id
+            else:
+                kind, parent = StimulusKind.PEER_POST, None
+            stimulus = Stimulus(
+                stimulus_id=_ids.stimulus_id(self._world_seed, tick, f"publish:{action.value}", index),
+                tick=tick,
+                author=turn.impression.persona_id,
+                kind=kind,
+                text=turn.reaction.verbatim,
+                in_reply_to=parent,
+            )
+            index += 1
+            self._store.record_stimulus(
+                stimulus_id=stimulus.stimulus_id,
+                tick=tick,
+                author=stimulus.author,
+                kind=stimulus.kind.value,
+                text=stimulus.text,
+                claim_id=None,
+                parent_id=parent,
+                world_id=self._world_id,
+                written_tick=tick,
+            )
+            stimuli.append(stimulus)
+        return stimuli
 
     def _activated(self, tick: int) -> list[str]:
         """Personas taking a turn this tick: involvement × rhythm, one seeded draw each."""
@@ -297,10 +369,19 @@ class World:
         }
         return activated_personas(self._personas, probabilities, self._world_seed, tick)
 
-    def _presentations(self, tick: int) -> list[Presentation]:
-        """One presentation per activated persona on the survey channel."""
+    def _presentations(self, tick: int) -> tuple[list[Presentation], list[DroppedExposure]]:
+        """One presentation per activated persona on the world's channel, plus what missed the budget."""
         if self._concept_id is None:
             raise ValueError("presentations before the study stimuli were published")
+        if self._config.platform is Channel.SOCIAL_FEED:
+            return self._feed_presentations(tick)
+        if self._config.platform is Channel.SURVEY_ROOM:
+            return self._survey_presentations(tick), []
+        raise ValueError(f"the {self._config.platform.value} platform lands in a later phase")
+
+    def _survey_presentations(self, tick: int) -> list[Presentation]:
+        """The baseline: every activated persona sees the concept stimulus alone."""
+        assert self._concept_id is not None
         presentations = []
         for persona_id in self._activated(tick):
             exposure = Exposure(stimulus_id=self._concept_id, reason=ExposureReason.INTEREST, attention=1.0)
@@ -320,9 +401,98 @@ class World:
             presentations.append(Presentation(impression=impression, view=view))
         return presentations
 
-    def _drops(self, tick: int, presentations: list[Presentation]) -> tuple:
-        """Exposures withheld this tick. The survey room drops nothing."""
-        return ()
+    _FEED_KINDS = frozenset({"concept", "claim_post", "peer_post", "peer_reply"})
+
+    def _budget(self) -> int:
+        """Stimuli one persona can be shown per channel per tick; the survey room always shows one."""
+        return self._config.exposure_budget or self._scenario.exposure_budget
+
+    def _feed_presentations(self, tick: int) -> tuple[list[Presentation], list[DroppedExposure]]:
+        """The social feed: ranked candidates grouped into one impression per persona.
+
+        Everything a persona sees on the feed in one tick arrives as one
+        impression — grouped, not flattened — and its view carries only public
+        context: counts from earlier ticks, reply ancestry, tie strength and
+        shared community with each author.
+        """
+        candidates = [
+            row
+            for row in self._store.stimuli_published_before(tick)
+            if row["kind"] in self._FEED_KINDS
+        ]
+        budget = self._budget()
+        counts = self._store.counts_visible_at(tick)
+        authors = {row["stimulus_id"]: row["author"] for row in candidates}
+        presentations: list[Presentation] = []
+        dropped: list[DroppedExposure] = []
+        for persona_id in self._activated(tick):
+            shown = [row["stimulus_id"] for row in candidates[:budget]]
+            exposures = tuple(
+                Exposure(
+                    stimulus_id=stimulus_id,
+                    reason=ExposureReason.INTEREST if authors[stimulus_id] is None else ExposureReason.SOCIAL_PROOF,
+                    attention=1.0,
+                )
+                for stimulus_id in shown
+            )
+            impression = Impression(
+                impression_id=_ids.impression_id(self._world_seed, tick, persona_id, Channel.SOCIAL_FEED.value),
+                persona_id=persona_id,
+                channel=Channel.SOCIAL_FEED,
+                tick=tick,
+                exposures=exposures,
+            )
+            contexts = {
+                stimulus_id: self._context_for(persona_id, stimulus_id, authors[stimulus_id], counts)
+                for stimulus_id in shown
+            }
+            presentations.append(
+                Presentation(impression=impression, view=View(impression_id=impression.impression_id, contexts=contexts))
+            )
+            for row in candidates[budget:]:
+                dropped.append(
+                    DroppedExposure(
+                        persona_id=persona_id,
+                        drop=ExposureDropped(
+                            kind="exposure_dropped",
+                            stimulus_id=row["stimulus_id"],
+                            channel=Channel.SOCIAL_FEED,
+                            reason="budget_exhausted",
+                        ),
+                    )
+                )
+        return presentations, dropped
+
+    def _context_for(
+        self, viewer: str, stimulus_id: str, author: str | None, counts: dict[str, dict[str, int]]
+    ) -> StimulusContext:
+        """The public context around one shown stimulus: counts from earlier ticks only,
+        its reply ancestry, and the viewer's relationship to its author — nothing else."""
+        seen = counts.get(stimulus_id, {})
+        tie_strength, shared_community = self._relationship(viewer, author)
+        return StimulusContext(
+            likes=seen.get("likes", 0),
+            reposts=seen.get("reposts", 0),
+            replies=seen.get("replies", 0),
+            upvotes=seen.get("upvotes", 0),
+            downvotes=seen.get("downvotes", 0),
+            ancestry=self._store.ancestry(stimulus_id),
+            tie_strength=tie_strength,
+            shared_community=shared_community,
+        )
+
+    def _relationship(self, viewer: str, author: str | None) -> tuple[float | None, bool | None]:
+        """Tie strength and shared community with an author: absent for the study's and the viewer's own."""
+        if author is None or author == viewer:
+            return None, None
+        tie = self._ties.get(frozenset((viewer, author)), 0.0)
+        if not self._community_of:
+            return tie, None
+        viewer_community = self._community_of.get(viewer)
+        author_community = self._community_of.get(author)
+        if viewer_community is None or author_community is None:
+            return tie, None
+        return tie, viewer_community == author_community
 
     # -- introspection (for tests and replay; never part of a delta) ----------------
 

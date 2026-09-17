@@ -185,6 +185,13 @@ class Store:
             ).fetchone()
         return tuple(chain)
 
+    def stimulus_author(self, stimulus_id: str) -> str | None:
+        """The persona that authored a stimulus, or nothing for study-authored ones."""
+        row = self._db.execute(
+            "SELECT author FROM stimuli WHERE stimulus_id = ?", (stimulus_id,)
+        ).fetchone()
+        return row[0] if row is not None else None
+
     def provenance_complete(self) -> bool:
         """Every row names its world and the tick it was written at."""
         for table in ("stimuli", "engagements", "follows", "rejected"):

@@ -106,12 +106,12 @@ The first environment with social signal. Posts, comments, likes, reposts and qu
 
 ### Acceptance criteria
 
-- [ ] The feed supports post, comment, like, repost, quote and follow
-- [ ] Everything a persona saw on one channel in one tick is one impression, grouped and not flattened
-- [ ] A view carries counts, ancestry, tie strength and shared community, and nothing else
-- [ ] No view carries another persona's attributes, beliefs or private reactions, asserted over the whole delta
-- [ ] Engagement counts include only engagement from earlier ticks
-- [ ] No aggregate outcome reaches any presentation
+- [x] The feed supports post, comment, like, repost, quote and follow
+- [x] Everything a persona saw on one channel in one tick is one impression, grouped and not flattened
+- [x] A view carries counts, ancestry, tie strength and shared community, and nothing else
+- [x] No view carries another persona's attributes, beliefs or private reactions, asserted over the whole delta
+- [x] Engagement counts include only engagement from earlier ticks
+- [x] No aggregate outcome reaches any presentation
 
 ---
 
