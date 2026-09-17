@@ -154,6 +154,11 @@ The path that keeps stored runs readable. A migration registry applies every reg
 
 ## Phase 8: Scale and reconciliation
 
+> Scale measurement (2026-09-18, `tests/boundary/trace/test_scale.py`): 500,032 events
+> (500k billed calls across 30 ticks) round-trip with identical ordering; the world
+> finalizes in ~30 s into ~5 MB of Parquet (cost-shaped events — turn-heavy worlds will be
+> larger, per the 100–200 MB sizing in `FINAL_ARCH.md` §5.9).
+
 **User stories**: 4, 5
 
 ### What to build

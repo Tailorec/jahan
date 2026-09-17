@@ -128,6 +128,22 @@ def test_the_budget_drops_memories_before_beliefs():
     assert "Your current views" in parts["beliefs"]
 
 
+def _minimum_budget(job) -> int:
+    """The smallest budget that still holds the persona block, the impression and the question.
+
+    `assemble` refuses anything below this, so it is the point at which beliefs and memories
+    have all been dropped and the block has not.
+    """
+    from simcore.agent._context import _wire_size
+    from simcore.agent._prompt import REACTION_QUESTION, render_persona_block
+
+    block = render_persona_block(job.persona.conditioning, job.persona.attributes)
+    return _wire_size(
+        block, "", (), job.presentation.impression.model_dump_json(),
+        job.presentation.view.model_dump_json(), REACTION_QUESTION,
+    )
+
+
 def test_a_budget_below_beliefs_keeps_the_block_and_drops_beliefs():
     payload = job_payload(0)
     payload["state"] = {**payload["state"], "memories": memories(12)}
@@ -135,11 +151,15 @@ def test_a_budget_below_beliefs_keeps_the_block_and_drops_beliefs():
 
     job = TurnJob.model_validate(payload)
     chat = FakeChat(responder=answering())
-    config = AgentConfig(token_budget={InferenceRole.TIER_A: 260, InferenceRole.TIER_B: 8192})
+    # A budget that holds the block, the impression and the question, and nothing more: measured
+    # rather than guessed, so a change in what a view carries cannot quietly flip this test.
+    floor = _minimum_budget(job)
+    config = AgentConfig(token_budget={InferenceRole.TIER_A: floor, InferenceRole.TIER_B: 8192})
     (outcome,) = turns([job], chat=chat, config=config, ontology=ontology())
     assert isinstance(outcome, CompletedTurn)
     parts = prompt_parts(chat.calls[0])
     assert parts["beliefs"] == ""
+    assert parts["memories"] == []
 
 
 def test_a_budget_that_would_drop_the_persona_block_fails_the_turn():

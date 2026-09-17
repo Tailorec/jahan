@@ -451,33 +451,40 @@ A `RunResult` carries the registry entry and one outcome per world id — `compl
 **Owns:** the append-only record of everything that happened, and the typed read views over it.
 **Hides:** the SQLite→Parquet lifecycle, partitioning, the run registry, query shapes.
 
-**Interface:** `write(events: Iterable[TraceEvent]) -> None` · `view(run_id) -> TraceView` · `registry.record(entry)`
+**Interface:** `write(events: Iterable[TraceEvent]) -> None` · `view(run_id) -> TraceView` · `finalize(world_id)` · `registry.record(entry)`
+
+`TraceSink`, `TraceView` and `RunRegistry` are protocols in `ports`; `TraceStore` and
+`SqliteRunRegistry` in `simcore/trace/` satisfy them, with in-memory fakes beside them for
+tests that need no filesystem. Every boundary test runs against a temporary directory.
 
 `TraceView` is a **typed, closed set** of read shapes — `events(filter)`, `beliefs(persona_id)`, `edges()`, `verbatims(grouping)`, `resolve(trace_ids)` — not an open handle to Parquet files. The previous design passed "trace views" as an undefined wide interface, which is what let derivation logic leak into two consumers.
 
 **Layout:**
 ```
 trace/
-├── registry.db          run_id → config_hash, brief_hash, population_hash, seeds, pins, cost, status
-├── world/{run_id}/
-│   ├── events.parquet   sorted by (persona_id, tick)
-│   ├── beliefs.parquet  delta-encoded per reflection
-│   ├── edges.parquet    (u, v, channel, count, last_tick)
-│   └── state.db         live platform state during the run
-└── exports/{study_id}/  one row per (matraix_row_id, run_id, variant, seed)
+├── registry.db          run_id → config, hashes, seeds, pins, engine version, cost, status
+└── runs/{run_id}/{world_id}/
+    ├── live.sqlite      the tick-atomic record while the run is live or paused
+    ├── events.parquet   sorted by (persona_id, tick), one struct column per payload kind
+    ├── beliefs.parquet  one row per persona and tick, written by the view's derivation
+    ├── edges.parquet    (u, v, channel, count, last_tick), written by the view's derivation
+    └── partition.json   the header, contract version and finalized event count
 ```
+The world's own `state.db` may sit beside a partition for convenience and is never read
+here. The `exports/{study_id}/` client deliverable is a delivery format, not part of the
+spine, and belongs with `report`/`cli`; deferred deliberately.
 
 **Sizing:** ~2k agents × 30 ticks ≈ 500k events per world ≈ 100–200 MB Parquet; verbose tier-B verbatims are ~7% of events.
 
 **Context is never stored whole** — only its parts plus `prompt_hash`. Full prompts are re-derivable from the registry's pins and template versions. There is deliberately no field to put a full prompt in.
 
-**Write path:** `TraceEvent.model_construct` on the hot path, batched; full validation runs in fake-mode CI. Payloads are a discriminated union over ten kinds — stimulus published, exposure dropped, turn, guardrail violation, reflection, cost, intervention, degraded, tick closed, lifecycle — each the only record of what it describes; a turn carries the view its persona was given, verified against the partition's own earlier events (ADR 0010): a turn event carries the whole impression and its reaction, so what a persona saw side by side is never reassembled from separate events (ADR 0006). The union is what lets the Parquet writer fan out into typed columns instead of a JSON blob. A `TracePartition` is validated as a whole against a header carrying the run configuration, brief pack, population manifest, scenario and replicate seed. The header verifies every pin the run states against the object it pins and derives the world id (ADR 0009); the events must then be gapless, publish stimuli before showing them, name only the brief's claims, belong to personas in the population, use only pinned templates, anchor sets, embedding model and billed models, recall only earlier turns or reflections of the same persona, and move through a valid lifecycle. Events carry **no seed and no contract version** — `world_id` already resolves the world, the registry holds every seed, and the contract version is a constant across a partition, so storing either on 500k rows is pure redundancy on the hottest path in the system.
+**Write path:** `TraceEvent.model_construct` on the hot path, batched; full validation runs in fake-mode CI. Payloads are a discriminated union over thirteen kinds — stimulus published, exposure dropped, turn, guardrail violation, reflection, memory, belief snapshot, probe, cost, intervention, degraded, tick closed, lifecycle — each the only record of what it describes; a turn carries the view its persona was given, verified against the partition's own earlier events (ADR 0010): a turn event carries the whole impression and its reaction, so what a persona saw side by side is never reassembled from separate events (ADR 0006). The union is what lets the Parquet writer fan out into typed columns instead of a JSON blob. A `TracePartition` is validated as a whole against a header carrying the run configuration, brief pack, population manifest, scenario and replicate seed. The header verifies every pin the run states against the object it pins and derives the world id (ADR 0009); the events must then be gapless, publish stimuli before showing them, name only the brief's claims, belong to personas in the population, use only pinned templates, anchor sets, embedding model and billed models, recall only earlier turns or reflections of the same persona, and move through a valid lifecycle. Events carry **no seed and no contract version** — `world_id` already resolves the world, the registry holds every seed, and the contract version is a constant across a partition, so storing either on 500k rows is pure redundancy on the hottest path in the system.
 
 **Read path is version-aware.** A partition from a newer contract is refused; an older one is migrated forward through every registered migration newer than its contract, then validated strictly. The contract version is written once into the Parquet partition metadata and the run registry entry. `write` is strict; `read_event` dispatches on the *partition's* version and falls back to a permissive shape for older runs. Decide this now — a trace you cannot read under a newer schema makes replay a lie, and retrofitting it after runs are stored is painful.
 
 **Salvage:** OASIS `database.py` and `channel.py` — already trace-shaped.
 
-**Boundary tests:** 500k events round-trip through `InMemoryTraceSink` and back with identical ordering by `(persona_id, tick, seq)`; a partition written under contract 1.0 loads under 1.1; an event whose payload kind disagrees with its declared type is refused; `resolve(trace_ids)` returns exactly the referenced events or raises; registry entries pin every hash needed for replay.
+**Boundary tests:** 500k events round-trip through write and read with identical ordering by `(persona_id, tick, seq)` (measured: half a million cost events finalize in ~30 s into ~5 MB of Parquet); every read shape answers identically before and after finalization on the same world; a partition written under contract 1.0 loads under a synthetic 1.1; an event whose payload kind disagrees with its declared type is refused; `resolve(trace_ids)` returns exactly the referenced events or raises; registry entries pin every hash needed for replay; a duplicate `(world_id, seq)` is refused while an identical re-send is a no-op.
 
 ---
 

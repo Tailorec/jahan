@@ -424,6 +424,10 @@ class StimulusContext(SimBaseModel):
     ancestry: tuple[StimulusId, ...] = ()
     tie_strength: UnitInterval | None = None
     shared_community: bool | None = None
+    # Who passed this on, when a peer did: word of mouth travels from a teller, and the tie
+    # strength beside it is the tie to that teller rather than to the author. Without it the
+    # record cannot say who told whom, so a word-of-mouth path could not be read back.
+    via_persona_id: PersonaId | None = None
 
     @model_validator(mode="after")
     def _ancestry_has_no_cycles(self) -> Self:

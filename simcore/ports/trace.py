@@ -69,7 +69,16 @@ class RunRegistry(Protocol):
     """One entry per run: everything a replay needs, and what the run knows about its own spend."""
 
     def record(self, entry: "RunRegistryEntry") -> None:
-        """Write or update this run's entry. A second entry for the same run is refused."""
+        """Pin a new run's entry. A second entry for the same run is refused, never replaced."""
+        ...
+
+    def update(self, entry: "RunRegistryEntry") -> None:
+        """Move what a run learns about itself: its status, recorded cost and discarded ticks.
+
+        What a replay rests on does not move — the configuration, the engine version and the
+        contract are pinned by `record` and an update that changed them would make the entry a
+        story about the run rather than a record of it. An unknown run raises.
+        """
         ...
 
     def entry(self, run_id: str) -> "RunRegistryEntry | None":
