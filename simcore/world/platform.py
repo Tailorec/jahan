@@ -46,4 +46,21 @@ def is_supported(channel: Channel, action: ActionKind) -> bool:
     return action in AFFORDANCES[channel]
 
 
-__all__ = ["AFFORDANCES", "is_supported"]
+class Forum:
+    """One forum class, two presets — the comparison is a study variable, not a fork.
+
+    `reddit_global` lets any persona reach any thread and ranks by the
+    upstream hot score: herding, fast. `community_scoped` (next phase) scopes
+    threads to the population's Leiden communities and ranks by recency and
+    agreement with no hot score: consensus hardening, slow.
+    """
+
+    def __init__(self, preset) -> None:
+        self.preset = preset
+
+    def threads_for(self, viewer: str, rows: list[dict], community_of: dict[str, str]) -> list[dict]:
+        """The threads a persona can reach: every thread under the global preset."""
+        return list(rows)
+
+
+__all__ = ["AFFORDANCES", "Forum", "is_supported"]

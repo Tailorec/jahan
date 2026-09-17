@@ -16,8 +16,8 @@ from .clock import (
     straggler_tick,
 )
 from .env import ForumPreset, RecsysMode, World, WorldConfig, forget, reset, step
-from .platform import AFFORDANCES, is_supported
-from .recsys import exposure_concentration, random_order, reason_for
+from .platform import AFFORDANCES, Forum, is_supported
+from .recsys import UNIT_SECONDS, exposure_concentration, hot_order, hot_score, random_order, reason_for
 from .replay import ReplayDivergence, check_replay, resume
 from .replay import run as replay_run
 
@@ -25,7 +25,9 @@ __all__ = [
     "AFFORDANCES",
     "DAY_RHYTHM",
     "HOUR_RHYTHM",
+    "UNIT_SECONDS",
     "WEEK_RHYTHM",
+    "Forum",
     "ForumPreset",
     "RecsysMode",
     "ReplayDivergence",
@@ -35,8 +37,12 @@ __all__ = [
     "activation_probability",
     "check_replay",
     "forget",
+    "hot_order",
+    "hot_score",
     "is_supported",
     "exposure_concentration",
+    "random_order",
+    "reason_for",
     "replay_run",
     "reset",
     "resume",

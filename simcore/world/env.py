@@ -39,9 +39,8 @@ from simcore.schemas import (
 )
 
 from . import _ids, recsys
-from ._seeds import derive_int
 from .clock import activated_personas, activation_probability
-from .platform import is_supported
+from .platform import Forum, is_supported
 from .store import Store
 
 
@@ -377,7 +376,9 @@ class World:
             return self._feed_presentations(tick)
         if self._config.platform is Channel.SURVEY_ROOM:
             return self._survey_presentations(tick), []
-        raise ValueError(f"the {self._config.platform.value} platform lands in a later phase")
+        if self._config.platform is Channel.FORUM:
+            return self._forum_presentations(tick)
+        raise ValueError(f"the {self._config.platform.value} channel is delivered, not presented")
 
     def _survey_presentations(self, tick: int) -> list[Presentation]:
         """The baseline: every activated persona sees the concept stimulus alone."""
@@ -436,7 +437,7 @@ class World:
         presentations: list[Presentation] = []
         dropped: list[DroppedExposure] = []
         for persona_id in self._activated(tick):
-            ordered = self._rank(persona_id, tick, candidate_ids, counts)
+            ordered = self._rank_feed(persona_id, tick, candidates, counts)
             shown = ordered[:budget]
             exposures = tuple(
                 Exposure(stimulus_id=stimulus_id, reason=reason, attention=1.0) for stimulus_id in shown
@@ -470,14 +471,37 @@ class World:
                 )
         return presentations, dropped
 
-    def _rank(
-        self, persona_id: str, tick: int, candidate_ids: list[str], counts: dict[str, dict[str, int]]
+    def _rank_feed(
+        self, persona_id: str, tick: int, rows: list[dict], counts: dict[str, dict[str, int]]
     ) -> list[str]:
-        """Order candidates for one persona under the world's recsys mode."""
+        """Order feed candidates for one persona under the world's recsys mode."""
+        ids = [row["stimulus_id"] for row in rows]
         mode = self._config.recsys_mode
         if mode is RecsysMode.RANDOM:
-            return recsys.random_order(candidate_ids, self._world_seed, tick, persona_id)
+            return recsys.random_order(ids, self._world_seed, tick, persona_id)
+        if mode is RecsysMode.REDDIT_HOT:
+            return self._hot_rank(ids, rows, counts, feed_votes=True, tick=tick)
         raise ValueError(f"the {mode.value} recsys mode lands in a later phase")
+
+    def _hot_rank(
+        self, ids: list[str], rows: list[dict], counts: dict[str, dict[str, int]], *, feed_votes: bool, tick: int
+    ) -> list[str]:
+        """Highest upstream hot score first. Votes reach the order only through that score.
+
+        On the feed every visible approval counts toward the score; on the
+        forum only votes do — likes cannot land there, so none can leak in.
+        """
+        ups: dict[str, int] = {}
+        downs: dict[str, int] = {}
+        ages: dict[str, int] = {}
+        for row in rows:
+            seen = counts.get(row["stimulus_id"], {})
+            ups[row["stimulus_id"]] = seen.get("upvotes", 0) + (0 if not feed_votes else seen.get("likes", 0))
+            downs[row["stimulus_id"]] = seen.get("downvotes", 0)
+            ages[row["stimulus_id"]] = tick - row["tick"]
+        return recsys.hot_order(
+            ids, ups, downs, ages, self._world_seed, tick, recsys.UNIT_SECONDS[self.tick_unit]
+        )
 
     def _context_for(
         self, viewer: str, stimulus_id: str, author: str | None, counts: dict[str, dict[str, int]]
@@ -509,6 +533,61 @@ class World:
         if viewer_community is None or author_community is None:
             return tie, None
         return tie, viewer_community == author_community
+
+    def _forum_presentations(self, tick: int) -> tuple[list[Presentation], list[DroppedExposure]]:
+        """The forum: threads any persona may reach under the global preset, ranked by hot score.
+
+        Actions are create_post, reply and vote. Ranking comes from the
+        preset — the global preset ranks by the upstream hot score — never
+        from the feed's recsys mode, so the comparison stays a study variable.
+        """
+        forum = Forum(self._config.forum_preset)
+        rows = [
+            row
+            for row in self._store.stimuli_published_before(tick)
+            if row["kind"] in self._FEED_KINDS
+        ]
+        budget = self._budget()
+        counts = self._store.counts_visible_at(tick)
+        authors = {row["stimulus_id"]: row["author"] for row in rows}
+        presentations: list[Presentation] = []
+        dropped: list[DroppedExposure] = []
+        for persona_id in self._activated(tick):
+            threads = forum.threads_for(persona_id, rows, self._community_of)
+            ids = [row["stimulus_id"] for row in threads]
+            ordered = self._hot_rank(ids, threads, counts, feed_votes=False, tick=tick)
+            shown = ordered[:budget]
+            exposures = tuple(
+                Exposure(stimulus_id=stimulus_id, reason=ExposureReason.FORUM, attention=1.0)
+                for stimulus_id in shown
+            )
+            impression = Impression(
+                impression_id=_ids.impression_id(self._world_seed, tick, persona_id, Channel.FORUM.value),
+                persona_id=persona_id,
+                channel=Channel.FORUM,
+                tick=tick,
+                exposures=exposures,
+            )
+            contexts = {
+                stimulus_id: self._context_for(persona_id, stimulus_id, authors[stimulus_id], counts)
+                for stimulus_id in shown
+            }
+            presentations.append(
+                Presentation(impression=impression, view=View(impression_id=impression.impression_id, contexts=contexts))
+            )
+            for stimulus_id in ordered[budget:]:
+                dropped.append(
+                    DroppedExposure(
+                        persona_id=persona_id,
+                        drop=ExposureDropped(
+                            kind="exposure_dropped",
+                            stimulus_id=stimulus_id,
+                            channel=Channel.FORUM,
+                            reason="budget_exhausted",
+                        ),
+                    )
+                )
+        return presentations, dropped
 
     # -- introspection (for tests and replay; never part of a delta) ----------------
 

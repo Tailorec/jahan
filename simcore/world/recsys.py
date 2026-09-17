@@ -14,6 +14,9 @@ ones. Every later mode must beat it measurably on the same fixture, which is
 why it exists before any ranking mode.
 """
 
+from math import log10
+from collections.abc import Mapping
+
 from simcore.schemas import ExposureReason
 
 from ._seeds import rng_for
@@ -25,6 +28,12 @@ REASON_FOR_MODE = {
     "twitter": ExposureReason.INTEREST,
     "twhin": ExposureReason.SOCIAL_PROOF,
 }
+
+# Seconds each tick unit stands for when hot-score ages are computed. Time in
+# the world is declared in ticks, never wall-clock, so a hot age is ticks
+# since publication times the unit's seconds — the formula below is verbatim,
+# only its time base ticks.
+UNIT_SECONDS = {"hour": 3600, "day": 86400, "week": 604800}
 
 
 def reason_for(mode: str) -> ExposureReason:
@@ -43,6 +52,52 @@ def random_order(candidate_ids: list[str], world_seed: int, tick: int, persona_i
     ordered = list(candidate_ids)
     rng.shuffle(ordered)
     return ordered
+
+
+def hot_score(ups: int, downs: int, age_seconds: int) -> float:
+    """Reddit's hot ranking, copied verbatim from upstream — fidelity, not improvement.
+
+    Only the time base is ours: upstream passes seconds since the Reddit epoch
+    for a wall-clock post, while a world passes ticks since publication times
+    the tick unit's seconds, because interventions and ages are expressed in
+    ticks, never wall-clock time.
+    """
+    score = ups - downs
+    order = log10(max(abs(score), 1))
+    if score > 0:
+        sign = 1
+    elif score < 0:
+        sign = -1
+    else:
+        sign = 0
+    seconds = age_seconds - 1134028003
+    return round(sign * order + seconds / 45000, 7)
+
+
+def hot_order(
+    candidate_ids: list[str],
+    ups: Mapping[str, int],
+    downs: Mapping[str, int],
+    age_ticks: Mapping[str, int],
+    world_seed: int,
+    tick: int,
+    unit_seconds: int,
+) -> list[str]:
+    """Highest hot score first; ties break from a derived seed, so ordering reproduces.
+
+    The tie-break stream derives from (world seed, tick, "recsys:hot") — one
+    stream per tick, shared by every persona, because hot ranking is global.
+    Votes reach the order only through the upstream score: no other weighting.
+    """
+    rng = rng_for(world_seed, tick, "recsys:hot")
+    tiebreak = {stimulus_id: rng.random() for stimulus_id in sorted(candidate_ids)}
+    return sorted(
+        candidate_ids,
+        key=lambda stimulus_id: (
+            -hot_score(ups.get(stimulus_id, 0), downs.get(stimulus_id, 0), age_ticks.get(stimulus_id, 0) * unit_seconds),
+            tiebreak[stimulus_id],
+        ),
+    )
 
 
 def exposure_concentration(deltas) -> float:
@@ -64,4 +119,12 @@ def exposure_concentration(deltas) -> float:
     return max(counts.values()) / total
 
 
-__all__ = ["REASON_FOR_MODE", "exposure_concentration", "random_order", "reason_for"]
+__all__ = [
+    "REASON_FOR_MODE",
+    "UNIT_SECONDS",
+    "exposure_concentration",
+    "hot_order",
+    "hot_score",
+    "random_order",
+    "reason_for",
+]

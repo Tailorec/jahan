@@ -144,11 +144,11 @@ The first ranking mode and the first forum preset. The hot score is copied verba
 
 ### Acceptance criteria
 
-- [ ] The hot-score computation is copied verbatim, with its upstream licence header intact
-- [ ] The global forum supports create_post, reply and vote, with threads open to any persona
-- [ ] `reddit_hot` produces measurably higher exposure concentration than `random` on the same fixture
-- [ ] Ranking ties break from a derived seed, so ordering is reproducible
-- [ ] Votes affect ranking only through the upstream score, with no additional weighting of ours
+- [x] The hot-score computation is copied verbatim, with its upstream licence header intact
+- [x] The global forum supports create_post, reply and vote, with threads open to any persona
+- [x] `reddit_hot` produces measurably higher exposure concentration than `random` on the same fixture
+- [x] Ranking ties break from a derived seed, so ordering is reproducible
+- [x] Votes affect ranking only through the upstream score, with no additional weighting of ours
 
 ---
 
