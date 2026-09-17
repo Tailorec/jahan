@@ -6,6 +6,7 @@ assigns every `event_id` and `seq`, buffers a tick, and writes it with its
 `tick_closed` in one call.
 """
 
+from ._ledger import ledger_sum, mean_tick_cost, pessimistic_figure
 from ._plans import LadderConfig, TickPlan, agent_routing_for
 from ._refusal import ResumeRefused, check_resume_inputs
 from ._resume import last_closed_tick, next_seq, rebuild_persona_states, turns_by_tick, validate_checkpoint
@@ -23,7 +24,10 @@ __all__ = [
     "agent_routing_for",
     "check_resume_inputs",
     "last_closed_tick",
+    "ledger_sum",
+    "mean_tick_cost",
     "next_seq",
+    "pessimistic_figure",
     "rebuild_persona_states",
     "run",
     "run_world",

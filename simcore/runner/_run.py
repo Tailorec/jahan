@@ -301,8 +301,12 @@ def run(
     forced resume proceeds, is recorded, and spans versions.
     """
     _ = ladder
+    from ._ledger import ledger_sum
+
     stored = registry.entry(config.run_id)  # type: ignore[attr-defined]
+    base_discarded = 0
     if stored is not None:
+        base_discarded = int(stored.discarded_ticks)
         try:
             check_resume_inputs(config, pack, population, engine_version, stored.config, stored.engine_version)
         except ResumeRefused:
@@ -322,6 +326,29 @@ def run(
             }
         )
         registry.record(running)  # type: ignore[attr-defined]
+    # A resume that picks up an incomplete world lost the tick it was
+    # interrupted in: unknown spend, counted before anything else resumes.
+    pending_discarded = 0
+    if stored is not None:
+        for scenario in config.scenarios:
+            for seed in config.seeds:
+                world_id = derive_world_id(scenario, seed, config.population_hash)
+                existing = trace.events_for(world_id) if hasattr(trace, "events_for") else ()  # type: ignore[attr-defined]
+                if existing and last_closed_tick(tuple(existing)) < scenario.horizon_ticks - 1:
+                    pending_discarded += 1
+    if pending_discarded:
+        registry.record(  # type: ignore[attr-defined]
+            RunRegistryEntry.model_validate(
+                {
+                    "config": stored.config.model_dump(mode="json"),
+                    "contract_version": SCHEMA_VERSION,
+                    "status": RunStatus.RUNNING.value,
+                    "engine_version": stored.engine_version,
+                    "recorded_cost": float(stored.recorded_cost),
+                    "discarded_ticks": base_discarded + pending_discarded,
+                }
+            )
+        )
     outcomes: list[WorldOutcome] = []
     recorded_cost = 0.0
     for scenario in config.scenarios:
@@ -376,9 +403,8 @@ def run(
                 previous_turns=previous,
             )
             for event in tuple(existing) + events:
-                payload = event.payload
-                if payload.kind == "cost" and payload.cost is not None:
-                    recorded_cost += float(payload.cost)
+                known, _ = ledger_sum((event,))
+                recorded_cost += known
             outcomes.append(
                 WorldOutcome.model_validate(
                     {
@@ -397,7 +423,7 @@ def run(
             "status": status.value,
             "engine_version": engine_version,
             "recorded_cost": recorded_cost,
-            "discarded_ticks": 0,
+            "discarded_ticks": base_discarded + pending_discarded,
         }
     )
     registry.record(entry)  # type: ignore[attr-defined]
