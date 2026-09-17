@@ -14,11 +14,13 @@ from .errors import (
     UnknownWorldError,
 )
 from .fake import InMemoryRunRegistry, InMemoryTraceSink
+from .migrations import MIGRATION_REGISTRY, load_partition_data, register_migration
 from .registry import SqliteRunRegistry, replay_config
 from .store import TraceStore, create_world, finalize, view, write
 from .views import ParquetTraceView, SqliteTraceView
 
 __all__ = [
+    "MIGRATION_REGISTRY",
     "DuplicateEntryError",
     "DuplicateSequenceError",
     "FinalizedError",
@@ -38,6 +40,8 @@ __all__ = [
     "derive_verbatims",
     "filter_events",
     "finalize",
+    "load_partition_data",
+    "register_migration",
     "replay_config",
     "resolve_events",
     "view",
