@@ -121,6 +121,23 @@ def _completed(job: TurnJob, n: int, belief_delta: dict | None = None) -> Comple
     )
 
 
+def _basic_run(horizon: int = 3):
+    """A plain run of the fake world, returning `(result, trace, population)`."""
+    from simcore.schemas import canonical_hash
+
+    trace, registry = InMemoryTraceSink(), InMemoryRegistry()
+    config, pack, population = _config(horizon=horizon), _pack(), _population()
+    config = RunConfig.model_validate(
+        {**config.model_dump(mode="json"), "brief_hash": canonical_hash(pack.brief),
+         "ontology_hash": canonical_hash(pack.ontology),
+         "population_hash": population.manifest.population_hash, "graph_hash": population.manifest.graph_hash}
+    )
+    result = run(config, pack=pack, population=population, trace=trace, registry=registry,
+                 world_factory=lambda header: FakeWorld(header),
+                 agent_fn=lambda jobs: tuple(_completed(j, i) for i, j in enumerate(jobs)))
+    return result, trace, population
+
+
 def test_run_drives_world_to_horizon_with_one_outcome():
     trace, registry = InMemoryTraceSink(), InMemoryRegistry()
     config, pack, population = _config(), _pack(), _population()
@@ -266,3 +283,36 @@ def test_turn_failure_recorded_and_tick_still_closes():
     kinds = [e.payload.kind for e in trace.all_events()]
     assert "tick_closed" in kinds and "cost" in kinds
     assert sum(1 for e in trace.all_events() if e.tick == 1 and e.payload.kind == "tick_closed") == 1
+
+
+def test_a_world_opens_by_recording_what_every_persona_already_believed():
+    """`beliefs(persona)` is derived from snapshots and the turns between them, so a turn with
+    no snapshot before it has no baseline to move from and is dropped. Without a baseline at
+    tick zero the first tick's belief movement was invisible, and the population's own starting
+    beliefs — which the trace cannot see — were nowhere in the record."""
+    result, trace, population = _basic_run(horizon=3)
+    events = trace.all_events()
+    opening = [
+        event for event in events
+        if event.payload.kind == "belief_snapshot" and event.tick == 0
+    ]
+    personas = {event.persona_id for event in opening}
+    assert personas == set(population.manifest.persona_ids), "not every persona's starting beliefs were recorded"
+    by_persona = {persona.persona_id: persona.baseline_beliefs for persona in population.personas}
+    for event in opening:
+        assert event.payload.beliefs == by_persona[event.persona_id]
+    # and the opening snapshot precedes the first turn of that persona
+    for persona_id in personas:
+        theirs = [event for event in events if event.persona_id == persona_id]
+        first_snapshot = next(i for i, e in enumerate(theirs) if e.payload.kind == "belief_snapshot")
+        first_turn = next((i for i, e in enumerate(theirs) if e.payload.kind == "turn"), None)
+        assert first_turn is None or first_snapshot < first_turn
+
+
+def test_a_completed_world_is_finalized_so_its_record_becomes_the_lasting_one():
+    """Nothing ever asked the trace to finalize, so a finished study stayed in its live store:
+    the Parquet path never ran outside the trace module's own tests, and a view of a completed
+    run kept answering from SQLite."""
+    result, trace, _ = _basic_run(horizon=3)
+    assert result.status.value == "completed"
+    assert sorted(trace.finalized) == sorted(outcome.world_id for outcome in result.outcomes)

@@ -19,6 +19,7 @@ class InMemoryTraceSink:
         self._events: dict[str, list[TraceEvent]] = {}
         self._seen: set[tuple[str, int]] = set()
         self.writes: list[list[TraceEvent]] = []
+        self.finalized: list[str] = []
         self._lock = threading.Lock()
 
     def write(self, events: object) -> None:
@@ -34,7 +35,9 @@ class InMemoryTraceSink:
             self.writes.append(list(batch))
 
     def finalize(self, world_id: str) -> None:
-        return None
+        """Remembered rather than performed: in memory there is nothing to convert, and a test
+        can see that a finished world was handed over."""
+        self.finalized.append(world_id)
 
     def events_for(self, world_id: str) -> tuple[TraceEvent, ...]:
         return tuple(sorted(self._events.get(world_id, []), key=lambda e: e.seq))

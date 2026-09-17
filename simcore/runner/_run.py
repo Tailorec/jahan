@@ -357,6 +357,12 @@ def run_world(
 
         if tick == 0:
             _emit(LifecycleRecorded(kind="lifecycle", phase=LifecyclePhase.STARTED))
+            # What every persona already believed. A belief history is derived from snapshots and
+            # the turns between them, so without a baseline the first tick's movement has nothing
+            # to move from and is dropped — and the population's starting beliefs, which the trace
+            # cannot see, would appear nowhere in the record.
+            for persona_id in sorted(states):
+                _emit(BeliefSnapshot(kind="belief_snapshot", beliefs=states[persona_id].beliefs), persona_id)
         if effective is not None and effective != current:
             _emit(Degraded(kind="degraded", rung=effective, activation_rate=tick_plan.activation_rate, tier_b_frozen=tick_plan.tier_b_frozen))
         for stimulus in delta.published:
@@ -396,6 +402,14 @@ def run_world(
         trace.write(closing)  # type: ignore[attr-defined]
         written.extend(closing)
     return tuple(written), states, seq, current, paused
+
+
+def _finalize(trace, world_id: str) -> None:
+    """Ask the record to become the lasting one. A sink without the call is left alone."""
+    finalize = getattr(trace, "finalize", None)
+    if finalize is None:
+        return
+    finalize(world_id)
 
 
 def _remember(registry, entry: RunRegistryEntry) -> None:
@@ -587,6 +601,11 @@ def run(
             )
         existing_now = trace.events_for(world_id) if hasattr(trace, "events_for") else ()  # type: ignore[attr-defined]
         rungs = [r.value for r in recorded_rungs(tuple(existing_now))]
+        if not paused:
+            # A world that reached its horizon is finished, so its live record becomes its
+            # lasting one. Nothing asked for this before, so a completed study stayed in the
+            # live store and every read of it kept answering from there.
+            _finalize(trace, world_id)
         if paused:
             last_closed = last_closed_tick(tuple(existing_now))
             return WorldOutcome.model_validate(
