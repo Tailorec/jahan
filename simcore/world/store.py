@@ -1,11 +1,14 @@
 """Platform state in SQLite, internal to the world module.
 
-The store holds what platforms know: published stimuli (with reply parents)
-and per-action engagement rows. Counts shown to personas aggregate only rows
-from earlier ticks, which is what keeps within-tick independence structural
-rather than disciplined. Provenance columns (`world_id`, `written_tick`) are
-written at write time, never backfilled, and every row carries them.
+Salvaged shape: this extends the OASIS platform/database tables rather than
+rewriting them — stimuli (posts and replies), per-action engagement rows,
+follows and a rejection log — with provenance columns (`world_id`,
+`written_tick`) added at write time on every table. Quarterly upstream diffs
+stay mechanical because the tables keep their upstream shape; only the
+provenance columns are ours.
 
+Counts shown to personas aggregate only rows from earlier ticks, which is
+what keeps within-tick independence structural rather than disciplined.
 Nothing here crosses the module boundary: deltas carry trace record types
 only, and a world resumes by replaying turns, never by handing this state out.
 """
@@ -29,6 +32,23 @@ CREATE TABLE IF NOT EXISTS engagements (
     stimulus_id TEXT NOT NULL,
     action TEXT NOT NULL,
     persona_id TEXT NOT NULL,
+    tick INTEGER NOT NULL,
+    world_id TEXT NOT NULL,
+    written_tick INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS follows (
+    follower TEXT NOT NULL,
+    followee TEXT NOT NULL,
+    tick INTEGER NOT NULL,
+    world_id TEXT NOT NULL,
+    written_tick INTEGER NOT NULL,
+    PRIMARY KEY (follower, followee)
+);
+CREATE TABLE IF NOT EXISTS rejected (
+    rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+    persona_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    channel TEXT NOT NULL,
     tick INTEGER NOT NULL,
     world_id TEXT NOT NULL,
     written_tick INTEGER NOT NULL
@@ -73,6 +93,36 @@ class Store:
             (stimulus_id, action, persona_id, tick, world_id, written_tick),
         )
         self._db.commit()
+
+    def record_follow(
+        self, *, follower: str, followee: str, tick: int, world_id: str, written_tick: int
+    ) -> None:
+        self._db.execute(
+            "INSERT OR IGNORE INTO follows VALUES (?, ?, ?, ?, ?)",
+            (follower, followee, tick, world_id, written_tick),
+        )
+        self._db.commit()
+
+    def record_rejection(
+        self, *, persona_id: str, action: str, channel: str, tick: int, world_id: str, written_tick: int
+    ) -> None:
+        """An action its channel does not support: recorded with its rejection, state untouched."""
+        self._db.execute(
+            "INSERT INTO rejected (persona_id, action, channel, tick, world_id, written_tick)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (persona_id, action, channel, tick, world_id, written_tick),
+        )
+        self._db.commit()
+
+    def rejections(self) -> list[dict]:
+        """Every rejected action, oldest first — the audit trail of what personas tried."""
+        rows = self._db.execute(
+            "SELECT persona_id, action, channel, tick FROM rejected ORDER BY rowid"
+        ).fetchall()
+        return [
+            {"persona_id": persona_id, "action": action, "channel": channel, "tick": tick}
+            for persona_id, action, channel, tick in rows
+        ]
 
     def stimuli_published_before(self, tick: int) -> list[dict]:
         """Every stimulus published strictly before `tick`, oldest first, id-stable."""
@@ -137,7 +187,7 @@ class Store:
 
     def provenance_complete(self) -> bool:
         """Every row names its world and the tick it was written at."""
-        for table in ("stimuli", "engagements"):
+        for table in ("stimuli", "engagements", "follows", "rejected"):
             missing = self._db.execute(
                 f"SELECT COUNT(*) FROM {table} WHERE world_id IS NULL OR written_tick IS NULL"  # noqa: S608
             ).fetchone()[0]
@@ -146,7 +196,7 @@ class Store:
         return True
 
     def export(self) -> dict:
-        """All rows for a checkpoint: stimuli and engagements in stable order."""
+        """All rows for a checkpoint: every table in stable order."""
         stimuli = self._db.execute(
             "SELECT stimulus_id, tick, author, kind, text, claim_id, parent_id, world_id, written_tick"
             " FROM stimuli ORDER BY stimulus_id"
@@ -155,7 +205,13 @@ class Store:
             "SELECT stimulus_id, action, persona_id, tick, world_id, written_tick"
             " FROM engagements ORDER BY stimulus_id, action, persona_id, tick"
         ).fetchall()
-        return {"stimuli": stimuli, "engagements": engagements}
+        follows = self._db.execute(
+            "SELECT follower, followee, tick, world_id, written_tick FROM follows ORDER BY follower, followee"
+        ).fetchall()
+        rejected = self._db.execute(
+            "SELECT persona_id, action, channel, tick, world_id, written_tick FROM rejected ORDER BY rowid"
+        ).fetchall()
+        return {"stimuli": stimuli, "engagements": engagements, "follows": follows, "rejected": rejected}
 
     def import_data(self, data: dict) -> None:
         """Restore rows exported by `export`; provenance travels with them."""
@@ -164,6 +220,12 @@ class Store:
             "INSERT INTO engagements (stimulus_id, action, persona_id, tick, world_id, written_tick)"
             " VALUES (?, ?, ?, ?, ?, ?)",
             data["engagements"],
+        )
+        self._db.executemany("INSERT INTO follows VALUES (?, ?, ?, ?, ?)", data.get("follows", []))
+        self._db.executemany(
+            "INSERT INTO rejected (persona_id, action, channel, tick, world_id, written_tick)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            data.get("rejected", []),
         )
         self._db.commit()
 
@@ -180,4 +242,16 @@ class Store:
             " FROM engagements ORDER BY stimulus_id, action, persona_id, tick"
         ).fetchall():
             parts.append("engagement:" + "|".join(str(item) for item in row))
+        for row in self._db.execute(
+            "SELECT follower, followee, tick, world_id, written_tick FROM follows ORDER BY follower, followee"
+        ).fetchall():
+            parts.append("follow:" + "|".join(str(item) for item in row))
+        for row in self._db.execute(
+            "SELECT persona_id, action, channel, tick, world_id, written_tick FROM rejected ORDER BY rowid"
+        ).fetchall():
+            parts.append("rejected:" + "|".join(str(item) for item in row))
         return "\n".join(parts) + ("\n" if parts else "")
+
+    def columns(self, table: str) -> list[str]:
+        """Column names of a table, for asserting the salvaged shape carries provenance."""
+        return [row[1] for row in self._db.execute(f"PRAGMA table_info({table})").fetchall()]

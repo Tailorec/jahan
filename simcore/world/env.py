@@ -39,6 +39,7 @@ from simcore.schemas import (
 from . import _ids
 from ._seeds import derive_int
 from .clock import activated_personas, activation_probability
+from .platform import is_supported
 from .store import Store
 
 
@@ -252,10 +253,24 @@ class World:
 
         Counted actions become engagement rows visible from this tick onward;
         authoring actions publish persona stimuli through `_publish_from_turns`.
-        A survey answer changes no platform state.
+        An action its channel does not support is recorded as rejected and
+        changes no state. A survey answer changes no platform state.
         """
         for turn in turns:
             action = turn.reaction.action
+            if action is ActionKind.IGNORE:
+                continue
+            channel = turn.impression.channel
+            if not is_supported(channel, action):
+                self._store.record_rejection(
+                    persona_id=turn.impression.persona_id,
+                    action=action.value,
+                    channel=channel.value,
+                    tick=turn.impression.tick,
+                    world_id=self._world_id,
+                    written_tick=tick,
+                )
+                continue
             subject = turn.reaction.subject_stimulus_id
             if action in (ActionKind.LIKE, ActionKind.REPOST, ActionKind.QUOTE, ActionKind.UPVOTE, ActionKind.DOWNVOTE):
                 self._store.record_engagement(
@@ -355,6 +370,18 @@ class World:
         if self._concept_id is None:
             raise ValueError("the study stimuli are published by reset")
         return self._concept_id
+
+    def rejected_actions(self) -> tuple[dict, ...]:
+        """Actions channels did not support, oldest first — what personas tried, not an error."""
+        return tuple(self._store.rejections())
+
+    def store_columns(self, table: str) -> list[str]:
+        """Column names of a platform table, for asserting provenance travels with every row."""
+        return self._store.columns(table)
+
+    def provenance_complete(self) -> bool:
+        """Every platform row names its world and the tick it was written at."""
+        return self._store.provenance_complete()
 
 
 _LIVE: dict[str, World] = {}

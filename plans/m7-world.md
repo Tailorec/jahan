@@ -87,12 +87,12 @@ Where a platform's facts live. The salvaged OASIS schema, extended with provenan
 
 ### Acceptance criteria
 
-- [ ] Platform state is SQLite, internal to the module, and appears in no delta
-- [ ] Actions from recorded turns are applied, and the state they produce survives a replay
-- [ ] An action a channel does not support is recorded as rejected and changes no state
-- [ ] Provenance columns are written at write time, not backfilled
-- [ ] The salvaged schema is extended rather than rewritten, so an upstream diff stays mechanical
-- [ ] Two processes reach byte-identical state from the same turns
+- [x] Platform state is SQLite, internal to the module, and appears in no delta
+- [x] Actions from recorded turns are applied, and the state they produce survives a replay
+- [x] An action a channel does not support is recorded as rejected and changes no state
+- [x] Provenance columns are written at write time, not backfilled
+- [x] The salvaged schema is extended rather than rewritten, so an upstream diff stays mechanical
+- [x] Two processes reach byte-identical state from the same turns
 
 ---
 

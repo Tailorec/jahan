@@ -16,10 +16,12 @@ from .clock import (
     straggler_tick,
 )
 from .env import ForumPreset, RecsysMode, World, WorldConfig, forget, reset, step
+from .platform import AFFORDANCES, is_supported
 from .replay import ReplayDivergence, check_replay, resume
 from .replay import run as replay_run
 
 __all__ = [
+    "AFFORDANCES",
     "DAY_RHYTHM",
     "HOUR_RHYTHM",
     "WEEK_RHYTHM",
@@ -32,6 +34,7 @@ __all__ = [
     "activation_probability",
     "check_replay",
     "forget",
+    "is_supported",
     "replay_run",
     "reset",
     "resume",
