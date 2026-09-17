@@ -10,6 +10,16 @@ the only store, and the runner is its only writer (ADR 0030). The persona block 
 assembled here and nowhere else, and a turn cannot proceed unconditioned.
 """
 
+from ._beliefs import (
+    advance_state,
+    apply_change,
+    combine,
+    enforce_cap,
+    max_abs_change,
+    reflection_due,
+    reflection_interval_for,
+    split_summary,
+)
 from ._config import AgentConfig, DEFAULT_TIER_ROUTING
 from ._context import ContextBudgetExceeded, estimate_tokens
 from ._memory import append_memories, importance_of, retrieve, score_memory, write_memory
@@ -21,13 +31,21 @@ __all__ = [
     "ContextBudgetExceeded",
     "DEFAULT_TIER_ROUTING",
     "PersonaBlockCache",
+    "advance_state",
     "append_memories",
+    "apply_change",
+    "combine",
+    "enforce_cap",
     "estimate_tokens",
     "importance_of",
+    "max_abs_change",
+    "reflection_due",
+    "reflection_interval_for",
     "render_block",
     "retrieve",
     "score_memory",
     "selected_attributes",
+    "split_summary",
     "turns",
     "write_memory",
 ]
