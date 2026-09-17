@@ -38,6 +38,7 @@ from simcore.schemas import (
 
 from . import _ids
 from ._seeds import derive_int
+from .clock import activated_personas, activation_probability
 from .store import Store
 
 
@@ -144,6 +145,16 @@ class World:
     def world_seed(self) -> int:
         """The seed every draw in this world derives from."""
         return self._world_seed
+
+    @property
+    def tick_unit(self) -> str:
+        """The scenario's declared tick unit, travelling with the world into every delta's reading."""
+        return self._scenario.tick_unit.value
+
+    @property
+    def horizon_ticks(self) -> int:
+        """How many ticks this world runs before it ends."""
+        return self._scenario.horizon_ticks
 
     # -- the port -----------------------------------------------------------------
 
@@ -261,8 +272,15 @@ class World:
         return []
 
     def _activated(self, tick: int) -> list[str]:
-        """Personas taking a turn this tick. The survey baseline wakes everyone."""
-        return list(self._personas)
+        """Personas taking a turn this tick: involvement × rhythm, one seeded draw each."""
+        overrides = dict(self._config.rhythm)
+        probabilities = {
+            persona_id: activation_probability(
+                self._config.involvement_for(persona_id), self.tick_unit, tick, overrides
+            )
+            for persona_id in self._personas
+        }
+        return activated_personas(self._personas, probabilities, self._world_seed, tick)
 
     def _presentations(self, tick: int) -> list[Presentation]:
         """One presentation per activated persona on the survey channel."""

@@ -6,20 +6,36 @@ upstream-diffable structure inward (`env.py`, `platform.py`, `recsys.py`,
 `clock.py` keep their OASIS file shapes and licence headers).
 """
 
+from .clock import (
+    DAY_RHYTHM,
+    HOUR_RHYTHM,
+    WEEK_RHYTHM,
+    activated_personas,
+    activation_probability,
+    rhythm_at,
+    straggler_tick,
+)
 from .env import ForumPreset, RecsysMode, World, WorldConfig, forget, reset, step
 from .replay import ReplayDivergence, check_replay, resume
 from .replay import run as replay_run
 
 __all__ = [
+    "DAY_RHYTHM",
+    "HOUR_RHYTHM",
+    "WEEK_RHYTHM",
     "ForumPreset",
     "RecsysMode",
     "ReplayDivergence",
     "World",
     "WorldConfig",
+    "activated_personas",
+    "activation_probability",
     "check_replay",
     "forget",
     "replay_run",
     "reset",
     "resume",
+    "rhythm_at",
+    "straggler_tick",
     "step",
 ]

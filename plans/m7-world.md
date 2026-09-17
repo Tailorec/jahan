@@ -68,12 +68,12 @@ When personas act and when things happen to them. A scenario declares its `tick_
 
 ### Acceptance criteria
 
-- [ ] A scenario's tick unit and horizon are declared and carried forward in every delta
-- [ ] Activation probability comes from involvement × a rhythm curve keyed to the tick unit, with defaults overridable per scenario
-- [ ] An hour-tick and a day-tick scenario use different rhythm curves
-- [ ] A rerun under the same seed activates the same personas on the same ticks
-- [ ] Two interventions on one tick apply additively, and neither overwrites the other
-- [ ] Interventions are expressed in ticks against the declared horizon, never in wall-clock time
+- [x] A scenario's tick unit and horizon are declared and carried forward in every delta
+- [x] Activation probability comes from involvement × a rhythm curve keyed to the tick unit, with defaults overridable per scenario
+- [x] An hour-tick and a day-tick scenario use different rhythm curves
+- [x] A rerun under the same seed activates the same personas on the same ticks
+- [x] Two interventions on one tick apply additively, and neither overwrites the other
+- [x] Interventions are expressed in ticks against the declared horizon, never in wall-clock time
 
 ---
 
