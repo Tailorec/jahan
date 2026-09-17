@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from simcore.schemas import InferenceRole, TurnTask
+from simcore.schemas import ElicitationParams, InferenceRole, TurnTask
 
 
 # `{first_seen, conversation, reflection, purchase, claim_audit}` answer on tier B;
@@ -61,6 +61,8 @@ class AgentConfig:
     anchor_hashes: dict[str, str] = field(default_factory=dict)
     anchors_dir: str = "anchors"
     category: str = ""
+    # Per-construct SSR parameters; absent constructs run at the paper's defaults.
+    elicitation_params: dict[str, ElicitationParams] = field(default_factory=dict)
 
     def tier_for(self, task: TurnTask) -> InferenceRole:
         return self.tier_routing.get(task, InferenceRole.TIER_A)

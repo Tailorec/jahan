@@ -18,6 +18,7 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
+from simcore.elicitation import question_text
 from simcore.schemas import (
     ActionKind,
     BeliefChange,
@@ -26,15 +27,19 @@ from simcore.schemas import (
     ChatRequest,
     CompletedTurn,
     Completion,
+    ElicitationFailure,
     InferenceRole,
     MemoryEvent,
     MemorySource,
     Reaction,
+    SsrOutcome,
+    SsrResult,
     Turn,
     TurnFailure,
     TurnFailureKind,
     TurnJob,
     TurnOutcome,
+    TurnTask,
 )
 
 from ._beliefs import (
@@ -48,6 +53,7 @@ from ._config import AgentConfig
 from ._context import AssembledContext, ContextBudgetExceeded, assemble, render_beliefs
 from ._guard import allowed_stimuli, check, strict_question
 from ._ids import reaction_id, ulid_from
+from ._intent import PURCHASE_CONSTRUCT, score_intents, wants_intent
 from ._memory import describe_turn, importance_of, retrieve, write_memory
 from ._parse import ParsedReaction, parse_reaction, parse_reflection
 from ._prompt import REACTION_QUESTION, hash_text, render_persona_block
@@ -87,6 +93,15 @@ def turns(
         _rereact(entry, retried[entry.position])
 
     answerable = [entry for entry in reacted if entry.failure is None and entry.parsed is not None]
+    intents = score_intents(
+        {
+            entry.position: entry.parsed.verbatim
+            for entry in answerable
+            if wants_intent(entry.item.job.task) and entry.parsed.verbatim is not None
+        },
+        cfg,
+        embed,
+    )
     due = [entry for entry in answerable if _due(entry, cfg)]
     second = _dispatch(chat, [(entry.position, _reflection_request(entry, cfg)) for entry in due])
 
@@ -97,7 +112,7 @@ def turns(
             assert item.early is not None
             results.append(item.early)
         else:
-            results.append(_finalize(by_position[position], second.get(position), cfg, embed))
+            results.append(_finalize(by_position[position], second.get(position), intents.get(position), cfg, embed))
     return tuple(results)
 
 
@@ -108,6 +123,13 @@ def _dispatch(chat, calls: list[tuple[int, ChatRequest]]) -> dict[int, Completio
     positions = [position for position, _ in calls]
     outcomes = chat.complete([request for _, request in calls])
     return dict(zip(positions, outcomes))
+
+
+def _question_for(task: TurnTask) -> str:
+    """The frozen question per task: purchase intent is elicited as free text, never a number."""
+    if wants_intent(task):
+        return question_text(PURCHASE_CONSTRUCT)
+    return REACTION_QUESTION
 
 
 def _due(entry: _Reacted, cfg: AgentConfig) -> bool:
@@ -202,6 +224,7 @@ def _prepare(
     )
     memory_texts = tuple(f"[tick {memory.tick}] {memory.description}" for memory in recalled)
     memory_ids = tuple(memory.memory_id for memory in recalled)
+    question = _question_for(job.task)
     try:
         assembled = assemble(
             persona_block=block,
@@ -210,7 +233,7 @@ def _prepare(
             memory_texts=memory_texts,
             impression_json=impression.model_dump_json(),
             view_json=job.presentation.view.model_dump_json(),
-            question=REACTION_QUESTION,
+            question=question,
             budget=cfg.token_budget[tier],
         )
     except ContextBudgetExceeded as error:
@@ -325,7 +348,7 @@ def _strict_request(entry: _Reacted, cfg: AgentConfig) -> ChatRequest:
         memory_texts=entry.item.assembled.memory_texts,
         impression_json=job.presentation.impression.model_dump_json(),
         view_json=job.presentation.view.model_dump_json(),
-        question=strict_question(allowed),
+        question=strict_question(_question_for(job.task), allowed),
         budget=cfg.token_budget[cfg.tier_for(job.task)],
     )
     return ChatRequest(
@@ -411,7 +434,13 @@ def _settled(entry: _Reacted) -> tuple[ActionKind, str | None, str]:
     return _settle(entry.parsed, seen, impression.exposures[0].stimulus_id)
 
 
-def _finalize(entry: _Reacted, answer: Completion | CallFailure | None, cfg: AgentConfig, embed) -> TurnOutcome:
+def _finalize(
+    entry: _Reacted,
+    answer: Completion | CallFailure | None,
+    intent: SsrOutcome | None,
+    cfg: AgentConfig,
+    embed,
+) -> TurnOutcome:
     if entry.failure is not None:
         return entry.failure
     assert entry.parsed is not None and isinstance(entry.outcome, Completion)
@@ -429,13 +458,16 @@ def _finalize(entry: _Reacted, answer: Completion | CallFailure | None, cfg: Age
         action, _, _ = _settled(entry)
         importance = importance_of(action, change)
     action, verbatim, subject = _settled(entry)
+    distribution = intent if isinstance(intent, SsrResult) else None
+    failure = intent if isinstance(intent, ElicitationFailure) else None
     reaction = Reaction(
         reaction_id=reaction_id(entry.outcome.prompt_hash, job.persona.persona_id, entry.position),
         subject_stimulus_id=subject,
         action=action,
         verbatim=verbatim,
         belief_change=change,
-        intent=None,
+        intent=distribution,
+        elicitation_failure=failure,
     )
     turn = Turn(impression=impression, view=job.presentation.view, reaction=reaction)
     remembered = write_memory(

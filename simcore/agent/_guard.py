@@ -74,7 +74,5 @@ def check(
     return None
 
 
-def strict_question(allowed: set[str]) -> str:
-    from ._prompt import REACTION_QUESTION
-
-    return REACTION_QUESTION + STRICT_SUFFIX.format(allowed=", ".join(sorted(allowed)))
+def strict_question(base: str, allowed: set[str]) -> str:
+    return base + STRICT_SUFFIX.format(allowed=", ".join(sorted(allowed)))
