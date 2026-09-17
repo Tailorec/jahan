@@ -112,6 +112,38 @@ _Avoid_: degradation (that word belongs to the budget), fallback, compromise, be
 A budget-driven reduction in how fully a world is simulated — optional reflections frozen, fewer personas activated per tick, or the world paused. A degraded world is not comparable to one that ran in full, so degradation is recorded where it happens.
 _Avoid_: throttling, fallback, downgrade
 
+**Rung**:
+One step of the degrade ladder: the level of reduction every live world of a run is currently under. A rung belongs to the run, because worlds at different rungs are not comparable.
+_Avoid_: level, stage, tier (a tier is a model role)
+
+**Cost Ledger**:
+What a run has spent so far, summed from the billed calls it recorded. It is derived, never kept as a separate figure.
+_Avoid_: budget (the budget is the ceiling), total, accounting
+
+**Discarded Tick**:
+A tick that was interrupted before it could be recorded whole. Its work is lost and its spend is unknown but not zero, so a run that lost one says so.
+_Avoid_: failed tick, partial tick, rollback
+
+**Partition**:
+One world's whole record: its header and every event that happened in it. The unit that is written, validated, resumed and read.
+_Avoid_: shard, file, log
+
+**Tick Closed**:
+The mark that a tick was recorded whole. A resumed world continues from the last one.
+_Avoid_: commit, flush, checkpoint
+
+**Finalization**:
+Turning a finished world's live record into its lasting one. What can be read does not change; where it is read from does.
+_Avoid_: export, archive, migration
+
+**Trace View**:
+The fixed set of questions that can be asked of a run's record. Nothing else can be asked, and nothing that reads it can reach past it.
+_Avoid_: query, handle, dataset
+
+**Sweep**:
+One run over many worlds — scenarios and seeds — sharing one budget. It is not a separate kind of thing from a run.
+_Avoid_: batch, grid, experiment
+
 **Category Ontology**:
 The shared, versioned catalogue of which persona attributes matter for a product category — what kind of information each holds, which must be present for conditioning, which may be synthesized, how ordered attributes are scaled, what order they are cut in under a token budget, and which anchor set scores each construct. It declares attributes, never relationships or behaviour: how personas interact is the world's business, not the ontology's. A brief names the version it is read against; it never carries its own copy.
 _Avoid_: schema, taxonomy, category config, knowledge graph, entity model, codebook (the codebook is the dataset's, not the category's)
