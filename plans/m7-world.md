@@ -50,11 +50,11 @@ The property the rest of the module is built to keep. A world reconstructed by `
 
 ### Acceptance criteria
 
-- [ ] Replaying recorded turns from `reset` reproduces every recorded delta, field for field
-- [ ] A world resumed at tick N continues identically to one that never stopped
-- [ ] An internal checkpoint changes speed and never output, asserted by replaying with and without one
-- [ ] A replay that diverges fails loudly, naming the first tick and field that differ
-- [ ] Replay needs nothing but the header and the recorded turns
+- [x] Replaying recorded turns from `reset` reproduces every recorded delta, field for field
+- [x] A world resumed at tick N continues identically to one that never stopped
+- [x] An internal checkpoint changes speed and never output, asserted by replaying with and without one
+- [x] A replay that diverges fails loudly, naming the first tick and field that differ
+- [x] Replay needs nothing but the header and the recorded turns
 
 ---
 
