@@ -260,7 +260,7 @@ def run_world(
     from simcore.schemas.enums import RUNG_ORDER
 
     from ._ladder import last_recorded_rung, plan_for, rung_for
-    from ._ledger import pessimistic_figure
+    from ._ledger import pessimistic_figure, unpriceable
 
     ladder_cfg = ladder or LadderConfig()
     world_id = header.world_id
@@ -276,6 +276,12 @@ def run_world(
         except Exception:
             current = None
 
+    def _all_recorded() -> tuple[TraceEvent, ...]:
+        try:
+            return tuple(trace.all_events())  # type: ignore[attr-defined]
+        except Exception:
+            return tuple(written)
+
     def _figure() -> float:
         try:
             all_events = tuple(trace.all_events())  # type: ignore[attr-defined]
@@ -290,6 +296,11 @@ def run_world(
     for tick in range(from_tick + 1, horizon):
         ratio = (_figure() / budget_max) if budget_max else 0.0
         candidate = rung_for(ratio, ladder_cfg)
+        # Calls were billed and nothing anywhere carries a price, so there is no figure to
+        # enforce a ceiling against. A budget measured against invented prices is not a budget,
+        # so the run stops rather than spending blind.
+        if budget_max and unpriceable(_all_recorded()):
+            candidate = RUNG_ORDER[-1]
         # Escalation only; a replay applies the recorded rung rather than
         # recomputing a lower one from the ledger.
         effective = candidate

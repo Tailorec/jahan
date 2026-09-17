@@ -220,3 +220,64 @@ def test_lost_tick_stops_earlier_on_same_budget():
     lost_fig = pessimistic_figure(trace.all_events(), registry.entry(config.run_id).discarded_ticks)
     assert registry.entry(config.run_id).discarded_ticks == 1
     assert lost_fig > clean_fig
+
+
+def _events_from(costs) -> tuple:
+    """Cost events as the runner would have written them, with one closed tick."""
+    from simcore.schemas import TickClosed, TraceEvent
+
+    events = []
+    for index, cost in enumerate(costs):
+        events.append(TraceEvent.model_validate({"event_id": f"ev-{ulid(4000 + index)}", "world_id": "a1b2c3d4e5f6",
+                                                 "tick": 1, "seq": index, "persona_id": "p-000001",
+                                                 "payload": cost.model_dump(mode="json")}))
+    events.append(TraceEvent.model_validate({"event_id": f"ev-{ulid(4999)}", "world_id": "a1b2c3d4e5f6", "tick": 1,
+                                             "seq": len(costs), "persona_id": None,
+                                             "payload": TickClosed(kind="tick_closed").model_dump(mode="json")}))
+    return tuple(events)
+
+
+def _run_billing(costs_per_turn, max_cost: float, horizon: int = 8):
+    """A run whose every turn bills the given costs."""
+    pack, population = _pack(), _population()
+    trace, registry = InMemoryTraceSink(), InMemoryRegistry()
+    payload = _config(horizon=horizon).model_dump(mode="json")
+    payload["budget"] = {"max_cost": max_cost, "currency": "USD"}
+    config = _repinned(RunConfig.model_validate(payload), pack, population)
+    plans = []
+
+    def agent_fn(jobs, plan=None):
+        plans.append(plan)
+        return tuple(_completed(j, i, costs_per_turn) for i, j in enumerate(jobs))
+
+    result = run(config, pack=pack, population=population, trace=trace, registry=registry,
+                 world_factory=lambda header: FakeWorld(header), agent_fn=agent_fn)
+    return result, trace, plans
+
+
+def test_unknown_costs_are_priced_pessimistically_rather_than_counted_as_free():
+    """`CostSource.UNKNOWN` exists because a budget enforced against invented prices is not
+    enforced. The ledger counted unknowns and then dropped them, so a run whose gateway
+    reported no prices spent its whole horizon without a rung ever firing."""
+    events = _events_from([_cost(0.10), _cost(0.10), _cost(None), _cost(None)])
+    total, unpriced = ledger_sum(events)
+    assert (total, unpriced) == (pytest.approx(0.20), 2)
+    # Two calls at 0.10 apiece price the two nobody quoted.
+    assert pessimistic_figure(events, 0) == pytest.approx(0.40)
+
+
+def test_a_run_billed_only_unknown_costs_stops_rather_than_spending_blind():
+    """With no price at all there is nothing to enforce a budget against, so the run stops."""
+    result, trace, _ = _run_billing([_cost(None)], max_cost=1.0, horizon=8)
+    rungs = [event.payload.rung.value for event in trace.all_events() if event.payload.kind == "degraded"]
+    assert "pause" in rungs, f"nothing stopped the run: {rungs}"
+    assert result.status.value == "partial"
+    closed = {event.tick for event in trace.all_events() if event.payload.kind == "tick_closed"}
+    assert len(closed) < 8, "the run reached its horizon on prices nobody quoted"
+
+
+def test_priced_and_unpriced_calls_together_still_degrade_on_the_ladder():
+    result, trace, plans = _run_billing([_cost(0.02), _cost(None)], max_cost=1.0, horizon=8)
+    rungs = [event.payload.rung.value for event in trace.all_events() if event.payload.kind == "degraded"]
+    assert rungs, "a run with prices and unknowns never reached a rung"
+    assert any(plan is not None and plan.tier_b_frozen for plan in plans) or "pause" in rungs

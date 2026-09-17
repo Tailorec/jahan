@@ -7,7 +7,7 @@ assigns every `event_id` and `seq`, buffers a tick, and writes it with its
 """
 
 from ._ladder import last_recorded_rung, plan_for, recorded_rungs, rung_for
-from ._ledger import ledger_sum, mean_tick_cost, pessimistic_figure
+from ._ledger import ledger_sum, mean_call_cost, mean_tick_cost, pessimistic_figure, priced_spend, unpriceable
 from ._sweep import expand_sweep
 from ._view import RunnerTraceView
 from ._plans import LadderConfig, TickPlan, agent_routing_for
@@ -31,7 +31,10 @@ __all__ = [
     "last_closed_tick",
     "last_recorded_rung",
     "ledger_sum",
+    "mean_call_cost",
     "mean_tick_cost",
+    "priced_spend",
+    "unpriceable",
     "next_seq",
     "pessimistic_figure",
     "plan_for",
