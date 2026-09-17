@@ -58,8 +58,10 @@ def assemble(
             "the block is never dropped, so the turn fails instead"
         )
     kept_memories = list(memory_texts)
+    # Memories arrive best-first (retrieval rank, then recency), so the tail — the least
+    # useful memory in context — is what goes when the budget binds.
     while kept_memories and _wire_size(persona_block, beliefs_text, kept_memories, impression_json, view_json, question) > budget:
-        kept_memories.pop(0)
+        kept_memories.pop()
     dropped_memories = len(memory_texts) - len(kept_memories)
     dropped_beliefs = False
     if _wire_size(persona_block, beliefs_text, kept_memories, impression_json, view_json, question) > budget:

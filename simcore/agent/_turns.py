@@ -10,7 +10,7 @@ Dispatch is refused before any model call when the persona block is empty
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from simcore.schemas import (
     ActionKind,
@@ -20,6 +20,8 @@ from simcore.schemas import (
     ChatRequest,
     CompletedTurn,
     Completion,
+    InferenceRole,
+    MemorySource,
     Reaction,
     Turn,
     TurnFailure,
@@ -30,7 +32,8 @@ from simcore.schemas import (
 
 from ._config import AgentConfig
 from ._context import ContextBudgetExceeded, assemble, render_beliefs
-from ._ids import reaction_id
+from ._ids import reaction_id, ulid_from
+from ._memory import describe_turn, importance_of, retrieve, write_memory
 from ._parse import ParsedReaction, parse_reaction
 from ._prompt import REACTION_QUESTION, hash_text, render_persona_block
 from ._render import PersonaBlockCache
@@ -43,11 +46,13 @@ def turns(
     config: AgentConfig | None = None,
     ontology: CategoryOntology | None = None,
     blocks: PersonaBlockCache | None = None,
+    embed=None,
+    stimulus_texts: Mapping[str, str] | None = None,
 ) -> tuple[TurnOutcome, ...]:
     """One outcome per job in request order: a completed turn or a recorded turn failure."""
     cfg = config or AgentConfig()
     cache = blocks if blocks is not None else PersonaBlockCache()
-    prepared = [_prepare(job, index, cfg, ontology, cache) for index, job in enumerate(jobs)]
+    prepared = [_prepare(job, index, cfg, ontology, cache, embed, stimulus_texts) for index, job in enumerate(jobs)]
     dispatch = [(position, item) for position, item in enumerate(prepared) if item.request is not None]
     completions: dict[int, Completion | CallFailure] = {}
     if dispatch:
@@ -58,7 +63,7 @@ def turns(
         if item.early is not None:
             results.append(item.early)
         else:
-            results.append(_finish(item, completions[position], position, cfg))
+            results.append(_finish(item, completions[position], position, cfg, embed))
     return tuple(results)
 
 
@@ -81,7 +86,13 @@ class _Prepared:
 
 
 def _prepare(
-    job: TurnJob, index: int, cfg: AgentConfig, ontology: CategoryOntology | None, cache: PersonaBlockCache
+    job: TurnJob,
+    index: int,
+    cfg: AgentConfig,
+    ontology: CategoryOntology | None,
+    cache: PersonaBlockCache,
+    embed,
+    stimulus_texts: Mapping[str, str] | None,
 ) -> _Prepared:
     impression = job.presentation.impression
     if ontology is None:
@@ -107,8 +118,18 @@ def _prepare(
         {dim.value: value for dim, value in beliefs.dimensions.items()},
         dict(beliefs.claim_credence),
     )
-    memory_texts = tuple(f"[tick {memory.tick}] {memory.description}" for memory in job.state.memories)
     tier = cfg.tier_for(job.task)
+    tau_r = max(1.0, cfg.tau_r_share * cfg.horizon_ticks)
+    recalled = retrieve(
+        job.state.memories,
+        stimulus_text=_stimulus_text(job, stimulus_texts),
+        tick=impression.tick,
+        k=cfg.top_k[tier],
+        tau_r=tau_r,
+        embed=embed,
+    )
+    memory_texts = tuple(f"[tick {memory.tick}] {memory.description}" for memory in recalled)
+    memory_ids = tuple(memory.memory_id for memory in recalled)
     try:
         assembled = assemble(
             persona_block=block,
@@ -140,10 +161,23 @@ def _prepare(
         max_tokens=cfg.max_tokens,
         template_id=cfg.template_id,
     )
-    return _Prepared(job, request, block_hash, (), None)
+    return _Prepared(job, request, block_hash, memory_ids, None)
 
 
-def _finish(item: _Prepared, outcome: Completion | CallFailure, index: int, cfg: AgentConfig) -> TurnOutcome:
+def _stimulus_text(job: TurnJob, stimulus_texts: Mapping[str, str] | None) -> str:
+    """What the persona is looking at, as retrieval text: the shown stimuli it knows."""
+    parts = []
+    for exposure in job.presentation.impression.exposures:
+        if stimulus_texts is not None and exposure.stimulus_id in stimulus_texts:
+            parts.append(stimulus_texts[exposure.stimulus_id])
+    if parts:
+        return "\n".join(parts)
+    return job.presentation.impression.model_dump_json()
+
+
+def _finish(
+    item: _Prepared, outcome: Completion | CallFailure, index: int, cfg: AgentConfig, embed
+) -> TurnOutcome:
     job = item.job
     impression = job.presentation.impression
     if isinstance(outcome, CallFailure):
@@ -172,20 +206,36 @@ def _finish(item: _Prepared, outcome: Completion | CallFailure, index: int, cfg:
         )
     seen = [exposure.stimulus_id for exposure in impression.exposures if exposure.seen]
     action, verbatim, subject = _settle(parsed, seen, impression.exposures[0].stimulus_id)
+    change = BeliefChange()
+    if cfg.tier_for(job.task) is InferenceRole.TIER_B and parsed.importance is not None:
+        importance = parsed.importance
+    else:
+        importance = importance_of(action, change)
     reaction = Reaction(
         reaction_id=reaction_id(outcome.prompt_hash, job.persona.persona_id, index),
         subject_stimulus_id=subject,
         action=action,
         verbatim=verbatim,
-        belief_change=BeliefChange(),
+        belief_change=change,
         intent=None,
     )
     turn = Turn(impression=impression, view=job.presentation.view, reaction=reaction)
+    remembered = write_memory(
+        memory_uid=f"me-{ulid_from('memory', job.persona.persona_id, outcome.prompt_hash)}",
+        tick=impression.tick,
+        description=describe_turn(action, subject, verbatim),
+        importance=importance,
+        source=MemorySource.TURN,
+        embed=embed,
+    )
     return CompletedTurn(
         turn=turn,
         template_id=outcome.template_id,
         prompt_hash=outcome.prompt_hash,
         persona_block_hash=item.persona_block_hash,
+        memory_ids=item.memory_ids,
+        memories=(remembered,),
+        belief_change=change,
     )
 
 

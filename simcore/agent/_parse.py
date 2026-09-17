@@ -30,6 +30,9 @@ class ParsedReaction:
     subject_stimulus_id: str
     action: ActionKind
     verbatim: str | None
+    # Tier B only: the model rates the memory's importance inside the call already being
+    # made, so importance adds no call of its own. Absent on tier A, where the rule decides.
+    importance: float | None = None
 
 
 def parse_reaction(text: str) -> ParsedReaction:
@@ -54,4 +57,12 @@ def parse_reaction(text: str) -> ParsedReaction:
         verbatim = None
     if action in TEXT_ACTIONS and verbatim is None:
         raise ValueError(f"a {action.value} produces text, so it needs a verbatim")
-    return ParsedReaction(subject_stimulus_id=subject.strip(), action=action, verbatim=verbatim)
+    importance = raw.get("importance")
+    if importance is not None:
+        try:
+            importance = float(importance)
+        except (TypeError, ValueError):
+            raise ValueError("the response's importance is not a number") from None
+        if not 0.0 <= importance <= 1.0:
+            raise ValueError(f"the response's importance {importance} is outside 0-1")
+    return ParsedReaction(subject_stimulus_id=subject.strip(), action=action, verbatim=verbatim, importance=importance)

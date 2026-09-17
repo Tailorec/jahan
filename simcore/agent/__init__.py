@@ -12,6 +12,7 @@ assembled here and nowhere else, and a turn cannot proceed unconditioned.
 
 from ._config import AgentConfig, DEFAULT_TIER_ROUTING
 from ._context import ContextBudgetExceeded, estimate_tokens
+from ._memory import append_memories, importance_of, retrieve, score_memory, write_memory
 from ._render import PersonaBlockCache, render_block, selected_attributes
 from ._turns import turns
 
@@ -20,8 +21,13 @@ __all__ = [
     "ContextBudgetExceeded",
     "DEFAULT_TIER_ROUTING",
     "PersonaBlockCache",
+    "append_memories",
     "estimate_tokens",
+    "importance_of",
     "render_block",
+    "retrieve",
+    "score_memory",
     "selected_attributes",
     "turns",
+    "write_memory",
 ]
