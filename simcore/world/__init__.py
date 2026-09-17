@@ -20,12 +20,23 @@ from .platform import AFFORDANCES, Forum, is_supported
 from .recsys import UNIT_SECONDS, exposure_concentration, hot_order, hot_score, random_order, reason_for, scoped_order
 from .recsys import cosine as cosine_similarity
 from .recsys import hub_order, interest_order
+from .wom import (
+    DEFAULT_CAP_PER_TICK,
+    DEFAULT_SENTIMENT_THRESHOLD,
+    DEFAULT_TIE_THRESHOLD,
+    select_targets,
+    sentiment_strength,
+    wants_to_talk,
+)
 from .replay import ReplayDivergence, check_replay, resume
 from .replay import run as replay_run
 
 __all__ = [
     "AFFORDANCES",
     "DAY_RHYTHM",
+    "DEFAULT_CAP_PER_TICK",
+    "DEFAULT_SENTIMENT_THRESHOLD",
+    "DEFAULT_TIE_THRESHOLD",
     "HOUR_RHYTHM",
     "UNIT_SECONDS",
     "WEEK_RHYTHM",
@@ -53,6 +64,9 @@ __all__ = [
     "resume",
     "rhythm_at",
     "scoped_order",
+    "select_targets",
+    "sentiment_strength",
     "straggler_tick",
     "step",
+    "wants_to_talk",
 ]

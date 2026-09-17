@@ -69,6 +69,19 @@ def act_turn(
     return Turn(impression=presentation.impression, view=presentation.view, reaction=reaction)
 
 
+def felt_turn(presentation: Presentation, n: int, delta: float = 0.8) -> Turn:
+    """A strongly-felt comment: credence moves hard, so word of mouth may spark."""
+    subject = presentation.impression.exposures[0].stimulus_id
+    reaction = Reaction(
+        reaction_id=f"rc-{ulid(960 + n)}",
+        subject_stimulus_id=subject,
+        action="comment",
+        verbatim="this changed how I see protein water after training",
+        belief_change={"dimensions": {"value": delta}},
+    )
+    return Turn(impression=presentation.impression, view=presentation.view, reaction=reaction)
+
+
 def targeted_turn(
     persona: str, tick: int, stimulus_id: str, n: int, action: str, channel: str = "social_feed"
 ) -> Turn:

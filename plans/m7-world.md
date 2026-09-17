@@ -198,9 +198,9 @@ The graph channel. After a reaction, `wants_to_talk(reaction, peer)` gates on se
 
 ### Acceptance criteria
 
-- [ ] Word of mouth delivers as a next-tick exposure, never within the tick that produced it
-- [ ] The delivered exposure's view records the correct tie strength and `reason=wom`
-- [ ] Both gates are configurable with documented defaults
-- [ ] The per-tick cap holds on a dense-community fixture
-- [ ] Targets are drawn from a derived seed, so deliveries reproduce
-- [ ] A persona with no ties produces no deliveries and no error
+- [x] Word of mouth delivers as a next-tick exposure, never within the tick that produced it
+- [x] The delivered exposure's view records the correct tie strength and `reason=wom`
+- [x] Both gates are configurable with documented defaults
+- [x] The per-tick cap holds on a dense-community fixture
+- [x] Targets are drawn from a derived seed, so deliveries reproduce
+- [x] A persona with no ties produces no deliveries and no error

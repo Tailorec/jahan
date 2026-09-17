@@ -39,7 +39,7 @@ from simcore.schemas import (
     derive_world_seed,
 )
 
-from . import _ids, recsys
+from . import _ids, recsys, wom
 from .clock import activated_personas, activation_probability
 from .platform import Forum, ForumPreset, is_supported
 from .store import Store
@@ -219,7 +219,8 @@ class World:
                 )
         self._ingest_turns(tick, turns)
         published = self._publish_from_turns(tick, turns)
-        presentations, dropped = self._presentations(tick)
+        deliveries = self._wom_deliveries(tick, turns)
+        presentations, dropped = self._presentations(tick, deliveries)
         delta = WorldDelta(
             tick=tick,
             published=tuple(published),
@@ -402,17 +403,136 @@ class World:
         }
         return activated_personas(self._personas, probabilities, self._world_seed, tick)
 
-    def _presentations(self, tick: int) -> tuple[list[Presentation], list[DroppedExposure]]:
-        """One presentation per activated persona on the world's channel, plus what missed the budget."""
+    def _presentations(
+        self, tick: int, deliveries: dict[str, list[tuple[str, str, float]]]
+    ) -> tuple[list[Presentation], list[DroppedExposure]]:
+        """One presentation per activated persona on the world's channel, plus what missed the budget.
+
+        Word-of-mouth deliveries ride a second impression on the wom channel —
+        except in the survey room, which neither delivers nor sparks word of
+        mouth, keeping the baseline the stimulus alone.
+        """
         if self._concept_id is None:
             raise ValueError("presentations before the study stimuli were published")
         if self._config.platform is Channel.SOCIAL_FEED:
-            return self._feed_presentations(tick)
+            presentations, dropped = self._feed_presentations(tick)
+            extra, extra_drops = self._wom_presentations(tick, deliveries)
+            return presentations + extra, dropped + extra_drops
         if self._config.platform is Channel.SURVEY_ROOM:
             return self._survey_presentations(tick), []
         if self._config.platform is Channel.FORUM:
-            return self._forum_presentations(tick)
+            presentations, dropped = self._forum_presentations(tick)
+            extra, extra_drops = self._wom_presentations(tick, deliveries)
+            return presentations + extra, dropped + extra_drops
         raise ValueError(f"the {self._config.platform.value} channel is delivered, not presented")
+
+    def _wom_deliveries(
+        self, tick: int, turns: tuple[Turn, ...]
+    ) -> dict[str, list[tuple[str, str, float]]]:
+        """Who is told what next: teller reactions become recipient exposures.
+
+        Computed from this step's turns and delivered in this step's own
+        presentations — the reaction was recorded an earlier tick, so a
+        delivery never lands within the tick that produced it. The survey
+        room's answers spark nothing.
+        """
+        deliveries: dict[str, list[tuple[str, str, float]]] = {}
+        for turn in turns:
+            if turn.impression.channel is Channel.SURVEY_ROOM:
+                continue
+            teller = turn.impression.persona_id
+            sentiment = wom.sentiment_strength(turn.reaction)
+            if sentiment < self._config.wom_sentiment_threshold:
+                continue
+            neighbours = {
+                other: strength
+                for pair, strength in self._ties.items()
+                if teller in pair
+                for other in (pair - {teller})
+            }
+            willing = {
+                peer: tie
+                for peer, tie in neighbours.items()
+                if wom.wants_to_talk(
+                    turn.reaction,
+                    tie,
+                    sentiment_threshold=self._config.wom_sentiment_threshold,
+                    tie_threshold=self._config.wom_tie_threshold,
+                )
+            }
+            targets = wom.select_targets(
+                teller,
+                willing,
+                sentiment,
+                world_seed=self._world_seed,
+                tick=tick,
+                sentiment_threshold=self._config.wom_sentiment_threshold,
+                tie_threshold=self._config.wom_tie_threshold,
+                cap=self._config.wom_cap_per_tick,
+            )
+            for peer in targets:
+                deliveries.setdefault(peer, []).append(
+                    (turn.reaction.subject_stimulus_id, teller, willing[peer])
+                )
+        return deliveries
+
+    def _wom_presentations(
+        self, tick: int, deliveries: dict[str, list[tuple[str, str, float]]]
+    ) -> tuple[list[Presentation], list[DroppedExposure]]:
+        """One wom-channel impression per told persona that is awake this tick."""
+        awake = set(self._activated(tick))
+        counts = self._store.counts_visible_at(tick)
+        authors = {row["stimulus_id"]: row["author"] for row in self._store.stimuli_published_before(tick + 1)}
+        budget = self._budget()
+        presentations: list[Presentation] = []
+        dropped: list[DroppedExposure] = []
+        for recipient in sorted(deliveries):
+            if recipient not in awake:
+                continue
+            told = deliveries[recipient][:budget]
+            exposures = tuple(
+                Exposure(stimulus_id=subject, reason=ExposureReason.WOM, attention=1.0)
+                for subject, _, _ in told
+            )
+            impression = Impression(
+                impression_id=_ids.impression_id(self._world_seed, tick, recipient, Channel.WOM.value),
+                persona_id=recipient,
+                channel=Channel.WOM,
+                tick=tick,
+                exposures=exposures,
+            )
+            contexts = {
+                subject: self._context_for(
+                    recipient, subject, authors.get(subject), counts, tie_override=(tie, self._teller_shared(recipient, teller))
+                )
+                for subject, teller, tie in told
+            }
+            presentations.append(
+                Presentation(impression=impression, view=View(impression_id=impression.impression_id, contexts=contexts))
+            )
+            for subject, _, _ in deliveries[recipient][budget:]:
+                dropped.append(
+                    DroppedExposure(
+                        persona_id=recipient,
+                        drop=ExposureDropped(
+                            kind="exposure_dropped",
+                            stimulus_id=subject,
+                            channel=Channel.WOM,
+                            reason="budget_exhausted",
+                        ),
+                    )
+                )
+        return presentations, dropped
+
+    def _teller_shared(self, recipient: str, teller: str) -> bool | None:
+        """Whether teller and told share a community — the relationship the wom view records."""
+        if not self._community_of:
+            return None
+        recipient_community = self._community_of.get(recipient)
+        teller_community = self._community_of.get(teller)
+        if recipient_community is None or teller_community is None:
+            return None
+        return recipient_community == teller_community
 
     def _survey_presentations(self, tick: int) -> list[Presentation]:
         """The baseline: every activated persona sees the concept stimulus alone."""
@@ -560,12 +680,21 @@ class World:
         return recsys.scoped_order(ids, ups, downs, ages, self._world_seed, tick)
 
     def _context_for(
-        self, viewer: str, stimulus_id: str, author: str | None, counts: dict[str, dict[str, int]]
+        self,
+        viewer: str,
+        stimulus_id: str,
+        author: str | None,
+        counts: dict[str, dict[str, int]],
+        tie_override: tuple[float | None, bool | None] | None = None,
     ) -> StimulusContext:
         """The public context around one shown stimulus: counts from earlier ticks only,
-        its reply ancestry, and the viewer's relationship to its author — nothing else."""
+        its reply ancestry, and the viewer's relationship to its author — nothing else.
+
+        A word-of-mouth exposure overrides the relationship with the tie to the
+        teller: the view shows who told you, not who authored it.
+        """
         seen = counts.get(stimulus_id, {})
-        tie_strength, shared_community = self._relationship(viewer, author)
+        tie_strength, shared_community = tie_override if tie_override is not None else self._relationship(viewer, author)
         return StimulusContext(
             likes=seen.get("likes", 0),
             reposts=seen.get("reposts", 0),
