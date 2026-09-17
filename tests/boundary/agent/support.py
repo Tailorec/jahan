@@ -60,6 +60,52 @@ def answering(action: str = "comment", verbatim: str = "the protein claim would 
     return respond
 
 
+def by_template(mapping: dict[str, object]) -> object:
+    """A responder dispatching per template id, falling back to a plain reaction answer."""
+
+    def respond(messages: Sequence[ChatMessage], template_id: str) -> str:
+        responder = mapping.get(template_id, answering())
+        if callable(responder):
+            return responder(messages, template_id)
+        return responder
+
+    return respond
+
+
+def reflecting(
+    dimensions: dict | None = None, claim_credence: dict | None = None, summary: str = "The protein claim held up. I trust it a little more now."
+) -> str:
+    """A canned reflection payload answering the reflection template."""
+    payload: dict = {"summary": summary}
+    if dimensions is not None:
+        payload["dimensions"] = dimensions
+    if claim_credence is not None:
+        payload["claim_credence"] = claim_credence
+    return json.dumps(payload)
+
+
+def moving(action: str = "comment", dimensions: dict | None = None, claim_credence: dict | None = None):
+    """A reaction responder that also moves beliefs."""
+
+    def respond(messages: Sequence[ChatMessage], template_id: str) -> str:
+        shown = impression_of(messages)["exposures"]
+        payload: dict = {
+            "subject_stimulus_id": shown[0]["stimulus_id"],
+            "action": action,
+            "verbatim": "this moved me",
+        }
+        deltas: dict = {}
+        if dimensions is not None:
+            deltas["dimensions"] = dimensions
+        if claim_credence is not None:
+            deltas["claim_credence"] = claim_credence
+        if deltas:
+            payload["belief_deltas"] = deltas
+        return json.dumps(payload)
+
+    return respond
+
+
 class FailIndexChat(FakeChat):
     """A fake that fails the calls at the given batch positions, answering the rest."""
 
