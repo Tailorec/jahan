@@ -5,10 +5,13 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 
+import numpy as np
+
 from simcore.ports.chat import ChatMessage
+from simcore.ports.embed import EmbedResult
 from simcore.ports.fake import FakeChat
-from simcore.schemas import CallFailure, FailureKind, InferenceRoute, TurnJob
-from tests.study_builders import beliefs_payload, persona_payload, stimulus_id, turn_payload
+from simcore.schemas import CallFailure, CostRecorded, FailureKind, InferenceRole, InferenceRoute, TurnJob
+from tests.study_builders import beliefs_payload, persona_payload, stimulus_id, turn_payload, ulid
 
 DISTINCT_AGES = ["25_34", "35_44", "45_54", "55_64"]
 
@@ -81,3 +84,59 @@ class FailIndexChat(FakeChat):
                 outcomes.append(self._one(request))
             self._position += 1
         return tuple(outcomes)
+
+
+class DictEmbed:
+    """Embeddings with a controlled geometry: each known text maps to its vector."""
+
+    model_id = "dict/embed-v1"
+
+    def __init__(self, mapping: dict[str, Sequence[float]], fallback: Sequence[float] | None = None) -> None:
+        self._mapping = {text: list(vector) for text, vector in mapping.items()}
+        self._fallback = None if fallback is None else list(fallback)
+        self.texts: list[str] = []
+        dim = len(next(iter(mapping.values())))
+        self._dim = dim
+
+    def embed(self, texts: Sequence[str]) -> EmbedResult:
+        self.texts.extend(list(texts))
+        rows = []
+        for text in texts:
+            vector = self._mapping.get(text, self._fallback)
+            if vector is None:
+                raise KeyError(f"the controlled embedder has no vector for {text!r}")
+            rows.append(vector)
+        vectors = np.asarray(rows, dtype=np.float32)
+        cost = CostRecorded(
+            kind="cost",
+            role=InferenceRole.EMBED,
+            model_id=self.model_id,
+            served_model_id=self.model_id,
+            cost_source="gateway",
+            route=InferenceRoute.PRIMARY,
+            input_tokens=sum(len(text.split()) for text in texts),
+            output_tokens=0,
+            cost=0.0,
+        )
+        return EmbedResult(
+            vectors=vectors,
+            model_id=self.model_id,
+            served_model_id=self.model_id,
+            normalization="l2",
+            dim=self._dim,
+            costs=(cost,),
+        )
+
+
+def memory_dict(n: int, tick: int, description: str, importance: float = 0.5, embedding=None) -> dict:
+    payload = {
+        "memory_id": f"me-{ulid(600 + n)}",
+        "tick": tick,
+        "description": description,
+        "importance": importance,
+        "source": "turn",
+    }
+    if embedding is not None:
+        payload["embedding"] = list(embedding)
+        payload["embed_model_id"] = DictEmbed.model_id
+    return payload
