@@ -74,7 +74,7 @@ The invariant the module exists to own. Attributes the category ontology selects
 - [x] The persona block renders from ontology-selected attributes, and a category that selects different attributes produces a different block
 - [x] The block is rendered once per persona per run and reused across ticks, with its hash recorded on every turn
 - [x] Dispatch is refused when the persona block is empty, and the refusal is loud and recorded
-- [x] Conditioned and unconditioned contexts produce measurably different distributions, in the direction the literature reports
+- [ ] Conditioned and unconditioned contexts produce measurably different distributions, in the direction the literature reports — **owed, and not tickable with a fake**: a stand-in model's answers are whatever the stand-in was written to return, so a boundary test asserting this would assert only its own fake. The boundary tests prove what they can — the block reaches the prompt, two personas are told different things, an empty block is refused — and the measurement itself needs a real model, as an evaluation beside `docs/evaluations/2026-09-17-holdout-bedrock`
 - [x] The token budget is respected per tier, dropping memories before beliefs
 - [x] A budget that would drop the persona block fails the turn instead of dropping it
 

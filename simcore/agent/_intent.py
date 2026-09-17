@@ -56,6 +56,17 @@ def score_intents(
             temperature=params.temperature if params is not None else 1.0,
             epsilon=params.epsilon if params is not None else 0.0,
         )
+    except ValueError as error:
+        # A refusal about the anchors themselves — no passing check, no pin, an edited file —
+        # is a decision about the instrument, not a failure of the embedding model (ADR 0032).
+        for position, text in scorable.items():
+            outcomes[position] = ElicitationFailure(
+                kind=ElicitationFailureKind.UNPINNED_ANCHORS,
+                detail=f"the anchors could not be used to score this response: {error}",
+                response_text=text,
+                construct_id=PURCHASE_CONSTRUCT,
+            )
+        return outcomes
     except Exception as error:
         for position, text in scorable.items():
             outcomes[position] = ElicitationFailure(

@@ -63,8 +63,8 @@ carry.
    study conditions on what the category says matters.
 7. As a methodologist, I want dispatch refused when the persona block is empty, so an unconditioned turn can never
    be recorded as a persona's reaction.
-8. As a methodologist, I want conditioned and unconditioned contexts to produce measurably different distributions
-   in the direction the literature reports, so the invariant is demonstrated rather than asserted.
+8. As a methodologist, I want the effect of conditioning on answers measured against a real model, so the invariant
+   is demonstrated rather than asserted — and never "demonstrated" by a stand-in written to show it.
 9. As an analyst, I want the persona block's hash recorded with the turn, so two runs can be compared on what the
    persona was told about itself.
 10. As a maintainer, I want the persona block rendered once per persona per run and reused, so a long horizon does
@@ -154,8 +154,9 @@ for conversational turns; Generative Agents (Park et al.) for the memory and ref
 
 Boundary tests through `turns`, with `FakeInference` and `FakeEmbed`; the suite never reaches a network.
 
-- **The conditioning test**: conditioned and unconditioned contexts produce measurably different distributions, in
-  the direction the literature reports; unconditioned dispatch is refused outright.
+- **The conditioning invariant**, as far as a fake can carry it: the persona block reaches the prompt, two personas
+  are told different things about themselves, and unconditioned dispatch is refused outright. The effect on answers
+  needs a real model and is owed as an evaluation, because a fake would only reproduce what it was written to do.
 - A stimulus absent from context triggers the guardrail path exactly once, then records a violation and no reaction.
 - Reflection fires at the cadence and at the belief-delta threshold — including a flip on a single claim — and not
   otherwise; the jitter is deterministic under a fixed seed.

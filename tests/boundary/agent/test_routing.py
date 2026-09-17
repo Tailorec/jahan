@@ -181,3 +181,23 @@ def test_tier_a_turns_in_one_tick_coalesce_into_one_batch():
     outcomes = turns(jobs, chat=chat)
     assert len(outcomes) == 5
     assert len(chat.batches) == 1 and len(chat.batches[0]) == 5
+
+
+def test_anchors_that_failed_their_check_are_recorded_as_such_not_as_an_embedding_failure(tmp_path):
+    """The gate refuses a version whose check failed; recording that as an embedding failure
+    would blame the model for a decision about the anchors (ADR 0032)."""
+    from simcore.agent import _intent
+    from simcore.schemas import ElicitationFailureKind
+
+    def refuses(*args, **kwargs):
+        raise ValueError("satisfaction/v1 failed its check (rank stability 0.500): it cannot be pinned")
+
+    original = _intent.elicitation_score
+    _intent.elicitation_score = refuses
+    try:
+        outcomes = _intent.score_intents({0: "I would try it"}, purchase_config(tmp_path), None)
+    finally:
+        _intent.elicitation_score = original
+    assert outcomes[0].kind is ElicitationFailureKind.UNPINNED_ANCHORS
+    assert "failed its check" in outcomes[0].detail
+    assert outcomes[0].response_text == "I would try it"
