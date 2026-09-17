@@ -188,6 +188,38 @@ _Avoid_: hallucination, error, invalid response
 What a persona produced from an impression — what they said, what they did, how their beliefs moved, and which stimulus they were responding to.
 _Avoid_: response, answer, output
 
+**Persona State**:
+What a persona carries between ticks: its current beliefs, its own memories, and when it last reflected. It travels with the persona wherever its turn is taken, and is never shared between personas.
+_Avoid_: agent state, session, context window, history
+
+**Memory**:
+Something that happened to one persona, in its own words, with how much it mattered and when. Only that persona can retrieve it.
+_Avoid_: log, record, event (a memory is written as one, but the word means the persona's recollection)
+
+**Reflection**:
+A persona consolidating what has happened to it into revised beliefs and fewer, weightier memories. It happens on a cadence and whenever beliefs move sharply.
+_Avoid_: summarisation, compaction, consolidation of logs
+
+**Character Probe**:
+A question whose answer is already in a persona's own attributes, asked occasionally to see whether it still answers as itself.
+_Avoid_: test, validation, sanity check
+
+**Drift**:
+A persona answering less like itself the longer a study runs. The probe measures it; it is reported per run, never silently tolerated.
+_Avoid_: degradation, hallucination, decay
+
+**Affordance**:
+What a channel allows a persona to do — a forum has votes, a survey room has only an answer. A persona may attempt anything; the channel decides what lands.
+_Avoid_: permission, capability, validation rule
+
+**Activation**:
+Whether a persona takes a turn on a given tick, drawn from its involvement and the rhythm of the tick unit.
+_Avoid_: sampling, scheduling, selection
+
+**Word of Mouth**:
+One persona telling another about a stimulus because it felt strongly and the two are close. It reaches the other persona as an exposure on the next tick, never in the same one.
+_Avoid_: sharing, virality, broadcast
+
 ### Belief and evidence
 
 **Construct**:
@@ -197,6 +229,10 @@ _Avoid_: metric, measure, question
 **Anchor Set**:
 Reference statements for each point of a construct's five-point scale, which a response is compared against to become a response distribution. Each category names the anchor set it uses for each construct.
 _Avoid_: rubric, scale labels, prompt examples
+
+**Anchor Provenance**:
+Who wrote an anchor set's statements and where they came from — a client's own survey instrument, a published scale, or a model. It is recorded beside the version and never changes the version's identity.
+_Avoid_: author, source (a persona's source is a different thing), origin
 
 **Mapping Claim**:
 That the conversion of free text into a rating distribution recovers the rating a real person gave from what that person wrote. It can be checked on human writing that carries its own rating, and says nothing about whether simulated people answer like real ones.
