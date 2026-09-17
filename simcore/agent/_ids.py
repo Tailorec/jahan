@@ -22,9 +22,16 @@ def ulid_from(*parts: str) -> str:
     return "".join(body)
 
 
-def reaction_id(prompt_hash: str, persona_id: str, index: int) -> str:
-    return f"rc-{ulid_from('reaction', prompt_hash, persona_id, str(index))}"
+def reaction_id(persona_id: str, tick: int, impression_id: str) -> str:
+    """One reaction per persona, per impression: what the persona did with what it was shown.
+
+    Derived from the impression rather than the prompt hash, because two prompts can be
+    identical — the same persona reacting on two channels in one tick with the same text —
+    and two turns would then share an identifier.
+    """
+    return f"rc-{ulid_from('reaction', persona_id, str(tick), impression_id)}"
 
 
-def memory_id(persona_id: str, tick: int, index: int, seed: int) -> str:
-    return f"me-{ulid_from('memory', persona_id, str(tick), str(index), str(seed))}"
+def memory_id(persona_id: str, tick: int, impression_id: str, index: int) -> str:
+    """One memory per turn and position, named by the impression the turn answered."""
+    return f"me-{ulid_from('memory', persona_id, str(tick), impression_id, str(index))}"

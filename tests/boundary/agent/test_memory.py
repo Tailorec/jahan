@@ -178,3 +178,56 @@ def test_retrieved_memories_appear_in_context_and_drop_first_under_budget():
     kept = json.loads(user2["content"])["memories"]
     assert kept and len(kept) < 3
     assert kept[0] == "[tick 3] protein shake after training"
+
+
+def test_a_memory_id_is_unique_per_impression_not_per_prompt():
+    """Ids were derived from the prompt hash, so two identical prompts minted one id."""
+    from simcore.agent._ids import memory_id
+
+    first = memory_id("p-000001", 3, "im-00000000000000000000000001", 0)
+    assert first == memory_id("p-000001", 3, "im-00000000000000000000000001", 0), "ids must reproduce"
+    assert first != memory_id("p-000001", 4, "im-00000000000000000000000001", 0), "the same id on two ticks"
+    assert first != memory_id("p-000001", 3, "im-00000000000000000000000002", 0), "two impressions sharing an id"
+    assert first != memory_id("p-000002", 3, "im-00000000000000000000000001", 0), "two personas sharing an id"
+    assert first != memory_id("p-000001", 3, "im-00000000000000000000000001", 1), "two memories of one turn sharing an id"
+
+
+def test_one_persona_reacting_on_two_channels_in_a_tick_writes_distinct_memories():
+    """A feed impression and a word-of-mouth impression in the same tick can carry the same
+    text, so their prompts hash alike. Both turns then wrote the same memory ids and the
+    persona's own state refused them: `a persona remembers each thing once`."""
+    from simcore.agent import AgentConfig, advance_state, turns
+    from simcore.agent._memory import append_memories
+    from simcore.ports.fake import FakeChat, FakeEmbed
+    from simcore.schemas import CompletedTurn
+
+    from .support import by_template, moving, reflecting
+
+    config = AgentConfig(run_seed=11, reflection_interval=1, reflection_jitter=0, memory_cap=50)
+    chat = FakeChat(by_template({"persona_turn": moving(dimensions={"value": 0.05}), "persona_reflection": reflecting()}))
+    embed = FakeEmbed(dim=4)
+    job = make_job(0, tick=3)
+    # the same persona, the same tick, two channels — the jobs differ only in their impression
+    other = job.model_copy(
+        update={
+            "presentation": job.presentation.model_copy(
+                update={
+                    "impression": job.presentation.impression.model_copy(
+                        update={"impression_id": "im-00000000000000000000000009", "channel": "wom"}
+                    ),
+                    "view": job.presentation.view.model_copy(update={"impression_id": "im-00000000000000000000000009"}),
+                }
+            )
+        }
+    )
+    outcomes = turns([job, other], chat=chat, config=config, embed=embed)
+    assert all(isinstance(outcome, CompletedTurn) for outcome in outcomes)
+    written = [memory.memory_id for outcome in outcomes for memory in outcome.memories]
+    assert len(written) == len(set(written)), "two turns of one persona in one tick wrote the same memory id"
+    reactions = [outcome.turn.reaction.reaction_id for outcome in outcomes]
+    assert len(set(reactions)) == 2, "two turns of one persona in one tick share a reaction id"
+    # and the state the runner carries accepts both
+    state = job.state
+    for outcome in outcomes:
+        state = append_memories(state, outcome.memories)
+    assert len(state.memories) == len(written)

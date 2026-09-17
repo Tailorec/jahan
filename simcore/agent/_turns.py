@@ -52,7 +52,7 @@ from ._beliefs import (
 from ._config import AgentConfig
 from ._context import AssembledContext, ContextBudgetExceeded, assemble, render_beliefs
 from ._guard import allowed_stimuli, check, strict_question
-from ._ids import reaction_id, ulid_from
+from ._ids import memory_id, reaction_id
 from ._intent import PURCHASE_CONSTRUCT, score_intents, wants_intent
 from ._memory import describe_turn, importance_of, retrieve, write_memory
 from ._parse import ParsedReaction, parse_reaction, parse_reflection
@@ -503,6 +503,7 @@ def _reflection_memories(
     """The reflection's revision and its consolidated memories — or the rule-based fallback."""
     assert isinstance(entry.outcome, Completion) and entry.parsed is not None
     persona_id = entry.item.job.persona.persona_id
+    impression_id = entry.item.job.presentation.impression.impression_id
     if isinstance(answer, Completion):
         try:
             parsed = parse_reflection(answer.text)
@@ -511,7 +512,7 @@ def _reflection_memories(
         if parsed is not None:
             memories = tuple(
                 write_memory(
-                    memory_uid=f"me-{ulid_from('reflection', persona_id, answer.prompt_hash, str(index))}",
+                    memory_uid=memory_id(persona_id, tick, impression_id, index + 1),
                     tick=tick,
                     description=sentence,
                     importance=CONSOLIDATED_IMPORTANCE,
@@ -524,7 +525,7 @@ def _reflection_memories(
             return parsed.belief_change, memories
     action, verbatim, subject = _settled(entry)
     fallback = write_memory(
-        memory_uid=f"me-{ulid_from('reflection-fallback', persona_id, entry.outcome.prompt_hash)}",
+        memory_uid=memory_id(persona_id, tick, impression_id, 1),
         tick=tick,
         description=f"On reflection: {describe_turn(action, subject, verbatim)}",
         importance=CONSOLIDATED_IMPORTANCE,
@@ -570,7 +571,7 @@ def _finalize(
     distribution = intent if isinstance(intent, SsrResult) else None
     failure = intent if isinstance(intent, ElicitationFailure) else None
     reaction = Reaction(
-        reaction_id=reaction_id(entry.outcome.prompt_hash, job.persona.persona_id, entry.position),
+        reaction_id=reaction_id(job.persona.persona_id, tick, impression.impression_id),
         subject_stimulus_id=subject,
         action=action,
         verbatim=verbatim,
@@ -580,7 +581,7 @@ def _finalize(
     )
     turn = Turn(impression=impression, view=job.presentation.view, reaction=reaction)
     remembered = write_memory(
-        memory_uid=f"me-{ulid_from('memory', job.persona.persona_id, entry.outcome.prompt_hash)}",
+        memory_uid=memory_id(job.persona.persona_id, tick, impression.impression_id, 0),
         tick=tick,
         description=describe_turn(action, subject, verbatim),
         importance=importance,
