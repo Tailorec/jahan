@@ -40,7 +40,7 @@ from simcore.schemas import (
 
 from . import _ids, recsys
 from .clock import activated_personas, activation_probability
-from .platform import Forum, is_supported
+from .platform import Forum, ForumPreset, is_supported
 from .store import Store
 
 
@@ -51,13 +51,6 @@ class RecsysMode(StrEnum):
     REDDIT_HOT = "reddit_hot"
     TWITTER = "twitter"
     TWHIN = "twhin"
-
-
-class ForumPreset(StrEnum):
-    """The two dynamics of the one forum class: herding globally, slow hardening by community."""
-
-    REDDIT_GLOBAL = "reddit_global"
-    COMMUNITY_SCOPED = "community_scoped"
 
 
 @dataclass(frozen=True)
@@ -503,6 +496,15 @@ class World:
             ids, ups, downs, ages, self._world_seed, tick, recsys.UNIT_SECONDS[self.tick_unit]
         )
 
+    def _scoped_rank(
+        self, ids: list[str], rows: list[dict], counts: dict[str, dict[str, int]], *, tick: int
+    ) -> list[str]:
+        """Recency-and-agreement order for the scoped preset: consensus hardens slowly."""
+        ups = {row["stimulus_id"]: counts.get(row["stimulus_id"], {}).get("upvotes", 0) for row in rows}
+        downs = {row["stimulus_id"]: counts.get(row["stimulus_id"], {}).get("downvotes", 0) for row in rows}
+        ages = {row["stimulus_id"]: tick - row["tick"] for row in rows}
+        return recsys.scoped_order(ids, ups, downs, ages, self._world_seed, tick)
+
     def _context_for(
         self, viewer: str, stimulus_id: str, author: str | None, counts: dict[str, dict[str, int]]
     ) -> StimulusContext:
@@ -555,7 +557,10 @@ class World:
         for persona_id in self._activated(tick):
             threads = forum.threads_for(persona_id, rows, self._community_of)
             ids = [row["stimulus_id"] for row in threads]
-            ordered = self._hot_rank(ids, threads, counts, feed_votes=False, tick=tick)
+            if forum.preset is ForumPreset.REDDIT_GLOBAL:
+                ordered = self._hot_rank(ids, threads, counts, feed_votes=False, tick=tick)
+            else:
+                ordered = self._scoped_rank(ids, threads, counts, tick=tick)
             shown = ordered[:budget]
             exposures = tuple(
                 Exposure(stimulus_id=stimulus_id, reason=ExposureReason.FORUM, attention=1.0)

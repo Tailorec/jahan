@@ -112,12 +112,12 @@ def test_ranking_ties_break_from_a_derived_seed_reproducibly():
 def test_reddit_hot_concentrates_exposure_against_random_on_the_same_fixture():
     hourly = scenario_payload(tick_unit="hour", exposure_budget=1)
     random_world = make_world(
-        config=WorldConfig(platform="social_feed", recsys_mode="random", involvement_default=10.0),
+        config=WorldConfig(platform="social_feed", recsys_mode="random", involvement_default=100.0),
         population=make_population(),
         scenario=hourly,
     )
     hot_world = make_world(
-        config=WorldConfig(platform="social_feed", recsys_mode="reddit_hot", involvement_default=10.0),
+        config=WorldConfig(platform="social_feed", recsys_mode="reddit_hot", involvement_default=100.0),
         population=make_population(),
         scenario=dict(hourly),
     )

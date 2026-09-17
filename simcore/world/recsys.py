@@ -119,6 +119,31 @@ def exposure_concentration(deltas) -> float:
     return max(counts.values()) / total
 
 
+def scoped_order(
+    candidate_ids: list[str],
+    ups: Mapping[str, int],
+    downs: Mapping[str, int],
+    age_ticks: Mapping[str, int],
+    world_seed: int,
+    tick: int,
+) -> list[str]:
+    """Recency-and-agreement ranking for the community-scoped preset: no hot score.
+
+    A thread scores its agreement (upvotes minus downvotes) minus one point
+    per tick of age, so consensus hardens slowly instead of herding quickly.
+    Ties break from a derived seed, so ordering reproduces.
+    """
+    rng = rng_for(world_seed, tick, "recsys:scoped")
+    tiebreak = {stimulus_id: rng.random() for stimulus_id in sorted(candidate_ids)}
+    return sorted(
+        candidate_ids,
+        key=lambda stimulus_id: (
+            -(ups.get(stimulus_id, 0) - downs.get(stimulus_id, 0)) + age_ticks.get(stimulus_id, 0),
+            tiebreak[stimulus_id],
+        ),
+    )
+
+
 __all__ = [
     "REASON_FOR_MODE",
     "UNIT_SECONDS",
@@ -127,4 +152,5 @@ __all__ = [
     "hot_score",
     "random_order",
     "reason_for",
+    "scoped_order",
 ]

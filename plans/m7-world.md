@@ -162,11 +162,11 @@ The same forum class, the opposite dynamic. The `community_scoped` preset scopes
 
 ### Acceptance criteria
 
-- [ ] Threads are scoped to the population's communities, and a persona sees its own community's threads
-- [ ] Ranking uses recency and agreement, and no hot score is computed in this preset
-- [ ] Both presets are the same class with different configuration, asserted over the module
-- [ ] On one fixture, the two presets produce measurably different concentration and divergence
-- [ ] A persona with no community assignment is handled explicitly rather than silently excluded
+- [x] Threads are scoped to the population's communities, and a persona sees its own community's threads
+- [x] Ranking uses recency and agreement, and no hot score is computed in this preset
+- [x] Both presets are the same class with different configuration, asserted over the module
+- [x] On one fixture, the two presets produce measurably different concentration and divergence
+- [x] A persona with no community assignment is handled explicitly rather than silently excluded
 
 ---
 

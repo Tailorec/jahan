@@ -17,7 +17,7 @@ from .clock import (
 )
 from .env import ForumPreset, RecsysMode, World, WorldConfig, forget, reset, step
 from .platform import AFFORDANCES, Forum, is_supported
-from .recsys import UNIT_SECONDS, exposure_concentration, hot_order, hot_score, random_order, reason_for
+from .recsys import UNIT_SECONDS, exposure_concentration, hot_order, hot_score, random_order, reason_for, scoped_order
 from .replay import ReplayDivergence, check_replay, resume
 from .replay import run as replay_run
 
@@ -47,6 +47,7 @@ __all__ = [
     "reset",
     "resume",
     "rhythm_at",
+    "scoped_order",
     "straggler_tick",
     "step",
 ]

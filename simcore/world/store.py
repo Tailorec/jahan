@@ -192,6 +192,11 @@ class Store:
         ).fetchone()
         return row[0] if row is not None else None
 
+    def thread_root(self, stimulus_id: str) -> str:
+        """The thread a stimulus belongs to: the oldest ancestor, or itself for top-level posts."""
+        chain = self.ancestry(stimulus_id)
+        return chain[-1] if chain else stimulus_id
+
     def provenance_complete(self) -> bool:
         """Every row names its world and the tick it was written at."""
         for table in ("stimuli", "engagements", "follows", "rejected"):
