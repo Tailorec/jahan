@@ -26,7 +26,7 @@ from simcore.schemas import (
     TurnRecorded,
 )
 
-from ._beliefs import apply_change
+from ._beliefs import apply_change, enforce_cap
 
 
 def rebuild_state(
@@ -35,8 +35,16 @@ def rebuild_state(
     events: Sequence[TraceEvent],
     *,
     embed=None,
+    memory_cap: int | None = None,
 ) -> PersonaState:
-    """The persona's state as its recorded events describe it, oldest first."""
+    """The persona's state as its recorded events describe it, oldest first.
+
+    `memory_cap` is the cap the run carried its state under. The trace keeps every memory it
+    wrote, while a run past its cap keeps only the weightiest, so a rebuild that ignores the
+    cap reconstructs a state the run never had — and the round-trip property the runner
+    checks against its checkpoints stops holding. Keeping the top of a fixed order as you go
+    is the same set as keeping it once at the end, so applying the cap here reproduces it.
+    """
     beliefs = baseline
     memories: list[MemoryEvent] = []
     seen: set[str] = set()
@@ -60,10 +68,11 @@ def rebuild_state(
         elif isinstance(payload, ReflectionRecorded):
             last_reflection_tick = event.tick
             turns_since_reflection = 0
+    kept = tuple(memories) if memory_cap is None else enforce_cap(tuple(memories), memory_cap)
     return PersonaState(
         persona_id=persona_id,
         beliefs=beliefs,
-        memories=tuple(memories),
+        memories=kept,
         last_reflection_tick=last_reflection_tick,
         turns_since_reflection=turns_since_reflection,
     )

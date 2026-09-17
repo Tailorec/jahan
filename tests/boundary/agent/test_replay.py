@@ -35,9 +35,9 @@ def event(seq: int, tick: int, payload: dict, persona: str) -> TraceEvent:
     )
 
 
-def run_ticks(persona_index: int, ticks: range, seed: int, start_state=None, chat=None):
+def run_ticks(persona_index: int, ticks: range, seed: int, start_state=None, chat=None, memory_cap: int = 200):
     """A small run: one outcome per tick, the carried state, and the trace events a runner writes."""
-    config = AgentConfig(run_seed=seed, memory_cap=200)
+    config = AgentConfig(run_seed=seed, memory_cap=memory_cap)
     chat = chat or FakeChat(
         responder=by_template({"persona_turn": moving(dimensions={"value": 0.05}), "persona_reflection": reflecting()})
     )
@@ -91,6 +91,27 @@ def test_state_rebuilt_from_replayed_events_equals_the_carried_state():
     assert rebuilt.beliefs == carried.beliefs
     assert rebuilt.last_reflection_tick == carried.last_reflection_tick
     assert rebuilt.turns_since_reflection == carried.turns_since_reflection
+
+
+def test_a_run_longer_than_the_memory_cap_still_round_trips():
+    """The carried state drops memories once the cap binds; a replay that keeps every record
+    rebuilds a state the run never had, and the round-trip property quietly stops holding."""
+    cap = 4
+    carried, _, events = run_ticks(0, range(1, 13), seed=4021, memory_cap=cap)
+    assert len(carried.memories) == cap
+    written = [e for e in events if e.payload.kind == "memory"]
+    assert len(written) > cap, "the run wrote more memories than it could carry, which is the case under test"
+    rebuilt = rebuild_state("p-000001", make_job(0).state.beliefs, events, embed=FakeEmbed(dim=4), memory_cap=cap)
+    assert [memory.memory_id for memory in rebuilt.memories] == [memory.memory_id for memory in carried.memories]
+    assert states_equal(rebuilt, carried)
+
+
+def test_a_replay_that_ignores_the_cap_is_refused_rather_than_wrong():
+    """Rebuilding without the run's cap cannot equal what the run carried, and says so."""
+    carried, _, events = run_ticks(0, range(1, 13), seed=4021, memory_cap=4)
+    uncapped = rebuild_state("p-000001", make_job(0).state.beliefs, events, embed=FakeEmbed(dim=4))
+    assert len(uncapped.memories) > len(carried.memories)
+    assert not states_equal(uncapped, carried)
 
 
 def test_two_processes_produce_identical_outcomes_from_identical_jobs():
