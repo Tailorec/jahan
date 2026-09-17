@@ -674,6 +674,14 @@ class RunRegistryEntry(SimBaseModel):
     config: RunConfig
     contract_version: ContractVersion
     status: RunStatus
+    # Which engine recorded this run. A resume under different code refuses rather than continuing
+    # a study under two behaviours (ADR 0036); a commit is enough to name it.
+    engine_version: Identifier
+    # What the run's own records add up to, and how many ticks were lost before they could be
+    # written. A discarded tick's spend is unknown but not zero, so a total says which is which
+    # rather than implying the floor is the truth (ADR 0033).
+    recorded_cost: Annotated[float, Field(ge=0.0)] = 0.0
+    discarded_ticks: NonNegativeInt = 0
 
     @computed_field
     @property
