@@ -120,7 +120,7 @@ def turns(
     for entry in due:
         _bill(entry.item, second.get(entry.position))
 
-    probed = [_probe_entry(entry, cfg) for entry in answerable]
+    probed = [_probe_entry(entry, cfg, ontology) for entry in answerable]
     probed = [entry for entry in probed if entry is not None]
     third = _dispatch(chat, [(entry.position, entry.request) for entry in probed])
     for entry in probed:
@@ -218,11 +218,11 @@ class _Probed:
     position: int
     entry: _Reacted
     request: ChatRequest
-    asked: list[tuple[str, str]]
+    asked: list[tuple[str, str, tuple[str, ...]]]
     answers: list[str] | None = None
 
 
-def _probe_entry(entry: _Reacted, cfg: AgentConfig) -> _Probed | None:
+def _probe_entry(entry: _Reacted, cfg: AgentConfig, ontology: CategoryOntology | None = None) -> _Probed | None:
     """Whether the entry's persona is probed this tick, and the questions it is asked."""
     job = entry.item.job
     tick = job.presentation.impression.tick
@@ -230,10 +230,10 @@ def _probe_entry(entry: _Reacted, cfg: AgentConfig) -> _Probed | None:
         return None
     if not sampled_for_probe(job.persona.persona_id, tick, cfg.run_seed, cfg.probe_share):
         return None
-    asked = probe_attributes(job.persona, cfg.run_seed, tick, cfg.probe_questions)
+    asked = probe_attributes(job.persona, cfg.run_seed, tick, cfg.probe_questions, ontology)
     if not asked:
         return None
-    request = probe_request(entry.item.persona_block, [probe_question(name) for name, _ in asked], cfg.probe_template_id)
+    request = probe_request(entry.item.persona_block, asked, cfg.probe_template_id)
     return _Probed(entry.position, entry, request, asked)
 
 

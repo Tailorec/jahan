@@ -49,6 +49,24 @@ def impression_of(messages: Sequence[ChatMessage]) -> dict:
     return json.loads(outer["impression"])
 
 
+def held_value(messages: Sequence[ChatMessage], question: dict) -> str:
+    """The option a persona in character chooses: the value its own block states.
+
+    The probe is a closed question, so an answer is one of the options offered; a persona
+    that still holds its attribute names its own value among them.
+    """
+    held = {}
+    for line in messages[0]["content"].splitlines():
+        if line.startswith("- ") and ": " in line:
+            name, _, value = line[2:].partition(": ")
+            held[name.strip()] = value.strip()
+    mine = held.get(question["attribute"])
+    options = question.get("options", [])
+    if mine in options:
+        return mine
+    return options[0] if options else "(none)"
+
+
 def answering(action: str = "comment", verbatim: str = "the protein claim would get me", subject: str | None = None):
     """A responder that answers about the impression's first exposure (or the named subject).
 
@@ -59,17 +77,7 @@ def answering(action: str = "comment", verbatim: str = "the protein claim would 
     def respond(messages: Sequence[ChatMessage], template_id: str) -> str:
         user = json.loads(next(message for message in reversed(messages) if message.get("role") == "user")["content"])
         if "questions" in user:
-            system = messages[0]["content"]
-            known = {}
-            for line in system.splitlines():
-                if line.startswith("- ") and ": " in line:
-                    name, _, value = line[2:].partition(": ")
-                    known[name.strip()] = value.strip()
-            answers = []
-            for question in user["questions"]:
-                attribute = question.replace("What is your ", "").rstrip("?")
-                answers.append(known.get(attribute, "?"))
-            return json.dumps({"answers": answers})
+            return json.dumps({"answers": [held_value(messages, question) for question in user["questions"]]})
         shown = json.loads(user["impression"])["exposures"]
         target = subject or shown[0]["stimulus_id"]
         return json.dumps({"subject_stimulus_id": target, "action": action, "verbatim": verbatim})
