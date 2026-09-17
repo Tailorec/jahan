@@ -84,9 +84,12 @@ def _stimulus_authors(events: Iterable[TraceEvent]) -> dict[str, str | None]:
 def derive_edges(events: Sequence[TraceEvent]) -> tuple[TraceEdge, ...]:
     """One row per pair, channel and direction, with count and last tick.
 
-    An edge is a word-of-mouth delivery the viewer's turn records: each exposure carried
-    with reason ``wom`` counts from the stimulus's author to the viewer on the turn's
-    channel. A ``follow`` reaction counts the same way toward the subject's author.
+    An edge is a word-of-mouth delivery the viewer's turn records: each exposure carried with
+    reason ``wom`` counts from whoever passed it on — the teller the view names — to the viewer,
+    on the turn's channel. It counted from the stimulus's author before, which is a different
+    persona whenever a peer passed on someone else's post, and the path a finding reported was
+    then the wrong one. A ``follow`` reaction counts toward the subject's author, which is who
+    was followed.
     """
     authors = _stimulus_authors(events)
     counts: dict[tuple[str, str, str], list[int]] = {}
@@ -99,7 +102,10 @@ def derive_edges(events: Sequence[TraceEvent]) -> tuple[TraceEdge, ...]:
         for exposure in turn.impression.exposures:
             if exposure.reason is not ExposureReason.WOM:
                 continue
-            author = authors.get(exposure.stimulus_id)
+            context = turn.view.contexts.get(exposure.stimulus_id)
+            teller = context.via_persona_id if context is not None else None
+            # An older record names no teller; the author is the best it can say.
+            author = teller or authors.get(exposure.stimulus_id)
             if author is None or author == viewer or author in seen:
                 continue
             seen.add(author)

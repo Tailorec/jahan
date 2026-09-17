@@ -13,6 +13,7 @@ import pytest
 
 from simcore.schemas import TraceEvent
 from simcore.trace import TraceStore, derive_beliefs, derive_edges
+from tests.boundary.trace.support import partition_events, seed_header_and_entry, seed_store, write_by_tick
 from simcore.trace import views as _views
 from simcore.trace import derive as _derive
 from tests.study_builders import beliefs_payload, event, stimulus_id, turn_event, turn_payload
@@ -60,9 +61,11 @@ def test_edges_returns_one_row_per_pair_channel_and_direction(tmp_path):
     store = TraceStore(tmp_path)
     _, entry, _ = seed_store(store)
     edges = store.view(entry.config.run_id).edges()
+    # p-000004 passed p-000001's post on to p-000002, so that edge runs from the teller;
+    # p-000003 saw the same post with no teller named, so its edge falls back to the author.
     assert [(e.u, e.v, e.channel.value, e.count, e.last_tick) for e in edges] == [
-        ("p-000001", "p-000002", "social_feed", 1, 3),
         ("p-000001", "p-000003", "social_feed", 1, 4),
+        ("p-000004", "p-000002", "social_feed", 1, 3),
     ]
 
 
@@ -146,3 +149,45 @@ def test_the_derivation_has_exactly_one_implementation():
     for cls in (_views.SqliteTraceView, _views.ParquetTraceView):
         assert "derive_beliefs" in inspect.getsource(cls.beliefs), f"{cls.__name__}.beliefs reimplements"
         assert "derive_edges" in inspect.getsource(cls.edges), f"{cls.__name__}.edges reimplements"
+
+
+def test_a_word_of_mouth_edge_names_the_teller_not_the_author(tmp_path):
+    """`edges()` feeds WOM-path findings. It counted the edge from the stimulus's author to the
+    viewer, but word of mouth travels from whoever passed it on — and the teller was recorded
+    nowhere, so the path a finding would report was the wrong one."""
+    from simcore.schemas import StimulusContext
+
+    assert "via_persona_id" in StimulusContext.model_fields, "the trace cannot say who told whom"
+
+    store = TraceStore(tmp_path)
+    header, entry = seed_header_and_entry(store)
+    events, _ = partition_events()
+    write_by_tick(store, events)
+    view = store.view(entry.config.run_id)
+
+    # In the representative world p-000001 authored st3; p-000002 and p-000003 saw it with
+    # reason `wom`. Whoever told them is what the edge must name.
+    told = [
+        (event.persona_id, context.via_persona_id)
+        for event in events
+        if event.payload.kind == "turn"
+        for exposure in event.payload.turn.impression.exposures
+        if exposure.reason.value == "wom"
+        for stimulus_id, context in event.payload.turn.view.contexts.items()
+        if stimulus_id == exposure.stimulus_id
+    ]
+    named = [(viewer, teller) for viewer, teller in told if teller is not None]
+    assert named, "the fixture names no teller, so this would assert nothing"
+    edges = view.edges()
+    for viewer, teller in named:
+        assert any(edge.u == teller and edge.v == viewer for edge in edges), f"no edge from teller {teller} to {viewer}"
+        author = next(
+            event.payload.stimulus.author
+            for event in events
+            if event.payload.kind == "stimulus_published"
+            and event.payload.stimulus.stimulus_id == stimulus_id(3)
+        )
+        assert author != teller, "the fixture's teller must differ from the author for this to mean anything"
+        assert not any(edge.u == author and edge.v == viewer for edge in edges), (
+            f"the edge still runs from the author {author} rather than the teller {teller}"
+        )

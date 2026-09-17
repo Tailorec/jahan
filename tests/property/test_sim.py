@@ -310,8 +310,12 @@ def test_view_covers_exactly_the_stimuli_of_its_impression_and_names_it():
 
 def test_view_carries_nothing_private_and_nothing_aggregate():
     assert set(View.model_fields) == {"impression_id", "contexts"}
+    # `via_persona_id` is who passed a stimulus on. It is public to the persona being told —
+    # you know who told you, and the tie strength beside it is already the tie to them — and it
+    # is what lets a word-of-mouth path be read back out of the record.
     assert set(StimulusContext.model_fields) == {
-        "likes", "reposts", "replies", "upvotes", "downvotes", "ancestry", "tie_strength", "shared_community",
+        "likes", "reposts", "replies", "upvotes", "downvotes", "ancestry", "tie_strength",
+        "shared_community", "via_persona_id",
     }
 
 

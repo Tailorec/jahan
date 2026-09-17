@@ -453,7 +453,10 @@ def partition_payload(**header_overrides) -> dict:
         # turn's like is visible to the third turn. Ties follow the representative graph and communities.
         turn_event(R["second_turn"], 3, turn_payload("p-000002", 3, [(3, "wom", 0.6), (4, "forum", 0.4)], {
             "subject_stimulus_id": stimulus_id(3), "action": "like"},
-            contexts={3: {"replies": 1, "tie_strength": 0.8, "shared_community": True}, 4: {"ancestry": [stimulus_id(3)]}},
+            # p-000004 passed p-000001's post on: word of mouth names its teller, and the tie
+            # beside it is the tie to that teller rather than to the author.
+            contexts={3: {"replies": 1, "tie_strength": 0.8, "shared_community": True, "via_persona_id": "p-000004"},
+                      4: {"ancestry": [stimulus_id(3)]}},
             n=2), "p-000002"),
         # The second turn was served by tier A's pinned fallback.
         event(R["second_turn_cost"], 3, {"kind": "cost", "role": "tier_a", "model_id": TIER_A_FALLBACK,

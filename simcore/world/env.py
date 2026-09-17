@@ -527,7 +527,8 @@ class World:
             )
             contexts = {
                 subject: self._context_for(
-                    recipient, subject, authors.get(subject), counts, tie_override=(tie, self._teller_shared(recipient, teller))
+                    recipient, subject, authors.get(subject), counts,
+                    tie_override=(tie, self._teller_shared(recipient, teller)), via=teller,
                 )
                 for subject, teller, tie in told
             }
@@ -740,6 +741,7 @@ class World:
         author: str | None,
         counts: dict[str, dict[str, int]],
         tie_override: tuple[float | None, bool | None] | None = None,
+        via: str | None = None,
     ) -> StimulusContext:
         """The public context around one shown stimulus: counts from earlier ticks only,
         its reply ancestry, and the viewer's relationship to its author — nothing else.
@@ -758,6 +760,7 @@ class World:
             ancestry=self._store.ancestry(stimulus_id),
             tie_strength=tie_strength,
             shared_community=shared_community,
+            via_persona_id=via,
         )
 
     def _relationship(self, viewer: str, author: str | None) -> tuple[float | None, bool | None]:
