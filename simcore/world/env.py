@@ -504,7 +504,16 @@ class World:
         for recipient in sorted(deliveries):
             if recipient not in awake:
                 continue
-            told = deliveries[recipient][:budget]
+            # Two peers telling you about the same post is one thing heard, not two: an
+            # impression holds each stimulus once, and the closest teller is the one whose
+            # tie the view records.
+            closest: dict[str, tuple[str, float]] = {}
+            for subject, teller, tie in deliveries[recipient]:
+                held = closest.get(subject)
+                if held is None or tie > held[1]:
+                    closest[subject] = (teller, tie)
+            heard = [(subject, teller, tie) for subject, (teller, tie) in closest.items()]
+            told = heard[:budget]
             exposures = tuple(
                 Exposure(stimulus_id=subject, reason=ExposureReason.WOM, attention=self._attention_at(rank, len(told)))
                 for rank, (subject, _, _) in enumerate(told)
@@ -525,7 +534,7 @@ class World:
             presentations.append(
                 Presentation(impression=impression, view=View(impression_id=impression.impression_id, contexts=contexts))
             )
-            for subject, _, _ in deliveries[recipient][budget:]:
+            for subject, _, _ in heard[budget:]:
                 dropped.append(
                     DroppedExposure(
                         persona_id=recipient,

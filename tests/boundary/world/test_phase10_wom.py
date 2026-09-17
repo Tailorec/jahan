@@ -131,3 +131,21 @@ def test_word_of_mouth_replays_exactly_like_everything_else():
     assert [canonical_json(d) for d in deltas[1:]] == [canonical_json(first), canonical_json(second)]
     # The trailing key bounds the replay; its turns would feed the step after the last recorded delta.
     check_replay(deltas, make_header(), {1: strong, 2: []}, population=make_population(), config=FEED)
+
+
+def test_two_tellers_about_the_same_stimulus_deliver_one_exposure():
+    """Two personas telling the same peer about the same post is one thing heard, not two.
+
+    In a dense community this is the ordinary case, and it built an impression holding the
+    same stimulus twice, which the contract refuses — the world raised mid-run.
+    """
+    world, subject, first, _ = drive_talk()
+    told_twice = {"p-000003": [(subject, "p-000001", 0.9), (subject, "p-000002", 0.4)]}
+    presentations, dropped = world._wom_presentations(2, told_twice)
+    assert presentations, "nobody was told anything, so there is nothing to deduplicate"
+    for presentation in presentations:
+        heard = [exposure.stimulus_id for exposure in presentation.impression.exposures]
+        assert len(heard) == len(set(heard)), f"{presentation.impression.persona_id} heard the same post twice"
+    context = presentations[0].view.contexts[subject]
+    assert context.tie_strength == 0.9, "the view records the closest teller, not the last one"
+    assert not dropped, "one thing heard twice is not a budget drop"
