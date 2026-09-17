@@ -379,6 +379,7 @@ def run(
     memory_cap: int = 50,
     checkpoints: dict[str, dict] | None = None,
     force: bool = False,
+    max_workers: int = 1,
 ) -> RunResult:
     """Run every world of the configuration to its horizon.
 
@@ -389,6 +390,10 @@ def run(
 
     A resume whose inputs or engine moved is refused, naming what moved; a
     forced resume proceeds, is recorded, and spans versions.
+
+    A sweep is not a second concept: scenarios and seeds expand into worlds
+    of one run sharing one budget. Worlds run in parallel, one process each
+    in production (threads at this boundary, same seam), against that ledger.
     """
     ladder_cfg = ladder or LadderConfig()
     from ._ladder import last_recorded_rung, recorded_rungs
@@ -440,138 +445,122 @@ def run(
                 }
             )
         )
-    outcomes: list[WorldOutcome] = []
-    recorded_cost = 0.0
-    for scenario in config.scenarios:
-        for seed in config.seeds:
-            world_id = derive_world_id(scenario, seed, config.population_hash)
-            header = PartitionHeader.model_validate(
+    from ._sweep import expand_sweep
+
+    cells = expand_sweep(config)
+    discarded_total = base_discarded + pending_discarded
+
+    def _cell(cell: tuple) -> WorldOutcome:
+        scenario, seed, world_id = cell
+        header = PartitionHeader.model_validate(
+            {
+                "contract_version": SCHEMA_VERSION,
+                "config": config.model_dump(mode="json"),
+                "pack": pack.model_dump(mode="json"),
+                "population": population.manifest.model_dump(mode="json"),
+                "scenario": scenario.model_dump(mode="json"),
+                "replicate_seed": seed,
+            }
+        )
+        assert header.world_id == world_id
+        try:
+            existing = trace.events_for(world_id) if hasattr(trace, "events_for") else ()  # type: ignore[attr-defined]
+            closed = last_closed_tick(tuple(existing))
+            seq = next_seq(tuple(existing))
+            starting_rung = last_recorded_rung(tuple(existing)) if closed >= 0 else None
+            if closed >= 0:
+                rebuilt = rebuild_persona_states(population, tuple(existing), memory_cap=memory_cap)
+                checkpoint = (checkpoints or {}).get(world_id)
+                if checkpoint is not None and not validate_checkpoint(checkpoint, rebuilt, seq):
+                    checkpoint = None
+                states = dict(rebuilt) if checkpoint is None else dict(checkpoint["states"])
+                recorded = turns_by_tick(tuple(existing))
+                world = world_factory(header)
+                _replay_world_to(world, recorded, closed)
+                previous = list(recorded.get(closed, []))
+            else:
+                states = {}
+                for persona in population.personas:
+                    states[persona.persona_id] = PersonaState(
+                        persona_id=persona.persona_id,
+                        beliefs=persona.baseline_beliefs,
+                        memories=(),
+                        last_reflection_tick=0,
+                        turns_since_reflection=0,
+                    )
+                world = world_factory(header)
+                previous = []
+        except ResumeRefused:
+            raise
+        except (WorldFailed, Exception):
+            return WorldOutcome.model_validate(
+                {"world_id": world_id, "status": WorldStatus.NOT_STARTED.value, "rungs": []}
+            )
+        try:
+            events, _states, _seq, last_rung, paused = run_world(
+                header,
+                population,
+                trace,
+                world,
+                agent_fn,
+                memory_cap=memory_cap,
+                starting_seq=seq,
+                starting_states=states,
+                from_tick=closed,
+                previous_turns=previous,
+                budget_max=float(config.budget.max_cost),
+                ladder=ladder_cfg,
+                discarded_ticks=discarded_total,
+                starting_rung=starting_rung,
+            )
+        except ResumeRefused:
+            raise
+        except WorldFailed:
+            existing_now = trace.events_for(world_id) if hasattr(trace, "events_for") else ()  # type: ignore[attr-defined]
+            last_closed = last_closed_tick(tuple(existing_now))
+            rungs = [r.value for r in recorded_rungs(tuple(existing_now))]
+            if last_closed >= 0:
+                return WorldOutcome.model_validate(
+                    {
+                        "world_id": world_id,
+                        "status": WorldStatus.PARTIAL.value,
+                        "last_closed_tick": last_closed,
+                        "rungs": rungs,
+                    }
+                )
+            return WorldOutcome.model_validate(
+                {"world_id": world_id, "status": WorldStatus.NOT_STARTED.value, "rungs": []}
+            )
+        existing_now = trace.events_for(world_id) if hasattr(trace, "events_for") else ()  # type: ignore[attr-defined]
+        rungs = [r.value for r in recorded_rungs(tuple(existing_now))]
+        if paused:
+            last_closed = last_closed_tick(tuple(existing_now))
+            return WorldOutcome.model_validate(
                 {
-                    "contract_version": SCHEMA_VERSION,
-                    "config": config.model_dump(mode="json"),
-                    "pack": pack.model_dump(mode="json"),
-                    "population": population.manifest.model_dump(mode="json"),
-                    "scenario": scenario.model_dump(mode="json"),
-                    "replicate_seed": seed,
+                    "world_id": world_id,
+                    "status": WorldStatus.PARTIAL.value,
+                    "last_closed_tick": last_closed if last_closed >= 0 else None,
+                    "rungs": rungs,
                 }
             )
-            assert header.world_id == world_id
-            try:
-                existing = trace.events_for(world_id) if hasattr(trace, "events_for") else ()  # type: ignore[attr-defined]
-                closed = last_closed_tick(tuple(existing))
-                seq = next_seq(tuple(existing))
-                starting_rung = last_recorded_rung(tuple(existing)) if closed >= 0 else None
-                if closed >= 0:
-                    rebuilt = rebuild_persona_states(population, tuple(existing), memory_cap=memory_cap)
-                    checkpoint = (checkpoints or {}).get(world_id)
-                    if checkpoint is not None and not validate_checkpoint(checkpoint, rebuilt, seq):
-                        checkpoint = None
-                    states = dict(rebuilt) if checkpoint is None else dict(checkpoint["states"])
-                    recorded = turns_by_tick(tuple(existing))
-                    world = world_factory(header)
-                    _replay_world_to(world, recorded, closed)
-                    previous = list(recorded.get(closed, []))
-                else:
-                    states = {}
-                    for persona in population.personas:
-                        states[persona.persona_id] = PersonaState(
-                            persona_id=persona.persona_id,
-                            beliefs=persona.baseline_beliefs,
-                            memories=(),
-                            last_reflection_tick=0,
-                            turns_since_reflection=0,
-                        )
-                    world = world_factory(header)
-                    previous = []
-            except ResumeRefused:
-                raise
-            except (WorldFailed, Exception):
-                # Setup failures (factory, replay) before a tick closed mean
-                # the world never started. WorldFailed is the isolated kind;
-                # other setup errors are also recorded rather than omitting.
-                existing = trace.events_for(world_id) if hasattr(trace, "events_for") else ()  # type: ignore[attr-defined]
-                for event in tuple(existing):
-                    known, _ = ledger_sum((event,))
-                    recorded_cost += known
-                outcomes.append(
-                    WorldOutcome.model_validate(
-                        {"world_id": world_id, "status": WorldStatus.NOT_STARTED.value, "rungs": []}
-                    )
-                )
-                continue
-            try:
-                events, _states, _seq, last_rung, paused = run_world(
-                    header,
-                    population,
-                    trace,
-                    world,
-                    agent_fn,
-                    memory_cap=memory_cap,
-                    starting_seq=seq,
-                    starting_states=states,
-                    from_tick=closed,
-                    previous_turns=previous,
-                    budget_max=float(config.budget.max_cost),
-                    ladder=ladder_cfg,
-                    discarded_ticks=base_discarded + pending_discarded,
-                    starting_rung=starting_rung,
-                )
-            except ResumeRefused:
-                raise
-            except WorldFailed:
-                # Isolation: record what the world completed and continue.
-                existing_now = trace.events_for(world_id) if hasattr(trace, "events_for") else ()  # type: ignore[attr-defined]
-                for event in tuple(existing_now):
-                    if event not in tuple(existing):
-                        known, _ = ledger_sum((event,))
-                        recorded_cost += known
-                last_closed = last_closed_tick(tuple(existing_now))
-                rungs = [r.value for r in recorded_rungs(tuple(existing_now))]
-                if last_closed >= 0:
-                    outcomes.append(
-                        WorldOutcome.model_validate(
-                            {
-                                "world_id": world_id,
-                                "status": WorldStatus.PARTIAL.value,
-                                "last_closed_tick": last_closed,
-                                "rungs": rungs,
-                            }
-                        )
-                    )
-                else:
-                    outcomes.append(
-                        WorldOutcome.model_validate(
-                            {"world_id": world_id, "status": WorldStatus.NOT_STARTED.value, "rungs": []}
-                        )
-                    )
-                continue
-            for event in tuple(existing) + events:
-                known, _ = ledger_sum((event,))
-                recorded_cost += known
-            rungs = [r.value for r in recorded_rungs(tuple(existing) + events)]
-            if paused:
-                last_closed = last_closed_tick(tuple(existing) + events)
-                outcomes.append(
-                    WorldOutcome.model_validate(
-                        {
-                            "world_id": world_id,
-                            "status": WorldStatus.PARTIAL.value,
-                            "last_closed_tick": last_closed if last_closed >= 0 else None,
-                            "rungs": rungs,
-                        }
-                    )
-                )
-            else:
-                outcomes.append(
-                    WorldOutcome.model_validate(
-                        {
-                            "world_id": world_id,
-                            "status": WorldStatus.COMPLETED.value,
-                            "last_closed_tick": scenario.horizon_ticks - 1,
-                            "rungs": rungs,
-                        }
-                    )
-                )
+        return WorldOutcome.model_validate(
+            {
+                "world_id": world_id,
+                "status": WorldStatus.COMPLETED.value,
+                "last_closed_tick": scenario.horizon_ticks - 1,
+                "rungs": rungs,
+            }
+        )
+
+    if max_workers and max_workers > 1:
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as pool:
+            outcomes = list(pool.map(_cell, cells))
+    else:
+        outcomes = [_cell(cell) for cell in cells]
+    # The ledger is derived: sum what the trace holds, never a kept number.
+    recorded_cost, _ = ledger_sum(tuple(trace.all_events()) if hasattr(trace, "all_events") else ())  # type: ignore[attr-defined]
     status = RunStatus.COMPLETED if all(o.status is WorldStatus.COMPLETED for o in outcomes) else RunStatus.PARTIAL
     entry = RunRegistryEntry.model_validate(
         {
@@ -580,7 +569,7 @@ def run(
             "status": status.value,
             "engine_version": engine_version,
             "recorded_cost": recorded_cost,
-            "discarded_ticks": base_discarded + pending_discarded,
+            "discarded_ticks": discarded_total,
         }
     )
     registry.record(entry)  # type: ignore[attr-defined]

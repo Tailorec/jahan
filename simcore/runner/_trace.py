@@ -14,20 +14,24 @@ class InMemoryTraceSink:
     """A trace that holds whole ticks in memory, keyed by world."""
 
     def __init__(self) -> None:
+        import threading
+
         self._events: dict[str, list[TraceEvent]] = {}
         self._seen: set[tuple[str, int]] = set()
         self.writes: list[list[TraceEvent]] = []
+        self._lock = threading.Lock()
 
     def write(self, events: object) -> None:
         batch = tuple(events)  # type: ignore[arg-type]
-        for event in batch:
-            key = (event.world_id, event.seq)
-            if key in self._seen:
-                raise ValueError(f"duplicate (world_id, seq): {key}")
-        for event in batch:
-            self._seen.add((event.world_id, event.seq))
-            self._events.setdefault(event.world_id, []).append(event)
-        self.writes.append(list(batch))
+        with self._lock:
+            for event in batch:
+                key = (event.world_id, event.seq)
+                if key in self._seen:
+                    raise ValueError(f"duplicate (world_id, seq): {key}")
+            for event in batch:
+                self._seen.add((event.world_id, event.seq))
+                self._events.setdefault(event.world_id, []).append(event)
+            self.writes.append(list(batch))
 
     def finalize(self, world_id: str) -> None:
         return None

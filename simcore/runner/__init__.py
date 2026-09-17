@@ -8,6 +8,7 @@ assigns every `event_id` and `seq`, buffers a tick, and writes it with its
 
 from ._ladder import last_recorded_rung, plan_for, recorded_rungs, rung_for
 from ._ledger import ledger_sum, mean_tick_cost, pessimistic_figure
+from ._sweep import expand_sweep
 from ._plans import LadderConfig, TickPlan, agent_routing_for
 from ._refusal import ResumeRefused, check_resume_inputs
 from ._resume import last_closed_tick, next_seq, rebuild_persona_states, turns_by_tick, validate_checkpoint
@@ -25,6 +26,7 @@ __all__ = [
     "WorldFailed",
     "agent_routing_for",
     "check_resume_inputs",
+    "expand_sweep",
     "last_closed_tick",
     "last_recorded_rung",
     "ledger_sum",
