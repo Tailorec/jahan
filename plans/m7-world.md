@@ -180,11 +180,11 @@ The two remaining modes, both reading signals computed elsewhere. `twitter` rank
 
 ### Acceptance criteria
 
-- [ ] `twitter` ranks by interest match against profile embeddings from the manifest, with no embedding call at step time
-- [ ] `twhin` uses degree centralities from the generated graph, computed once
-- [ ] All four modes are selectable per scenario and produce measurably different exposure concentration on one fixture
-- [ ] A scenario naming a mode whose signal is missing fails at `reset`, not mid-run
-- [ ] Every mode remains deterministic under a fixed seed
+- [x] `twitter` ranks by interest match against profile embeddings from the manifest, with no embedding call at step time
+- [x] `twhin` uses degree centralities from the generated graph, computed once
+- [x] All four modes are selectable per scenario and produce measurably different exposure concentration on one fixture
+- [x] A scenario naming a mode whose signal is missing fails at `reset`, not mid-run
+- [x] Every mode remains deterministic under a fixed seed
 
 ---
 

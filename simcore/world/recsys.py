@@ -8,14 +8,16 @@
 
 """Who sees what, and the baseline every ranking mode is measured against.
 
-`random` selects without reference to engagement, deterministically under a
-seed — the control arm that separates filter-driven effects from organic
-ones. Every later mode must beat it measurably on the same fixture, which is
-why it exists before any ranking mode.
+`random` is the control arm: blind to engagement, deterministic under a seed.
+`reddit_hot` copies the upstream score verbatim. `twitter` reads interest
+match against profile vectors computed once at population build, carried in
+beside the manifest and never recomputed per tick. `twhin` reads degree
+centralities from the generated graph, computed once when the world is built.
+Neither recomputes its signal per tick.
 """
 
 from math import log10
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from simcore.schemas import ExposureReason
 
@@ -144,12 +146,78 @@ def scoped_order(
     )
 
 
+def cosine(left: Sequence[float], right: Sequence[float]) -> float:
+    """Cosine similarity of two vectors; a zero vector matches nothing."""
+    if len(left) != len(right):
+        raise ValueError(f"interest match needs one space: {len(left)} dimensions against {len(right)}")
+    denom = sum(v * v for v in left) ** 0.5 * sum(v * v for v in right) ** 0.5
+    if denom == 0.0:
+        return 0.0
+    return sum(a * b for a, b in zip(left, right)) / denom
+
+
+def interest_order(
+    candidate_ids: list[str],
+    profile_vector: Sequence[float] | None,
+    stimulus_vectors: Mapping[str, Sequence[float]],
+    world_seed: int,
+    tick: int,
+    persona_id: str,
+) -> list[str]:
+    """The `twitter` mode: interest match of each stimulus against the persona's profile vector.
+
+    The profile vector arrives computed once at population build, carried in
+    beside the manifest — ranking never embeds it. A persona without one
+    matches nothing. Ties break from a derived per-persona seed.
+    """
+    rng = rng_for(world_seed, tick, f"recsys:twitter:{persona_id}")
+    tiebreak = {stimulus_id: rng.random() for stimulus_id in sorted(candidate_ids)}
+    scores: dict[str, float] = {}
+    for stimulus_id in candidate_ids:
+        vector = stimulus_vectors.get(stimulus_id)
+        if profile_vector is None or vector is None:
+            scores[stimulus_id] = 0.0
+        else:
+            scores[stimulus_id] = cosine(profile_vector, vector)
+    return sorted(candidate_ids, key=lambda stimulus_id: (-scores[stimulus_id], tiebreak[stimulus_id]))
+
+
+def hub_order(
+    candidate_ids: list[str],
+    centralities: Mapping[str, float],
+    authors: Mapping[str, str | None],
+    age_ticks: Mapping[str, int],
+    world_seed: int,
+    tick: int,
+) -> list[str]:
+    """The `twhin` mode: graph-aware ranking by the author's degree centrality.
+
+    Centralities come from the generated graph, computed once when the world
+    is built — ranking reads them, never recomputes them. Study-authored
+    stimuli carry no author and score zero; recency breaks centrality ties,
+    then a derived seed.
+    """
+    rng = rng_for(world_seed, tick, "recsys:twhin")
+    tiebreak = {stimulus_id: rng.random() for stimulus_id in sorted(candidate_ids)}
+    return sorted(
+        candidate_ids,
+        key=lambda stimulus_id: (
+            -centralities.get(authors.get(stimulus_id) or "", 0.0),
+            age_ticks.get(stimulus_id, 0),
+            tiebreak[stimulus_id],
+        ),
+    )
+
+
 __all__ = [
     "REASON_FOR_MODE",
     "UNIT_SECONDS",
+    "cosine",
     "exposure_concentration",
     "hot_order",
     "hot_score",
+    "hub_order",
+    "interest_order",
     "random_order",
     "reason_for",
     "scoped_order",

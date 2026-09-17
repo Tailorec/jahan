@@ -16,6 +16,7 @@ world resumes by `reset` and replaying its recorded turns.
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from collections.abc import Callable
 
 from simcore.schemas import (
     ActionKind,
@@ -79,6 +80,10 @@ class WorldConfig:
     # at population build and carried in, never recomputed per tick.
     profile_vectors: tuple[tuple[str, tuple[float, ...]], ...] = ()
     embedding_model_id: str | None = None
+    # Batch text embedder for stimulus arrival under the `twitter` mode. Called
+    # at most once per stimulus text and cached by stimulus id, so ranking
+    # never embeds; tests pass a fake, production the run's pinned embed model.
+    embed_texts: Callable[[list[str]], list[list[float]]] | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
         """Coerce plain strings to their channels and modes, so scenario files read naturally."""
@@ -138,6 +143,19 @@ class World:
             for community in population.communities:
                 for member in community.member_ids:
                     self._community_of[member] = community.community_id
+        # Degree centralities from the generated graph, computed once here and
+        # read by the `twhin` mode — never recomputed per tick.
+        self._centralities: dict[str, float] = {}
+        if population is not None and population.graph is not None and len(self._personas) > 1:
+            degree: dict[str, int] = {persona_id: 0 for persona_id in self._personas}
+            for edge in population.graph.edges:
+                degree[edge.u] = degree.get(edge.u, 0) + 1
+                degree[edge.v] = degree.get(edge.v, 0) + 1
+            scale = len(self._personas) - 1
+            self._centralities = {persona_id: count / scale for persona_id, count in degree.items()}
+        # Stimulus vectors for the `twitter` mode, cached by stimulus id at
+        # arrival and read by ranking — ranking itself never embeds.
+        self._stimulus_vectors: dict[str, tuple[float, ...]] = {}
         self._concept_id: str | None = None
         self._opened = False
         self._last_tick = -1
@@ -168,6 +186,11 @@ class World:
         """Open the world: publish the study's stimuli as the delta for tick zero."""
         if self._opened:
             raise ValueError("a world opens once; resume by replaying turns through a fresh instance")
+        mode = self._config.recsys_mode
+        if mode is RecsysMode.TWITTER and not self._config.profile_vectors:
+            raise ValueError("the twitter mode reads profile embeddings from the manifest: none were carried in")
+        if mode is RecsysMode.TWHIN and not self._centralities:
+            raise ValueError("the twhin mode reads degree centralities from the generated graph: no graph was carried in")
         self._opened = True
         self._last_tick = 0
         published = self._publish_study_stimuli()
@@ -245,7 +268,24 @@ class World:
                 written_tick=0,
             )
         self._concept_id = stimuli[0].stimulus_id
+        self._vectorize([stimulus.stimulus_id for stimulus in stimuli], [stimulus.text for stimulus in stimuli])
         return stimuli
+
+    def _vectorize(self, stimulus_ids: list[str], texts: list[str]) -> None:
+        """Cache one vector per new stimulus text for the `twitter` mode.
+
+        Called at arrival — when stimuli are published — so ranking reads
+        cached vectors and never embeds. Profile vectors are never embedded
+        here at all: they arrive computed once at population build.
+        """
+        embed = self._config.embed_texts
+        if embed is None or self._config.recsys_mode is not RecsysMode.TWITTER:
+            return
+        fresh = [(sid, text) for sid, text in zip(stimulus_ids, texts) if sid not in self._stimulus_vectors]
+        if not fresh:
+            return
+        for sid, vector in zip([sid for sid, _ in fresh], embed([text for _, text in fresh])):
+            self._stimulus_vectors[sid] = tuple(vector)
 
     def _interventions_at(self, tick: int) -> tuple[InterventionKind, ...]:
         """Every intervention scheduled at this tick: they compose, never overwrite."""
@@ -348,6 +388,7 @@ class World:
                 written_tick=tick,
             )
             stimuli.append(stimulus)
+        self._vectorize([stimulus.stimulus_id for stimulus in stimuli], [stimulus.text for stimulus in stimuli])
         return stimuli
 
     def _activated(self, tick: int) -> list[str]:
@@ -474,7 +515,20 @@ class World:
             return recsys.random_order(ids, self._world_seed, tick, persona_id)
         if mode is RecsysMode.REDDIT_HOT:
             return self._hot_rank(ids, rows, counts, feed_votes=True, tick=tick)
-        raise ValueError(f"the {mode.value} recsys mode lands in a later phase")
+        if mode is RecsysMode.TWITTER:
+            return recsys.interest_order(
+                ids,
+                self._config.profile_vector_for(persona_id),
+                self._stimulus_vectors,
+                self._world_seed,
+                tick,
+                persona_id,
+            )
+        if mode is RecsysMode.TWHIN:
+            authors = {row["stimulus_id"]: row["author"] for row in rows}
+            ages = {row["stimulus_id"]: tick - row["tick"] for row in rows}
+            return recsys.hub_order(ids, self._centralities, authors, ages, self._world_seed, tick)
+        raise ValueError(f"unknown recsys mode {mode}")
 
     def _hot_rank(
         self, ids: list[str], rows: list[dict], counts: dict[str, dict[str, int]], *, feed_votes: bool, tick: int
@@ -644,6 +698,14 @@ class World:
     def rejected_actions(self) -> tuple[dict, ...]:
         """Actions channels did not support, oldest first — what personas tried, not an error."""
         return tuple(self._store.rejections())
+
+    def degree_centrality(self, persona_id: str) -> float:
+        """One persona's degree centrality, computed once when the world was built."""
+        return self._centralities.get(persona_id, 0.0)
+
+    def vectorized_stimuli(self) -> int:
+        """How many stimuli carry cached vectors for the `twitter` mode."""
+        return len(self._stimulus_vectors)
 
     def store_columns(self, table: str) -> list[str]:
         """Column names of a platform table, for asserting provenance travels with every row."""

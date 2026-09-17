@@ -18,6 +18,8 @@ from .clock import (
 from .env import ForumPreset, RecsysMode, World, WorldConfig, forget, reset, step
 from .platform import AFFORDANCES, Forum, is_supported
 from .recsys import UNIT_SECONDS, exposure_concentration, hot_order, hot_score, random_order, reason_for, scoped_order
+from .recsys import cosine as cosine_similarity
+from .recsys import hub_order, interest_order
 from .replay import ReplayDivergence, check_replay, resume
 from .replay import run as replay_run
 
@@ -36,10 +38,13 @@ __all__ = [
     "activated_personas",
     "activation_probability",
     "check_replay",
+    "cosine_similarity",
     "forget",
     "hot_order",
     "hot_score",
+    "hub_order",
     "is_supported",
+    "interest_order",
     "exposure_concentration",
     "random_order",
     "reason_for",
