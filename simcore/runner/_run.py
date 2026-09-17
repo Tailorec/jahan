@@ -54,6 +54,7 @@ from simcore.schemas.trace import (
 
 from ._ids import event_id
 from ._plans import LadderConfig, TickPlan
+from ._resume import last_closed_tick, next_seq, rebuild_persona_states, turns_by_tick, validate_checkpoint
 from ._version import ENGINE_VERSION
 
 
@@ -156,6 +157,15 @@ def _turn_events(
     return events, state
 
 
+def _replay_world_to(world: object, recorded: dict[int, list[Turn]], through_tick: int) -> None:
+    """Position a fresh world after `through_tick` by replaying recorded turns."""
+    if through_tick < 0:
+        return
+    world.reset()  # type: ignore[attr-defined]
+    for tick in range(1, through_tick + 1):
+        world.step(tick, recorded.get(tick - 1, []))  # type: ignore[attr-defined]
+
+
 def run_world(
     header: PartitionHeader,
     population: Population,
@@ -167,6 +177,7 @@ def run_world(
     starting_seq: int = 0,
     starting_states: dict[str, PersonaState] | None = None,
     from_tick: int = -1,
+    previous_turns: list[Turn] | None = None,
 ) -> tuple[tuple[TraceEvent, ...], dict[str, PersonaState], int]:
     """Drive one world from after `from_tick` to its horizon.
 
@@ -183,7 +194,9 @@ def run_world(
     horizon = header.scenario.horizon_ticks
 
     # Tick 0 comes from reset; later ticks from step(previous turns).
-    previous_turns: list[Turn] = []
+    # When resuming, the caller already replayed the world; the previous
+    # tick's turns come from the record so the next step feeds correctly.
+    previous: list[Turn] = list(previous_turns) if previous_turns is not None else []
     # When resuming, previous turns must be re-fed? The caller replays the
     # world itself; here we only continue. The world object handed in is
     # already positioned after `from_tick`.
@@ -191,7 +204,7 @@ def run_world(
         if tick == 0:
             delta = world.reset()  # type: ignore[attr-defined]
         else:
-            delta = world.step(tick, previous_turns)  # type: ignore[attr-defined]
+            delta = world.step(tick, previous)  # type: ignore[attr-defined]
         # Build jobs for this tick's presentations.
         jobs: list[TurnJob] = []
         order: list[Presentation] = list(delta.presentations)
@@ -251,7 +264,7 @@ def run_world(
         # One call per tick, tick_closed last.
         trace.write(batch)  # type: ignore[attr-defined]
         written.extend(batch)
-        previous_turns = next_turns
+        previous = next_turns
     # Lifecycle close: after the final tick_closed, same tick, no new close.
     closing: list[TraceEvent] = []
     closing.append(_make_event(world_id, horizon - 1, seq, LifecycleRecorded(kind="lifecycle", phase=LifecyclePhase.COMPLETED)))
@@ -273,15 +286,28 @@ def run(
     ladder: LadderConfig | None = None,
     engine_version: str = ENGINE_VERSION,
     memory_cap: int = 50,
+    checkpoints: dict[str, dict] | None = None,
 ) -> RunResult:
     """Run every world of the configuration to its horizon.
 
-    Phase 1 covers one world end to end; later phases add resume, refusal,
-    ledger, ladder, failure isolation and sweep. The signature stays one
-    interface: one outcome per world, status computed, never asserted.
+    Resume needs nothing but the trace and the registry entry: worlds pick
+    up after their last closed tick, personas are rebuilt from the record,
+    and completed ticks are never re-run. A checkpoint, if present, is a
+    cache validated against the record and discarded on disagreement.
     """
     _ = ladder
-    _ = engine_version
+    running = RunRegistryEntry.model_validate(
+        {
+            "config": config.model_dump(mode="json"),
+            "contract_version": SCHEMA_VERSION,
+            "status": RunStatus.RUNNING.value,
+            "engine_version": engine_version,
+            "recorded_cost": 0.0,
+            "discarded_ticks": 0,
+        }
+    )
+    if registry.entry(config.run_id) is None:  # type: ignore[attr-defined]
+        registry.record(running)  # type: ignore[attr-defined]
     outcomes: list[WorldOutcome] = []
     recorded_cost = 0.0
     for scenario in config.scenarios:
@@ -298,11 +324,44 @@ def run(
                 }
             )
             assert header.world_id == world_id
-            world = world_factory(header)
+            existing = trace.events_for(world_id) if hasattr(trace, "events_for") else ()  # type: ignore[attr-defined]
+            closed = last_closed_tick(tuple(existing))
+            seq = next_seq(tuple(existing))
+            if closed >= 0:
+                rebuilt = rebuild_persona_states(population, tuple(existing), memory_cap=memory_cap)
+                checkpoint = (checkpoints or {}).get(world_id)
+                if checkpoint is not None and not validate_checkpoint(checkpoint, rebuilt, seq):
+                    checkpoint = None
+                states = dict(rebuilt) if checkpoint is None else dict(checkpoint["states"])
+                recorded = turns_by_tick(tuple(existing))
+                world = world_factory(header)
+                _replay_world_to(world, recorded, closed)
+                previous = list(recorded.get(closed, []))
+            else:
+                states = {}
+                for persona in population.personas:
+                    states[persona.persona_id] = PersonaState(
+                        persona_id=persona.persona_id,
+                        beliefs=persona.baseline_beliefs,
+                        memories=(),
+                        last_reflection_tick=0,
+                        turns_since_reflection=0,
+                    )
+                world = world_factory(header)
+                previous = []
             events, _states, _seq = run_world(
-                header, population, trace, world, agent_fn, memory_cap=memory_cap
+                header,
+                population,
+                trace,
+                world,
+                agent_fn,
+                memory_cap=memory_cap,
+                starting_seq=seq,
+                starting_states=states,
+                from_tick=closed,
+                previous_turns=previous,
             )
-            for event in events:
+            for event in tuple(existing) + events:
                 payload = event.payload
                 if payload.kind == "cost" and payload.cost is not None:
                     recorded_cost += float(payload.cost)
