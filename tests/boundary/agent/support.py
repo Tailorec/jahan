@@ -194,9 +194,11 @@ class BatchCountingChat(FakeChat):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.batches: list[list[str]] = []
+        self.roles: list[list[str]] = []
 
     def complete(self, requests):
         self.batches.append([request.template_id for request in requests])
+        self.roles.append([request.role.value for request in requests])
         return super().complete(requests)
 
 

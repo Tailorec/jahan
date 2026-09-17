@@ -78,6 +78,7 @@ def test_a_reaction_carries_no_aggregate_outcome():
             "verbatim",
             "belief_change",
             "intent",
+            "elicitation_failure",
         }
 
 
