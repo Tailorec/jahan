@@ -91,3 +91,17 @@ def test_a_turn_records_the_prompt_and_persona_block_it_used():
     expected_block = render_persona_block(job.persona.conditioning, job.persona.attributes)
     assert outcome.persona_block_hash == hash_text(expected_block)
     assert len(outcome.prompt_hash) == 64
+
+
+def test_a_survey_room_impression_carries_one_exposure_and_produces_one_reaction():
+    from simcore.schemas import TurnJob
+
+    from .support import job_payload
+
+    payload = job_payload(0)
+    payload["presentation"]["impression"]["channel"] = "survey_room"
+    job = TurnJob.model_validate(payload)
+    assert len(job.presentation.impression.exposures) == 1
+    (outcome,) = turns([job], chat=FakeChat(responder=answering()))
+    assert isinstance(outcome, CompletedTurn)
+    assert outcome.turn.reaction.subject_stimulus_id == job.presentation.impression.exposures[0].stimulus_id

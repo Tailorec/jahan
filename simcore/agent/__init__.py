@@ -26,6 +26,7 @@ from ._memory import append_memories, importance_of, retrieve, score_memory, wri
 from ._render import PersonaBlockCache, render_block, selected_attributes
 from ._guard import GUARDRAILS
 from ._probe import disagreement_rate, probe_attributes, sampled_for_probe
+from ._replay import rebuild_state, states_equal
 from ._turns import turns
 
 __all__ = [
@@ -44,6 +45,7 @@ __all__ = [
     "importance_of",
     "max_abs_change",
     "probe_attributes",
+    "rebuild_state",
     "reflection_due",
     "reflection_interval_for",
     "render_block",
@@ -52,6 +54,7 @@ __all__ = [
     "score_memory",
     "selected_attributes",
     "split_summary",
+    "states_equal",
     "turns",
     "write_memory",
 ]
