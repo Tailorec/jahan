@@ -158,13 +158,48 @@ def _turn_events(
     return events, state
 
 
-def _replay_world_to(world: object, recorded: dict[int, list[Turn]], through_tick: int) -> None:
+def _replay_world_to(world: object, recorded: dict[int, list[Turn]], through_tick: int, plan: TickPlan | None = None) -> None:
     """Position a fresh world after `through_tick` by replaying recorded turns."""
     if through_tick < 0:
         return
-    world.reset()  # type: ignore[attr-defined]
+    _call_reset(world, plan)
     for tick in range(1, through_tick + 1):
-        world.step(tick, recorded.get(tick - 1, []))  # type: ignore[attr-defined]
+        _call_step(world, tick, recorded.get(tick - 1, []), plan)
+
+
+def _call_reset(world: object, plan: TickPlan | None):
+    reset = getattr(world, "reset")
+    try:
+        import inspect
+
+        if plan is not None and "plan" in inspect.signature(reset).parameters:
+            return reset(plan=plan)
+    except (TypeError, ValueError):
+        pass
+    return world.reset()  # type: ignore[attr-defined]
+
+
+def _call_step(world: object, tick: int, turns: list[Turn], plan: TickPlan | None):
+    step = getattr(world, "step")
+    try:
+        import inspect
+
+        if plan is not None and "plan" in inspect.signature(step).parameters:
+            return step(tick, turns, plan=plan)
+    except (TypeError, ValueError):
+        pass
+    return world.step(tick, turns)  # type: ignore[attr-defined]
+
+
+def _call_agent(agent_fn: AgentFn, jobs: list[TurnJob], plan: TickPlan | None):
+    try:
+        import inspect
+
+        if plan is not None and len(inspect.signature(agent_fn).parameters) >= 2:
+            return tuple(agent_fn(jobs, plan))  # type: ignore[call-arg]
+    except (TypeError, ValueError):
+        pass
+    return tuple(agent_fn(jobs))
 
 
 def run_world(
@@ -179,34 +214,79 @@ def run_world(
     starting_states: dict[str, PersonaState] | None = None,
     from_tick: int = -1,
     previous_turns: list[Turn] | None = None,
-) -> tuple[tuple[TraceEvent, ...], dict[str, PersonaState], int]:
-    """Drive one world from after `from_tick` to its horizon.
+    budget_max: float | None = None,
+    ladder: LadderConfig | None = None,
+    discarded_ticks: int = 0,
+    starting_rung: object = None,
+) -> tuple[tuple[TraceEvent, ...], dict[str, PersonaState], int, object, bool]:
+    """Drive one world from after `from_tick` to its horizon under the ladder.
 
-    Returns all newly written events, the carried states, and the next free
-    sequence number. Each tick is buffered and written in one call with its
-    `tick_closed` last; an interruption writes nothing for that tick.
+    Returns newly written events, carried states, next seq, the last rung in
+    force, and whether the world paused. Each tick is buffered and written in
+    one call with its `tick_closed` last; an interruption writes nothing.
     """
-    _ = plan
+    from simcore.schemas.enums import RUNG_ORDER
+
+    from ._ladder import last_recorded_rung, plan_for, rung_for
+    from ._ledger import pessimistic_figure
+
+    ladder_cfg = ladder or LadderConfig()
     world_id = header.world_id
     states = dict(starting_states) if starting_states is not None else _initial_states(population)
     personas = _persona_index(population)
     seq = starting_seq
     written: list[TraceEvent] = []
     horizon = header.scenario.horizon_ticks
+    current = starting_rung
+    if current is None and from_tick >= 0 and hasattr(trace, "events_for"):
+        try:
+            current = last_recorded_rung(tuple(trace.events_for(world_id)))  # type: ignore[attr-defined]
+        except Exception:
+            current = None
 
-    # Tick 0 comes from reset; later ticks from step(previous turns).
-    # When resuming, the caller already replayed the world; the previous
-    # tick's turns come from the record so the next step feeds correctly.
+    def _figure() -> float:
+        try:
+            all_events = tuple(trace.all_events())  # type: ignore[attr-defined]
+        except Exception:
+            all_events = tuple(written)
+        return pessimistic_figure(all_events, discarded_ticks)
+
     previous: list[Turn] = list(previous_turns) if previous_turns is not None else []
-    # When resuming, previous turns must be re-fed? The caller replays the
-    # world itself; here we only continue. The world object handed in is
-    # already positioned after `from_tick`.
+    paused = bool(current is not None and getattr(current, "value", None) == "pause")
+    if paused:
+        return tuple(written), states, seq, current, True
     for tick in range(from_tick + 1, horizon):
+        ratio = (_figure() / budget_max) if budget_max else 0.0
+        candidate = rung_for(ratio, ladder_cfg)
+        # Escalation only; a replay applies the recorded rung rather than
+        # recomputing a lower one from the ledger.
+        effective = candidate
+        if current is not None:
+            if effective is None:
+                effective = current
+            elif RUNG_ORDER.index(effective) < RUNG_ORDER.index(current):
+                effective = current
+        if effective is not None and effective.value == "pause" and effective != current:
+            batch: list[TraceEvent] = []
+            tick_plan = plan_for(effective, ladder_cfg)
+            batch.append(_make_event(world_id, tick, seq, Degraded(kind="degraded", rung=effective, activation_rate=tick_plan.activation_rate, tier_b_frozen=tick_plan.tier_b_frozen)))
+            seq += 1
+            batch.append(_make_event(world_id, tick, seq, LifecycleRecorded(kind="lifecycle", phase=LifecyclePhase.PAUSED)))
+            seq += 1
+            trace.write(batch)  # type: ignore[attr-defined]
+            written.extend(batch)
+            current = effective
+            paused = True
+            break
+        if effective is not None and effective.value == "pause":
+            # Already paused (resume): stay paused without re-recording.
+            paused = True
+            break
+        tick_plan = plan_for(effective, ladder_cfg)
         if tick == 0:
-            delta = world.reset()  # type: ignore[attr-defined]
+            delta = _call_reset(world, tick_plan)
         else:
-            delta = world.step(tick, previous)  # type: ignore[attr-defined]
-        # Build jobs for this tick's presentations.
+            delta = _call_step(world, tick, previous, tick_plan)
         jobs: list[TurnJob] = []
         order: list[Presentation] = list(delta.presentations)
         for presentation in order:
@@ -222,20 +302,20 @@ def run_world(
                     }
                 )
             )
-        # One batch to the agent. A raise here writes nothing for this tick.
-        outcomes = tuple(agent_fn(jobs))
+        outcomes = _call_agent(agent_fn, jobs, tick_plan)
         if len(outcomes) != len(jobs):
             raise ValueError(f"agent returned {len(outcomes)} outcomes for {len(jobs)} jobs")
-        # Buffer the tick.
-        batch: list[TraceEvent] = []
+        batch = []
 
-        def _emit(payload: object, pid: str | None = None) -> None:
+        def _emit(payload: object, pid: str | None = None, at_tick: int = tick) -> None:
             nonlocal seq
-            batch.append(_make_event(world_id, tick, seq, payload, pid))
+            batch.append(_make_event(world_id, at_tick, seq, payload, pid))
             seq += 1
 
         if tick == 0:
             _emit(LifecycleRecorded(kind="lifecycle", phase=LifecyclePhase.STARTED))
+        if effective is not None and effective != current:
+            _emit(Degraded(kind="degraded", rung=effective, activation_rate=tick_plan.activation_rate, tier_b_frozen=tick_plan.tier_b_frozen))
         for stimulus in delta.published:
             _emit(StimulusPublished(kind="stimulus_published", stimulus=stimulus))
         for kind in delta.interventions:
@@ -262,17 +342,17 @@ def run_world(
             if isinstance(outcome, CompletedTurn):
                 next_turns.append(outcome.turn)
         _emit(TickClosed(kind="tick_closed"))
-        # One call per tick, tick_closed last.
         trace.write(batch)  # type: ignore[attr-defined]
         written.extend(batch)
         previous = next_turns
-    # Lifecycle close: after the final tick_closed, same tick, no new close.
-    closing: list[TraceEvent] = []
-    closing.append(_make_event(world_id, horizon - 1, seq, LifecycleRecorded(kind="lifecycle", phase=LifecyclePhase.COMPLETED)))
-    seq += 1
-    trace.write(closing)  # type: ignore[attr-defined]
-    written.extend(closing)
-    return tuple(written), states, seq
+        current = effective
+    if not paused:
+        closing: list[TraceEvent] = []
+        closing.append(_make_event(world_id, horizon - 1, seq, LifecycleRecorded(kind="lifecycle", phase=LifecyclePhase.COMPLETED)))
+        seq += 1
+        trace.write(closing)  # type: ignore[attr-defined]
+        written.extend(closing)
+    return tuple(written), states, seq, current, paused
 
 
 def run(
@@ -300,7 +380,8 @@ def run(
     A resume whose inputs or engine moved is refused, naming what moved; a
     forced resume proceeds, is recorded, and spans versions.
     """
-    _ = ladder
+    ladder_cfg = ladder or LadderConfig()
+    from ._ladder import last_recorded_rung, recorded_rungs
     from ._ledger import ledger_sum
 
     stored = registry.entry(config.run_id)  # type: ignore[attr-defined]
@@ -368,6 +449,7 @@ def run(
             existing = trace.events_for(world_id) if hasattr(trace, "events_for") else ()  # type: ignore[attr-defined]
             closed = last_closed_tick(tuple(existing))
             seq = next_seq(tuple(existing))
+            starting_rung = last_recorded_rung(tuple(existing)) if closed >= 0 else None
             if closed >= 0:
                 rebuilt = rebuild_persona_states(population, tuple(existing), memory_cap=memory_cap)
                 checkpoint = (checkpoints or {}).get(world_id)
@@ -390,7 +472,7 @@ def run(
                     )
                 world = world_factory(header)
                 previous = []
-            events, _states, _seq = run_world(
+            events, _states, _seq, last_rung, paused = run_world(
                 header,
                 population,
                 trace,
@@ -401,20 +483,38 @@ def run(
                 starting_states=states,
                 from_tick=closed,
                 previous_turns=previous,
+                budget_max=float(config.budget.max_cost),
+                ladder=ladder_cfg,
+                discarded_ticks=base_discarded + pending_discarded,
+                starting_rung=starting_rung,
             )
             for event in tuple(existing) + events:
                 known, _ = ledger_sum((event,))
                 recorded_cost += known
-            outcomes.append(
-                WorldOutcome.model_validate(
-                    {
-                        "world_id": world_id,
-                        "status": WorldStatus.COMPLETED.value,
-                        "last_closed_tick": scenario.horizon_ticks - 1,
-                        "rungs": [],
-                    }
+            rungs = [r.value for r in recorded_rungs(tuple(existing) + events)]
+            if paused:
+                last_closed = last_closed_tick(tuple(existing) + events)
+                outcomes.append(
+                    WorldOutcome.model_validate(
+                        {
+                            "world_id": world_id,
+                            "status": WorldStatus.PARTIAL.value,
+                            "last_closed_tick": last_closed if last_closed >= 0 else None,
+                            "rungs": rungs,
+                        }
+                    )
                 )
-            )
+            else:
+                outcomes.append(
+                    WorldOutcome.model_validate(
+                        {
+                            "world_id": world_id,
+                            "status": WorldStatus.COMPLETED.value,
+                            "last_closed_tick": scenario.horizon_ticks - 1,
+                            "rungs": rungs,
+                        }
+                    )
+                )
     status = RunStatus.COMPLETED if all(o.status is WorldStatus.COMPLETED for o in outcomes) else RunStatus.PARTIAL
     entry = RunRegistryEntry.model_validate(
         {

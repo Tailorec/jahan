@@ -29,6 +29,7 @@ class LadderConfig:
     warn_at: float = 0.80
     freeze_at: float = 0.95
     subsample_at: float = 1.0
+    pause_at: float = 1.5
     subsample_rate: float = 0.40
     base_activation_rate: float = 1.0
 
