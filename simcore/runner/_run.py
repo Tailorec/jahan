@@ -177,7 +177,28 @@ def _replay_world_to(world: object, recorded: dict[int, list[Turn]], through_tic
         _call_step(world, tick, recorded.get(tick - 1, []), plan)
 
 
+def _apply_plan(world: object, plan: TickPlan | None) -> None:
+    """Hand a real world its per-tick plan without telling it about budgets."""
+    if plan is None:
+        return
+    config = getattr(world, "_config", None)
+    if config is not None and hasattr(config, "activation_rate"):
+        try:
+            import dataclasses
+
+            if dataclasses.is_dataclass(config):
+                object.__setattr__(world, "_config", dataclasses.replace(config, activation_rate=plan.activation_rate))
+                return
+        except Exception:
+            pass
+        try:
+            world._config = config.model_copy(update={"activation_rate": plan.activation_rate})  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+
 def _call_reset(world: object, plan: TickPlan | None):
+    _apply_plan(world, plan)
     reset = getattr(world, "reset")
     try:
         import inspect
@@ -190,6 +211,7 @@ def _call_reset(world: object, plan: TickPlan | None):
 
 
 def _call_step(world: object, tick: int, turns: list[Turn], plan: TickPlan | None):
+    _apply_plan(world, plan)
     step = getattr(world, "step")
     try:
         import inspect

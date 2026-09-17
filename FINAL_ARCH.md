@@ -419,12 +419,14 @@ The two forum presets are mechanically similar and dynamically opposite — hot-
 
 A `RunResult` carries the registry entry and one outcome per world id — `completed`, `partial` or `not_started`, the last tick closed, and the degradation rungs applied — and the run's status is computed from its worlds. It holds no digests; analysis derives those from the partitions.
 
-**Why budget moved here.** The previous design had the governor decide `allow | degrade(level) | halt` and then required three separate modules — agent (freeze tier B), world (subsample activation), scheduler (pause) — to each interpret that decision correctly. Three enforcement points for one policy means no single place can test *"does the budget actually stop spending?"*, and a misinterpretation silently changes simulation fidelity mid-run, corrupting a study without failing it. The governor now **applies** degradation itself, by mutating the run plan between ticks: it lowers the activation rate in the tick config it hands to `world`, and it flips the tier-routing config it hands to `agent`. Those two modules stay unaware that budgets exist.
+**Why budget moved here.** The previous design had the governor decide `allow | degrade(level) | halt` and then required three separate modules — agent (freeze tier B), world (subsample activation), scheduler (pause) — to each interpret that decision correctly. Three enforcement points for one policy means no single place can test *"does the budget actually stop spending?"*, and a misinterpretation silently changes simulation fidelity mid-run, corrupting a study without failing it. The runner now **applies** degradation itself, by handing each tick a frozen `TickPlan` (activation rate, tier-B freeze, rung in force): it lowers the activation rate in the plan it hands to `world` (applied through `WorldConfig.activation_rate`), and it flips the tier-routing table it hands to `agent`. Those two modules stay unaware that budgets exist. Worlds run in parallel, one worker per world (one process each in production; threads sharing the trace port in boundary tests, same seam).
 
-**Degrade ladder** (P3: one owner, one place):
+**Degrade ladder** (P3: one owner, one place — thresholds and the subsample are
+`LadderConfig`, configuration a study changes, not code; defaults 80% / 95% /
+100% / pause beyond, subsample to 0.40 from a base of 1.0):
 1. 80% of budget → warn.
 2. 95% → freeze optional tier-B work (reflections, optional audits).
-3. 100% → activation subsample 0.62 → 0.40.
+3. 100% → activation subsample (0.62 → 0.40 is one study's setting of the rate).
 4. Beyond → pause the run. **Completed worlds are kept and labeled partial** — partial results are valid results, and discarding them is the wrong failure mode.
 
 **Sweep is not a separate concept** — it is `run()` over N scenario configs × seeds, with a worker pool and a shared budget. A sweep is a `SweepPlan` expanded into a `RunConfig` and run like any other, so it returns a `RunResult`; there is no separate sweep result, and per-cell digests for the heatmap come from analysis. The pattern comes from ASAL's `main_sweep_gol.py` (brute-force discrete sweep); nothing is copy-pasted, since JAX/CLIP is the wrong modality.

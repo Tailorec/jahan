@@ -85,6 +85,9 @@ class WorldConfig:
     # Activation: per-persona involvement is `involvement_default` unless named here.
     involvement_default: float = 1.0
     involvement: tuple[tuple[str, float], ...] = ()
+    # The runner's per-tick plan scales activation here: degradation is a
+    # different plan, never a mutated object the world learns a budget from.
+    activation_rate: float = 1.0
     # Rhythm overrides per tick unit; absent units run flat at 1.0.
     rhythm: tuple[tuple[str, float], ...] = ()
     # Word of mouth gates and cap (defaults from the PRD).
@@ -408,12 +411,14 @@ class World:
         return stimuli
 
     def _activated(self, tick: int) -> list[str]:
-        """Personas taking a turn this tick: involvement × rhythm, one seeded draw each."""
+        """Personas taking a turn this tick: involvement × rhythm × the runner's plan, one seeded draw each."""
         overrides = dict(self._config.rhythm)
+        scale = max(0.0, min(1.0, self._config.activation_rate))
         probabilities = {
             persona_id: activation_probability(
                 self._config.involvement_for(persona_id), self.tick_unit, tick, overrides
             )
+            * scale
             for persona_id in self._personas
         }
         return activated_personas(self._personas, probabilities, self._world_seed, tick)
