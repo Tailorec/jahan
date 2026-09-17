@@ -16,6 +16,7 @@ from .errors import (
 from .fake import InMemoryRunRegistry, InMemoryTraceSink
 from .registry import SqliteRunRegistry, replay_config
 from .store import TraceStore, create_world, finalize, view, write
+from .views import ParquetTraceView, SqliteTraceView
 
 __all__ = [
     "DuplicateEntryError",
@@ -23,7 +24,9 @@ __all__ = [
     "FinalizedError",
     "InMemoryRunRegistry",
     "InMemoryTraceSink",
+    "ParquetTraceView",
     "SqliteRunRegistry",
+    "SqliteTraceView",
     "TraceError",
     "TraceStore",
     "UnknownRunError",

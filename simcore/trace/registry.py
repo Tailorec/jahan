@@ -88,6 +88,7 @@ class SqliteRunRegistry:
                     entry.discarded_ticks,
                     entry.config_hash,
                     entry.contract_version,
+                    entry.config.run_id,
                 ),
             )
             if cursor.rowcount == 0:
