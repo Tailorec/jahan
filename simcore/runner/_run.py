@@ -63,6 +63,16 @@ WorldFactory = Callable[[PartitionHeader], object]
 AgentFn = Callable[[list[TurnJob]], Sequence[TurnOutcome]]
 
 
+class WorldFailed(Exception):
+    """A world that raised — outage, corrupt scenario, exhausted circuit.
+
+    Isolated: the world is recorded as partial or not started and the rest
+    of the run continues. Crashes (agent failures mid-tick for resume) are a
+    different thing and still propagate so the tick writes nothing and the
+    run can resume it.
+    """
+
+
 def _persona_index(population: Population) -> dict[str, object]:
     return {p.persona_id: p for p in population.personas}
 
@@ -446,48 +456,95 @@ def run(
                 }
             )
             assert header.world_id == world_id
-            existing = trace.events_for(world_id) if hasattr(trace, "events_for") else ()  # type: ignore[attr-defined]
-            closed = last_closed_tick(tuple(existing))
-            seq = next_seq(tuple(existing))
-            starting_rung = last_recorded_rung(tuple(existing)) if closed >= 0 else None
-            if closed >= 0:
-                rebuilt = rebuild_persona_states(population, tuple(existing), memory_cap=memory_cap)
-                checkpoint = (checkpoints or {}).get(world_id)
-                if checkpoint is not None and not validate_checkpoint(checkpoint, rebuilt, seq):
-                    checkpoint = None
-                states = dict(rebuilt) if checkpoint is None else dict(checkpoint["states"])
-                recorded = turns_by_tick(tuple(existing))
-                world = world_factory(header)
-                _replay_world_to(world, recorded, closed)
-                previous = list(recorded.get(closed, []))
-            else:
-                states = {}
-                for persona in population.personas:
-                    states[persona.persona_id] = PersonaState(
-                        persona_id=persona.persona_id,
-                        beliefs=persona.baseline_beliefs,
-                        memories=(),
-                        last_reflection_tick=0,
-                        turns_since_reflection=0,
+            try:
+                existing = trace.events_for(world_id) if hasattr(trace, "events_for") else ()  # type: ignore[attr-defined]
+                closed = last_closed_tick(tuple(existing))
+                seq = next_seq(tuple(existing))
+                starting_rung = last_recorded_rung(tuple(existing)) if closed >= 0 else None
+                if closed >= 0:
+                    rebuilt = rebuild_persona_states(population, tuple(existing), memory_cap=memory_cap)
+                    checkpoint = (checkpoints or {}).get(world_id)
+                    if checkpoint is not None and not validate_checkpoint(checkpoint, rebuilt, seq):
+                        checkpoint = None
+                    states = dict(rebuilt) if checkpoint is None else dict(checkpoint["states"])
+                    recorded = turns_by_tick(tuple(existing))
+                    world = world_factory(header)
+                    _replay_world_to(world, recorded, closed)
+                    previous = list(recorded.get(closed, []))
+                else:
+                    states = {}
+                    for persona in population.personas:
+                        states[persona.persona_id] = PersonaState(
+                            persona_id=persona.persona_id,
+                            beliefs=persona.baseline_beliefs,
+                            memories=(),
+                            last_reflection_tick=0,
+                            turns_since_reflection=0,
+                        )
+                    world = world_factory(header)
+                    previous = []
+            except ResumeRefused:
+                raise
+            except (WorldFailed, Exception):
+                # Setup failures (factory, replay) before a tick closed mean
+                # the world never started. WorldFailed is the isolated kind;
+                # other setup errors are also recorded rather than omitting.
+                existing = trace.events_for(world_id) if hasattr(trace, "events_for") else ()  # type: ignore[attr-defined]
+                for event in tuple(existing):
+                    known, _ = ledger_sum((event,))
+                    recorded_cost += known
+                outcomes.append(
+                    WorldOutcome.model_validate(
+                        {"world_id": world_id, "status": WorldStatus.NOT_STARTED.value, "rungs": []}
                     )
-                world = world_factory(header)
-                previous = []
-            events, _states, _seq, last_rung, paused = run_world(
-                header,
-                population,
-                trace,
-                world,
-                agent_fn,
-                memory_cap=memory_cap,
-                starting_seq=seq,
-                starting_states=states,
-                from_tick=closed,
-                previous_turns=previous,
-                budget_max=float(config.budget.max_cost),
-                ladder=ladder_cfg,
-                discarded_ticks=base_discarded + pending_discarded,
-                starting_rung=starting_rung,
-            )
+                )
+                continue
+            try:
+                events, _states, _seq, last_rung, paused = run_world(
+                    header,
+                    population,
+                    trace,
+                    world,
+                    agent_fn,
+                    memory_cap=memory_cap,
+                    starting_seq=seq,
+                    starting_states=states,
+                    from_tick=closed,
+                    previous_turns=previous,
+                    budget_max=float(config.budget.max_cost),
+                    ladder=ladder_cfg,
+                    discarded_ticks=base_discarded + pending_discarded,
+                    starting_rung=starting_rung,
+                )
+            except ResumeRefused:
+                raise
+            except WorldFailed:
+                # Isolation: record what the world completed and continue.
+                existing_now = trace.events_for(world_id) if hasattr(trace, "events_for") else ()  # type: ignore[attr-defined]
+                for event in tuple(existing_now):
+                    if event not in tuple(existing):
+                        known, _ = ledger_sum((event,))
+                        recorded_cost += known
+                last_closed = last_closed_tick(tuple(existing_now))
+                rungs = [r.value for r in recorded_rungs(tuple(existing_now))]
+                if last_closed >= 0:
+                    outcomes.append(
+                        WorldOutcome.model_validate(
+                            {
+                                "world_id": world_id,
+                                "status": WorldStatus.PARTIAL.value,
+                                "last_closed_tick": last_closed,
+                                "rungs": rungs,
+                            }
+                        )
+                    )
+                else:
+                    outcomes.append(
+                        WorldOutcome.model_validate(
+                            {"world_id": world_id, "status": WorldStatus.NOT_STARTED.value, "rungs": []}
+                        )
+                    )
+                continue
             for event in tuple(existing) + events:
                 known, _ = ledger_sum((event,))
                 recorded_cost += known

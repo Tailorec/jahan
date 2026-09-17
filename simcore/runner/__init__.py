@@ -11,7 +11,7 @@ from ._ledger import ledger_sum, mean_tick_cost, pessimistic_figure
 from ._plans import LadderConfig, TickPlan, agent_routing_for
 from ._refusal import ResumeRefused, check_resume_inputs
 from ._resume import last_closed_tick, next_seq, rebuild_persona_states, turns_by_tick, validate_checkpoint
-from ._run import run, run_world
+from ._run import WorldFailed, run, run_world
 from ._trace import InMemoryRegistry, InMemoryTraceSink
 from ._version import ENGINE_VERSION
 
@@ -22,6 +22,7 @@ __all__ = [
     "LadderConfig",
     "ResumeRefused",
     "TickPlan",
+    "WorldFailed",
     "agent_routing_for",
     "check_resume_inputs",
     "last_closed_tick",
