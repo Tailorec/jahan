@@ -54,15 +54,24 @@ def check(
     *,
     shown: set[str],
     retrieved_descriptions: tuple[str, ...],
+    noticed: set[str] | None = None,
 ) -> Rejection | None:
-    """The guardrail verdict on one response: rejected with its rule, or accepted."""
+    """The guardrail verdict on one response: rejected with its rule, or accepted.
+
+    The subject must be something the persona noticed: a reaction is about the proposition
+    the persona named, and a stimulus that passed unnoticed cannot be answered about. The
+    verbatim may still mention anything shown or recalled.
+    """
     if parsed is None:
         return Rejection(rule=GuardrailRule.UNPARSEABLE_OUTPUT, detail=f"the response could not be parsed: {error}")
     allowed = allowed_stimuli(shown, retrieved_descriptions)
-    if parsed.subject_stimulus_id not in allowed:
+    answerable = allowed if noticed is None else noticed
+    if parsed.subject_stimulus_id not in answerable:
+        unnoticed = parsed.subject_stimulus_id in allowed
+        why = "passed unnoticed" if unnoticed else "was in neither the impression, the view nor the retrieved memories"
         return Rejection(
             rule=GuardrailRule.REFERENCES_UNSHOWN_STIMULUS,
-            detail=f"the response is about {parsed.subject_stimulus_id}, which was in neither the impression, the view nor the retrieved memories",
+            detail=f"the response is about {parsed.subject_stimulus_id}, which {why}",
         )
     if parsed.verbatim:
         strangers = sorted(set(_STIMULUS_PATTERN.findall(parsed.verbatim)) - allowed)

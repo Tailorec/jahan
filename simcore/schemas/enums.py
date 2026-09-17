@@ -301,6 +301,8 @@ class TurnFailureKind(StrEnum):
     UNCONDITIONED = "unconditioned"
     # The context could not be fitted to the tier's budget without dropping the persona block.
     CONTEXT_BUDGET_EXCEEDED = "context_budget_exceeded"
+    # Every exposure passed unnoticed, so there was nothing to react to and no call was made.
+    NOTHING_NOTICED = "nothing_noticed"
 
 
 class RelaxationRung(StrEnum):

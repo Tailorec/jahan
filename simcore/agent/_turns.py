@@ -279,6 +279,21 @@ def _prepare(
             ),
             block,
         )
+    if not _noticed(job):
+        return _Prepared(
+            job,
+            None,
+            block_hash,
+            (),
+            TurnFailure(
+                persona_id=job.persona.persona_id,
+                impression_id=impression.impression_id,
+                kind=TurnFailureKind.NOTHING_NOTICED,
+                detail="every exposure passed unnoticed, so there was nothing to react to and no call was made",
+                costs=(),
+            ),
+            block,
+        )
     beliefs = job.state.beliefs
     beliefs_text = render_beliefs(
         {dim.value: value for dim, value in beliefs.dimensions.items()},
@@ -361,10 +376,21 @@ def _react(item: _Prepared, outcome: Completion | CallFailure, position: int) ->
     return _Reacted(position, item, outcome, parsed)
 
 
+def _noticed(job: TurnJob) -> set[str]:
+    """What the persona actually noticed: an exposure it did not see cannot be answered about."""
+    return {exposure.stimulus_id for exposure in job.presentation.impression.exposures if exposure.seen}
+
+
 def _rejection(entry: _Reacted):
     """The guardrail verdict on the entry's latest response, or acceptance."""
     shown = set(entry.item.job.presentation.impression.stimulus_ids)
-    return check(entry.parsed, entry.parse_error, shown=shown, retrieved_descriptions=entry.item.retrieved)
+    return check(
+        entry.parsed,
+        entry.parse_error,
+        shown=shown,
+        retrieved_descriptions=entry.item.retrieved,
+        noticed=_noticed(entry.item.job),
+    )
 
 
 def _rereact(entry: _Reacted, outcome: Completion | CallFailure) -> None:
@@ -389,6 +415,7 @@ def _rereact(entry: _Reacted, outcome: Completion | CallFailure) -> None:
             None,
             shown=set(impression.stimulus_ids),
             retrieved_descriptions=entry.item.retrieved,
+            noticed=_noticed(job),
         )
     except ValueError as error:
         parsed, rejection = None, check(
@@ -396,6 +423,7 @@ def _rereact(entry: _Reacted, outcome: Completion | CallFailure) -> None:
             str(error),
             shown=set(impression.stimulus_ids),
             retrieved_descriptions=entry.item.retrieved,
+            noticed=_noticed(job),
         )
         assert rejection is not None
     if rejection is not None:
@@ -418,7 +446,7 @@ def _rereact(entry: _Reacted, outcome: Completion | CallFailure) -> None:
 def _strict_request(entry: _Reacted, cfg: AgentConfig) -> ChatRequest:
     assert entry.item.assembled is not None
     job = entry.item.job
-    allowed = allowed_stimuli(set(job.presentation.impression.stimulus_ids), entry.item.retrieved)
+    allowed = _noticed(job) or allowed_stimuli(set(job.presentation.impression.stimulus_ids), entry.item.retrieved)
     assembled = assemble(
         persona_block=entry.item.assembled.persona_block,
         persona_block_hash=entry.item.assembled.persona_block_hash,
@@ -587,9 +615,16 @@ def _probe_payload(probed: _Probed | None, tick: int):
 
 
 def _settle(parsed: ParsedReaction, seen: list[str], first_shown: str) -> tuple[ActionKind, str | None, str]:
-    """A reaction engages with what the persona noticed; what passed unnoticed gets no reply."""
-    if parsed.action is ActionKind.IGNORE or parsed.subject_stimulus_id in seen:
+    """A reaction is recorded about the stimulus the persona named, and no other.
+
+    The guardrail has already refused a subject the persona did not notice, so anything
+    reaching here names what it noticed — or ignores, which needs no subject.
+    """
+    if parsed.action is ActionKind.IGNORE:
         return parsed.action, parsed.verbatim, parsed.subject_stimulus_id
-    if seen:
-        return parsed.action, parsed.verbatim, seen[0]
-    return ActionKind.IGNORE, None, first_shown
+    if parsed.subject_stimulus_id in seen:
+        return parsed.action, parsed.verbatim, parsed.subject_stimulus_id
+    raise AssertionError(
+        f"a reaction about {parsed.subject_stimulus_id}, which was not noticed, reached the record: "
+        "the guardrail should have refused it"
+    )
