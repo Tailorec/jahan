@@ -12,6 +12,7 @@ from pydantic import model_validator
 from .base import HashDigest, Identifier, PersonaId, SimBaseModel
 from .enums import GuardrailRule, TurnFailureKind, TurnTask
 from .persona import Persona
+from .inference import CostRecorded
 from .sim import BeliefChange, ImpressionId, MemoryEvent, MemoryId, PersonaState, Presentation, ProbeResult, Turn
 
 
@@ -47,6 +48,10 @@ class CompletedTurn(SimBaseModel):
     memories: tuple[MemoryEvent, ...] = ()
     belief_change: BeliefChange = BeliefChange()
     probe: ProbeResult | None = None
+    # Every call this turn made, as the ports billed it: the reaction, any stricter retry, a
+    # reflection, a probe and the embeddings. The runner writes them against this persona, so a
+    # turn that dropped them would make the study's spend unrecoverable.
+    costs: tuple[CostRecorded, ...] = ()
 
     @property
     def persona_id(self) -> str:
@@ -76,6 +81,9 @@ class TurnFailure(SimBaseModel):
     detail: str
     rule: GuardrailRule | None = None
     prompt_hashes: tuple[HashDigest, ...] = ()
+    # What the failed attempt billed anyway: an endpoint that charged for an answer it never
+    # returned is still spend, and a ledger that ignores it undercounts the run.
+    costs: tuple[CostRecorded, ...] = ()
 
     @model_validator(mode="after")
     def _a_violation_names_its_rule_and_both_attempts(self) -> Self:

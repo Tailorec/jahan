@@ -270,13 +270,30 @@ class PersonaState(SimBaseModel):
 
 
 class ProbeAnswer(SimBaseModel):
-    """One character-probe question, what the persona's own attributes say, and what it answered."""
+    """One character-probe question, what the persona's own attributes say, and what it answered.
+
+    The question is closed: the persona chooses between its own value and distractors from the
+    attribute's domain. An open question cannot be marked wrong — a persona answering "three or
+    four times a week" holds `3_plus_weekly` and would read as drift — so `options` carries what
+    was offered, and an answer naming none of them is `answered=False` rather than disagreement.
+    """
 
     question: NonEmptyStr
     attribute: Identifier
     expected: NonEmptyStr
     answer: NonEmptyStr
     agreed: bool
+    options: tuple[NonEmptyStr, ...] = ()
+    # False when the call failed, or its answer named no option: silence is not drift.
+    answered: bool = True
+
+    @model_validator(mode="after")
+    def _an_unanswered_probe_agrees_with_nothing(self) -> Self:
+        if not self.answered and self.agreed:
+            raise ValueError("a probe that was never answered cannot agree")
+        if self.options and self.expected not in self.options:
+            raise ValueError(f"the persona's own value {self.expected!r} is not among the options it was offered")
+        return self
 
 
 class ProbeResult(SimBaseModel):
@@ -295,8 +312,17 @@ class ProbeResult(SimBaseModel):
 
     @computed_field
     @property
+    def answered_count(self) -> int:
+        return sum(answer.answered for answer in self.answers)
+
+    @computed_field
+    @property
     def disagreement_rate(self) -> float:
-        return sum(not answer.agreed for answer in self.answers) / len(self.answers)
+        """Drift among the questions the persona actually answered; an unread probe says nothing."""
+        answered = [answer for answer in self.answers if answer.answered]
+        if not answered:
+            return 0.0
+        return sum(not answer.agreed for answer in answered) / len(answered)
 
 
 class SsrResult(SimBaseModel):
@@ -360,6 +386,15 @@ class Reaction(SimBaseModel):
     verbatim: NonEmptyStr | None = None
     belief_change: BeliefChange = BeliefChange()
     intent: SsrResult | None = None
+    # When no anchor version is pinned the verbatim is kept and the recorded failure
+    # stands in place of a distribution, so a run without intent data is visibly that.
+    elicitation_failure: ElicitationFailure | None = None
+
+    @model_validator(mode="after")
+    def _a_distribution_or_the_failure_in_its_place(self) -> Self:
+        if self.intent is not None and self.elicitation_failure is not None:
+            raise ValueError("a reaction carries a distribution or the failure that stands in its place, never both")
+        return self
 
     @model_validator(mode="after")
     def _verbatim_matches_action(self) -> Self:

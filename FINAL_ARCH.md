@@ -324,16 +324,18 @@ Sampling, graph rewiring and community detection draw from **independent streams
 
 *Absorbs old M8 (agent), M10 (memory), and the previously unowned `ContextBuilder`.*
 
-**Owns:** one persona's reaction to one stimulus, and **the persona-conditioning invariant**.
-**Hides:** context assembly and token budgeting, persona rendering from 1,290 attributes, memory retrieval scoring, reflection triggering, belief updates, tier routing, output parsing, guardrail enforcement.
+**Owns:** one persona's reaction to one impression, and **the persona-conditioning invariant**.
+**Hides:** context assembly and token budgeting, persona rendering from ontology-selected attributes, memory retrieval scoring, reflection triggering, belief updates, tier routing, purchase-intent scoring, output parsing, guardrail enforcement, the character probe.
 
-**Interface:** `turns(jobs: Sequence[TurnJob]) -> tuple[TurnOutcome, ...]`
+**Interface:** `turns(jobs, *, chat, config, ontology, blocks, embed, stimulus_texts) -> tuple[TurnOutcome, ...]`
 
 A job is one persona, its `PersonaState` and its presentation; an outcome is a completed turn or a recorded turn
 failure, one per job in request order (ADR 0031). A single turn is `turns([job])[0]`, and batching coalesces calls,
 never contexts — every persona still gets its own prompt. **The agent stores nothing:** beliefs, the persona's own
 memories and its reflection counters travel in and out, the trace is the store, and the runner is its only writer,
-so any worker can take any persona (ADR 0030). A turn that cannot be scored for purchase intent, because no anchor
+so any worker can take any persona (ADR 0030). The rendered persona block travels beside the call in a
+`PersonaBlockCache` the runner holds: rendered once per persona per run, reused across ticks, its hash recorded on
+every turn. A turn that cannot be scored for purchase intent, because no anchor
 version is pinned, keeps its verbatim and records the elicitation failure in place of a distribution (ADR 0032).
 
 The `View` is the public context of exactly the stimuli in the impression: like, repost, reply, upvote and downvote counts, reply ancestry, and the persona's tie strength and shared community with each author. It never carries another persona's attributes, beliefs or private reactions, nor any aggregate outcome — a persona that could see running adoption would react to the result being measured. Counts include only engagement from earlier ticks. The impression and view travel together as a presentation, and the turn records the view it was given (ADR 0010).
@@ -342,26 +344,31 @@ A persona reacts once per channel per tick, to everything it saw — an `Impress
 
 **Why these merged:** memory had exactly one caller and an interface as complex as its implementation. More importantly, `ContextBuilder` was referenced by the old spec but assigned to no module — and it is where persona conditioning lives. Conditioning is the load-bearing variable in the SSR literature: unconditioned personas produce optimistic, narrow distributions and rank correlation falls to roughly half. **An invariant that decides the engine's validity cannot be co-owned.** It now has exactly one owner, and one place to test.
 
-**Internals:**
-1. **Tier routing** — `{first_seen, conversation, reflection, purchase, claim_audit}` → tier B; everything else → tier A. The routing table is config, not code.
-2. **Context assembly** — persona block rendered from ontology-selected attributes, plus current beliefs (read directly, no retrieval cost), plus retrieved memories, plus the stimulus. Token-budgeted per tier.
-3. **Conditioning assertion** — the context is checked for a non-empty persona block before dispatch. A turn cannot proceed unconditioned; the failure is loud.
-4. **Memory retrieval** — `score = exp(-Δt/τ_r) · importance · cos(emb_event, emb_stimulus)`, top-k per tier (A: 3, B: 8), `τ_r ≈ horizon/4`.
-5. **Dispatch** via `ChatPort`.
-6. **Parse** per task type; SSR applied via `elicitation` when the task asks purchase intent.
-7. **Guardrails at parse time** — free text referencing a stimulus not in context (impression, view and the persona's own memories) is rejected and retried once with a stricter instruction. A turn accepted on retry records the prompt hash it rejected; a turn whose retry also fails is recorded as a `guardrail_violation` trace event carrying the impression, view, both prompt hashes and the rule broken, in place of a reaction. Never silently kept.
-8. **Belief update** — deltas applied across the closed `BeliefDim` set (price value, self fit, trust) *and* per-claim credence; reflection triggered every ~6 ticks or on `max |Δ| > 0.3` across dimensions and claims together, so a persona who flips on one specific claim reflects even when aggregate belief barely moves. Writes a new belief snapshot and a high-importance memory event.
+**Internals, one batched round each:**
+1. **Tier routing** — `{first_seen, conversation, reflection, purchase, claim_audit}` → tier B; everything else → tier A. The routing table is `AgentConfig`, data a study changes, not code.
+2. **Context assembly** — the cached persona block, current beliefs read directly (no retrieval cost), retrieved memories, the impression and its view, then the frozen question (the free-text elicitation template on purchase tasks). Token-budgeted per tier on the wire format: memories drop lowest-ranked first, then beliefs, and a budget that would drop the persona block fails the turn instead.
+3. **Conditioning assertion** — the block is checked for non-emptiness before dispatch. A turn cannot proceed unconditioned; the failure (`unconditioned`) is loud and recorded, and no model call is made.
+4. **Memory retrieval** — `score = exp(-Δt/τ_r) · importance · cos(emb_event, emb_stimulus)` over the persona's own memories only, top-k per tier (A: 3, B: 8), `τ_r = horizon/4`. Memories are embedded once when written through `EmbedPort` and never re-embedded at retrieval. Importance follows a rule from the action taken and the size of the belief change — free and deterministic on tier A; on tier B the model may rate it inside the call already being made.
+5. **Dispatch** via `ChatPort`, one batched `complete` per round: reactions, then stricter retries, then tier-B reflections, then tier-A probes.
+6. **Parse** per task type, including optional belief deltas across the closed `BeliefDim` set and per claim; purchase-intent text is scored through `elicitation` when a passing anchor version is pinned, else kept beside its recorded failure. No prompt asks a model for a number.
+7. **Guardrails at parse time** — the only two rules: a stimulus referenced that was in neither the impression, the view nor the persona's retrieved memories, and output that cannot be parsed. Either is rejected and retried once with a stricter instruction naming the allowed stimuli. A turn accepted on retry records the prompt hash it rejected; a turn whose retry also fails is recorded as a `guardrail_violation` carrying the impression, view, both prompt hashes and the rule broken, in place of a reaction. Never silently kept.
+8. **Belief update and reflection** — deltas applied across dimensions and per claim, so a single-claim flip is visible when aggregate belief barely moves. Reflection fires on the per-persona cadence jittered from the run seed (4–8 ticks) or on `max |Δ| > 0.3` across dimensions and claims together, as a tier-B call producing a further change plus one to three consolidated memories of high importance; a failed reflection consolidates by rule. Memories are capped with the highest-importance items kept, so state stays bounded over a long horizon.
+9. **Character probe** — a seeded share (2%) of activated personas every 10 ticks is asked two questions whose answers sit in their own attributes, on tier A. Results record persona, questions, answers and agreement; the run's disagreement rate derives from them. A disagreeing probe never fails the turn or alters the reaction.
+
+State crosses the boundary in `PersonaState` and returns in `CompletedTurn` (reaction, new memories, combined belief change, probe result, recalled memory ids, hashes); the runner applies it with `advance_state` and writes the trace records — turn, memories, belief snapshot, reflection, probe — from which `rebuild_state` reproduces the carried state exactly. Every seeded draw (reflection cadence, probe sampling and questions, identifiers) derives from the run seed and a named purpose, so two processes agree bit-identically.
 
 **Salvage:** OASIS `agent.py`, `agent_action.py`, `agent_environment.py` (agent↔action↔env indirection; extend `ActionType` with `buy`, `ask_peer`, `reject`, `complain`). MatrAIx `templating.py` — the 1,290-attribute → prompt-section renderer, which is the hardest prompt-engineering problem in the salvage set and is already solved upstream. MatrAIx `user_sim.py` for conversational turns. Generative Agents (Park et al.) for the memory-and-reflection method — paper only, no code.
 
-**Boundary tests** (`FakeInference` + `StubAnchors`):
-- **the conditioning test** — conditioned and unconditioned context produce measurably different PMF distributions in the direction the literature reports; unconditioned dispatch is refused outright;
-- a stimulus absent from context triggers the guardrail path exactly once, then logs a violation;
-- reflection fires at the tick cadence and at the belief-delta threshold — including a flip on a single claim — and not otherwise;
+**Boundary tests** (`FakeChat` + `FakeEmbed`/`DictEmbed` + staged passing anchors; the suite never reaches a network):
+- **the conditioning invariant** — the persona block reaches the prompt and distinguishes it (four personas, four different blocks), and unconditioned dispatch is refused outright with no model call. That conditioning *changes answers* the way the literature reports is a real-model measurement, not a boundary test: a stand-in's answers are whatever the stand-in was written to return, so a fake asserting the effect asserts only itself. Owed as an evaluation beside the holdout (`plans/m6-agent.md`);
+- the block renders from ontology-selected attributes, once per persona per run through the runner-held cache, its hash on every turn;
+- a stimulus absent from context triggers the guardrail path exactly once (one batched retry round), then records a violation with two distinct prompt hashes; unparseable output takes the same path; the two rules are asserted as the only ones over the package;
+- reflection fires at the jittered cadence and at the belief-delta threshold — including a flip on a single claim — and not otherwise; the jitter is deterministic under a fixed seed; consolidation writes one to three high-importance memories and the cap keeps state bounded over forty ticks;
+- memory importance follows the rule with no model call on tier A; retrieval returns the k most relevant items under a controlled-geometry fixture (3 on tier A, 8 on tier B), never another persona's memory; memories embed once at write and never at retrieval;
+- tier routing matches the configuration table for every task and the table is overridable data; a pinned purchase turn records an `SsrResult`, an unpinned one the verbatim and its failure; no prompt constant requests a number; tier-B importance rides the same call and tier-A turns coalesce into one batch;
+- the probe samples its share on its cadence from the run seed, asks the persona's own attributes on tier A, records agreement, and never alters the reaction; the run's disagreement rate derives from the recorded results;
 - a survey-room impression carries exactly one exposure and produces exactly one reaction;
-- memory retrieval returns the k most relevant items under a known fixture;
-- token budget respected per tier;
-- tier routing matches the config table for all event classes.
+- state rebuilt from replayed trace events equals the carried state; two processes agree bit-identically under a fixed seed; a resumed run continues from checkpointed state without re-running completed turns.
 
 ---
 
@@ -688,7 +695,7 @@ What changed from the previous 28-module design, and why. Recorded so the reason
 
 **2. Budget enforcement moved into the runner.** Previously the governor decided and three modules applied. One policy with three interpretation points cannot be tested in one place, and a misinterpretation degrades fidelity mid-run without failing — a study silently becomes a different study. The governor now applies degradation itself by mutating the run plan; `agent` and `world` never learn that budgets exist.
 
-**3. Persona conditioning got an owner.** Context assembly was referenced by the old spec but assigned to no module, while conditioning is the variable that decides whether the elicitation method works at all. It now lives in `agent`, with a boundary test that asserts the effect directly rather than inferring it from a full run.
+**3. Persona conditioning got an owner.** Context assembly was referenced by the old spec but assigned to no module, while conditioning is the variable that decides whether the elicitation method works at all. It now lives in `agent`, where boundary tests assert that the block reaches the prompt and that an unconditioned turn is refused; the effect on answers is measured against a real model, not asserted against a fake.
 
 **4. Derivation was split from rendering.** Objection clustering previously appeared in both the sweep digest and the report builder, and the trust guard sat in the renderer, testable only by rendering. `analysis` owns all derivation and the guard; `report` only formats pre-validated findings and structurally cannot introduce a claim.
 

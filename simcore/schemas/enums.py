@@ -301,6 +301,8 @@ class TurnFailureKind(StrEnum):
     UNCONDITIONED = "unconditioned"
     # The context could not be fitted to the tier's budget without dropping the persona block.
     CONTEXT_BUDGET_EXCEEDED = "context_budget_exceeded"
+    # Every exposure passed unnoticed, so there was nothing to react to and no call was made.
+    NOTHING_NOTICED = "nothing_noticed"
 
 
 class RelaxationRung(StrEnum):
@@ -340,4 +342,7 @@ class ElicitationFailureKind(StrEnum):
     NUMERIC_ANSWER = "numeric_answer"
     EMBEDDING_FAILURE = "embedding_failure"
     EMPTY_RESPONSE = "empty_response"
+    # No anchor version is pinned for the construct, so the verbatim is kept and the
+    # recorded failure stands in place of a distribution (ADR 0032).
+    UNPINNED_ANCHORS = "unpinned_anchors"
 
