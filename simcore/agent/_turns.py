@@ -6,8 +6,10 @@ others. A single turn is `turns([job])[0]` — the same code path, not a simpler
 
 Dispatch is refused before any model call when the persona block is empty
 (`unconditioned`), or when the tier's budget cannot hold the block (`context_exceeded`).
-A turn whose beliefs moved sharply, or whose persona is due, reflects in a second
-batched round on tier B before its outcome is recorded.
+A response the guardrails reject is retried once with a stricter instruction; a second
+rejection is recorded as a violation in place of a reaction. A turn whose beliefs moved
+sharply, or whose persona is due, reflects in a further batched round on tier B before
+its outcome is recorded.
 """
 
 from __future__ import annotations
@@ -43,7 +45,8 @@ from ._beliefs import (
     split_summary,
 )
 from ._config import AgentConfig
-from ._context import ContextBudgetExceeded, assemble, render_beliefs
+from ._context import AssembledContext, ContextBudgetExceeded, assemble, render_beliefs
+from ._guard import allowed_stimuli, check, strict_question
 from ._ids import reaction_id, ulid_from
 from ._memory import describe_turn, importance_of, retrieve, write_memory
 from ._parse import ParsedReaction, parse_reaction, parse_reflection
@@ -72,34 +75,45 @@ def turns(
     """One outcome per job in request order: a completed turn or a recorded turn failure."""
     cfg = config or AgentConfig()
     cache = blocks if blocks is not None else PersonaBlockCache()
-    prepared = [_prepare(job, index, cfg, ontology, cache, embed, stimulus_texts) for index, job in enumerate(jobs)]
-    dispatch = [(position, item) for position, item in enumerate(prepared) if item.request is not None]
-    first: dict[int, Completion | CallFailure] = {}
-    if dispatch:
-        outcomes = chat.complete([item.request for _, item in dispatch])
-        first = {position: outcome for (position, _), outcome in zip(dispatch, outcomes)}
+    prepared = [_prepare(job, cfg, ontology, cache, embed, stimulus_texts) for job in jobs]
+    first = _dispatch(chat, [(position, item.request) for position, item in enumerate(prepared) if item.request is not None])
     reacted = [_react(item, first[position], position) for position, item in enumerate(prepared) if item.request is not None]
 
-    due = [entry for entry in reacted if entry.failure is None and _due(entry, cfg)]
-    second: dict[int, Completion | CallFailure] = {}
-    if due:
-        answers = chat.complete([_reflection_request(entry, cfg) for entry in due])
-        second = {entry.position: answer for entry, answer in zip(due, answers)}
+    rejected = [entry for entry in reacted if entry.failure is None and _rejection(entry) is not None]
+    retried = _dispatch(
+        chat, [(entry.position, _strict_request(entry, cfg)) for entry in rejected]
+    )
+    for entry in rejected:
+        _rereact(entry, retried[entry.position])
 
+    answerable = [entry for entry in reacted if entry.failure is None and entry.parsed is not None]
+    due = [entry for entry in answerable if _due(entry, cfg)]
+    second = _dispatch(chat, [(entry.position, _reflection_request(entry, cfg)) for entry in due])
+
+    by_position = {entry.position: entry for entry in reacted}
     results: list[TurnOutcome] = []
-    reacted_by_position = {entry.position: entry for entry in reacted}
     for position, item in enumerate(prepared):
-        if item.early is not None:
+        if item.request is None:
+            assert item.early is not None
             results.append(item.early)
         else:
-            results.append(_finalize(reacted_by_position[position], second.get(position), cfg, embed))
+            results.append(_finalize(by_position[position], second.get(position), cfg, embed))
     return tuple(results)
+
+
+def _dispatch(chat, calls: list[tuple[int, ChatRequest]]) -> dict[int, Completion | CallFailure]:
+    """One batched call per round; positions map back to jobs in request order."""
+    if not calls:
+        return {}
+    positions = [position for position, _ in calls]
+    outcomes = chat.complete([request for _, request in calls])
+    return dict(zip(positions, outcomes))
 
 
 def _due(entry: _Reacted, cfg: AgentConfig) -> bool:
     return reflection_due(
         entry.item.job.state,
-        entry.change,
+        entry.parsed.belief_change if entry.parsed is not None else BeliefChange(),
         run_seed=cfg.run_seed,
         base=cfg.reflection_interval,
         jitter=cfg.reflection_jitter,
@@ -108,7 +122,7 @@ def _due(entry: _Reacted, cfg: AgentConfig) -> bool:
 
 
 class _Prepared:
-    __slots__ = ("early", "job", "memory_ids", "persona_block", "persona_block_hash", "request")
+    __slots__ = ("assembled", "early", "job", "memory_ids", "persona_block", "persona_block_hash", "request", "retrieved")
 
     def __init__(
         self,
@@ -118,6 +132,8 @@ class _Prepared:
         memory_ids: tuple[str, ...],
         early: TurnFailure | None,
         persona_block: str = "",
+        assembled: AssembledContext | None = None,
+        retrieved: tuple[str, ...] = (),
     ) -> None:
         self.job = job
         self.request = request
@@ -125,24 +141,24 @@ class _Prepared:
         self.memory_ids = memory_ids
         self.early = early
         self.persona_block = persona_block
+        self.assembled = assembled
+        self.retrieved = retrieved
 
 
 @dataclass
 class _Reacted:
     position: int
     item: _Prepared
-    outcome: Completion | None = None
+    outcome: Completion | CallFailure | None = None
     parsed: ParsedReaction | None = None
-    action: ActionKind = ActionKind.IGNORE
-    verbatim: str | None = None
-    subject: str = ""
-    change: BeliefChange = BeliefChange()
+    parse_error: str | None = None
+    rejected_hash: str | None = None
+    rejection_rule: object = None
     failure: TurnFailure | None = None
 
 
 def _prepare(
     job: TurnJob,
-    index: int,
     cfg: AgentConfig,
     ontology: CategoryOntology | None,
     cache: PersonaBlockCache,
@@ -218,7 +234,10 @@ def _prepare(
         max_tokens=cfg.max_tokens,
         template_id=cfg.template_id,
     )
-    return _Prepared(job, request, block_hash, memory_ids, None, block)
+    return _Prepared(
+        job, request, block_hash, memory_ids, None, block, assembled,
+        tuple(memory.description for memory in recalled),
+    )
 
 
 def _react(item: _Prepared, outcome: Completion | CallFailure, position: int) -> _Reacted:
@@ -228,6 +247,7 @@ def _react(item: _Prepared, outcome: Completion | CallFailure, position: int) ->
         return _Reacted(
             position,
             item,
+            outcome,
             failure=TurnFailure(
                 persona_id=job.persona.persona_id,
                 impression_id=impression.impression_id,
@@ -238,31 +258,83 @@ def _react(item: _Prepared, outcome: Completion | CallFailure, position: int) ->
     try:
         parsed = parse_reaction(outcome.text)
     except ValueError as error:
-        return _Reacted(
-            position,
-            item,
-            failure=TurnFailure(
-                persona_id=job.persona.persona_id,
-                impression_id=impression.impression_id,
-                kind=TurnFailureKind.CALL_FAILED,
-                detail=f"the response could not be used: {error}",
-            ),
+        return _Reacted(position, item, outcome, None, str(error))
+    return _Reacted(position, item, outcome, parsed)
+
+
+def _rejection(entry: _Reacted):
+    """The guardrail verdict on the entry's latest response, or acceptance."""
+    shown = set(entry.item.job.presentation.impression.stimulus_ids)
+    return check(entry.parsed, entry.parse_error, shown=shown, retrieved_descriptions=entry.item.retrieved)
+
+
+def _rereact(entry: _Reacted, outcome: Completion | CallFailure) -> None:
+    """Fold the stricter retry into the entry: accepted, or a recorded violation."""
+    assert isinstance(entry.outcome, Completion)
+    first_hash = entry.outcome.prompt_hash
+    job = entry.item.job
+    impression = job.presentation.impression
+    if isinstance(outcome, CallFailure):
+        entry.failure = TurnFailure(
+            persona_id=job.persona.persona_id,
+            impression_id=impression.impression_id,
+            kind=TurnFailureKind.CALL_FAILED,
+            detail=f"the stricter retry's call failed: {outcome.detail}",
         )
-    shown = {exposure.stimulus_id for exposure in impression.exposures}
-    if parsed.subject_stimulus_id not in shown:
-        return _Reacted(
-            position,
-            item,
-            failure=TurnFailure(
-                persona_id=job.persona.persona_id,
-                impression_id=impression.impression_id,
-                kind=TurnFailureKind.CALL_FAILED,
-                detail=f"the response is about {parsed.subject_stimulus_id}, which the impression did not show",
-            ),
+        return
+    try:
+        parsed = parse_reaction(outcome.text)
+        rejection = check(
+            parsed,
+            None,
+            shown=set(impression.stimulus_ids),
+            retrieved_descriptions=entry.item.retrieved,
         )
-    seen = [exposure.stimulus_id for exposure in impression.exposures if exposure.seen]
-    action, verbatim, subject = _settle(parsed, seen, impression.exposures[0].stimulus_id)
-    return _Reacted(position, item, outcome, parsed, action, verbatim, subject, parsed.belief_change)
+    except ValueError as error:
+        parsed, rejection = None, check(
+            None,
+            str(error),
+            shown=set(impression.stimulus_ids),
+            retrieved_descriptions=entry.item.retrieved,
+        )
+        assert rejection is not None
+    if rejection is not None:
+        entry.failure = TurnFailure(
+            persona_id=job.persona.persona_id,
+            impression_id=impression.impression_id,
+            kind=TurnFailureKind.GUARDRAIL_VIOLATION,
+            detail=rejection.detail,
+            rule=rejection.rule,
+            prompt_hashes=(first_hash, outcome.prompt_hash),
+        )
+        return
+    assert parsed is not None
+    entry.parsed = parsed
+    entry.outcome = outcome
+    entry.rejected_hash = first_hash
+
+
+def _strict_request(entry: _Reacted, cfg: AgentConfig) -> ChatRequest:
+    assert entry.item.assembled is not None
+    job = entry.item.job
+    allowed = allowed_stimuli(set(job.presentation.impression.stimulus_ids), entry.item.retrieved)
+    assembled = assemble(
+        persona_block=entry.item.assembled.persona_block,
+        persona_block_hash=entry.item.assembled.persona_block_hash,
+        beliefs_text=entry.item.assembled.beliefs_text,
+        memory_texts=entry.item.assembled.memory_texts,
+        impression_json=job.presentation.impression.model_dump_json(),
+        view_json=job.presentation.view.model_dump_json(),
+        question=strict_question(allowed),
+        budget=cfg.token_budget[cfg.tier_for(job.task)],
+    )
+    return ChatRequest(
+        role=cfg.tier_for(job.task),
+        messages=tuple(dict(message) for message in assembled.messages),
+        temp=0.0,
+        max_tokens=cfg.max_tokens,
+        template_id=cfg.strict_template_id,
+    )
 
 
 def _stimulus_text(job: TurnJob, stimulus_texts: Mapping[str, str] | None) -> str:
@@ -284,7 +356,7 @@ def _reflection_request(entry: _Reacted, cfg: AgentConfig) -> ChatRequest:
             dict(job.state.beliefs.claim_credence),
         ),
         "memories": [f"[tick {memory.tick}] {memory.description}" for memory in job.state.memories[-8:]],
-        "turn": entry.parsed.verbatim or entry.action.value,
+        "turn": entry.parsed.verbatim if entry.parsed is not None and entry.parsed.verbatim else "",
         "question": REFLECTION_QUESTION,
     }
     return ChatRequest(
@@ -300,6 +372,7 @@ def _reflection_memories(
     entry: _Reacted, answer: Completion | CallFailure | None, tick: int, embed
 ) -> tuple[BeliefChange, tuple[MemoryEvent, ...]]:
     """The reflection's revision and its consolidated memories — or the rule-based fallback."""
+    assert isinstance(entry.outcome, Completion) and entry.parsed is not None
     persona_id = entry.item.job.persona.persona_id
     if isinstance(answer, Completion):
         try:
@@ -319,10 +392,11 @@ def _reflection_memories(
                 for index, sentence in enumerate(split_summary(parsed.summary))
             )
             return parsed.belief_change, memories
+    action, verbatim, subject = _settled(entry)
     fallback = write_memory(
         memory_uid=f"me-{ulid_from('reflection-fallback', persona_id, entry.outcome.prompt_hash)}",
         tick=tick,
-        description=f"On reflection: {describe_turn(entry.action, entry.subject, entry.parsed.verbatim)}",
+        description=f"On reflection: {describe_turn(action, subject, verbatim)}",
         importance=CONSOLIDATED_IMPORTANCE,
         source=MemorySource.REFLECTION,
         embed=embed,
@@ -330,10 +404,17 @@ def _reflection_memories(
     return BeliefChange(), (fallback,)
 
 
+def _settled(entry: _Reacted) -> tuple[ActionKind, str | None, str]:
+    assert entry.parsed is not None
+    impression = entry.item.job.presentation.impression
+    seen = [exposure.stimulus_id for exposure in impression.exposures if exposure.seen]
+    return _settle(entry.parsed, seen, impression.exposures[0].stimulus_id)
+
+
 def _finalize(entry: _Reacted, answer: Completion | CallFailure | None, cfg: AgentConfig, embed) -> TurnOutcome:
     if entry.failure is not None:
         return entry.failure
-    assert entry.outcome is not None and entry.parsed is not None
+    assert entry.parsed is not None and isinstance(entry.outcome, Completion)
     job = entry.item.job
     impression = job.presentation.impression
     tick = impression.tick
@@ -341,16 +422,18 @@ def _finalize(entry: _Reacted, answer: Completion | CallFailure | None, cfg: Age
         revision, consolidated = BeliefChange(), ()
     else:
         revision, consolidated = _reflection_memories(entry, answer, tick, embed)
-    change = combine(entry.change, revision)
+    change = combine(entry.parsed.belief_change, revision)
     if cfg.tier_for(job.task) is InferenceRole.TIER_B and entry.parsed.importance is not None:
         importance = entry.parsed.importance
     else:
-        importance = importance_of(entry.action, change)
+        action, _, _ = _settled(entry)
+        importance = importance_of(action, change)
+    action, verbatim, subject = _settled(entry)
     reaction = Reaction(
         reaction_id=reaction_id(entry.outcome.prompt_hash, job.persona.persona_id, entry.position),
-        subject_stimulus_id=entry.subject,
-        action=entry.action,
-        verbatim=entry.verbatim,
+        subject_stimulus_id=subject,
+        action=action,
+        verbatim=verbatim,
         belief_change=change,
         intent=None,
     )
@@ -358,20 +441,22 @@ def _finalize(entry: _Reacted, answer: Completion | CallFailure | None, cfg: Age
     remembered = write_memory(
         memory_uid=f"me-{ulid_from('memory', job.persona.persona_id, entry.outcome.prompt_hash)}",
         tick=tick,
-        description=describe_turn(entry.action, entry.subject, entry.verbatim),
+        description=describe_turn(action, subject, verbatim),
         importance=importance,
         source=MemorySource.TURN,
         embed=embed,
     )
-    return CompletedTurn(
+    completed = CompletedTurn(
         turn=turn,
         template_id=entry.outcome.template_id,
         prompt_hash=entry.outcome.prompt_hash,
         persona_block_hash=entry.item.persona_block_hash,
         memory_ids=entry.item.memory_ids,
+        rejected_prompt_hashes=(entry.rejected_hash,) if entry.rejected_hash is not None else (),
         memories=(remembered, *consolidated),
         belief_change=change,
     )
+    return completed
 
 
 def _settle(parsed: ParsedReaction, seen: list[str], first_shown: str) -> tuple[ActionKind, str | None, str]:

@@ -24,12 +24,14 @@ from ._config import AgentConfig, DEFAULT_TIER_ROUTING
 from ._context import ContextBudgetExceeded, estimate_tokens
 from ._memory import append_memories, importance_of, retrieve, score_memory, write_memory
 from ._render import PersonaBlockCache, render_block, selected_attributes
+from ._guard import GUARDRAILS
 from ._turns import turns
 
 __all__ = [
     "AgentConfig",
     "ContextBudgetExceeded",
     "DEFAULT_TIER_ROUTING",
+    "GUARDRAILS",
     "PersonaBlockCache",
     "advance_state",
     "append_memories",
