@@ -92,6 +92,7 @@ def test_hot_path_records_validate_strictly_on_read(tmp_path):
 
 def test_reads_are_gapless_and_ordered_by_persona_tick_and_seq(tmp_path):
     from simcore.schemas import EventFilter
+    from simcore.trace import derive as _derive
 
     store = TraceStore(tmp_path)
     header, entry = seed_header_and_entry(store)
@@ -102,7 +103,7 @@ def test_reads_are_gapless_and_ordered_by_persona_tick_and_seq(tmp_path):
     read = store.read_live(header.config.run_id, header.world_id)
     assert [e.seq for e in read] == list(range(len(events)))
     # The read shape orders by `(persona_id, tick, seq)`.
-    ordered = store.view(entry.config.run_id).events(EventFilter())
+    ordered = _derive.filter_events(read, EventFilter())
     keys = [(e.persona_id or "", e.tick, e.seq) for e in ordered]
     assert keys == sorted(keys)
     assert {e.event_id for e in ordered} == {e.event_id for e in read}
