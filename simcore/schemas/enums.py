@@ -340,4 +340,7 @@ class ElicitationFailureKind(StrEnum):
     NUMERIC_ANSWER = "numeric_answer"
     EMBEDDING_FAILURE = "embedding_failure"
     EMPTY_RESPONSE = "empty_response"
+    # No anchor version is pinned for the construct, so the verbatim is kept and the
+    # recorded failure stands in place of a distribution (ADR 0032).
+    UNPINNED_ANCHORS = "unpinned_anchors"
 

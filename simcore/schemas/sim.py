@@ -360,6 +360,15 @@ class Reaction(SimBaseModel):
     verbatim: NonEmptyStr | None = None
     belief_change: BeliefChange = BeliefChange()
     intent: SsrResult | None = None
+    # When no anchor version is pinned the verbatim is kept and the recorded failure
+    # stands in place of a distribution, so a run without intent data is visibly that.
+    elicitation_failure: ElicitationFailure | None = None
+
+    @model_validator(mode="after")
+    def _a_distribution_or_the_failure_in_its_place(self) -> Self:
+        if self.intent is not None and self.elicitation_failure is not None:
+            raise ValueError("a reaction carries a distribution or the failure that stands in its place, never both")
+        return self
 
     @model_validator(mode="after")
     def _verbatim_matches_action(self) -> Self:
