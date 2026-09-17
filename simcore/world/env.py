@@ -71,6 +71,13 @@ class WorldConfig:
     forum_preset: ForumPreset = ForumPreset.REDDIT_GLOBAL
     # None inherits the scenario's exposure budget; the survey room always shows exactly one.
     exposure_budget: int | None = None
+    # How attention falls down an impression: the first slot has the persona's full notice and
+    # the last has `last_slot_attention` of it, spread evenly between, whatever the budget.
+    # `CONTEXT.md` defines noticing as drawing any attention at all, so a study that wants
+    # shown-but-unnoticed exposures raises `attention_floor`; by default everything shown is
+    # noticed, and what fraction of a feed really goes unnoticed is an open modelling question.
+    last_slot_attention: float = 0.5
+    attention_floor: float = 0.0
     # How many ranked candidates count as having nearly reached a persona. A drop means a
     # stimulus the budget kept out, so only this window's near misses are recorded; ranking
     # still considers everything published. None is `CANDIDATE_WINDOW_MULTIPLE x` the budget.
@@ -499,8 +506,8 @@ class World:
                 continue
             told = deliveries[recipient][:budget]
             exposures = tuple(
-                Exposure(stimulus_id=subject, reason=ExposureReason.WOM, attention=1.0)
-                for subject, _, _ in told
+                Exposure(stimulus_id=subject, reason=ExposureReason.WOM, attention=self._attention_at(rank, len(told)))
+                for rank, (subject, _, _) in enumerate(told)
             )
             impression = Impression(
                 impression_id=_ids.impression_id(self._world_seed, tick, recipient, Channel.WOM.value),
@@ -566,6 +573,20 @@ class World:
 
     _FEED_KINDS = frozenset({"concept", "claim_post", "peer_post", "peer_reply"})
 
+    def _attention_at(self, rank: int, count: int) -> float:
+        """How much of the persona's notice the stimulus at this rank drew.
+
+        Every exposure used to be built with attention 1.0, so position carried no information
+        and nothing shown was ever unnoticed — a case the glossary defines and the agent's
+        guardrail depends on. The spread is relative to the impression, so a wider budget
+        thins attention rather than pushing the last slot out of sight.
+        """
+        last = max(0.0, min(1.0, self._config.last_slot_attention))
+        value = 1.0 if count <= 1 else 1.0 - (1.0 - last) * rank / (count - 1)
+        if value < self._config.attention_floor:
+            return 0.0
+        return max(0.0, min(1.0, round(value, 4)))
+
     def _candidate_window(self) -> int:
         """How far down the ranking a miss is still recorded, never fewer than the budget.
 
@@ -615,7 +636,8 @@ class World:
             ordered = self._rank_feed(persona_id, tick, candidates, counts)[: self._candidate_window()]
             shown = ordered[:budget]
             exposures = tuple(
-                Exposure(stimulus_id=stimulus_id, reason=reason, attention=1.0) for stimulus_id in shown
+                Exposure(stimulus_id=stimulus_id, reason=reason, attention=self._attention_at(rank, len(shown)))
+                for rank, stimulus_id in enumerate(shown)
             )
             impression = Impression(
                 impression_id=_ids.impression_id(self._world_seed, tick, persona_id, Channel.SOCIAL_FEED.value),
@@ -768,8 +790,8 @@ class World:
             ordered = ordered[: self._candidate_window()]
             shown = ordered[:budget]
             exposures = tuple(
-                Exposure(stimulus_id=stimulus_id, reason=ExposureReason.FORUM, attention=1.0)
-                for stimulus_id in shown
+                Exposure(stimulus_id=stimulus_id, reason=ExposureReason.FORUM, attention=self._attention_at(rank, len(shown)))
+                for rank, stimulus_id in enumerate(shown)
             )
             impression = Impression(
                 impression_id=_ids.impression_id(self._world_seed, tick, persona_id, Channel.FORUM.value),

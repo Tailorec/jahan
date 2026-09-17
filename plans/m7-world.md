@@ -130,7 +130,7 @@ How much a persona sees, and the baseline against which ranking effects are meas
 - [x] The budget default is 3 and is configurable per scenario
 - [x] `random` selects without reference to engagement, deterministically under a seed
 - [x] Exposure concentration under `random` is measurable on a fixture, giving the baseline later modes are compared against
-- [x] Exposures keep their per-stimulus attention, reason and seen flag
+- [x] Exposures keep their per-stimulus attention, reason and seen flag — attention falls with position across the impression (full notice at the first slot, half at the last). What fraction of a real feed goes unnoticed is an open modelling question: a study sets `attention_floor` to model it, and the default leaves everything shown noticed
 
 ---
 

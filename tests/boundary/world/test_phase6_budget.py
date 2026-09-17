@@ -119,8 +119,11 @@ def test_exposure_concentration_under_random_is_measurable_on_a_fixture():
 def test_exposures_keep_their_attention_reason_and_seen_flag():
     _, first, _, _ = busy_feed()
     for presentation in first.presentations:
-        for exposure in presentation.impression.exposures:
-            assert exposure.attention == 1.0
+        shown = presentation.impression.exposures
+        for rank, exposure in enumerate(shown):
+            # The first slot has the persona's full notice; the last has half of it.
+            expected = 1.0 if len(shown) == 1 else 1.0 - 0.5 * rank / (len(shown) - 1)
+            assert exposure.attention == round(expected, 4)
             assert exposure.reason.value == "random"
             assert exposure.seen is True
     # What the agent is given round-trips untouched into its turn.
@@ -179,3 +182,34 @@ def test_a_stimulus_outside_the_window_is_not_shown_and_not_recorded_as_dropped(
     for persona_id, seen in shown.items():
         assert seen & dropped.get(persona_id, set()) == set(), "a stimulus was shown to a persona and dropped for it too"
         assert len(seen) <= world._budget()
+
+
+def test_attention_falls_down_the_impression_rather_than_being_flat():
+    """`CONTEXT.md` defines noticing as drawing any attention at all, and an exposure keeps its
+    own attention — but every exposure was built with attention 1.0, so position carried no
+    information and nothing shown was ever unnoticed."""
+    world, first, second, third = busy_feed()
+    ranked = [
+        [exposure.attention for exposure in presentation.impression.exposures]
+        for presentation in third.presentations
+        if len(presentation.impression.exposures) > 1
+    ]
+    assert ranked, "no persona was shown more than one stimulus, so there is nothing to rank"
+    for attentions in ranked:
+        assert attentions == sorted(attentions, reverse=True)
+        assert len(set(attentions)) > 1, "attention is flat across the impression"
+    assert all(exposure.seen for presentation in third.presentations for exposure in presentation.impression.exposures)
+
+
+def test_a_study_may_declare_the_floor_below_which_a_shown_stimulus_goes_unnoticed():
+    """A stimulus can be shown without being noticed; whether a study models that is its call,
+    and the default leaves every shown stimulus noticed."""
+    population = make_population()
+    world = make_world(config=WorldConfig(platform="social_feed", attention_floor=0.6), population=population)
+    world.reset()
+    world.step(1, [])
+    first = world.step(2, [])
+    exposures = [exposure for presentation in first.presentations for exposure in presentation.impression.exposures]
+    assert exposures
+    assert any(not exposure.seen for exposure in exposures), "the floor never left anything unnoticed"
+    assert all(exposure.attention == 0.0 for exposure in exposures if not exposure.seen)
