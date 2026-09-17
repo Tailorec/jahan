@@ -7,9 +7,9 @@ entry for the same run is refused; and a replay configures from the entry alone.
 
 import pytest
 
-from simcore.schemas import RunRegistryEntry
+from simcore.schemas import RunRegistryEntry, RunStatus
 from simcore.trace import ParquetTraceView, SqliteTraceView, TraceStore, replay_config
-from simcore.trace.errors import DuplicateEntryError
+from simcore.trace.errors import DuplicateEntryError, UnknownRunError
 from simcore.trace.fake import InMemoryRunRegistry
 
 from .support import seed_header_and_entry, seed_store
@@ -80,3 +80,42 @@ def test_the_registry_port_takes_entries_never_mappings(tmp_path):
     assert memory.entry(entry.config.run_id) == entry
     with pytest.raises(DuplicateEntryError):
         memory.record(entry)
+
+
+def test_a_runs_entry_is_updated_as_the_run_moves(tmp_path):
+    """A run's status, spend and discarded ticks change while it works, so the registry has to
+    take an update through the port it is reached by. `record` refuses a second entry and
+    `update` was outside the protocol, so a runner that had only the port could either never
+    move the status or crash trying."""
+    from simcore.ports.trace import RunRegistry
+
+    assert hasattr(RunRegistry, "update"), "the port a runner holds cannot move a run's status"
+
+    store = TraceStore(tmp_path)
+    header, entry = seed_header_and_entry(store)
+    run_id = entry.config.run_id
+    registry: RunRegistry = store.registry
+
+    with pytest.raises(DuplicateEntryError):
+        registry.record(entry)
+
+    moved = entry.model_copy(update={"status": RunStatus.COMPLETED, "recorded_cost": 2.5, "discarded_ticks": 1})
+    registry.update(moved)
+    stored = registry.entry(run_id)
+    assert stored is not None
+    assert stored.status is RunStatus.COMPLETED and stored.recorded_cost == 2.5 and stored.discarded_ticks == 1
+
+    with pytest.raises(UnknownRunError):
+        registry.update(moved.model_copy(update={"config": moved.config.model_copy(update={"run_id": f"run-{'0' * 25}9"})}))
+
+
+def test_an_update_cannot_rewrite_what_a_replay_rests_on(tmp_path):
+    """Status and spend move; the pins do not. A registry that let them move would make the
+    entry a story about the run rather than a record of it."""
+    store = TraceStore(tmp_path)
+    _, entry = seed_header_and_entry(store)
+    registry = store.registry
+    with pytest.raises(ValueError, match="pins"):
+        registry.update(entry.model_copy(update={"engine_version": "deadbee"}))
+    with pytest.raises(ValueError, match="pins"):
+        registry.update(entry.model_copy(update={"contract_version": "9.9.9"}))

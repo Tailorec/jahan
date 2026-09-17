@@ -11,6 +11,7 @@ from typing import Annotated, Self
 from pydantic import Field, model_validator
 
 from .base import EventId, Identifier, NonEmptyStr, NonNegativeInt, PersonaId, PositiveInt, SimBaseModel, StimulusId
+from .run import WorldId
 from .brief import ClaimId
 from .enums import ActionKind, Channel, VerbatimGrouping
 from .sim import Beliefs
@@ -35,6 +36,9 @@ class EventFilter(SimBaseModel):
     ticks: tuple[NonNegativeInt, NonNegativeInt] | None = None
     persona_ids: tuple[PersonaId, ...] = ()
     kinds: tuple[EventKind, ...] = ()
+    # Which worlds of the run to read. A sweep's cells are separate studies of one budget, and
+    # a digest names one scenario, so they have to be readable apart.
+    world_ids: tuple[WorldId, ...] = ()
 
     @model_validator(mode="after")
     def _a_range_ends_where_it_starts_or_later(self) -> Self:

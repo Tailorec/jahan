@@ -175,12 +175,14 @@ def filter_events(events: Sequence[TraceEvent], asked: EventFilter) -> tuple[Tra
     """The events the filter asks for, ordered by `(persona_id, tick, seq)`."""
     kinds = set(asked.kinds)
     personas = set(asked.persona_ids)
+    worlds = set(asked.world_ids)
     kept = [
         event
         for event in events
         if (asked.ticks is None or asked.ticks[0] <= event.tick <= asked.ticks[1])
         and (not personas or event.persona_id in personas)
         and (not kinds or event.payload.kind in kinds)
+        and (not worlds or event.world_id in worlds)
     ]
     return tuple(sorted(kept, key=lambda e: (e.persona_id or "", e.tick, e.seq)))
 

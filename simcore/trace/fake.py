@@ -10,7 +10,7 @@ from collections.abc import Iterable, Sequence
 from simcore.schemas import RunRegistryEntry, TraceEvent
 
 from . import derive as _derive
-from .errors import DuplicateEntryError, DuplicateSequenceError
+from .errors import DuplicateEntryError, UnknownRunError, DuplicateSequenceError
 
 
 class InMemoryTraceSink:
@@ -80,6 +80,19 @@ class InMemoryRunRegistry:
         return self._entries.get(run_id)
 
     def update(self, entry: RunRegistryEntry) -> None:
-        if entry.config.run_id not in self._entries:
-            raise KeyError(f"no entry for run {entry.config.run_id}")
+        """Move status, recorded cost and discarded ticks; never what a replay pins."""
+        held = self._entries.get(entry.config.run_id)
+        if held is None:
+            raise UnknownRunError(f"no entry for run {entry.config.run_id}")
+        moved = [
+            name
+            for name, was, now in (
+                ("configuration", held.config_hash, entry.config_hash),
+                ("engine version", held.engine_version, entry.engine_version),
+                ("contract version", held.contract_version, entry.contract_version),
+            )
+            if was != now
+        ]
+        if moved:
+            raise ValueError(f"an update moves a run's progress, never what a replay pins: {', '.join(moved)}")
         self._entries[entry.config.run_id] = entry

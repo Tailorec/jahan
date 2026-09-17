@@ -223,15 +223,23 @@ class TraceStore:
 
     # -- views ------------------------------------------------------------
 
-    def view(self, run_id: str):
+    def view(self, run_id: str, world_id: str | None = None):
         """The five questions over this run's record, live or finalized — the caller is never
-        told which backend answered."""
+        told which backend answered.
+
+        `world_id` scopes the view to one world. A sweep's cells are separate studies sharing
+        one budget, and a digest names one scenario, so they are read apart.
+        """
         from .views import ParquetTraceView, SqliteTraceView
 
         entry = self.registry.entry(run_id)
         if entry is None:
             raise UnknownRunError(f"no entry for run {run_id}")
         worlds = self.world_ids(run_id)
+        if world_id is not None:
+            if world_id not in worlds:
+                raise UnknownWorldError(f"{world_id} is not a world of run {run_id}")
+            worlds = (world_id,)
         if entry.status.value == "completed" and all(
             (self._world_dir(run_id, world) / "events.parquet").exists() for world in worlds
         ):
@@ -260,8 +268,8 @@ def finalize(root: str | Path, world_id: str) -> Path:
     return TraceStore(root).finalize(world_id)
 
 
-def view(root: str | Path, run_id: str):
-    return TraceStore(root).view(run_id)
+def view(root: str | Path, run_id: str, world_id: str | None = None):
+    return TraceStore(root).view(run_id, world_id)
 
 
 __all__ = ["TraceStore", "create_world", "finalize", "view", "write"]

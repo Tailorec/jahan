@@ -11,7 +11,7 @@ from pathlib import Path
 
 from simcore.schemas import RunConfig, RunRegistryEntry
 
-from .errors import DuplicateEntryError
+from .errors import DuplicateEntryError, UnknownRunError
 
 
 def _connect(path: Path) -> sqlite3.Connection:
@@ -72,10 +72,27 @@ class SqliteRunRegistry:
         return RunRegistryEntry.model_validate(json.loads(row[0]))
 
     def update(self, entry: RunRegistryEntry) -> None:
-        """Replace the stored entry for its run. Internal: finalization moves status and cost
-        forward; `record` stays refuse-on-duplicate so no caller silently replaces a run."""
+        """Move what a run learns about itself: status, recorded cost, discarded ticks.
+
+        `record` stays refuse-on-duplicate so nothing silently replaces a run, and this refuses
+        an update that would rewrite what a replay rests on — the configuration, the engine
+        version or the contract. A run's own progress moves; its identity does not.
+        """
         if not isinstance(entry, RunRegistryEntry):
             raise TypeError(f"the registry records entries, not mappings; build the model first ({type(entry).__name__})")
+        held = self.entry(entry.config.run_id)
+        if held is None:
+            raise UnknownRunError(f"no entry for run {entry.config.run_id}")
+        pinned = (
+            ("configuration", held.config_hash, entry.config_hash),
+            ("engine version", held.engine_version, entry.engine_version),
+            ("contract version", held.contract_version, entry.contract_version),
+        )
+        moved = [f"{name} ({was} to {now})" for name, was, now in pinned if was != now]
+        if moved:
+            raise ValueError(
+                f"an update moves a run's progress, never what a replay pins: {', '.join(moved)}"
+            )
         with _connect(self._path) as connection:
             cursor = connection.execute(
                 "UPDATE entries SET entry_json = ?, status = ?, engine_version = ?, recorded_cost = ?,"
@@ -92,7 +109,7 @@ class SqliteRunRegistry:
                 ),
             )
             if cursor.rowcount == 0:
-                raise KeyError(f"no entry for run {entry.config.run_id}")
+                raise UnknownRunError(f"no entry for run {entry.config.run_id}")
             connection.commit()
 
 
