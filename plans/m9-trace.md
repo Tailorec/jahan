@@ -32,12 +32,12 @@ The seam both modules build against. `TraceView` becomes a real protocol with a 
 
 ### Acceptance criteria
 
-- [ ] `TraceView` is a protocol naming exactly the five read shapes, with a typed filter object and frozen return models
-- [ ] No read shape returns a row, a mapping, a frame or a path, asserted over the protocol's annotations
-- [ ] A trace write port exists that a fake can satisfy, taking payload models rather than mappings
-- [ ] The registry entry pins the engine version and carries recorded cost and discarded-tick count
-- [ ] Pinned identities are re-pinned if any hashed contract moved, with the change recorded in the commit
-- [ ] The existing suite passes unchanged in behaviour
+- [x] `TraceView` is a protocol naming exactly the five read shapes, with a typed filter object and frozen return models
+- [x] No read shape returns a row, a mapping, a frame or a path, asserted over the protocol's annotations
+- [x] A trace write port exists that a fake can satisfy, taking payload models rather than mappings
+- [x] The registry entry pins the engine version and carries recorded cost and discarded-tick count
+- [x] Pinned identities are re-pinned if any hashed contract moved, with the change recorded in the commit
+- [x] The existing suite passes unchanged in behaviour
 
 ---
 
@@ -51,12 +51,12 @@ Events on disk, for a run that is still going. A tick arrives as one call and la
 
 ### Acceptance criteria
 
-- [ ] A tick's events and its `tick_closed` are written in one transaction
-- [ ] A transaction that fails part-way leaves nothing of that tick behind
-- [ ] A `(world_id, seq)` already held is refused, and an identical re-send is a no-op rather than a duplicate
-- [ ] The write path takes payload models; a mapping is refused
-- [ ] Events written under the hot path validate strictly when read back
-- [ ] A partition's events remain gapless and ordered by `(persona_id, tick, seq)` on read
+- [x] A tick's events and its `tick_closed` are written in one transaction
+- [x] A transaction that fails part-way leaves nothing of that tick behind
+- [x] A `(world_id, seq)` already held is refused, and an identical re-send is a no-op rather than a duplicate
+- [x] The write path takes payload models; a mapping is refused
+- [x] Events written under the hot path validate strictly when read back
+- [x] A partition's events remain gapless and ordered by `(persona_id, tick, seq)` on read
 
 ---
 
@@ -70,12 +70,12 @@ The first three read shapes over SQLite, answering while a run is still going. `
 
 ### Acceptance criteria
 
-- [ ] `view(run_id)` opens on a live run and on a paused one
-- [ ] A live view shows every closed tick and nothing from an unclosed one
-- [ ] `events(filter)` accepts a typed filter and refuses anything outside it
-- [ ] `verbatims(grouping)` returns frozen models grouped as asked
-- [ ] `resolve(trace_ids)` returns exactly the referenced events, and raises when one is absent
-- [ ] Nothing in the returned models exposes storage — no paths, no cursors, no frames
+- [x] `view(run_id)` opens on a live run and on a paused one, and `view(run_id, world_id)` scopes it to one world — **added in review**: a digest names one scenario, so a sweep's cells have to be readable apart
+- [x] A live view shows every closed tick and nothing from an unclosed one — **amended in review**: a tick's *content* appears when the tick closes, and a world's own records (lifecycle, a degradation rung) appear as soon as they are written, because a paused run's reason for stopping is not a tick's content. Both backends apply the rule, so the identical-answers property holds for a paused run (`test_a_paused_world_answers_the_same_live_and_finalized`)
+- [x] `events(filter)` accepts a typed filter and refuses anything outside it
+- [x] `verbatims(grouping)` returns frozen models grouped as asked
+- [x] `resolve(trace_ids)` returns exactly the referenced events, and raises when one is absent
+- [x] Nothing in the returned models exposes storage — no paths, no cursors, no frames
 
 ---
 
@@ -89,11 +89,11 @@ Beliefs and edges, computed from the record rather than stored beside it. `belie
 
 ### Acceptance criteria
 
-- [ ] `beliefs(persona_id)` reconstructs a persona's belief history from snapshots and turns
-- [ ] `edges()` returns one row per pair, channel and direction, with count and last tick
-- [ ] Both match the same quantities recomputed from raw events in a fixture
-- [ ] Neither reaches another persona's records when asked for one persona's
-- [ ] The derivation has exactly one implementation, asserted over the module
+- [x] `beliefs(persona_id)` reconstructs a persona's belief history from snapshots and turns
+- [x] `edges()` returns one row per pair, channel and direction, with count and last tick
+- [x] Both match the same quantities recomputed from raw events in a fixture
+- [x] Neither reaches another persona's records when asked for one persona's
+- [x] The derivation has exactly one implementation, asserted over the module
 
 ---
 
@@ -107,12 +107,12 @@ A finished world's lasting record. The payload union fans out into typed Parquet
 
 ### Acceptance criteria
 
-- [ ] `finalize(world_id)` writes events, beliefs and edges as Parquet, sorted by `(persona_id, tick)`
-- [ ] Every read shape answers identically before and after finalization, on the same world
-- [ ] Finalization is idempotent, and calling it twice changes nothing
-- [ ] A finalized world refuses further writes
-- [ ] The contract version is written once into the partition metadata and the registry entry
-- [ ] Parquet columns are typed per payload kind rather than a JSON blob
+- [x] `finalize(world_id)` writes events, beliefs and edges as Parquet, sorted by `(persona_id, tick)`
+- [x] Every read shape answers identically before and after finalization, on the same world
+- [x] Finalization is idempotent, and calling it twice changes nothing
+- [x] A finalized world refuses further writes
+- [x] The contract version is written once into the partition metadata and the registry entry
+- [x] Parquet columns are typed per payload kind rather than a JSON blob
 
 ---
 
@@ -126,11 +126,11 @@ One entry per run, holding everything a replay needs to be set up from the regis
 
 ### Acceptance criteria
 
-- [ ] A registry entry pins every hash, seed and pin a replay needs, plus the engine version
-- [ ] Recorded cost and discarded-tick count are readable from the entry
-- [ ] A run's status is readable and decides which backend a view opens
-- [ ] An entry for a run that already exists is refused rather than silently replaced
-- [ ] A replay can be configured from the registry entry alone, asserted by round-tripping one
+- [x] A registry entry pins every hash, seed and pin a replay needs, plus the engine version
+- [x] Recorded cost and discarded-tick count are readable from the entry
+- [x] A run's status is readable and decides which backend a view opens
+- [x] An entry for a run that already exists is refused rather than silently replaced, and `update` moves a run's progress without rewriting what a replay pins — **added in review**: a run's status and spend change as it works, and only `record` was on the port
+- [x] A replay can be configured from the registry entry alone, asserted by round-tripping one
 
 ---
 
@@ -144,11 +144,11 @@ The path that keeps stored runs readable. A migration registry applies every reg
 
 ### Acceptance criteria
 
-- [ ] A partition written under 1.0 loads under a synthetic 1.1 through a registered migration
-- [ ] A partition from a contract newer than the engine's is refused, naming both versions
-- [ ] Migrations apply in order, and a missing migration in the chain fails loudly
-- [ ] A migrated partition is validated strictly after migration, not before
-- [ ] The contract version appears once per partition and on no event
+- [x] A partition written under 1.0 loads under a synthetic 1.1 through a registered migration
+- [x] A partition from a contract newer than the engine's is refused, naming both versions
+- [x] Migrations apply in order, and a missing migration in the chain fails loudly
+- [x] A migrated partition is validated strictly after migration, not before
+- [x] The contract version appears once per partition and on no event
 
 ---
 
@@ -167,8 +167,8 @@ Proof it holds at the size a study reaches, and the documents in step. 500k even
 
 ### Acceptance criteria
 
-- [ ] 500k events round-trip through write and read with identical ordering by `(persona_id, tick, seq)`
-- [ ] A world of that size finalizes within a bounded time and its Parquet size is recorded in the plan
-- [ ] No type in the module can hold a whole prompt, asserted over the module's annotations
-- [ ] `FINAL_ARCH.md` §5.9, `SALVAGE.md` and `CONTEXT.md` describe what was built, and no claim contradicts the code
-- [ ] Any defect this phase exposes is fixed with a test that fails on the old code
+- [x] 500k events round-trip through write and read with identical ordering by `(persona_id, tick, seq)`
+- [x] A world of that size finalizes within a bounded time and its Parquet size is recorded in the plan
+- [x] No type in the module can hold a whole prompt, asserted over the module's annotations
+- [x] `FINAL_ARCH.md` §5.9, `SALVAGE.md` and `CONTEXT.md` describe what was built, and no claim contradicts the code
+- [x] Any defect this phase exposes is fixed with a test that fails on the old code

@@ -30,12 +30,12 @@ The loop made true on the narrowest path: one world, one scenario, a handful of 
 
 ### Acceptance criteria
 
-- [ ] A run drives a world from `reset` to its horizon and returns a `RunResult` with one outcome per world
-- [ ] Each tick's events are handed to the trace in one call, with `tick_closed` last
-- [ ] The runner assigns every `event_id` and `seq`, and a tick's sequence numbers are gapless
-- [ ] Nothing of an unfinished tick reaches the trace, asserted by interrupting a tick
-- [ ] Each persona's state is carried tick to tick and never shared between personas
-- [ ] A turn failure is recorded and the tick still closes
+- [x] A run drives a world from `reset` to its horizon and returns a `RunResult` with one outcome per world
+- [x] Each tick's events are handed to the trace in one call, with `tick_closed` last
+- [x] The runner assigns every `event_id` and `seq`, and a tick's sequence numbers are gapless
+- [x] Nothing of an unfinished tick reaches the trace, asserted by interrupting a tick
+- [x] Each persona's state is carried tick to tick and never shared between personas
+- [x] A turn failure is recorded and the tick still closes
 
 ---
 
@@ -49,12 +49,12 @@ Continuing a run that stopped. State comes from the record: personas rebuilt fro
 
 ### Acceptance criteria
 
-- [ ] A run killed mid-tick and resumed produces a result identical to an uninterrupted run
-- [ ] Persona state rebuilt on resume equals the state the run carried
-- [ ] A world resumed at tick N continues identically to one that never stopped
-- [ ] Resume needs nothing but the trace and the registry entry
-- [ ] A checkpoint, if present, is validated against the record and discarded when it disagrees
-- [ ] Completed ticks are never re-run
+- [x] A run killed mid-tick and resumed produces a result identical to an uninterrupted run
+- [x] Persona state rebuilt on resume equals the state the run carried
+- [x] A world resumed at tick N continues identically to one that never stopped
+- [x] Resume needs nothing but the trace and the registry entry
+- [x] A checkpoint, if present, is validated against the record and discarded when it disagrees
+- [x] Completed ticks are never re-run
 
 ---
 
@@ -68,11 +68,11 @@ The guard that keeps one trace from holding two experiments. Resume compares the
 
 ### Acceptance criteria
 
-- [ ] Each of brief, ontology, population, graph, scenario, pins and engine version, moved alone, refuses resume
-- [ ] Every refusal names the thing that moved and what it moved from
-- [ ] A forced resume proceeds, is recorded in the registry, and marks the run's results
-- [ ] An unforced resume under identical inputs proceeds silently
-- [ ] The engine version comes from the registry entry, not from the running process's assumption about itself
+- [x] Each of brief, ontology, population, graph, scenario, pins and engine version, moved alone, refuses resume
+- [x] Every refusal names the thing that moved and what it moved from
+- [x] A forced resume proceeds, is recorded in the registry, and marks the run's results
+- [x] An unforced resume under identical inputs proceeds silently
+- [x] The engine version comes from the registry entry, not from the running process's assumption about itself
 
 ---
 
@@ -86,12 +86,12 @@ What the run has spent, derived rather than remembered. The ledger sums the `cos
 
 ### Acceptance criteria
 
-- [ ] The ledger equals the sum of the run's recorded `cost` events, rebuilt by summing on resume
-- [ ] An unknown cost stays unknown and never becomes zero
-- [ ] Costs from failed and discarded calls are counted
-- [ ] A discarded tick is recorded before anything else on resume, and counted in the registry
-- [ ] The figure the ladder tests is recorded spend plus an estimate per discarded tick
-- [ ] A run that lost a tick stops earlier than one that lost none, on the same budget
+- [x] The ledger equals the sum of the run's recorded `cost` events, rebuilt by summing on resume, with each unpriced call charged at the mean of the priced ones — **amended in review**: counting an unknown cost as zero meant a run whose gateway quoted no prices spent its whole horizon with no rung firing, and a run where nothing carries a price now stops rather than spending blind
+- [x] An unknown cost stays unknown and never becomes zero
+- [x] Costs from failed and discarded calls are counted
+- [x] A discarded tick is recorded before anything else on resume, and counted in the registry
+- [x] The figure the ladder tests is recorded spend plus an estimate per discarded tick
+- [x] A run that lost a tick stops earlier than one that lost none, on the same budget
 
 ---
 
@@ -105,12 +105,12 @@ The budget as behaviour. A synthetic cost stream pushes the ledger past each thr
 
 ### Acceptance criteria
 
-- [ ] Each threshold produces its observable effect: tier-B calls stop, the activation rate handed to `world` drops, the run pauses
-- [ ] Rung thresholds and the activation subsample are configuration a study can change
-- [ ] Every live world records a `degraded` event at the tick a rung took effect, with the rate and freeze in force
-- [ ] A replay applies the recorded rung rather than recomputing it from the ledger
-- [ ] A paused run keeps every completed world, labelled partial
-- [ ] `world` and `agent` receive plans and never learn that a budget exists, asserted over their inputs
+- [x] Each threshold produces its observable effect: tier-B calls stop, the activation rate handed to `world` drops, the run pauses
+- [x] Rung thresholds and the activation subsample are configuration a study can change
+- [x] Every live world records a `degraded` event at the tick a rung took effect, with the rate and freeze in force
+- [x] A replay applies the recorded rung rather than recomputing it from the ledger
+- [x] A paused run keeps every completed world, labelled partial
+- [x] `world` and `agent` receive plans and never learn that a budget exists, asserted over their inputs
 
 ---
 
@@ -124,11 +124,11 @@ Isolation. A world that raises — a provider outage, a corrupt scenario, an exh
 
 ### Acceptance criteria
 
-- [ ] One world raising leaves every other world running
-- [ ] A failed world's outcome records its status and last closed tick
-- [ ] The run's status is computed from its worlds and refuses a contradicting stated value
-- [ ] A world that never started is recorded as such rather than omitted
-- [ ] A run where every world failed returns a result rather than raising
+- [x] One world raising leaves every other world running
+- [x] A failed world's outcome records its status and last closed tick
+- [x] The run's status is computed from its worlds and refuses a contradicting stated value
+- [x] A world that never started is recorded as such rather than omitted
+- [x] A run where every world failed returns a result rather than raising
 
 ---
 
@@ -142,12 +142,12 @@ Many worlds, one run, one budget. A grid of scenarios and replicate seeds expand
 
 ### Acceptance criteria
 
-- [ ] A grid of scenarios × seeds expands into one world per cell, with ids derived per ADR 0005
-- [ ] The same grid run twice produces identical world ids
-- [ ] One budget covers the whole sweep, and a grid cannot spend a multiple of its ceiling
-- [ ] Worlds run in parallel, one process per world, and a single world's content is reproducible
-- [ ] A cell that ran at a different rung than another is marked, so the comparison is not drawn silently
-- [ ] Resuming a sweep re-runs only the cells that had not completed
+- [x] A grid of scenarios × seeds expands into one world per cell, with ids derived per ADR 0005
+- [x] The same grid run twice produces identical world ids
+- [x] One budget covers the whole sweep, and a grid cannot spend a multiple of its ceiling
+- [x] Worlds run in parallel and a single world's content is reproducible — **amended in review**: a thread per world rather than a process. The work is model calls, so it is I/O-bound and the interpreter lock costs nothing; each world owns its own SQLite connection and its own seeds. The trade is isolation: a world's exception is caught and recorded (phase 6), but a hard interpreter crash takes the run down, where separate processes would not
+- [x] A cell that ran at a different rung than another is marked, so the comparison is not drawn silently
+- [x] Resuming a sweep re-runs only the cells that had not completed
 
 ---
 
@@ -161,8 +161,8 @@ The real trace writer in place of the fake, and the documents in step. The runne
 
 ### Acceptance criteria
 
-- [ ] A full run writes through the real trace writer and reads back identically through `TraceView`
-- [ ] A recorded run's events validate as a `TracePartition` against its header
-- [ ] `FINAL_ARCH.md` §5.8, `SALVAGE.md` and `CONTEXT.md` describe what was built, and no claim contradicts the code
-- [ ] Any defect the integration exposes is fixed with a test that fails on the old code
-- [ ] The engine's first end-to-end run — brief to recorded trace — is captured as a short evaluation with its cost
+- [x] A full run writes through the real trace writer and reads back identically through `TraceView`, and a world that reaches its horizon is finalized — **added in review**: nothing asked the trace to finalize, so a finished study stayed in its live store and the Parquet path never ran outside the trace's own tests
+- [x] A recorded run's events validate as a `TracePartition` against its header
+- [x] `FINAL_ARCH.md` §5.8, `SALVAGE.md` and `CONTEXT.md` describe what was built, and no claim contradicts the code
+- [x] Any defect the integration exposes is fixed with a test that fails on the old code
+- [x] The engine's first end-to-end run — brief to recorded trace — is captured as a short evaluation with its cost
