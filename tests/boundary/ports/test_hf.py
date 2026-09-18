@@ -321,3 +321,25 @@ def test_only_the_grounding_leaves_a_tier_depends_on_are_read():
     assert '"grounding.list.element.field_index"' in source_text
     assert '"grounding.list.element.assignment_type"' in source_text
     assert '\n            "grounding",' not in source_text, "the whole grounding column is read again"
+
+
+def test_an_attribute_the_corpus_does_not_carry_is_refused_by_name(fake_cache):
+    """A study names the attributes it conditions and filters on, and nothing checked them against
+    the codebook: the first real draw died with `KeyError: 'age'` from inside a numpy mask, after
+    reading four shards. The corpus carries `age_bracket`, and saying so is the whole job."""
+    from simcore.schemas import GateFailure
+
+    source = source_for(fake_cache)
+    with pytest.raises(GateFailure, match="age_brackets_typo"):
+        source.matching({}, present=["age_brackets_typo"])
+    with pytest.raises(GateFailure, match="nonesuch"):
+        source.matching({"nonesuch": Exactly(value="x")}, present=[])
+
+
+def test_a_refusal_suggests_the_names_the_codebook_does_have(fake_cache):
+    from simcore.schemas import GateFailure
+
+    source = source_for(fake_cache)
+    with pytest.raises(GateFailure) as raised:
+        source.matching({}, present=["age"])
+    assert "age_bracket" in str(raised.value)

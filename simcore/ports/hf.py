@@ -172,10 +172,36 @@ class HfCoresetSource:
         *,
         sources: Iterable[PersonaSource] | None = None,
     ) -> tuple[str, ...]:
+        self._require_known([*predicates, *present])
         selected: list[str] = []
         for shard, mask in self._masks(predicates, present, sources):
             selected.extend(shard.row_ids[index] for index in np.nonzero(mask)[0])
         return tuple(selected)
+
+    def _require_known(self, attributes: Iterable[AttributeId]) -> None:
+        """Refuse a study naming attributes this corpus does not carry, before a shard is read.
+
+        A study states the attributes it conditions and filters on, and nothing compared them with
+        the codebook: a name the release spells differently surfaced as a `KeyError` from inside a
+        numpy mask, after four shards had been read. A doomed study should cost nothing, so the
+        refusal names what is missing and what the codebook does have that looks like it."""
+        from simcore.schemas import GateFailure
+
+        missing = sorted({str(attribute) for attribute in attributes} - set(self._field_of))
+        if not missing:
+            return
+        known = sorted(self._field_of)
+        suggestions = {}
+        for name in missing:
+            stem = str(name).lower()
+            near = [candidate for candidate in known if stem in candidate.lower() or candidate.lower() in stem]
+            if near:
+                suggestions[name] = near[:4]
+        detail = "; ".join(f"{name} (the codebook has {', '.join(near)})" for name, near in suggestions.items())
+        raise GateFailure(
+            f"the corpus carries no attribute named {', '.join(missing)}"
+            + (f": {detail}" if detail else f"; it carries {len(known)} attributes, none of them these")
+        )
 
     def _masks(
         self,
