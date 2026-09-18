@@ -34,6 +34,11 @@ def _clamp(value: float) -> float:
     return min(1.0, max(0.0, value))
 
 
+def _clamp_change(value: float) -> float:
+    """A move stays within the range a `BeliefChange` may state: a delta is signed, a level is not."""
+    return min(1.0, max(-1.0, value))
+
+
 def apply_change(beliefs: Beliefs, change: BeliefChange) -> Beliefs:
     """Beliefs moved by a delta, across dimensions and per claim; only moved entries appear."""
     dimensions = dict(beliefs.dimensions)
@@ -46,13 +51,19 @@ def apply_change(beliefs: Beliefs, change: BeliefChange) -> Beliefs:
 
 
 def combine(first: BeliefChange, second: BeliefChange) -> BeliefChange:
-    """Two changes as one: the turn's move plus reflection's revision."""
+    """Two changes as one: the turn's move plus reflection's revision.
+
+    The sum saturates at the end of the scale rather than leaving it. A real persona said a
+    claim's credence moved by a whole point in its reaction and by another whole point when it
+    reflected; summed unbounded that is 2.0, which a `BeliefChange` may not state — so the
+    contract refused it, and one persona's answer took down the batch and the run with it.
+    """
     dimensions: dict[BeliefDim, float] = dict(first.dimensions)
     for dim, delta in second.dimensions.items():
-        dimensions[dim] = dimensions.get(dim, 0.0) + delta
+        dimensions[dim] = _clamp_change(dimensions.get(dim, 0.0) + delta)
     credence: dict[str, float] = dict(first.claim_credence)
     for claim, delta in second.claim_credence.items():
-        credence[claim] = credence.get(claim, 0.0) + delta
+        credence[claim] = _clamp_change(credence.get(claim, 0.0) + delta)
     return BeliefChange(dimensions=dimensions, claim_credence=credence)
 
 

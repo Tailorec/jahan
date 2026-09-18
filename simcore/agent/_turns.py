@@ -137,16 +137,32 @@ def turns(
             assert item.early is not None
             results.append(item.early)
         else:
-            results.append(
-                _finalize(
-                    by_position[position],
-                    second.get(position),
-                    intents.get(position),
-                    probe_by_position.get(position),
-                    cfg,
-                    embed,
+            entry = by_position[position]
+            try:
+                results.append(
+                    _finalize(
+                        entry,
+                        second.get(position),
+                        intents.get(position),
+                        probe_by_position.get(position),
+                        cfg,
+                        embed,
+                    )
                 )
-            )
+            except Exception as error:  # noqa: BLE001 — one outcome per job, whatever happened (ADR 0031)
+                # A failure here is one persona's, and the batch is a tick's worth of them. A real
+                # persona moved a claim's credence by a whole point twice over, the combined move
+                # left the range a `BeliefChange` may state, and the exception ended the run with
+                # 500 personas' work in it. What could not be finalized is recorded as the outcome.
+                results.append(
+                    TurnFailure(
+                        persona_id=entry.item.job.persona.persona_id,
+                        impression_id=entry.item.job.presentation.impression.impression_id,
+                        kind=TurnFailureKind.CALL_FAILED,
+                        detail=f"the turn could not be finalized: {type(error).__name__}: {error}",
+                        costs=tuple(entry.item.costs),
+                    )
+                )
     return tuple(results)
 
 
