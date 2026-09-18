@@ -14,6 +14,18 @@ someone asks for the continuation, and it should name what changed.
 A resume can be forced. Forcing is recorded in the registry, and the run's results are marked as spanning engine
 versions, so a reader is told rather than left to notice.
 
+**Amended in review (2026-09-19).** "Recorded in the registry" needed a place to be recorded. The entry held the
+engine versions a run was forced across, which covers a forced engine change and nothing else — a force past a
+moved brief or population left no mark at all. The entry now also names what a forced resume was forced past, and
+the report states it in both formats.
+
+The same amendment settles what a forced resume *is*. A run whose inputs moved runs different worlds — world ids
+derive from the scenario and the population — so its results are the new configuration's worlds, and a result
+reports the worlds its entry configures. The entry therefore follows the configuration that ran, which is allowed
+only on an update that records the force; an unforced update can still never repin a study. The cost is stated
+plainly: the run's record then holds worlds from two configurations, which is the thing the refusal exists to
+prevent, and forcing is the deliberate choice to accept it with a mark on the result.
+
 ## Considered options
 
 Refusing only on the brief hash was rejected: the brief is one of several things a study rests on, and the engine

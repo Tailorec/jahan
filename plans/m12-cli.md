@@ -30,8 +30,8 @@ The path from a clean checkout to a report, with nothing required. `concepts run
 - [x] `concepts run brief.yaml --fake` writes `report.md` and `report.json` into a run-named directory
 - [x] It needs no API key, no corpus download and no network, asserted by the suite's own network refusal
 - [x] It prints the run id, and the id matches the artefacts and the registry entry
-- [x] The whole pipeline runs — population, world, agent, runner, trace, analysis, report — with no module stubbed
-- [x] The command is a CI target rather than a manual step
+- [x] The whole pipeline runs — population, world, agent, runner, trace, analysis, report — with no module stubbed — **amended in review**: for a study long enough to reflect. Reflection fires on a jittered cadence, the boundary studies ran two ticks, and a six-tick one died in the stub with `KeyError: 'shown'` — a reflection is a third prompt shape and the stub knew two
+- [x] The command is a CI target rather than a manual step — **amended in review**: it is a boundary test in the suite, which is what runs it. The repository carries no CI configuration at all, so there is no pipeline for it to be a target of
 - [x] Two fake runs under one seed produce identical reports
 
 ---
@@ -46,7 +46,7 @@ The mapping a shell can branch on, in one place. A failed gate exits 2, an exhau
 
 ### Acceptance criteria
 
-- [x] Each mapped exception class produces its documented exit code
+- [x] Each mapped exception class produces its documented exit code — **amended in review**: and a malformed command line does not. argparse ends one with `SystemExit(2)`, which escaped the mapping entirely and is this CLI's code for a failed gate, so a mistyped flag read as a population that failed its distribution gates. A usage error is unmapped and exits 1
 - [x] An unmapped exception exits 1 and prints what happened
 - [x] A failed gate exits 2 and writes the gate report that explains it
 - [x] An exhausted budget exits 3 and leaves every completed world's artefacts in place
@@ -85,7 +85,7 @@ The same command without `--fake`: a real population from the corpus, a real end
 - [x] A real run writes its trace, digest and both report formats, and prints the run id
 - [x] A study with no measurable adoption exits 0 and reports why
 - [x] The report's method disclosure names the pins, seeds and engine commit that produced it
-- [x] A resume refused by changed inputs exits with the refusal naming what moved
+- [x] A resume refused by changed inputs exits with the refusal naming what moved — **added in review**: and `--force` proceeds, which it could not. A forced resume ran every world and then died writing the registry, because the entry it wrote pinned the inputs that moved while the update rule pinned the old ones; behind that, its worlds were not the ones the entry configured, so the result did not validate either. The force itself was recorded through a method only the runner's in-memory registry has
 - [x] The command passes the environment's endpoint configuration through without reinterpreting it
 
 ---

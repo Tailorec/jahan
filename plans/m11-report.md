@@ -28,7 +28,7 @@ The module's shape: findings and digests in, a `Report` carrying markdown and JS
 
 ### Acceptance criteria
 
-- [x] `render` returns a report carrying both formats, built from one intermediate
+- [x] `render` returns a report carrying both formats, built from one intermediate — **amended in review**: and from the `Report` contract the PRD's interface names. The module formatted its arguments directly and never built one, so every rule that contract holds went unchecked — a digest for a world the run does not configure, two findings under one id, an anomaly past its scenario's horizon. A two-seed run had already rendered four findings under two ids
 - [x] Markdown and JSON contain the same finding ids, and neither holds one the other omits
 - [x] The JSON records the contract version it was rendered under
 - [x] A report with no findings renders both formats and says so plainly
@@ -49,7 +49,7 @@ The parts that appear whatever the study found. The run's calibration, stated on
 - [x] Every rendered report carries the run's trust statement exactly once
 - [x] Every rendered report ends with its recommended real-world validation
 - [x] The method disclosure names the pins, seeds, template versions and engine commit
-- [x] A report whose run was forced across engine versions says so
+- [x] A report whose run was forced across engine versions says so — **added in review**: and one forced past inputs that moved says what it was forced past, which nothing recorded before (ADR 0036, amended)
 - [x] Neither format can be rendered without all three parts, asserted by removing each
 
 ---
@@ -66,9 +66,9 @@ What a reader sees per finding: the statement, its evidence trace ids, its confi
 
 - [x] Every rendered finding shows its evidence ids and its disconfirming test
 - [x] The assumption ledger appears, including what the brief left unstated
-- [x] A digest with unmeasured adoption renders a line saying so, with the reason, where adoption would be
+- [x] A digest with unmeasured adoption renders a line saying so, with the reason, where adoption would be — **amended in review**: polarization and audience divergence are stated the same way, and what every run produces is printed beside them — turn count, turns unscored, action mix, belief movement, word-of-mouth reach, rungs. The section printed the unmeasured adoption line and stopped, so every study the engine can currently do rendered as one that measured nothing, which is what ADR 0038 exists to prevent
 - [x] A finding's confidence renders beside it, and the run's calibration never does
-- [x] Objection clusters render their quoted label, never a paraphrase
+- [x] Objection clusters render their quoted label, never a paraphrase — **amended in review**: and on one line. A label is a sentence a persona wrote; printed as-is, one holding a line break and a `##` became a heading of the report itself
 
 ---
 
