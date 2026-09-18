@@ -11,6 +11,7 @@ import json
 import re
 from dataclasses import dataclass, field
 
+from simcore.ports.answers import coerce_json
 from simcore.schemas import ActionKind, BeliefChange, BeliefDim
 
 TEXT_ACTIONS = frozenset(
@@ -49,9 +50,12 @@ class ParsedReflection:
 
 def parse_reaction(text: str) -> ParsedReaction:
     """Parse a completion's JSON into the reaction it proposes."""
+    # A real model answers with its JSON inside a markdown fence, or with a sentence before it.
+    # The engine already owns a parser for that — the projection path adopted it after a real run
+    # tripped over the same thing — so the turn path uses it rather than bare `json.loads`.
     try:
-        raw = json.loads(text)
-    except (json.JSONDecodeError, TypeError, ValueError) as error:
+        raw = coerce_json(text)
+    except ValueError as error:
         raise ValueError(f"the response is not parseable JSON: {error}") from error
     if not isinstance(raw, dict):
         raise ValueError(f"the response is a {type(raw).__name__}, not an object")

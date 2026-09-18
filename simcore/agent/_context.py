@@ -34,6 +34,41 @@ class AssembledContext:
     messages: tuple[dict[str, str], ...]
 
 
+def render_shown(impression, view, stimulus_texts=None) -> list[dict]:
+    """What the persona is looking at, in the order it was shown.
+
+    Each entry carries the stimulus's own text, the id so a reaction can name its subject, and
+    the public counts beside it. The prompt used to carry `impression` and `view` as serialized
+    JSON instead, so a real persona was shown ids and a `contexts` field and reacted to the
+    engine's plumbing — commenting on its own trust score and asking what `contexts` was for.
+    """
+    texts = dict(stimulus_texts or {})
+    entries = []
+    for exposure in impression.exposures:
+        context = view.contexts.get(exposure.stimulus_id)
+        entry: dict = {"stimulus_id": exposure.stimulus_id}
+        text = texts.get(exposure.stimulus_id)
+        if text:
+            entry["says"] = text
+        if context is not None:
+            counts = {
+                name: value
+                for name, value in (
+                    ("likes", context.likes), ("reposts", context.reposts), ("replies", context.replies),
+                    ("upvotes", context.upvotes), ("downvotes", context.downvotes),
+                )
+                if value
+            }
+            if counts:
+                entry["others"] = counts
+            if context.via_persona_id is not None:
+                entry["heard_from_someone_you_know"] = True
+            elif context.tie_strength is not None:
+                entry["from_someone_you_know"] = round(float(context.tie_strength), 2)
+        entries.append(entry)
+    return entries
+
+
 def render_beliefs(dimensions: dict[str, float], claim_credence: dict[str, float]) -> str:
     dims = ", ".join(f"{name}={value:.2f}" for name, value in sorted(dimensions.items()))
     claims = ", ".join(f"{name}={value:.2f}" for name, value in sorted(claim_credence.items()))
@@ -46,13 +81,12 @@ def assemble(
     persona_block_hash: str,
     beliefs_text: str,
     memory_texts: tuple[str, ...],
-    impression_json: str,
-    view_json: str,
+    shown: list[dict] | tuple[dict, ...],
     question: str,
     budget: int,
 ) -> AssembledContext:
     """Fit the context to the tier's budget, dropping memories before beliefs."""
-    if _wire_size(persona_block, "", (), impression_json, view_json, question) > budget:
+    if _wire_size(persona_block, "", (), shown, question) > budget:
         raise ContextBudgetExceeded(
             "the tier's budget cannot hold the persona block, impression and question; "
             "the block is never dropped, so the turn fails instead"
@@ -60,11 +94,11 @@ def assemble(
     kept_memories = list(memory_texts)
     # Memories arrive best-first (retrieval rank, then recency), so the tail — the least
     # useful memory in context — is what goes when the budget binds.
-    while kept_memories and _wire_size(persona_block, beliefs_text, kept_memories, impression_json, view_json, question) > budget:
+    while kept_memories and _wire_size(persona_block, beliefs_text, kept_memories, shown, question) > budget:
         kept_memories.pop()
     dropped_memories = len(memory_texts) - len(kept_memories)
     dropped_beliefs = False
-    if _wire_size(persona_block, beliefs_text, kept_memories, impression_json, view_json, question) > budget:
+    if _wire_size(persona_block, beliefs_text, kept_memories, shown, question) > budget:
         beliefs_text, dropped_beliefs = "", True
     messages = (
         {"role": "system", "content": persona_block},
@@ -74,8 +108,7 @@ def assemble(
                 {
                     "beliefs": beliefs_text,
                     "memories": list(kept_memories),
-                    "impression": impression_json,
-                    "view": view_json,
+                    "shown": list(shown),
                     "question": question,
                 }
             ),
@@ -97,14 +130,13 @@ def assemble(
     )
 
 
-def _wire_size(block: str, beliefs: str, memories: list[str] | tuple[str, ...], impression: str, view: str, question: str) -> int:
+def _wire_size(block: str, beliefs: str, memories: list[str] | tuple[str, ...], shown, question: str) -> int:
     """The assembled prompt as the endpoint prices it: the block plus the user JSON."""
     user = json.dumps(
         {
             "beliefs": beliefs,
             "memories": list(memories),
-            "impression": impression,
-            "view": view,
+            "shown": list(shown),
             "question": question,
         }
     )

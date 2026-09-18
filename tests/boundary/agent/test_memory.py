@@ -165,14 +165,15 @@ def test_retrieved_memories_appear_in_context_and_drop_first_under_budget():
 
     # Room for the block, the impression, the question, the beliefs and one memory — measured
     # from what was just assembled, so the test cannot drift when a payload grows.
-    from simcore.agent._context import _wire_size
+    from simcore.agent._context import _wire_size, render_shown
     from simcore.agent._prompt import REACTION_QUESTION, render_persona_block
 
     block = render_persona_block(job.persona.conditioning, job.persona.attributes)
-    impression_json = job.presentation.impression.model_dump_json()
-    view_json = job.presentation.view.model_dump_json()
+    # Measured with the same texts the call passes, so the budget matches the prompt.
+    texts = {exposure.stimulus_id: "protein" for exposure in job.presentation.impression.exposures}
+    presented = render_shown(job.presentation.impression, job.presentation.view, texts)
     beliefs_text = json.loads(user["content"])["beliefs"]
-    room = _wire_size(block, beliefs_text, shown[:1], impression_json, view_json, REACTION_QUESTION)
+    room = _wire_size(block, beliefs_text, shown[:1], presented, REACTION_QUESTION)
     tight = AgentConfig(token_budget={InferenceRole.TIER_A: room, InferenceRole.TIER_B: 8192})
     chat2 = FakeChat(responder=answering())
     (cut,) = turns(

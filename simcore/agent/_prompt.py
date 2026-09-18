@@ -19,7 +19,8 @@ REACTION_QUESTION = (
     "'subject_stimulus_id' (one stimulus id shown above), 'action' (one of answer, "
     "post, comment, like, repost, quote, follow, buy, ask_peer, reject, complain, "
     "reply, upvote, downvote, ignore) and 'verbatim' (what you say, when the action "
-    "produces text). Answer in your own words, as yourself."
+    "produces text). Answer in your own words, as yourself, and keep the verbatim to one or two "
+    "brief sentences — a longer answer is cut off at the token ceiling and arrives unreadable."
 )
 
 

@@ -43,10 +43,15 @@ def make_job(persona_index: int = 0, tick: int = 3, n: int = 0, **overrides) -> 
 
 
 def impression_of(messages: Sequence[ChatMessage]) -> dict:
-    """The impression a prompt carries, parsed back out of the fake's recorded call."""
+    """What the prompt showed the persona, in the shape the old fakes expected.
+
+    The prompt carries `shown` — each stimulus's text, its id and the public counts beside it —
+    rather than the serialized impression it used to carry, since a real persona shown the
+    latter reacted to the engine's plumbing instead of to the concept.
+    """
     user = next(message for message in reversed(list(messages)) if message.get("role") == "user")
     outer = json.loads(user["content"])
-    return json.loads(outer["impression"])
+    return {"exposures": list(outer["shown"])}
 
 
 def held_value(messages: Sequence[ChatMessage], question: dict) -> str:
@@ -78,7 +83,7 @@ def answering(action: str = "comment", verbatim: str = "the protein claim would 
         user = json.loads(next(message for message in reversed(messages) if message.get("role") == "user")["content"])
         if "questions" in user:
             return json.dumps({"answers": [held_value(messages, question) for question in user["questions"]]})
-        shown = json.loads(user["impression"])["exposures"]
+        shown = user["shown"]
         target = subject or shown[0]["stimulus_id"]
         return json.dumps({"subject_stimulus_id": target, "action": action, "verbatim": verbatim})
 

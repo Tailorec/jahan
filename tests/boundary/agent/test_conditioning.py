@@ -134,14 +134,12 @@ def _minimum_budget(job) -> int:
     `assemble` refuses anything below this, so it is the point at which beliefs and memories
     have all been dropped and the block has not.
     """
-    from simcore.agent._context import _wire_size
+    from simcore.agent._context import _wire_size, render_shown
     from simcore.agent._prompt import REACTION_QUESTION, render_persona_block
 
     block = render_persona_block(job.persona.conditioning, job.persona.attributes)
-    return _wire_size(
-        block, "", (), job.presentation.impression.model_dump_json(),
-        job.presentation.view.model_dump_json(), REACTION_QUESTION,
-    )
+    shown = render_shown(job.presentation.impression, job.presentation.view)
+    return _wire_size(block, "", (), shown, REACTION_QUESTION)
 
 
 def test_a_budget_below_beliefs_keeps_the_block_and_drops_beliefs():
