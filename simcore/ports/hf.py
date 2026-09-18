@@ -84,11 +84,21 @@ class _ShardArrays:
     bitmap: np.ndarray | None  # uint8 [rows, bitmap_bytes] or None when every field is present
     vocabulary_sizes: np.ndarray  # int16 [fields]: how many values each code may take
     sources: np.ndarray  # object [rows]: each row's source, from the release's `source` column
-    full: object  # the pyarrow table, kept for the lazy per-row decode
+    counts: np.ndarray  # int32 [rows]: the release's own populated-attribute count per row
     overrides: Mapping[int, Mapping[int, str]]  # field_index -> row -> raw override value
     inferred: Mapping[int, np.ndarray]  # field_index -> rows whose grounding says a model inferred it
     labels: dict = field(default_factory=dict)  # attribute -> decoded-label array, cached
     unexpressible: dict = field(default_factory=dict)  # attribute -> rows whose override the vocabulary cannot express
+    _inferred_rows: dict = field(default_factory=dict)  # field_index -> set of rows, for the per-row decode
+
+    def inferred_at(self, field_index: int, row: int) -> bool:
+        """Whether this row's grounding named an assignment other than a recorded one."""
+        cached = self._inferred_rows.get(field_index)
+        if cached is None:
+            rows = self.inferred.get(field_index)
+            cached = {int(item) for item in rows} if rows is not None else set()
+            self._inferred_rows[field_index] = cached
+        return row in cached
 
 
 class HfCoresetSource:
@@ -255,15 +265,19 @@ class HfCoresetSource:
 
         entry = self._find_entry(shard)
         path = self.cache_dir / str(entry["path"])
+        # `grounding` carries an `evidence` text the adapter never reads — 3.08 GB uncompressed on the
+        # release's largest shard, against 0.08 GB for the two leaves that decide a field's tier. The
+        # dataset reader takes whole columns only; the file reader takes leaf paths, so only the leaves
+        # are read. (`descriptions`, larger still at 4.48 GB, is not asked for at all.)
         columns = [
             "source",
             "attributes",
             "null_bitmap",
             "attribute_overrides",
-            "grounding",
             "populated_attribute_count",
         ]
-        full = pq.read_table(path, columns=columns)
+        reader = pq.ParquetFile(path)
+        full = reader.read(columns=columns)
         rows = full.num_rows
         attributes = np.frombuffer(b"".join(full["attributes"].to_numpy(zero_copy_only=False)), dtype=np.uint8).reshape(rows, -1)
         bitmaps = full["null_bitmap"].to_numpy(zero_copy_only=False)
@@ -281,14 +295,19 @@ class HfCoresetSource:
         for index, entry_overrides in enumerate(full["attribute_overrides"].to_pylist()):
             for item in entry_overrides or ():
                 overrides.setdefault(int(item["field_index"]), {})[index] = str(item["value"])
-        inferred = _inferred_rows(full["grounding"])
+        inferred = _stream_inferred(reader)
+        counts = np.asarray(full["populated_attribute_count"].to_numpy(zero_copy_only=False), dtype=np.int32)
+        # Everything the shard is read for is now packed, so the table goes. Held, it kept the whole
+        # `grounding` column alive for the sake of slicing single rows out of it later — gigabytes per
+        # shard, times every shard a draw matches against.
+        del full
         return _ShardArrays(
             row_ids=row_ids,
             attributes=attributes,
             bitmap=bitmap,
             vocabulary_sizes=self._vocabulary_sizes,
             sources=sources,
-            full=full,
+            counts=counts,
             overrides=overrides,
             inferred=inferred,
         )
@@ -348,21 +367,52 @@ class HfCoresetSource:
         return np.isin(labels, np.asarray(allowed, dtype=object)) if allowed else np.zeros(len(arrays.row_ids), dtype=bool)
 
     def _decode(self, arrays: _ShardArrays, index: int) -> DecodedRow:
-        record = arrays.full.slice(index, 1).to_pylist()[0]
+        """One row, from the packed arrays alone — the shard's table is not kept to be sliced."""
         row_id = arrays.row_ids[index]
         source = str(arrays.sources[index])
-        overrides = [(int(item["field_index"]), str(item["value"])) for item in (record.get("attribute_overrides") or ())]
+        overrides = sorted(
+            (field_index, values[index]) for field_index, values in arrays.overrides.items() if index in values
+        )
         values = decode_row(
             self._codebook,
-            record["attributes"],
-            record.get("null_bitmap"),
+            arrays.attributes[index].tobytes(),
+            arrays.bitmap[index].tobytes() if arrays.bitmap is not None else None,
             overrides,
-            int(record["populated_attribute_count"]),
+            int(arrays.counts[index]),
             row_id=row_id,
         )
-        assignments = {int(item["field_index"]): item.get("assignment_type") for item in (record.get("grounding") or ())}
-        tiers = {attribute: tier_for(source, assignments.get(self._field_of[attribute])) for attribute in values}
+        # A recorded assignment and an absent one grade alike, and `inferred` holds exactly the rows
+        # whose assignment was neither — the same distinction `tier_for` draws, from what is kept.
+        tiers = {
+            attribute: tier_for(source, "inferred" if arrays.inferred_at(self._field_of[attribute], index) else None)
+            for attribute in values
+        }
         return DecodedRow(row_id=row_id, source=source, values=FrozenDict(values), tiers=FrozenDict(tiers))
+
+
+# Rows per batch when the grounding leaves are streamed. One shard of the release carries fifty
+# million grounding entries, and taking their parent indices in one go is a 390 MB array before
+# anything is filtered; batching bounds that whatever the shard's size.
+_GROUNDING_BATCH_ROWS = 20_000
+
+
+def _stream_inferred(reader) -> dict[int, np.ndarray]:
+    """`_inferred_rows` over one shard, read a batch at a time.
+
+    Only the two leaves a tier depends on are read: `grounding` also carries an `evidence` text
+    three gigabytes wide on the release's largest shard, and the adapter never looks at it. Each
+    batch numbers its rows from zero, so its rows are shifted by the rows before it.
+    """
+    parts: dict[int, list[np.ndarray]] = {}
+    rows_before = 0
+    for batch in reader.iter_batches(
+        batch_size=_GROUNDING_BATCH_ROWS,
+        columns=["grounding.list.element.field_index", "grounding.list.element.assignment_type"],
+    ):
+        for field_index, rows in _inferred_rows(batch.column("grounding")).items():
+            parts.setdefault(field_index, []).append(rows + rows_before)
+        rows_before += batch.num_rows
+    return {field_index: np.concatenate(chunks) for field_index, chunks in parts.items()}
 
 
 def _inferred_rows(grounding) -> dict[int, np.ndarray]:

@@ -286,3 +286,38 @@ def test_a_shard_too_large_to_combine_is_still_read():
         [[{"field_index": 1, "assignment_type": "direct"}], [{"field_index": 2, "assignment_type": "inferred"}]],
     ]))
     assert {field: sorted(int(row) for row in rows) for field, rows in _inferred_rows(column).items()} == {1: [0], 2: [2]}
+
+
+def test_a_loaded_shard_does_not_retain_the_parquet_table(fake_cache):
+    """A shard was kept as the whole Arrow table so single rows could be sliced out of it lazily.
+    The release's largest shard holds over two gigabytes in its `grounding` column alone, and a
+    draw loads every shard it may match against at once: a 200-persona draw over four cached
+    shards took a 16 GB machine into swap and froze it. Nothing but the packed arrays is kept."""
+    import pyarrow as pa
+
+    source = source_for(fake_cache)
+    ids = source.matching({}, present=[])
+    arrays = source._arrays(ids[0].rsplit(":", 1)[0])
+    held = [name for name, value in vars(arrays).items() if isinstance(value, (pa.Table, pa.ChunkedArray))]
+    assert held == [], f"the shard still holds {held}"
+
+
+def test_rows_decode_the_same_without_the_table(fake_cache):
+    """What the decode returns is unchanged: the same values, the same tiers, the same sources."""
+    source = source_for(fake_cache)
+    ids = source.matching({}, present=[])
+    decoded = {row.row_id: row for row in source.rows(ids)}
+    assert decoded
+    for row in decoded.values():
+        assert row.values
+        assert set(row.tiers) == set(row.values)
+
+
+def test_only_the_grounding_leaves_a_tier_depends_on_are_read():
+    """`grounding` carries an `evidence` text three gigabytes wide on the release's largest shard,
+    and a tier depends on two small leaves of it. Reading the column whole is what took a draw
+    past the memory of the machine it ran on."""
+    source_text = (REPO_ROOT / "simcore" / "ports" / "hf.py").read_text()
+    assert '"grounding.list.element.field_index"' in source_text
+    assert '"grounding.list.element.assignment_type"' in source_text
+    assert '\n            "grounding",' not in source_text, "the whole grounding column is read again"
