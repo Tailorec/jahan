@@ -79,7 +79,9 @@ def fake_responder(messages: Sequence[ChatMessage], template_id: str) -> str:
     This is the `--fake` stand-in for a persona, deterministic by construction — no
     number it produces is behaviour, which is exactly what makes two fake runs under
     one seed agree. Probes take the first option; reactions answer about the first
-    shown stimulus with a small fixed belief move so the run exercises findings.
+    shown stimulus with a small fixed belief move so the run exercises findings; a
+    reflection consolidates with a small further move, which a study only reaches once
+    it runs long enough for the cadence to fire.
     """
     user = json.loads(next(message for message in reversed(messages) if message.get("role") == "user")["content"])
     if "questions" in user:
@@ -88,13 +90,21 @@ def fake_responder(messages: Sequence[ChatMessage], template_id: str) -> str:
             options = question.get("options", [])
             answers.append(options[0] if options else "(none)")
         return json.dumps({"answers": answers})
-    shown = user["shown"]
-    return json.dumps({
-        "subject_stimulus_id": shown[0]["stimulus_id"],
-        "action": "answer",
-        "verbatim": "I would try it after training",
-        "belief_deltas": {"dimensions": {"value": 0.05}},
-    })
+    if "shown" in user:
+        shown = user["shown"]
+        return json.dumps({
+            "subject_stimulus_id": shown[0]["stimulus_id"],
+            "action": "answer",
+            "verbatim": "I would try it after training",
+            "belief_deltas": {"dimensions": {"value": 0.05}},
+        })
+    if "memories" in user:
+        return json.dumps({
+            "dimensions": {"value": 0.01},
+            "claim_credence": {},
+            "summary": "Looking back, the protein claim still reads the same to me. Nothing has changed my mind.",
+        })
+    raise ValueError(f"the stub persona was asked something it has no answer for: {sorted(user)}")
 
 
 def fake_backend(pack: BriefPack, *, seed: int):

@@ -85,9 +85,27 @@ class StoreTrace:
 
     def __init__(self, store: TraceStore, root: Path, run_id: str) -> None:
         self._store, self._root, self._run_id = store, Path(root), run_id
+        # What each stimulus says, gathered as it is written. The agent shows a persona the
+        # concept itself, so the texts have to be to hand every tick; reading the whole record
+        # back to find them again costs the record's size on every batch.
+        self.published: dict[str, str] = {}
 
     def write(self, events) -> None:
         self._store.write(events)
+        for event in events:
+            if event.payload.kind == "stimulus_published":
+                self.published[event.payload.stimulus.stimulus_id] = event.payload.stimulus.text
+
+    def prime_published(self) -> None:
+        """What earlier ticks published, for a run this process is resuming rather than starting."""
+        try:
+            world_ids = self._store.world_ids(self._run_id)
+        except Exception:  # a run with no record yet has published nothing
+            return
+        for world_id in world_ids:
+            for event in self.events_for(world_id):
+                if event.payload.kind == "stimulus_published":
+                    self.published[event.payload.stimulus.stimulus_id] = event.payload.stimulus.text
 
     def finalize(self, world_id: str):
         return self._store.finalize(world_id)
@@ -341,6 +359,7 @@ def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1, forc
     """
     store = handles.store
     trace = StoreTrace(store, handles.run_dir / "trace", handles.run_id)
+    trace.prime_published()
     blocks = PersonaBlockCache()
 
     def world_factory(header):
@@ -348,11 +367,6 @@ def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1, forc
         return World(header, population=handles.population, config=WorldConfig(platform=channel))
 
     def agent_fn(jobs):
-        published: dict[str, str] = {}
-        for world_id in store.world_ids(handles.run_id):
-            for event in trace.events_for(world_id):
-                if event.payload.kind == "stimulus_published":
-                    published[event.payload.stimulus.stimulus_id] = event.payload.stimulus.text
         return agent_turns(
             jobs,
             chat=handles.chat,
@@ -360,7 +374,7 @@ def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1, forc
             ontology=handles.pack.ontology,
             blocks=blocks,
             embed=handles.embed,
-            stimulus_texts=published,
+            stimulus_texts=trace.published,
         )
 
     return run(

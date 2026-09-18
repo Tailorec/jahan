@@ -83,3 +83,15 @@ def test_two_fake_runs_under_one_seed_produce_identical_reports(tmp_path, monkey
     second, _ = _run(tmp_path, monkeypatch, run_id="run-" + "0" * 25 + "1", out="second")
     assert (first / "report.md").read_bytes() == (second / "report.md").read_bytes()
     assert (first / "report.json").read_bytes() == (second / "report.json").read_bytes()
+
+
+def test_a_fake_study_long_enough_to_reflect_still_completes(tmp_path, monkeypatch):
+    """Reflection fires on a jittered cadence, so a short study never reaches it. The stub
+    persona knew two prompt shapes — a reaction and a probe — and a reflection is a third:
+    the first study long enough to consolidate died with `KeyError: 'shown'`."""
+    monkeypatch.chdir(tmp_path)
+    out = tmp_path / "runs"
+    run_id = "run-" + "0" * 24 + "16"
+    code, output = run_command(*fake_args(out, run_id, horizon=6))
+    assert code == 0, output
+    assert (out / run_id / "report.md").is_file()
