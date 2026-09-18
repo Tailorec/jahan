@@ -1,0 +1,84 @@
+{
+ "study": "code-review AI on Stack Overflow rows",
+ "chat_model": "mistral.ministral-3-8b-instruct",
+ "embed_model": "amazon.titan-embed-text-v2:0",
+ "served": {
+  "mistral.ministral-3-8b-instruct": [
+   "mistral.ministral-3-8b-instruct"
+  ]
+ },
+ "personas": 200,
+ "source_mix": {
+  "stackoverflow": 1.0
+ },
+ "gate_evidence": "extracted",
+ "gates_overall": true,
+ "ticks": 3,
+ "channel": "social_feed",
+ "run_status": "completed",
+ "world_outcomes": [
+  {
+   "world": "74370c9e41ce",
+   "status": "completed",
+   "last_closed_tick": 2,
+   "rungs": []
+  }
+ ],
+ "events_recorded": 2829,
+ "events_visible": 2829,
+ "event_kinds": {
+  "lifecycle": 2,
+  "stimulus_published": 157,
+  "tick_closed": 3,
+  "belief_snapshot": 600,
+  "turn": 400,
+  "memory": 400,
+  "cost": 1255,
+  "probe": 12
+ },
+ "partition_validates": 2829,
+ "finalized_parquet": true,
+ "verbatims": 400,
+ "verbatim_sample": [
+  "I\u2019d need concrete evidence on which bugs it catches\u2014claims like this often overpromise. Show me the data or I\u2019ll stick to manual reviews.",
+  "\u2018I need empirical data\u2014not just claims\u2014on which specific bugs this catches. Studies comparing AI vs. human review rates for critical vulnerabilities would help me assess trade-offs against manual effort.\u2019",
+  "This is just another way to offload responsibility onto AI\u2014developers should still understand the code, not rely on automated 'reviewers' that might miss context or introduce false confidence. Over-engineering the process for marginal gains.",
+  "This is just another AI-driven cop-out\u2014developers should still *read* the code, not let a black-box tool pretend it understands the nuances of our systems. Over-reliance on AI for reviews just shifts the burden of responsibility while giving false security.",
+  "Interesting claim\u2014what\u2019s the empirical data behind \u2018most often\u2019? I\u2019d need benchmarks vs. human reviewers to gauge real-world utility."
+ ],
+ "intents_scored": 0,
+ "intents_unscored": 0,
+ "unscored_reason": null,
+ "probes": 12,
+ "probe_disagreement": null,
+ "beliefs_points_first_persona": [
+  0,
+  1,
+  2
+ ],
+ "calls": {
+  "embed": 801,
+  "chat": 455
+ },
+ "routes": {
+  "primary": 1053,
+  "cache": 402
+ },
+ "tokens": {
+  "embed_in": 37750,
+  "tier_a_in": 214855,
+  "tier_a_out": 45854
+ },
+ "failures": {},
+ "registry": {
+  "status": "completed",
+  "recorded_cost": 0.039640289999999974,
+  "discarded_ticks": 0,
+  "engine_version": "1.0.0-runner.1"
+ },
+ "spend_usd_metered": 0.039861,
+ "seconds": {
+  "population_build": 240.7,
+  "study_run": 1023.9
+ }
+}

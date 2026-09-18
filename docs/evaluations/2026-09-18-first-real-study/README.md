@@ -23,13 +23,14 @@ been hiding.
 | Embeddings | `amazon.titan-embed-text-v2:0`, $0.02 / 1M in |
 | Route | Local LiteLLM proxy over AWS credentials — no API key, one base URL, retries and cache off |
 | Prices | Declared on the pins from the AWS Pricing API, us-east-1 standard on-demand, 2026-09-18 |
-| Purchase intent | Not scored: no anchor version passes its check (ADR 0029), so verbatims are recorded unscored (ADR 0032) |
+| Purchase intent | Not asked and not scored: no anchor version passes its check (ADR 0029), and this run's scenario elicits reactions |
 
 `run_study.py` beside this file is the script; it writes the report the numbers below come from.
 
 ## What a fake had been hiding
 
-Three defects, each invisible to every boundary test and obvious within one real call.
+Nine defects, in an engine with more than 1,500 passing tests. Each was invisible to every
+boundary test and most were obvious within one real call.
 
 **1. The persona was never shown the concept.** The prompt carried the impression and the view as
 serialized JSON, so a persona saw stimulus ids, an `impression_id` and a `contexts` field — and
@@ -51,10 +52,38 @@ guardrail violations, and the answers were all fine.
 object was cut off mid-string, so a good answer became `unparseable_output` through no fault of
 the model. The question now asks for one or two sentences.
 
-A fourth came from the runner rather than the agent: a changed anchor pin slipped past the
-resume refusal, which checked the brief, ontology, population, scenario, pins and engine version
-but not everything else the configuration hash covers, and failed instead deep inside the
+**4. No belief moved in 400 turns.** The parser reads `belief_deltas`; the question never asked
+for them. With beliefs frozen, reflection could only fire on its cadence, **word of mouth never
+fired at all** — its gate is how strongly a reaction was felt — and a belief-shift finding had
+nothing to find. The engine's whole social mechanism was inert while every test passed, because
+the test fakes returned deltas nobody had requested.
+
+**5. Every probe came back `(no answer)`**, the probe parser having kept the bare `json.loads`
+the turn parser had just lost.
+
+**6. The partition refused the world's honest view.** A feed affords likes and reshares, never
+votes, so an upvote there changes no state and appears in no view — but the partition counted
+every action as engagement whatever channel it happened on, and then refused the record:
+*shows 0 upvotes, but 14 were visible*. Nobody had seen it because no persona had ever voted
+until beliefs started moving.
+
+**7. A view could not record who told you.** Word of mouth carries the tie to the teller, not the
+author, so a peer passing on the study's own concept — which has no author — produced a view the
+contract rejected. Found the first time word of mouth fired.
+
+**8. A study could not ask for purchase intent.** The runner named the task itself, so every turn
+was a reaction and adoption was unreachable from any configuration, even with anchors that pass.
+What personas are asked is now one of the conditions a scenario describes.
+
+**9. A resume refused without naming what moved.** The check covered the brief, ontology,
+population, scenario, pins and engine version, but not the templates, anchor sets, budget or
+seeds the configuration hash also covers — so a changed anchor pin failed deep inside the
 registry with a hash-to-hash message naming nothing.
+
+**Each fix exposed the next.** Fixing the prompt let personas answer; answering let beliefs move;
+moving beliefs made personas vote and made word of mouth fire for the first time; voting hit the
+affordance mismatch; word of mouth hit the teller rule. A fake supplies whatever the test author
+imagined, so that chain never starts.
 
 ## What the platform taught us
 
@@ -73,7 +102,40 @@ replayed.
 
 ## Results
 
-<!-- filled from report.json -->
+200 personas drawn from Stack Overflow rows, three ticks on the social feed, every module real.
+`reports/study-200-personas-3-ticks.json` is the report; `reports/before-the-fixes-200-personas.json`
+is the same study before the fixes, kept because the difference is the point.
+
+| | Before the fixes | After |
+|---|---|---|
+| Turns | 400 | 495 |
+| Turns that moved a belief | **0** | **495** (mean move 0.32) |
+| Reflections | 0 | 207 consolidated memories |
+| Word-of-mouth deliveries | **0** | **113**, reaching 96 turns on the wom channel |
+| Probe answers read | **0** | 18, all agreeing with the persona's own attributes |
+| Guardrail violations | 60 of 60 (all false) | 6 of 495 (1.2%) |
+| Record validates as a partition | refused twice | **4,052 of 4,052 events** |
+
+**What the engine did.** 116 stimuli published — the concept, two claim posts, and 113 peer
+replies personas wrote and other personas then saw. 495 turns across two channels (399 on the
+feed, 96 by word of mouth). Actions spread across commenting, complaining, upvoting, asking a
+peer and rejecting, rather than one action repeated. Verbatims group under the claims they are
+about: 149 on C1, 11 on C2. Six turns invented something and were caught — five naming a
+stimulus never shown, one unparseable after its retry.
+
+**What it cost.** $0.085 metered; the registry recorded $0.0848 from the trace's own cost events,
+which is the cross-check that the ledger sums what was actually billed. 812 chat calls and 1,204
+embedding calls, 2,015 cost records, no failures. Four minutes to build the population, 30
+minutes to run the study under Titan's 60-per-minute quota.
+
+**A persona, in its own words:**
+
+> "As a developer, I'm skeptical of AI in code reviews — especially when it requires new tooling.
+> But if it *actually* catches bugs reviewers miss without adding noise, I'd try it."
+
+> "This is just another attempt to automate away human judgment in code reviews."
+
+The audience the brief asked for is AI skeptics among developers, and that is who answered.
 
 ## Caveats, stated plainly
 
