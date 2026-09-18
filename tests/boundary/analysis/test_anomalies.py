@@ -121,3 +121,29 @@ def test_low_measured_adoption_is_a_flop():
     assert len(flop) == 1
     assert flop[0].observed == pytest.approx(0.10)
     assert report.unmeasured == ()
+
+
+def test_a_spread_of_zero_reports_herding_as_unmeasured_rather_than_flagging_every_window():
+    """One seed, or seeds that agreed exactly, give a spread of 0.0 — twice which is zero, so
+    every window that moved at all would clear it. A yardstick of zero measures nothing."""
+    events = [_turn(tick, tick, 0.1) for tick in range(4)]
+    report = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+                              digest=_unmeasured_digest(), replicate_spread=0.0)
+    assert [a for a in report.anomalies if a.kind.value == "herding"] == []
+    herding = [u for u in report.unmeasured if u.kind.value == "herding"]
+    assert len(herding) == 1
+    assert "spread" in herding[0].reason
+
+
+def test_no_spread_at_all_reports_herding_as_unmeasured_rather_than_silently_skipping():
+    events = [_turn(tick, tick, 0.1) for tick in range(4)]
+    report = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+                              digest=_unmeasured_digest(), replicate_spread=None)
+    assert [a for a in report.anomalies if a.kind.value == "herding"] == []
+    assert [u.kind.value for u in report.unmeasured].count("herding") == 1
+
+
+def test_a_negative_spread_is_refused():
+    with pytest.raises(ValueError, match="spread"):
+        detect_anomalies(_MovesView([_turn(0, 0, 0.1)]), scenario_hash=_scenario_hash(),
+                         digest=_unmeasured_digest(), replicate_spread=-0.1)
