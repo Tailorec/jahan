@@ -72,7 +72,8 @@ def report_payload(**overrides):
                             ranked_scenarios=[scenario_hash(BASELINE), scenario_hash(PREMIUM)]),
         ],
         "anomalies": [{"kind": "herding", "scenario_hash": scenario_hash(BASELINE), "tick": 12, "evidence_trace_ids": EVIDENCE[:1]}],
-        "objection_clusters": [{"label": "aftertaste", "verbatim_trace_ids": EVIDENCE, "size": 14}],
+        "objection_clusters": [{"label": "aftertaste", "verbatim_trace_ids": EVIDENCE, "size": 14,
+                                  "threshold": 0.75, "embed_model_id": "openai/text-embedding-3-small"}],
         "digests": [digest_payload(BASELINE), digest_payload(PREMIUM)],
     }
     payload.update(overrides)
@@ -187,11 +188,13 @@ def test_anomaly_kinds_are_closed_and_evidence_is_required_once_each():
 
 
 def test_objection_cluster_is_at_least_as_large_as_the_distinct_sample_it_cites():
-    assert ObjectionCluster(label="aftertaste", verbatim_trace_ids=EVIDENCE, size=14).size == 14
+    cluster = {"label": "aftertaste", "verbatim_trace_ids": EVIDENCE, "size": 14,
+               "threshold": 0.75, "embed_model_id": "openai/text-embedding-3-small"}
+    assert ObjectionCluster.model_validate(cluster).size == 14
     with pytest.raises(ValidationError, match="cannot cite"):
-        ObjectionCluster(label="aftertaste", verbatim_trace_ids=EVIDENCE, size=1)
+        ObjectionCluster.model_validate({**cluster, "size": 1})
     with pytest.raises(ValidationError, match="more than once"):
-        ObjectionCluster(label="aftertaste", verbatim_trace_ids=[EVIDENCE[0], EVIDENCE[0]], size=5)
+        ObjectionCluster.model_validate({**cluster, "verbatim_trace_ids": [EVIDENCE[0], EVIDENCE[0]], "size": 5})
 
 
 def test_digest_carries_both_distributions_with_their_weights():

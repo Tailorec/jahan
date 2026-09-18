@@ -21,7 +21,7 @@ from .base import (
     proportions_sum_to_one,
 )
 from .enums import ActionKind, AnomalyKind, BeliefDim, Confidence, DegradationRung, FindingKind, TickUnit, TrustLevel
-from .run import RunConfig, WorldId
+from .run import PinnedModelId, RunConfig, WorldId
 from .sim import PMF5
 from .trace import EventId
 
@@ -140,11 +140,16 @@ class Anomaly(SimBaseModel):
 
 class ObjectionCluster(SimBaseModel):
     """Verbatims clustered by embedding similarity around one recurring objection; the cited verbatims are
-    a sample of the cluster, so the cluster is at least as large as what it cites."""
+    a sample of the cluster, so the cluster is at least as large as what it cites. The label is the
+    medoid verbatim, quoted as the persona wrote it — never generated text. The threshold is the
+    recorded cosine-similarity parameter the grouping was computed at, in the embedding space of the
+    run's pinned embedding model."""
 
     label: NonEmptyStr
     verbatim_trace_ids: tuple[EventId, ...] = Field(min_length=1)
     size: PositiveInt
+    threshold: UnitInterval
+    embed_model_id: PinnedModelId
 
     @model_validator(mode="after")
     def _cites_a_distinct_sample(self) -> Self:
