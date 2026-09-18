@@ -4,7 +4,7 @@ import json
 import shutil
 
 from simcore.schemas import Completion
-from tests.boundary.cli.support import ANCHORS, BRIEF, ONTOLOGIES, REPO_ROOT, run_command, run_id_from
+from tests.boundary.cli.support import ANCHOR_VERSION, ANCHORS, BRIEF, ONTOLOGIES, REPO_ROOT, run_command, run_id_from
 
 RUN_ID = "run-" + "0" * 25 + "5"
 
@@ -33,7 +33,7 @@ def write_grid(tmp_path, horizon=2, prices=(2.49, 2.99), name="grid.yaml"):
 def sweep_args(grid, out, run_id, *extra, budget="42"):
     return [
         "sweep", "run", "--grid", str(grid), "--budget", budget, "--fake",
-        "--ontologies", str(ONTOLOGIES), "--anchors", str(ANCHORS),
+        "--ontologies", str(ONTOLOGIES), "--anchors", str(ANCHORS), "--anchor-version", ANCHOR_VERSION,
         "--out", str(out), "--run-id", run_id, "--n", "24", *extra,
     ]
 

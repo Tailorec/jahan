@@ -163,13 +163,17 @@ def assemble_scenario(
 
 
 def anchor_pins(
-    pack: BriefPack, anchors_dir: Path, *, embed_pin: str
+    pack: BriefPack, anchors_dir: Path, *, embed_pin: str, chosen: dict[str, str] | None = None
 ) -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str]]:
     """Pin every anchor set the ontology names by content hash, and the versions the
     check lets through for scoring. A set with no frozen version file, or several,
     refuses: the study must say which scale it runs on. A version whose check failed —
     every version until one passes — stays pinned but unscored, so intent goes
-    unmeasured and the verbatim is kept with its failure (ADR 0029, ADR 0032)."""
+    unmeasured and the verbatim is kept with its failure (ADR 0029, ADR 0032).
+
+    `chosen` is how a study says which one, per construct. A superseded version stays on
+    disk as the evidence of what failed, so the moment a second version exists every study
+    needs a way to name the scale it runs on."""
     set_hashes: dict[str, str] = {}
     set_ids: dict[str, str] = {}
     versions: dict[str, str] = {}
@@ -188,12 +192,22 @@ def anchor_pins(
             raise GateFailure(
                 f"the ontology names anchor set {set_id!r} but {anchors_dir / construct} holds no frozen version"
             )
-        if len(candidates) > 1:
+        if len(candidates) > 1 and (chosen or {}).get(construct) is None:
             raise GateFailure(
                 f"the ontology names anchor set {set_id!r} but {construct} holds several versions "
-                f"({', '.join(path.stem for path in candidates)}): the study must say which one"
+                f"({', '.join(path.stem for path in candidates)}): the study must say which one, "
+                f"with --anchor-version {construct}=<version>"
             )
-        version_file = candidates[0]
+        named = (chosen or {}).get(construct)
+        if named is not None:
+            version_file = anchors_dir / construct / f"{named}.json"
+            if not version_file.is_file():
+                raise GateFailure(
+                    f"the study names anchor version {named!r} for {construct}, but "
+                    f"{version_file} does not exist"
+                )
+        else:
+            version_file = candidates[0]
         set_hashes[set_id] = anchor_hash(load_anchor_version(version_file))
         try:
             record = assert_pinnable(set_id, construct, version_file.stem, anchors_dir, embed_model_id=embed_pin)
@@ -248,13 +262,40 @@ def assemble_backend(pack: BriefPack, args) -> tuple:
     client = InferenceClient(ModelPins.model_validate(pins), ExecutionSettings.from_environment())
     cache = args.cache or default_cache_dir()
     manifest_path = cache / "manifest.json"
-    shards = (
+    shards = shards_from(args) or (
         [entry["path"] for entry in json.loads(manifest_path.read_text()).get("files", [])]
         if manifest_path.is_file()
         else None
     )
     coreset = HfCoresetSource(cache_dir=cache, shards=shards)
     return client, client, coreset, pins, args.embed_model
+
+
+def shards_from(args) -> list[str] | None:
+    """`--shards 0000,0004`, as manifest paths. Nothing named means every shard the manifest lists.
+
+    The release is ten shards of a hundred thousand personas each and a draw reads a fraction of
+    one, so a study that does not need them all should not wait on gigabytes it will never read.
+    Naming them explicitly keeps the draw reproducible, where "whatever is cached" would make it
+    depend on the machine it ran on."""
+    raw = getattr(args, "shards", None)
+    if raw is None:
+        return None
+    named = [item.strip() for item in str(raw).split(",") if item.strip()]
+    if not named:
+        raise GateFailure("--shards takes at least one shard, like --shards 0000,0004")
+    return [item if "/" in item else f"data/persona-1m-{item}.parquet" for item in named]
+
+
+def anchor_versions_from(args) -> dict[str, str]:
+    """`--anchor-version construct=version`, as a mapping. A study says which scale it runs on."""
+    chosen: dict[str, str] = {}
+    for item in getattr(args, "anchor_version", None) or ():
+        construct, _, version = str(item).partition("=")
+        if not construct or not version:
+            raise GateFailure(f"--anchor-version takes construct=version, got {item!r}")
+        chosen[construct] = version
+    return chosen
 
 
 def gate_and_build(
@@ -313,7 +354,8 @@ def prepare_study(
     chat, embed, coreset, pins, embed_pin = assemble_backend(pack, args)
     population = gate_and_build(pack, n=n, population_seed=population_seed, chat=chat, coreset=coreset, run_dir=run_dir)
 
-    set_hashes, set_ids, versions, hashes = anchor_pins(pack, anchors_dir, embed_pin=embed_pin)
+    set_hashes, set_ids, versions, hashes = anchor_pins(
+        pack, anchors_dir, embed_pin=embed_pin, chosen=anchor_versions_from(args))
     config = RunConfig.model_validate({
         "run_id": run_id,
         "pins": pins,

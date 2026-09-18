@@ -15,7 +15,7 @@ import types
 from simcore.brief import load_brief
 from simcore.cli._study import assemble_backend
 from simcore.runner import ENGINE_VERSION
-from tests.boundary.cli.support import ANCHORS, BRIEF, ONTOLOGIES, REPO_ROOT, fake_args, run_command, run_id_from
+from tests.boundary.cli.support import ANCHOR_VERSION, ANCHORS, BRIEF, ONTOLOGIES, REPO_ROOT, fake_args, run_command, run_id_from
 
 RUN_ID = "run-" + "0" * 25 + "4"
 
@@ -81,7 +81,7 @@ def test_a_resume_refused_by_changed_inputs_names_what_moved(tmp_path, monkeypat
     shutil.copy(REPO_ROOT / "examples" / "protein_water.yaml.evidence.json", tmp_path / "brief.yaml.evidence.json")
     out = tmp_path / "runs"
     base = ["concepts", "run", str(brief), "--fake", "--ontologies", str(ONTOLOGIES),
-            "--anchors", str(ANCHORS), "--out", str(out), "--run-id", RUN_ID, "--n", "24", "--horizon", "2"]
+            "--anchors", str(ANCHORS), "--anchor-version", ANCHOR_VERSION, "--out", str(out), "--run-id", RUN_ID, "--n", "24", "--horizon", "2"]
     code, _ = run_command(*base)
     assert code == 0
 
@@ -139,7 +139,7 @@ def test_a_forced_resume_is_recorded_in_the_registry_and_marked_in_the_report(tm
     out = tmp_path / "runs"
     run_id = "run-" + "0" * 24 + "18"
     base = ["concepts", "run", str(brief), "--fake", "--ontologies", str(ONTOLOGIES),
-            "--anchors", str(ANCHORS), "--out", str(out), "--run-id", run_id, "--n", "24", "--horizon", "2"]
+            "--anchors", str(ANCHORS), "--anchor-version", ANCHOR_VERSION, "--out", str(out), "--run-id", run_id, "--n", "24", "--horizon", "2"]
     assert run_command(*base)[0] == 0
 
     brief.write_text(brief.read_text().replace(

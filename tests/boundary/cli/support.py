@@ -12,6 +12,9 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 BRIEF = REPO_ROOT / "examples" / "protein_water.yaml"
 ONTOLOGIES = REPO_ROOT / "ontologies"
 ANCHORS = REPO_ROOT / "anchors"
+# The repository ships more than one frozen purchase-intent version — a superseded one stays on
+# disk as the evidence of what failed — so every study names the scale it runs on.
+ANCHOR_VERSION = "purchase_intent=v1"
 
 
 def run_command(*argv: str) -> tuple[int, str]:
@@ -33,6 +36,7 @@ def fake_args(out: Path, run_id: str, fake: bool = True, **overrides) -> list[st
     args.extend([
         "--ontologies", str(ONTOLOGIES),
         "--anchors", str(ANCHORS),
+        "--anchor-version", ANCHOR_VERSION,
         "--out", str(out),
         "--run-id", run_id,
         "--n", "24",

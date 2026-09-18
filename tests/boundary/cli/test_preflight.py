@@ -2,11 +2,13 @@
 
 import json
 import shutil
+import types
 
 import numpy as np
 import pytest
 
 from simcore.elicitation import assert_pinnable
+from simcore.schemas import GateFailure
 from simcore.ports.embed import EmbedResult
 from simcore.ports.fake import FakeEmbed
 from tests.boundary.cli.support import ANCHORS, BRIEF, ONTOLOGIES, REPO_ROOT, run_command, run_id_from
@@ -170,3 +172,18 @@ def test_a_study_says_which_anchor_version_it_runs_on(tmp_path, monkeypatch):
     code, output = run_command(*base, "--run-id", "run-" + "0" * 24 + "21",
                                "--anchor-version", "purchase_intent=v9")
     assert code == 0, output
+
+
+def test_a_study_says_which_shards_it_draws_from(tmp_path, monkeypatch):
+    """The release is ten shards and a draw needs a fraction of one. Demanding every shard the
+    manifest lists makes a study wait on gigabytes it will never read, and there was no way to
+    say which ones it draws from."""
+    from simcore.cli._study import shards_from
+
+    assert shards_from(types.SimpleNamespace(shards=None)) is None
+    assert shards_from(types.SimpleNamespace(shards="0000,0004")) == [
+        "data/persona-1m-0000.parquet", "data/persona-1m-0004.parquet"]
+    assert shards_from(types.SimpleNamespace(shards="data/persona-1m-0009.parquet")) == [
+        "data/persona-1m-0009.parquet"]
+    with pytest.raises(GateFailure, match="shard"):
+        shards_from(types.SimpleNamespace(shards="  "))

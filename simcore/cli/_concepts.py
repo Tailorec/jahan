@@ -23,6 +23,10 @@ def add_backend_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--cache", type=Path, default=None, help="cached corpus shards (default: the user cache)")
     parser.add_argument("--coreset-fixture", type=Path, default=None, help="committed test rows instead of a corpus (offline, with stub inference)")
     parser.add_argument("--validation", default=None, help="the report's recommended real-world validation")
+    parser.add_argument("--shards", default=None, metavar="0000,0004",
+                        help="which corpus shards the draw reads (default: every shard the manifest lists)")
+    parser.add_argument("--anchor-version", action="append", metavar="CONSTRUCT=VERSION",
+                        help="which frozen anchor version scores a construct; repeatable")
 
 
 def add_study_arguments(parser: argparse.ArgumentParser) -> None:
