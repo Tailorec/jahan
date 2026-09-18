@@ -21,6 +21,7 @@ def add_backend_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--price-chat-out", type=float, default=None, help="chat output price per million tokens")
     parser.add_argument("--price-embed-in", type=float, default=None, help="embed input price per million tokens")
     parser.add_argument("--cache", type=Path, default=None, help="cached corpus shards (default: the user cache)")
+    parser.add_argument("--coreset-fixture", type=Path, default=None, help="committed test rows instead of a corpus (offline, with stub inference)")
     parser.add_argument("--validation", default=None, help="the report's recommended real-world validation")
 
 

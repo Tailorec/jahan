@@ -192,6 +192,11 @@ def assemble_backend(pack: BriefPack, args) -> tuple:
     if args.fake:
         chat, embed, coreset = fake_backend(pack, seed=args.population_seed)
         return chat, embed, coreset, fake_pins(), FAKE_EMBED
+    if args.coreset_fixture is not None:
+        from simcore.ports.fixture import FixtureCoresetSource
+
+        chat, embed, _ = fake_backend(pack, seed=args.population_seed)
+        return chat, embed, FixtureCoresetSource.from_json(args.coreset_fixture), fake_pins(), FAKE_EMBED
     from simcore.inference import ExecutionSettings, InferenceClient
     from simcore.ports.hf import HfCoresetSource, default_cache_dir
     from simcore.schemas import ModelPins
