@@ -10,7 +10,7 @@ No finding states calibration; confidence reflects the evidence behind it alone.
 
 from collections import Counter
 
-from simcore.schemas import EventFilter, Finding
+from simcore.schemas import EventFilter, Finding, VerbatimGrouping
 
 from ._clusters import cluster_objections
 
@@ -36,23 +36,38 @@ def _resolve(view, evidence: tuple[str, ...]) -> tuple[str, ...]:
     return evidence
 
 
+def _said_by(view) -> dict[str, str]:
+    """Which persona each verbatim came from, so a cluster is counted in people."""
+    return {record.event_id: record.persona_id
+            for group in view.verbatims(VerbatimGrouping.PERSONA) for record in group.records}
+
+
 def _objection_findings(view, *, embed, threshold: float, seed: int,
                         pinned_embed_model: str | None) -> list[Finding]:
     clusters = cluster_objections(view, embed=embed, threshold=threshold, seed=seed,
                                   pinned_embed_model=pinned_embed_model)
+    said_by = _said_by(view)
     out = []
     for index, cluster in enumerate(clusters, start=1):
         evidence = _resolve(view, tuple(cluster.verbatim_trace_ids))
         size = cluster.size
-        confidence = "high" if size >= _OBJECTION_HIGH else "medium" if size >= _OBJECTION_MEDIUM else "low"
+        # A persona speaks more than once over a horizon; the finding counts people, not sentences.
+        people = len({said_by[event_id] for event_id in cluster.verbatim_trace_ids if event_id in said_by}) or size
+        confidence = "high" if people >= _OBJECTION_HIGH else "medium" if people >= _OBJECTION_MEDIUM else "low"
         out.append(Finding.model_validate({
             "finding_id": f"f-objection-{index:02d}",
             "kind": "objection",
-            "statement": f"{size} personas raised the objection quoted as {cluster.label!r}",
+            # Clustering groups what personas said; it cannot tell praise from a complaint, so the
+            # statement quotes and counts rather than characterising what the quote means.
+            "statement": (
+                f"{people} {'persona' if people == 1 else 'personas'} said something this cluster "
+                f"groups, quoted as {cluster.label!r} ({size} {'verbatim' if size == 1 else 'verbatims'} "
+                f"at cosine {threshold})"
+            ),
             "evidence_trace_ids": list(evidence),
             "disconfirming_test": (
-                f"interview {max(size, 5)} people shown the same stimuli; "
-                f"if fewer than a third mention {cluster.label!r}, the finding is wrong"
+                f"interview {max(people, 5)} people shown the same stimuli; "
+                f"if fewer than a third say something like {cluster.label!r}, the finding is wrong"
             ),
             "confidence": confidence,
         }))
