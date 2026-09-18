@@ -281,10 +281,15 @@ class OutcomeDigest(SimBaseModel):
         return _normalized_divergence([self.audience_pmfs[n] for n in names], [self.audience_shares[n] for n in names])
 
 
-def _spread(values: list[float]) -> float | None:
+def _spread(values: list[float], worlds: int) -> float | None:
     """The spread between worlds: the population standard deviation across seeds.
-    One seed yields a spread of zero, reported as such rather than omitted."""
-    if not values:
+    One seed yields a spread of zero, reported as such rather than omitted.
+
+    A quantity no world measured is not measurable, and neither is one only some worlds
+    measured: a standard deviation over the worlds that measured it would report seeds
+    agreeing exactly when the others never answered — and this number is the yardstick
+    anomaly thresholds are measured against."""
+    if not values or len(values) != worlds:
         return None
     if len(values) == 1:
         return 0.0
@@ -338,19 +343,19 @@ class ScenarioSummary(SimBaseModel):
     @property
     def adoption_spread(self) -> float | None:
         values = [entry.digest.adoption for entry in self.entries if entry.digest.adoption is not None]
-        return _spread(values)
+        return _spread(values, len(self.entries))
 
     @computed_field
     @property
     def polarization_spread(self) -> float | None:
         values = [entry.digest.polarization for entry in self.entries if entry.digest.polarization is not None]
-        return _spread(values)
+        return _spread(values, len(self.entries))
 
     @computed_field
     @property
     def divergence_spread(self) -> float | None:
         values = [entry.digest.audience_divergence for entry in self.entries if entry.digest.audience_divergence is not None]
-        return _spread(values)
+        return _spread(values, len(self.entries))
 
     @computed_field
     @property

@@ -69,3 +69,25 @@ def test_scenario_hash_is_the_scenario_digested():
     scenario = scenario_payload()
     summary = spread([_digest(0.5, scenario, seed=4021)])
     assert summary.scenario_hash == canonical_hash(Scenario.model_validate(scenario))
+
+
+def _unmeasured(scenario: dict, seed: int):
+    return OutcomeDigest.model_validate(digest_payload(
+        scenario, seed=seed, audience_pmfs={}, audience_shares={}, community_pmfs={}, community_sizes={},
+        unmeasured_reason="no anchor version is pinned", turn_count=0, action_mix={}))
+
+
+def test_a_spread_over_worlds_that_did_not_all_measure_is_unmeasured():
+    """Two worlds, one of which scored no intent: reporting 0.0 says the seeds agreed exactly,
+    which is not something a single measured world can show — and that number is the yardstick
+    herding is measured against."""
+    scenario = scenario_payload()
+    summary = spread([_digest(0.65, scenario, seed=4021), _unmeasured(scenario, 917731)])
+    assert [entry.digest.adoption for entry in summary.entries] == pytest.approx([0.65, None])
+    assert summary.adoption_spread is None
+
+
+def test_a_spread_is_stated_when_every_world_measured_it():
+    scenario = scenario_payload()
+    summary = spread([_digest(0.5, scenario, seed=4021), _digest(0.5, scenario, seed=917731)])
+    assert summary.adoption_spread == 0.0
