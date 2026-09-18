@@ -201,7 +201,8 @@ def test_digest_carries_both_distributions_with_their_weights():
     for overrides, match in (({"audience_shares": {"gym_regulars": 1.0}}, "needs a share"),
                              ({"community_sizes": {"community-1": 120}}, "needs a size"),
                              ({"audience_shares": {"gym_regulars": 0.5, "protein_dieters": 0.4}}, "sum to one"),
-                             ({"audience_pmfs": {}, "audience_shares": {}}, "at least one audience")):
+                             ({"audience_pmfs": {}, "audience_shares": {}, "community_pmfs": {},
+                                "community_sizes": {}}, "not measurable, with the reason")):
         with pytest.raises(ValidationError, match=match):
             OutcomeDigest.model_validate(digest_payload(**overrides))
 
