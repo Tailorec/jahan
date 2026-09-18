@@ -26,7 +26,7 @@ from .enums import ActionKind, Channel, CostSource, DegradationRung, DropReason,
 from .errors import SchemaVersionError
 from .population import Population, PopulationManifest
 from .run import PinnedModelId, RunConfig, Scenario, WorldId, check_scenario_against_brief, derive_world_id
-from .sim import BeliefChange, Beliefs, Impression, MemoryEvent, MemoryId, ProbeResult, Stimulus, Turn, View, check_view_covers_impression
+from .sim import BeliefChange, Beliefs, Impression, MemoryEvent, MemoryId, ProbeResult, Stimulus, Turn, View, action_lands, check_view_covers_impression
 
 ContractVersion = Annotated[str, StringConstraints(pattern=r"^\d+\.\d+\.\d+$")]
 
@@ -538,6 +538,10 @@ class TracePartition(SimBaseModel):
                 _check_view(view, impression.persona_id, authors, parents, visible, f"event {event.seq} ({payload.kind})")
                 if isinstance(payload, TurnRecorded):
                     counted = _ENGAGEMENT.get(payload.turn.reaction.action)
+                    # Only where the channel affords it: a feed has no votes, so an upvote there
+                    # changed no state and no view shows it.
+                    if counted is not None and not action_lands(payload.turn.impression.channel, payload.turn.reaction.action):
+                        counted = None
                     if counted is not None:
                         pending.setdefault(payload.turn.reaction.subject_stimulus_id, Counter())[counted] += 1
         return self

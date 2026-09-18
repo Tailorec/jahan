@@ -252,7 +252,8 @@ def stimulus_id(n: int) -> str:
 
 
 def turn_payload(
-    persona: str, tick: int, shown: list[tuple[int, str, float]], reaction: dict, contexts: dict | None = None, n: int = 0
+    persona: str, tick: int, shown: list[tuple[int, str, float]], reaction: dict, contexts: dict | None = None,
+    n: int = 0, channel: str = "social_feed",
 ) -> dict:
     """A whole turn: the impression (stimulus number, reason, attention), the view beside it, and the
     reaction. Contexts key stimulus numbers and override fields of the default (empty) context."""
@@ -265,7 +266,7 @@ def turn_payload(
         "impression": {
             "impression_id": f"im-{ulid(200 + n)}",
             "persona_id": persona,
-            "channel": "social_feed",
+            "channel": channel,
             "tick": tick,
             "exposures": [{"stimulus_id": stimulus_id(s), "reason": reason, "attention": attention} for s, reason, attention in shown],
         },
@@ -464,8 +465,9 @@ def partition_payload(**header_overrides) -> dict:
                                          "route": "fallback", "input_tokens": 540, "output_tokens": 41, "cost": 0.0002}, "p-000002"),
         event(R["probe"], 3, {"kind": "probe", "result": probe_payload("p-000002", 3)}, "p-000002"),
         event(R["close_3"], 3, {"kind": "tick_closed"}),
+        # Votes land on the forum; a feed affords likes and reshares, never votes.
         turn_event(R["third_turn"], 4, turn_payload("p-000003", 4, [(3, "wom", 0.5), (4, "forum", 0.3)], {
-            "subject_stimulus_id": stimulus_id(4), "action": "upvote"},
+            "subject_stimulus_id": stimulus_id(4), "action": "upvote"}, channel="forum",
             contexts={3: {"likes": 1, "replies": 1, "tie_strength": 0.0, "shared_community": False},
                       4: {"ancestry": [stimulus_id(3)], "tie_strength": 0.2, "shared_community": False}},
             n=3), "p-000003"),

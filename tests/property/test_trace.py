@@ -1009,3 +1009,31 @@ def test_world_record_checks_a_violations_view_against_the_population(stimulus, 
     data["partition"]["events"][R["violation"]]["payload"]["view"]["contexts"][stimulus_id(stimulus)].update(change)
     with pytest.raises(ValidationError, match=match):
         WorldRecord.model_validate(data)
+
+
+def test_engagement_counts_only_where_the_channel_affords_the_action():
+    """A persona may attempt anything; the channel decides what lands. A feed has no votes, so an
+    upvote there changes no state and no view shows it — but the partition counted every action
+    as engagement whatever channel it happened on, and then refused the world's own honest view.
+    Found by the first real study, whose personas voted on a feed."""
+    from simcore.schemas import action_lands, Channel, ActionKind
+
+    assert action_lands(Channel.FORUM, ActionKind.UPVOTE)
+    assert not action_lands(Channel.SOCIAL_FEED, ActionKind.UPVOTE)
+    assert action_lands(Channel.SOCIAL_FEED, ActionKind.LIKE)
+    assert action_lands(Channel.SURVEY_ROOM, ActionKind.IGNORE)
+
+    data = partition_payload()
+    # p-000002 upvotes on the feed at tick 3. The feed affords no votes, so nothing lands and
+    # nothing is visible to the turn that follows at tick 4 — not as an upvote, and not as the
+    # like that turn's view used to show.
+    second = data["events"][R["second_turn"]]
+    second["payload"]["turn"]["reaction"]["action"] = "upvote"
+    second["payload"]["turn"]["reaction"].pop("verbatim", None)
+    for context in data["events"][R["third_turn"]]["payload"]["turn"]["view"]["contexts"].values():
+        context["likes"] = 0
+    for context in data["events"][R["violation"]]["payload"]["view"]["contexts"].values():
+        context["likes"] = 0
+    partition = TracePartition.model_validate(data)
+    third = partition.in_sequence[R["third_turn"]].payload
+    assert all(context.upvotes == 0 and context.likes == 0 for context in third.turn.view.contexts.values())
