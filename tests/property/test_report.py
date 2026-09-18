@@ -282,7 +282,7 @@ def test_report_needs_at_least_one_digest():
     [
         ([digest_payload(scenario_payload(horizon_ticks=60))], "does not configure"),
         ([digest_payload(BASELINE, tick_unit="week")], "week ticks"),
-        ([digest_payload(BASELINE, audience_pmfs={"gym_regulars": (0.05, 0.10, 0.20, 0.30, 0.35)}, audience_shares={"gym_regulars": 1.0})], "differ from the scenario"),
+            ([digest_payload(BASELINE, audience_pmfs={"strangers": (0.05, 0.10, 0.20, 0.30, 0.35)}, audience_shares={"strangers": 1.0})], "differ from the scenario"),
         ([digest_payload(BASELINE), digest_payload(BASELINE)], "more than once"),
     ],
     ids=["foreign-scenario", "wrong-tick-unit", "wrong-audiences", "digested-twice"],
