@@ -189,6 +189,8 @@ def anchor_pins(
 
 def assemble_backend(pack: BriefPack, args) -> tuple:
     """The inference ports, coreset and pins the study runs on: fake or real, never mixed."""
+    if args.fake and args.coreset_fixture is not None:
+        raise ValueError("--fake and --coreset-fixture both name the corpus: pass exactly one")
     if args.fake:
         chat, embed, coreset = fake_backend(pack, seed=args.population_seed)
         return chat, embed, coreset, fake_pins(), FAKE_EMBED
@@ -237,6 +239,27 @@ def assemble_backend(pack: BriefPack, args) -> tuple:
     return client, client, coreset, pins, args.embed_model
 
 
+def gate_and_build(
+    pack: BriefPack, *, n: int, population_seed: int, chat: object, coreset: object, run_dir: Path
+) -> Population:
+    """Assess the draw before anything is spent, then build the population.
+
+    The gate report is written as the study earns it, so a failed gate leaves the
+    report that explains it. Returns the population; a failing draw raises.
+    """
+    from simcore.schemas import GateReport
+
+    gate_report: GateReport = assess(pack, n, population_seed, coreset=coreset)
+    (run_dir / "gate-report.json").write_text(gate_report.model_dump_json(indent=2) + "\n")
+    if not gate_report.overall:
+        failed = sorted(result.attribute for result in gate_report.results if not result.passed)
+        raise GateFailure(f"the sample failed its distribution gates: {failed}")
+    built = build(pack, n, population_seed, coreset=coreset, inference=chat)
+    population = built.population
+    (run_dir / "manifest.json").write_text(population.manifest.model_dump_json(indent=2) + "\n")
+    return population
+
+
 def prepare_study(
     *,
     brief_path: Path,
@@ -270,16 +293,7 @@ def prepare_study(
     run_dir = out_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     chat, embed, coreset, pins, embed_pin = assemble_backend(pack, args)
-
-    gate_report = assess(pack, n, population_seed, coreset=coreset)
-    (run_dir / "gate-report.json").write_text(gate_report.model_dump_json(indent=2) + "\n")
-    if not gate_report.overall:
-        failed = sorted(result.attribute for result in gate_report.results if not result.passed)
-        raise GateFailure(f"the sample failed its distribution gates: {failed}")
-
-    built = build(pack, n, population_seed, coreset=coreset, inference=chat)
-    population = built.population
-    (run_dir / "manifest.json").write_text(population.manifest.model_dump_json(indent=2) + "\n")
+    population = gate_and_build(pack, n=n, population_seed=population_seed, chat=chat, coreset=coreset, run_dir=run_dir)
 
     set_hashes, set_ids, versions, hashes = anchor_pins(pack, anchors_dir, embed_pin=embed_pin)
     config = RunConfig.model_validate({
