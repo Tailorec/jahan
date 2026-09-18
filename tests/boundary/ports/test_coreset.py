@@ -130,6 +130,7 @@ def test_no_core_module_imports_a_concrete_source():
         for path in (REPO / "simcore").rglob("*.py")
         if "ports" not in path.parts
         and path.name != "__main__.py"  # the command line is what selects adapters; the core must not
+        and "cli" not in path.parts  # the cli package is the command line (FINAL_ARCH 5.12)
         and any(
             name in path.read_text(encoding="utf-8")
             for name in ("SyntheticCoresetSource", "FixtureCoresetSource", "ports.synthetic", "ports.fixture")
