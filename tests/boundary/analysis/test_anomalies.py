@@ -147,3 +147,13 @@ def test_a_negative_spread_is_refused():
     with pytest.raises(ValueError, match="spread"):
         detect_anomalies(_MovesView([_turn(0, 0, 0.1)]), scenario_hash=_scenario_hash(),
                          digest=_unmeasured_digest(), replicate_spread=-0.1)
+
+
+def test_a_flop_with_nothing_to_cite_reports_as_unmeasured():
+    """Adoption is measured from the digest, but an anomaly has to cite the records behind it.
+    A view holding no scored turn has nothing to cite, and says so rather than raising."""
+    report = detect_anomalies(_MovesView([]), scenario_hash=_scenario_hash(),
+                              digest=_measured_digest(0.10), replicate_spread=0.05)
+    assert [a for a in report.anomalies if a.kind.value == "flop"] == []
+    flop = [u for u in report.unmeasured if u.kind.value == "flop"]
+    assert len(flop) == 1 and "cite" in flop[0].reason

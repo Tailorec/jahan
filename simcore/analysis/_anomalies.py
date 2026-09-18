@@ -173,16 +173,26 @@ def _flop(view, *, scenario_hash: str, digest: OutcomeDigest, thresholds: Anomal
         })]
     if digest.adoption >= thresholds.flop_adoption_floor:
         return [], []
+    events = tuple(view.events(EventFilter()))
     scored = sorted(
-        event.event_id for event in view.events(EventFilter())
+        event.event_id for event in events
         if event.payload.kind == "turn" and event.payload.turn.reaction.intent is not None
     )
-    ticks = [event.tick for event in view.events(EventFilter()) if event.payload.kind == "turn"]
+    ticks = [event.tick for event in events if event.payload.kind == "turn"]
+    evidence = scored or [event.event_id for event in events[:1]]
+    if not evidence:
+        # An anomaly carries the records behind it; a view holding none cannot state one.
+        return [], [UnmeasuredAnomaly.model_validate({
+            "kind": "flop", "scenario_hash": scenario_hash,
+            "reason": (f"adoption of {digest.adoption:.2f} is below the floor, but this view holds "
+                       "no record to cite as the evidence behind it"),
+            "threshold": thresholds.flop_adoption_floor,
+        })]
     return [Anomaly.model_validate({
         "kind": "flop",
         "scenario_hash": scenario_hash,
         "tick": max(ticks) if ticks else 0,
-        "evidence_trace_ids": scored or [event.event_id for event in view.events(EventFilter())[:1]],
+        "evidence_trace_ids": evidence,
         "threshold": thresholds.flop_adoption_floor,
         "observed": digest.adoption,
     })], []
