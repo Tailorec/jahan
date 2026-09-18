@@ -1,0 +1,123 @@
+"""Phase 6: anomalies as arithmetic over recorded numbers — herding, backlash, flop."""
+
+from types import SimpleNamespace
+
+import pytest
+
+from simcore.analysis import AnomalyThresholds, detect_anomalies
+from simcore.schemas import OutcomeDigest
+from tests.study_builders import digest_payload, scenario_payload, scenario_payload as _sp
+
+from simcore.schemas import Scenario, canonical_hash
+
+
+def _change(*deltas: float):
+    dims = {f"d{i}": delta for i, delta in enumerate(deltas)}
+    return SimpleNamespace(dimensions=dims, claim_credence={})
+
+
+def _turn(tick: int, seq: int, *deltas: float, intent: bool = False):
+    reaction = SimpleNamespace(
+        belief_change=_change(*deltas),
+        intent=object() if intent else None,
+        action=SimpleNamespace(value="comment"),
+    )
+    turn = SimpleNamespace(reaction=reaction)
+    return SimpleNamespace(payload=SimpleNamespace(kind="turn", turn=turn), tick=tick, seq=seq,
+                           event_id=f"ev-{'1' * 21}{seq:05d}")
+
+
+class _MovesView:
+    def __init__(self, events):
+        self._events = tuple(events)
+
+    def events(self, _filter):
+        return self._events
+
+    def edges(self):
+        return ()
+
+
+def _scenario_hash() -> str:
+    return canonical_hash(Scenario.model_validate(scenario_payload()))
+
+
+def _measured_digest(adoption: float) -> OutcomeDigest:
+    low = round((1.0 - adoption) / 3, 4)
+    pmf = (low, low, round(1.0 - adoption - 2 * low, 4), round(adoption / 2, 4), round(adoption / 2, 4))
+    return OutcomeDigest.model_validate(digest_payload(
+        audience_pmfs={"gym_regulars": pmf}, audience_shares={"gym_regulars": 1.0},
+        community_pmfs={}, community_sizes={}))
+
+
+def _unmeasured_digest() -> OutcomeDigest:
+    return OutcomeDigest.model_validate(digest_payload(
+        audience_pmfs={}, audience_shares={}, community_pmfs={}, community_sizes={},
+        unmeasured_reason="no anchor version is pinned", unscored_turns=4, turn_count=4,
+        action_mix={"comment": 4}))
+
+
+def test_planted_herding_produces_exactly_one_anomaly_at_the_right_tick():
+    # Spread 0.05, multiplier 2 -> limit 0.10; window 3 ending at tick 4 means 0.20.
+    events = [_turn(0, 0, 0.0), _turn(1, 1, 0.0), _turn(2, 2, 0.0), _turn(3, 3, 0.3), _turn(4, 4, 0.3)]
+    report = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+                              digest=_unmeasured_digest(), replicate_spread=0.05)
+    herding = [a for a in report.anomalies if a.kind.value == "herding"]
+    assert len(herding) == 1
+    assert herding[0].tick == 4
+    assert herding[0].threshold == pytest.approx(0.10)
+    assert herding[0].observed == pytest.approx(0.20)
+
+
+def test_planted_sign_split_produces_backlash_and_quiet_trace_produces_neither():
+    events = [_turn(2, 0, 0.2), _turn(2, 1, 0.2), _turn(2, 2, -0.2), _turn(2, 3, -0.2)]
+    report = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+                              digest=_unmeasured_digest(), replicate_spread=0.05)
+    backlash = [a for a in report.anomalies if a.kind.value == "backlash"]
+    assert len(backlash) == 1
+    assert backlash[0].observed == pytest.approx(0.5)
+    assert backlash[0].threshold == pytest.approx(0.30)
+
+    quiet = [_turn(tick, tick, 0.01) for tick in range(5)]
+    calm = detect_anomalies(_MovesView(quiet), scenario_hash=_scenario_hash(),
+                            digest=_unmeasured_digest(), replicate_spread=0.05)
+    assert [a for a in calm.anomalies if a.kind.value in ("herding", "backlash")] == []
+
+
+def test_flop_without_adoption_is_unmeasured_with_its_reason():
+    events = [_turn(0, 0, 0.0)]
+    report = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+                              digest=_unmeasured_digest(), replicate_spread=0.05)
+    assert [a for a in report.anomalies if a.kind.value == "flop"] == []
+    assert len(report.unmeasured) == 1
+    assert report.unmeasured[0].kind.value == "flop"
+    assert report.unmeasured[0].reason
+
+
+def test_thresholds_are_configuration_and_travel_with_the_anomaly():
+    events = [_turn(0, 0, 0.0), _turn(1, 1, 0.0), _turn(2, 2, 0.0), _turn(3, 3, 0.3), _turn(4, 4, 0.3)]
+    custom = AnomalyThresholds(window=3, herding_multiplier=3.0)
+    report = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+                              digest=_unmeasured_digest(), replicate_spread=0.05, thresholds=custom)
+    herding = [a for a in report.anomalies if a.kind.value == "herding"]
+    assert herding and herding[0].threshold == pytest.approx(0.15)
+
+
+def test_replicate_spread_is_what_the_threshold_is_measured_against():
+    events = [_turn(0, 0, 0.0), _turn(1, 1, 0.0), _turn(2, 2, 0.0), _turn(3, 3, 0.3), _turn(4, 4, 0.3)]
+    narrow = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+                              digest=_unmeasured_digest(), replicate_spread=0.05)
+    wide = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+                            digest=_unmeasured_digest(), replicate_spread=0.5)
+    assert len([a for a in narrow.anomalies if a.kind.value == "herding"]) == 1
+    assert [a for a in wide.anomalies if a.kind.value == "herding"] == []
+
+
+def test_low_measured_adoption_is_a_flop():
+    events = [_turn(0, 0, 0.0, intent=True), _turn(1, 1, 0.0, intent=True)]
+    report = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+                              digest=_measured_digest(0.10), replicate_spread=0.05)
+    flop = [a for a in report.anomalies if a.kind.value == "flop"]
+    assert len(flop) == 1
+    assert flop[0].observed == pytest.approx(0.10)
+    assert report.unmeasured == ()
