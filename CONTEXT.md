@@ -283,7 +283,7 @@ Something a run did not establish, reported as such rather than as zero or left 
 _Avoid_: missing, null, n/a, unknown
 
 **Replicate Spread**:
-How far a scenario's worlds disagreed with each other. It is the study's estimate of its own variance, and the yardstick every anomaly threshold is measured against.
+How far a scenario's worlds disagreed with each other. It is the study's estimate of its own variance, and the yardstick every anomaly threshold is measured against. A quantity the scenario's worlds did not all measure has no spread, and a spread of zero is a yardstick that measures nothing.
 _Avoid_: error bars, noise, variance (the word alone is ambiguous here)
 
 **Objection Cluster**:

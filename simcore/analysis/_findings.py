@@ -150,12 +150,13 @@ def _wom_carriers(view) -> dict[tuple[str, str, str], set[str]]:
     """Turn event ids behind each directed word-of-mouth edge, recomputed from raw events."""
     from simcore.schemas import ActionKind, ExposureReason
 
+    events = tuple(view.events(EventFilter()))
     authors: dict[str, str | None] = {}
-    for event in view.events(EventFilter()):
+    for event in events:
         if event.payload.kind == "stimulus_published":
             authors[event.payload.stimulus.stimulus_id] = event.payload.stimulus.author
     carriers: dict[tuple[str, str, str], set[str]] = {}
-    for event in view.events(EventFilter()):
+    for event in events:
         if event.payload.kind != "turn" or event.persona_id is None:
             continue
         turn = event.payload.turn
