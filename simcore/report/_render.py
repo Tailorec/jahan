@@ -13,6 +13,7 @@ from simcore.brief import assumptions_of
 from simcore.schemas import (
     Finding,
     OutcomeDigest,
+    Report,
 )
 from simcore.schemas.base import SCHEMA_VERSION, canonical_hash
 
@@ -310,5 +311,16 @@ def render(
         digest if isinstance(digest, OutcomeDigest) else OutcomeDigest.model_validate(digest)
         for digest in digests
     )
-    doc = _build(validated_findings, validated_digests, pack)
-    return RenderedReport(markdown=_to_markdown(doc), data=_to_data(doc))
+    # The contract a rendered report has to satisfy: one digest per world, each world one this
+    # run configures, no finding id twice, no anomaly beyond its scenario's horizon. Formatting
+    # without it lets a document describe a study its own configuration never ran.
+    report = Report.model_validate({
+        "config": pack.config,
+        "trust": pack.trust,
+        "findings": validated_findings,
+        "anomalies": pack.anomalies,
+        "objection_clusters": pack.clusters,
+        "digests": validated_digests,
+    })
+    doc = _build(report.findings, report.digests, pack)
+    return RenderedReport(markdown=_to_markdown(doc), data=_to_data(doc), report=report)

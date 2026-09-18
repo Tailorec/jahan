@@ -3,9 +3,13 @@
 import json
 from unittest import mock
 
+import pytest
+from pydantic import ValidationError
+
 from simcore.report import REPORT_CONTRACT_VERSION, render
 from simcore.schemas.base import SCHEMA_VERSION
 from tests.boundary.report.support import BASELINE, PREMIUM, digests, finding_payload, pack
+from tests.study_builders import digest_payload
 
 
 def test_render_returns_both_formats_from_one_intermediate():
@@ -47,3 +51,28 @@ def test_markdown_and_json_carry_the_same_digests():
     ]
     assert len(report.data["digests"]) == 2
     _ = (BASELINE, PREMIUM)
+
+
+def test_a_digest_of_a_world_this_run_does_not_configure_is_refused():
+    """`Report` is the contract a rendered report has to satisfy: one digest per world, each
+    world one this run configures, no finding id twice. Formatting without building it lets a
+    document describe a study its own configuration never ran."""
+    from tests.study_builders import scenario_payload
+
+    stranger = scenario_payload(
+        variant={"variant_id": "v9stranger", "name": "Stranger", "description": "Another run entirely"})
+    with pytest.raises((ValidationError, ValueError), match="does not configure"):
+        render([finding_payload()], [digest_payload(stranger, seed=999)], pack())
+
+
+def test_two_findings_under_one_id_are_refused():
+    with pytest.raises((ValidationError, ValueError), match="repeated"):
+        render([finding_payload(), finding_payload()], digests(), pack())
+
+
+def test_the_rendering_carries_the_validated_report_it_was_built_from():
+    report = render([finding_payload()], digests(), pack())
+    assert report.report is not None
+    assert [digest.world_id for digest in report.report.digests] == [
+        entry["world_id"] for entry in report.data["digests"]
+    ]

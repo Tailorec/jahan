@@ -9,7 +9,7 @@ commit the run came from. Rendering reads nothing but these three arguments.
 
 from dataclasses import dataclass, field
 
-from simcore.schemas import Anomaly, BriefPack, ObjectionCluster, RunConfig, TrustStatement
+from simcore.schemas import Anomaly, BriefPack, ObjectionCluster, Report, RunConfig, TrustStatement
 from simcore.schemas.base import SCHEMA_VERSION
 
 
@@ -71,8 +71,11 @@ class RenderedReport:
     """One rendering: markdown for a person and JSON-ready data for the pages.
 
     Both are produced from one intermediate over the same finding set, so they cannot
-    diverge; the JSON carries the contract version it was rendered under.
+    diverge; the JSON carries the contract version it was rendered under. `report` is the
+    validated `Report` both formats were rendered from — the contract that refuses a
+    document describing a study its own configuration never ran.
     """
 
     markdown: str
     data: dict = field(default_factory=dict)
+    report: Report | None = None
