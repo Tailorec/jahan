@@ -507,7 +507,9 @@ def test_turns_recall_only_earlier_memories_of_the_same_persona():
     data["events"][R["second_turn"]]["persona_id"] = "p-000001"
     data["events"][R["second_turn"]]["payload"]["memory_ids"] = [own_turn, own_reflection]
     contexts = data["events"][R["second_turn"]]["payload"]["turn"]["view"]["contexts"]
-    contexts[stimulus_id(3)].update(tie_strength=None, shared_community=None)
+    # p-000001 authored st3, so its own turn records no relationship to it — and nobody told it
+    # about its own post either.
+    contexts[stimulus_id(3)].update(tie_strength=None, shared_community=None, via_persona_id=None)
     contexts[stimulus_id(4)].update(tie_strength=0.8, shared_community=True)
     assert TracePartition.model_validate(data).in_sequence[R["second_turn"]].payload.memory_ids == (own_turn, own_reflection)
 
@@ -1037,3 +1039,32 @@ def test_engagement_counts_only_where_the_channel_affords_the_action():
     partition = TracePartition.model_validate(data)
     third = partition.in_sequence[R["third_turn"]].payload
     assert all(context.upvotes == 0 and context.likes == 0 for context in third.turn.view.contexts.values())
+
+
+def test_a_told_stimulus_records_the_tie_to_whoever_told_you():
+    """Word of mouth carries a tie to the teller, not to the author, so a peer can tell you about
+    the study's own concept — which has no author at all. The rule assumed every relationship was
+    to an author and refused that view. Found the moment beliefs began moving and word of mouth
+    started firing: a persona told a peer about the concept, and the engine rejected its own
+    honest record."""
+    data = partition_payload()
+    # the first turn was shown the concept, which the study wrote; a peer passed it on
+    contexts = data["events"][R["first_turn"]]["payload"]["turn"]["view"]["contexts"]
+    contexts[stimulus_id(1)].update(via_persona_id="p-000003", tie_strength=0.7, shared_community=True)
+    partition = TracePartition.model_validate(data)
+    told = partition.in_sequence[R["first_turn"]].payload.turn.view.contexts[stimulus_id(1)]
+    assert told.via_persona_id == "p-000003" and told.tie_strength == 0.7
+
+    # and with nobody named as teller, a relationship on the study's own stimulus is still refused
+    data = partition_payload()
+    data["events"][R["first_turn"]]["payload"]["turn"]["view"]["contexts"][stimulus_id(1)]["tie_strength"] = 0.7
+    with pytest.raises(ValidationError, match="which is the study's"):
+        TracePartition.model_validate(data)
+
+    # a viewer cannot be told about something by itself
+    data = partition_payload()
+    data["events"][R["first_turn"]]["payload"]["turn"]["view"]["contexts"][stimulus_id(1)].update(
+        via_persona_id="p-000001", tie_strength=0.7
+    )
+    with pytest.raises(ValidationError, match="told by itself|its own"):
+        TracePartition.model_validate(data)
