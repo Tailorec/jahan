@@ -114,6 +114,19 @@ class _Document:
     validation: str
 
 
+# How many evidence ids a page prints before eliding. Every turn of every persona can be
+# evidence, so a finding over a real study cites thousands and they bury what they support.
+# The JSON carries all of them — that is what a reader checks a citation against.
+EVIDENCE_SHOWN = 8
+
+
+def _cited(trace_ids: tuple[str, ...]) -> str:
+    """The evidence a page shows: the first of them, elided rather than counted, because
+    counting them would be the renderer deriving a number of its own."""
+    shown = ", ".join(trace_ids[:EVIDENCE_SHOWN])
+    return shown + ", …" if len(trace_ids) > EVIDENCE_SHOWN else shown
+
+
 def _inline(text: str) -> str:
     """Free text on one line. A persona's verbatim is a sentence somebody wrote, quoted into a
     structured document (ADR 0041); a line break and a `##` in it would otherwise become a
@@ -218,7 +231,7 @@ def _to_markdown(doc: _Document) -> str:
     for finding in doc.findings:
         lines.extend(["### " + finding.finding_id + " · " + finding.kind + " · confidence " + finding.confidence, ""])
         lines.extend([_inline(finding.statement), ""])
-        lines.extend(["Evidence: " + ", ".join(finding.evidence_trace_ids), ""])
+        lines.extend(["Evidence: " + _cited(finding.evidence_trace_ids), ""])
         lines.extend(["Disconfirming test: " + _inline(finding.disconfirming_test), ""])
     lines.extend(["## Objection clusters", ""])
     if not doc.clusters:

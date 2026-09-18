@@ -139,3 +139,24 @@ def test_a_quoted_verbatim_cannot_restructure_the_document():
     assert "Real heading injected" in report.markdown
     # The record keeps what the persona wrote; only the page renders it on one line.
     assert report.data["objection_clusters"][0]["label"] == label
+
+
+def test_a_finding_citing_hundreds_of_records_stays_readable():
+    """Every turn of every persona can be evidence: a belief-shift finding over 24 personas and
+    six ticks cites 120 trace ids, and a real study cites thousands. Printed inline they bury
+    the finding they support. The page shows the first of them; the JSON keeps them all, which
+    is what a reader checks a citation against."""
+    ids = [f"ev-{'0' * 21}{index:05d}" for index in range(120)]
+    report = render([finding_payload(evidence_trace_ids=ids)], digests(), pack())
+    evidence_line = next(line for line in report.markdown.splitlines() if line.startswith("Evidence: "))
+    assert len(evidence_line) < 300
+    assert ids[0] in evidence_line and ids[-1] not in evidence_line
+    assert evidence_line.rstrip().endswith("…")
+    assert report.data["findings"][0]["evidence_trace_ids"] == ids
+
+
+def test_a_finding_citing_a_few_records_shows_them_all():
+    report = render([finding_payload()], digests(), pack())
+    evidence_line = next(line for line in report.markdown.splitlines() if line.startswith("Evidence: "))
+    assert all(trace_id in evidence_line for trace_id in EVIDENCE)
+    assert "…" not in evidence_line

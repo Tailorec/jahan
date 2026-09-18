@@ -64,7 +64,7 @@ What a reader sees per finding: the statement, its evidence trace ids, its confi
 
 ### Acceptance criteria
 
-- [x] Every rendered finding shows its evidence ids and its disconfirming test
+- [x] Every rendered finding shows its evidence ids and its disconfirming test — **amended in review**: the page shows the first few and elides the rest, the JSON carries them all. A belief-shift finding over 24 personas and six ticks cites 120 trace ids inline, and a real study cites thousands, which buries the finding they support
 - [x] The assumption ledger appears, including what the brief left unstated
 - [x] A digest with unmeasured adoption renders a line saying so, with the reason, where adoption would be — **amended in review**: polarization and audience divergence are stated the same way, and what every run produces is printed beside them — turn count, turns unscored, action mix, belief movement, word-of-mouth reach, rungs. The section printed the unmeasured adoption line and stopped, so every study the engine can currently do rendered as one that measured nothing, which is what ADR 0038 exists to prevent
 - [x] A finding's confidence renders beside it, and the run's calibration never does
