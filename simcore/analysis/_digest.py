@@ -7,7 +7,6 @@ plus the scenario it ran and the population it ran over; no model calls.
 """
 
 from collections import Counter
-from collections.abc import Mapping
 
 from simcore.schemas import (
     BeliefDim,
@@ -19,12 +18,6 @@ from simcore.schemas.enums import RUNG_ORDER
 from simcore.schemas import Population as PopulationModel
 
 from ._audience import audience_of_persona
-
-_MEANINGFUL_ACTIONS = ("answer", "post", "comment", "like", "repost", "quote", "follow")
-
-
-def _persona_values(persona) -> dict:
-    return {**persona.conditioning, **persona.attributes}
 
 
 def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
@@ -107,14 +100,21 @@ def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
 
     if scored:
         audience_pmfs = {name: _mean(masses) for name, masses in sorted(audience_turns.items()) if masses}
-        if audience_pmfs:
-            total = sum(weights[name] for name in audience_pmfs)
-            audience_shares = {name: weights[name] / total for name in audience_pmfs}
-        else:
-            audience_shares = {}
+        weighted = sum(weights[name] for name in audience_pmfs)
         community_pmfs = {name: _mean(masses) for name, masses in sorted(community_turns.items()) if masses}
         community_sizes = {name: community_population[name] for name in community_pmfs}
-        unmeasured_reason = None
+        if audience_pmfs and weighted > 0.0:
+            audience_shares = {name: weights[name] / weighted for name in audience_pmfs}
+            unmeasured_reason = None
+        else:
+            # Turns were scored, but adoption is share-weighted over audiences (ADR 0007) and none
+            # of them carries a weighted mass. That is unmeasured with a reason, not a zero.
+            named = ", ".join(sorted(weights)) or "none declared"
+            audience_pmfs, audience_shares = {}, {}
+            unmeasured_reason = (
+                f"{len(scored)} turns scored purchase intent, but no persona answering fell in an "
+                f"audience this scenario weights ({named}); adoption is share-weighted over audiences"
+            )
     else:
         audience_pmfs, audience_shares, community_pmfs, community_sizes = {}, {}, {}, {}
         failure_kinds = Counter(

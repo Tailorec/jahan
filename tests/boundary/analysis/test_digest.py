@@ -169,3 +169,27 @@ def test_digesting_the_same_view_twice_is_identical(tmp_path):
     second = digest(store.view(header.config.run_id, header.world_id), scenario=header.scenario, population=population, seed=header.replicate_seed)
     assert first == second
     assert first.model_dump_json() == second.model_dump_json()
+
+
+def test_scored_intent_outside_every_weighted_audience_reports_unmeasured(tmp_path):
+    """A scenario can weight an audience no persona in the population matches. The turns were
+    scored, but no mass survives the weighting — adoption is not measurable, and the digest says
+    so with the reason rather than failing its own validator."""
+    from simcore.schemas import PartitionHeader, RunRegistryEntry, TraceEvent
+    from tests.boundary.trace.support import seed_header_and_entry
+
+    store = TraceStore(tmp_path)
+    scenario_dict = scenario_payload(audience_weights={"protein_dieters": 1.0})
+    header, _ = seed_header_and_entry(store, scenario=scenario_dict)
+    payload = partition_payload()
+    events = [TraceEvent.model_validate({**record, "world_id": header.world_id}) for record in payload["events"]]
+    write_by_tick(store, events)
+    view = store.view(header.config.run_id, header.world_id)
+
+    result = digest(view, scenario=header.scenario, population=_population(), seed=header.replicate_seed)
+    assert result.adoption is None
+    assert result.audience_pmfs == {}
+    assert result.unmeasured_reason is not None
+    assert "protein_dieters" in result.unmeasured_reason
+    # The turns were scored: the digest does not claim they went unscored.
+    assert result.turns_without_intent < result.turn_count
