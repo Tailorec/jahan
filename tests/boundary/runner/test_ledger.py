@@ -336,3 +336,22 @@ def test_the_meter_is_primed_from_a_record_it_did_not_write():
     later = _cost_event(3, 1, 0.05)
     meter.add([later])
     assert meter.figure(0) == pytest.approx(pessimistic_figure(tuple([*events, later]), 0))
+
+
+def test_a_closed_tick_is_one_world_s_tick():
+    """A discarded tick is one world's lost tick, so the estimate standing in for it is what one
+    world's tick cost. Counting distinct tick numbers across a sweep made every world's tick 0
+    the same closed tick, so the mean was the whole grid's spend per tick number — as many times
+    too high as the sweep has worlds, and the figure the ladder pauses on."""
+    from simcore.runner._ledger import SpendMeter
+
+    other = "4ecd96cdea45"
+    events = [
+        _cost_event(1, 0, 0.05), _closed(2, 0),
+        _cost_event(3, 0, 0.05, world=other), _closed(4, 0, world=other),
+    ]
+    assert mean_tick_cost(tuple(events)) == pytest.approx(0.05)
+    assert pessimistic_figure(tuple(events), 1) == pytest.approx(0.15)
+    meter = SpendMeter()
+    meter.add(events)
+    assert meter.figure(1) == pytest.approx(pessimistic_figure(tuple(events), 1))

@@ -36,8 +36,13 @@ def mean_call_cost(events: tuple[TraceEvent, ...] | list[TraceEvent]) -> float |
 
 
 def mean_tick_cost(events: tuple[TraceEvent, ...] | list[TraceEvent]) -> float:
-    """Mean spend per closed tick, priced calls and unpriced alike, or zero before any closed."""
-    closed_ticks = {e.tick for e in events if e.payload.kind == "tick_closed"}
+    """Mean spend per closed tick, priced calls and unpriced alike, or zero before any closed.
+
+    A tick belongs to a world: a sweep's worlds each close their own tick 0, and counting tick
+    numbers alone would make them one, so the mean would be the whole grid's spend per tick
+    number — as many times too high as the sweep has worlds, in the figure the ladder pauses on.
+    """
+    closed_ticks = {(e.world_id, e.tick) for e in events if e.payload.kind == "tick_closed"}
     if not closed_ticks:
         return 0.0
     return priced_spend(events) / len(closed_ticks)
@@ -95,7 +100,7 @@ class SpendMeter:
         self._known = 0.0
         self._unpriced = 0
         self._priced = 0
-        self._closed_ticks: set[int] = set()
+        self._closed_ticks: set[tuple[str, int]] = set()
 
     def add(self, events) -> None:
         """Count a batch as it is written, or as it is read back when priming from a record."""
@@ -109,7 +114,7 @@ class SpendMeter:
                         self._known += float(payload.cost)
                         self._priced += 1
                 elif payload.kind == "tick_closed":
-                    self._closed_ticks.add(event.tick)
+                    self._closed_ticks.add((event.world_id, event.tick))
 
     def _priced_spend(self) -> float:
         if not self._unpriced or not self._priced:
