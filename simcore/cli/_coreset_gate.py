@@ -14,7 +14,7 @@ from simcore.brief import load_brief
 
 from ._concepts import add_backend_arguments
 from ._ids import mint_run_id
-from ._study import assemble_backend, gate_and_build
+from ._study import assemble_backend, gate_and_build, sources_from
 
 
 def cmd_coreset_gate(argv: list[str] | None = None) -> int:
@@ -32,7 +32,8 @@ def cmd_coreset_gate(argv: list[str] | None = None) -> int:
     run_dir = args.out / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     chat, _embed, coreset, _pins, _pin = assemble_backend(pack, args)
-    gate_and_build(pack, n=args.n, population_seed=args.seed, chat=chat, coreset=coreset, run_dir=run_dir)
+    gate_and_build(pack, n=args.n, population_seed=args.seed, chat=chat, coreset=coreset, run_dir=run_dir,
+                   sources=sources_from(args))
     print(f"run_id: {run_id}")
     print(f"artefacts: {run_dir}")
     return 0

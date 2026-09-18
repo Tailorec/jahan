@@ -187,3 +187,17 @@ def test_a_study_says_which_shards_it_draws_from(tmp_path, monkeypatch):
         "data/persona-1m-0009.parquet"]
     with pytest.raises(GateFailure, match="shard"):
         shards_from(types.SimpleNamespace(shards="  "))
+
+
+def test_a_study_says_which_persona_sources_it_admits(tmp_path):
+    """The release carries synthetic rows beside the measured ones, and a persona may not have
+    synthesized demographics: a draw that reaches them is refused by the `Population` contract,
+    after the whole draw is built. A study admits sources deliberately, and could not say so."""
+    from simcore.cli._study import sources_from
+
+    assert sources_from(types.SimpleNamespace(sources=None)) is None
+    assert sources_from(types.SimpleNamespace(sources="wiki,gss")) == frozenset({"wiki", "gss"})
+    with pytest.raises(GateFailure, match="source"):
+        sources_from(types.SimpleNamespace(sources="wiki,nosuchsource"))
+    with pytest.raises(GateFailure, match="source"):
+        sources_from(types.SimpleNamespace(sources=" "))
