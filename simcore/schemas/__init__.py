@@ -123,6 +123,8 @@ from .report import (
     ObjectionCluster,
     OutcomeDigest,
     Report,
+    ScenarioSummary,
+    ScenarioWorldEntry,
     TrustStatement,
     ensure_same_tick_unit,
 )
@@ -325,6 +327,8 @@ __all__ = [
     "OutcomeDigest",
     "PMF5",
     "PartitionHeader",
+    "ScenarioSummary",
+    "ScenarioWorldEntry",
     "Persona",
     "PersonaFieldDomain",
     "PersonaId",

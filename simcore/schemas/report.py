@@ -20,8 +20,8 @@ from .base import (
     canonical_hash,
     proportions_sum_to_one,
 )
-from .enums import AnomalyKind, Confidence, FindingKind, TickUnit, TrustLevel
-from .run import RunConfig
+from .enums import ActionKind, AnomalyKind, BeliefDim, Confidence, DegradationRung, FindingKind, TickUnit, TrustLevel
+from .run import RunConfig, WorldId
 from .sim import PMF5
 from .trace import EventId
 
@@ -171,33 +171,65 @@ def _normalized_divergence(masses: list[tuple[float, ...]], weights: list[float]
 
 
 class OutcomeDigest(SimBaseModel):
-    """What happened in one scenario's worlds. It carries response masses per audience with each audience's
-    share, and per community with each community's size; adoption, polarization and audience divergence are
-    computed from those, so none can be stated at odds with the masses. The tick unit travels so an axis
-    can be labeled truthfully."""
+    """What happened in one world's run. It carries response masses per audience with each audience's
+    share, and per community with each community's size, when the run scored intent; adoption,
+    polarization and audience divergence are computed from those, so none can be stated at odds
+    with the masses, and are not measurable when the run scored none. The tick unit travels so an
+    axis can be labeled truthfully. Beside intent it carries what every run produces: the action
+    mix, belief movement, word-of-mouth reach, and how many turns went unscored and why."""
 
     scenario_hash: HashDigest
     tick_unit: TickUnit
-    audience_pmfs: FrozenDict[Identifier, PMF5]
-    audience_shares: FrozenDict[Identifier, UnitInterval]
-    community_pmfs: FrozenDict[Identifier, PMF5]
-    community_sizes: FrozenDict[Identifier, PositiveInt]
+    audience_pmfs: FrozenDict[Identifier, PMF5] = FrozenDict({})
+    audience_shares: FrozenDict[Identifier, UnitInterval] = FrozenDict({})
+    community_pmfs: FrozenDict[Identifier, PMF5] = FrozenDict({})
+    community_sizes: FrozenDict[Identifier, PositiveInt] = FrozenDict({})
+    # How many turns went unscored for intent, and why adoption is not measurable when it is not.
+    unscored_turns: NonNegativeInt = 0
+    unmeasured_reason: NonEmptyStr | None = None
+    # What every run produces, even without ratings.
+    turn_count: NonNegativeInt = 0
+    action_mix: FrozenDict[ActionKind, NonNegativeInt] = FrozenDict({})
+    belief_movement_mean: FrozenDict[BeliefDim, float] = FrozenDict({})
+    belief_movement_abs: FrozenDict[BeliefDim, float] = FrozenDict({})
+    wom_deliveries: NonNegativeInt = 0
+    wom_reach: NonNegativeInt = 0
+    # The budget rungs this world ran under, so a scenario can mark worlds that ran degraded.
+    rungs: tuple[DegradationRung, ...] = ()
 
     @model_validator(mode="after")
     def _weights_cover_exactly_the_masses(self) -> Self:
-        if not self.audience_pmfs:
-            raise ValueError("a digest reports response masses for at least one audience")
         if set(self.audience_shares) != set(self.audience_pmfs):
             raise ValueError("every audience with a response mass needs a share, and only those")
         if set(self.community_sizes) != set(self.community_pmfs):
             raise ValueError("every community with a response mass needs a size, and only those")
-        proportions_sum_to_one(self.audience_shares)
+        if self.audience_pmfs:
+            proportions_sum_to_one(self.audience_shares)
+        return self
+
+    @model_validator(mode="after")
+    def _unmeasured_adoption_names_its_reason(self) -> Self:
+        if not self.audience_pmfs and self.unmeasured_reason is None:
+            raise ValueError("a digest with no response masses reports adoption as not measurable, with the reason")
+        if self.audience_pmfs and self.unmeasured_reason is not None:
+            raise ValueError("a digest with response masses measures adoption, so it names no unmeasured reason")
+        return self
+
+    @model_validator(mode="after")
+    def _action_mix_counts_the_turns(self) -> Self:
+        if sum(self.action_mix.values()) != self.turn_count:
+            raise ValueError(
+                f"the action mix counts {sum(self.action_mix.values())} turns, but the digest reports {self.turn_count}"
+            )
         return self
 
     @computed_field
     @property
-    def adoption(self) -> float:
-        """Share-weighted top-two-box purchase intent: the probability of answering 4 or 5 on the five-point scale."""
+    def adoption(self) -> float | None:
+        """Share-weighted top-two-box purchase intent: the probability of answering 4 or 5 on the five-point scale.
+        Not measurable when the run scored no intent, never zero."""
+        if not self.audience_pmfs:
+            return None
         names = sorted(self.audience_pmfs)
         total = sum(self.audience_shares[name] for name in names)
         weighted = sum(self.audience_shares[name] * (self.audience_pmfs[name][3] + self.audience_pmfs[name][4]) for name in names)
@@ -207,8 +239,10 @@ class OutcomeDigest(SimBaseModel):
     @property
     def polarization(self) -> float | None:
         """Size-weighted divergence between communities' response masses: whether social dynamics created
-        camps. A population that formed fewer than two communities has no polarization to measure, so it is
-        reported as not measurable rather than as a measured zero."""
+        camps. Not measurable when the run scored no intent, or when the population formed fewer than
+        two communities — never a measured zero."""
+        if not self.community_pmfs:
+            return None
         if len(self.community_pmfs) < 2:
             return None
         names = sorted(self.community_pmfs)
@@ -216,10 +250,82 @@ class OutcomeDigest(SimBaseModel):
 
     @computed_field
     @property
-    def audience_divergence(self) -> float:
-        """Share-weighted divergence between audiences' response masses: whether the concept splits the target market."""
+    def audience_divergence(self) -> float | None:
+        """Share-weighted divergence between audiences' response masses: whether the concept splits the target market.
+        Not measurable when the run scored no intent, never zero."""
+        if not self.audience_pmfs:
+            return None
         names = sorted(self.audience_pmfs)
         return _normalized_divergence([self.audience_pmfs[n] for n in names], [self.audience_shares[n] for n in names])
+
+
+def _spread(values: list[float]) -> float | None:
+    """The spread between worlds: the population standard deviation across seeds.
+    One seed yields a spread of zero, reported as such rather than omitted."""
+    if not values:
+        return None
+    if len(values) == 1:
+        return 0.0
+    mean = sum(values) / len(values)
+    return math.sqrt(sum((value - mean) ** 2 for value in values) / len(values))
+
+
+class ScenarioWorldEntry(SimBaseModel):
+    """One world's digest within its scenario: the replicate seed, the world it ran as, and the digest."""
+
+    seed: NonNegativeInt
+    world_id: WorldId
+    digest: OutcomeDigest
+
+
+class ScenarioSummary(SimBaseModel):
+    """A scenario's worlds gathered: each seed's digest beside the spread between them.
+    The spread is computed between worlds, never within one."""
+
+    scenario_hash: HashDigest
+    tick_unit: TickUnit
+    entries: tuple[ScenarioWorldEntry, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _entries_belong_to_this_scenario(self) -> Self:
+        if _repeated(entry.world_id for entry in self.entries):
+            raise ValueError("a world is summarized more than once")
+        if _repeated(entry.seed for entry in self.entries):
+            raise ValueError("a seed is summarized more than once")
+        for entry in self.entries:
+            if entry.digest.scenario_hash != self.scenario_hash:
+                raise ValueError(
+                    f"world {entry.world_id} digests scenario {entry.digest.scenario_hash}, not {self.scenario_hash}"
+                )
+            if entry.digest.tick_unit is not self.tick_unit:
+                raise ValueError(
+                    f"world {entry.world_id} ran in {entry.digest.tick_unit.value} ticks, not {self.tick_unit.value}"
+                )
+        return self
+
+    @computed_field
+    @property
+    def adoption_spread(self) -> float | None:
+        values = [entry.digest.adoption for entry in self.entries if entry.digest.adoption is not None]
+        return _spread(values)
+
+    @computed_field
+    @property
+    def polarization_spread(self) -> float | None:
+        values = [entry.digest.polarization for entry in self.entries if entry.digest.polarization is not None]
+        return _spread(values)
+
+    @computed_field
+    @property
+    def divergence_spread(self) -> float | None:
+        values = [entry.digest.audience_divergence for entry in self.entries if entry.digest.audience_divergence is not None]
+        return _spread(values)
+
+    @computed_field
+    @property
+    def rung_mixed(self) -> bool:
+        """Whether this scenario's worlds ran at different degradation rungs and are not quietly averaged."""
+        return len({entry.digest.rungs for entry in self.entries}) > 1
 
 
 def ensure_same_tick_unit(*digests: OutcomeDigest) -> None:
@@ -253,7 +359,7 @@ class Report(SimBaseModel):
                 raise ValueError(f"digest for scenario {digest.scenario_hash}, which this run does not configure")
             if digest.tick_unit is not scenario.tick_unit:
                 raise ValueError(f"digest in {digest.tick_unit.value} ticks for a scenario run in {scenario.tick_unit.value}")
-            if set(digest.audience_pmfs) != set(scenario.audience_weights):
+            if digest.audience_pmfs and set(digest.audience_pmfs) != set(scenario.audience_weights):
                 raise ValueError(f"digest audiences {sorted(digest.audience_pmfs)} differ from the scenario's {sorted(scenario.audience_weights)}")
         ensure_same_tick_unit(*self.digests)
         return self
