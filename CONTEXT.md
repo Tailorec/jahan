@@ -274,6 +274,34 @@ _Avoid_: SSR accuracy, validation, model accuracy
 That simulated personas' rating distributions for a product match what real people's would be. It is the claim a study's findings rest on, and it needs human answers to the same question about the same product to check.
 _Avoid_: realism, fidelity, accuracy
 
+**Digest**:
+What one world produced, summarised: how personas answered where they were asked, how far their beliefs moved, what they objected to, and what could not be measured at all.
+_Avoid_: summary, rollup, metrics, stats
+
+**Unmeasured**:
+Something a run did not establish, reported as such rather than as zero or left out. A study that could not score purchase intent has unmeasured adoption, not adoption of none.
+_Avoid_: missing, null, n/a, unknown
+
+**Replicate Spread**:
+How far a scenario's worlds disagreed with each other. It is the study's estimate of its own variance, and the yardstick every anomaly threshold is measured against.
+_Avoid_: error bars, noise, variance (the word alone is ambiguous here)
+
+**Objection Cluster**:
+A group of things personas said that mean the same thing, named by the one sentence nearest the middle of the group. The label is always something a persona actually wrote.
+_Avoid_: theme, topic, category, insight
+
+**Anomaly**:
+A pattern in a run that a rule recognises — attention converging, opinion splitting, a concept landing flat. Rules only: nothing here is judged by a model.
+_Avoid_: outlier, alert, signal, red flag
+
+**Disconfirming Test**:
+The real-world check that would show a finding to be wrong. A finding without one cannot be made.
+_Avoid_: validation, caveat, limitation
+
+**Method Disclosure**:
+The part of a report that says how the numbers were produced: which models answered, under which seeds and templates, and which engine version ran.
+_Avoid_: appendix, footnote, metadata
+
 **Adoption**:
 The probability that a respondent answers 4 or 5 on the five-point purchase-intent scale, weighted across audiences by their share — the headline measure of whether a variant would be bought.
 _Avoid_: purchase rate, conversion, mean intent, score
