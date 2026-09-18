@@ -8,8 +8,6 @@ filter distinguishes its values and the gates judge the draw against its own des
 
 from __future__ import annotations
 
-from __future__ import annotations
-
 import json
 from collections.abc import Sequence
 

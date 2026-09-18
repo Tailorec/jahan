@@ -136,3 +136,19 @@ def test_an_exhausted_budget_exits_3_and_keeps_the_completed_worlds_artefacts(tm
     result = json.loads((run_dir / "result.json").read_text())
     assert {outcome["status"] for outcome in result["outcomes"]} == {"completed", "partial"}
     assert any("pause" in outcome["rungs"] for outcome in result["outcomes"])
+
+
+def test_a_usage_error_is_not_mistaken_for_a_failed_gate():
+    """argparse exits 2 on a malformed command line, which is the code this CLI documents for a
+    failed gate. A shell branching on 2 would read a mistyped flag as a population that failed
+    its distribution gates."""
+    for argv in (["concepts", "run"], ["concepts", "run", "brief.yaml", "--nope"], ["sweep", "run"]):
+        code, output = run_command(*argv)
+        assert code == 1, f"{argv} exited {code}"
+        assert "usage" in output.lower()
+
+
+def test_help_exits_zero():
+    for argv in (["--help"], ["concepts", "run", "--help"]):
+        code, _ = run_command(*argv)
+        assert code == 0

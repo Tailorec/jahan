@@ -51,6 +51,14 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_ssr_replica(rest)
         print(USAGE)
         return 1
+    except SystemExit as exit_request:
+        # argparse ends a malformed command line with `SystemExit(2)`, and 2 is the code this
+        # CLI documents for a failed gate. A usage error is not a study's verdict: it is
+        # unmapped, so it exits 1, with argparse's own message already printed.
+        code = exit_request.code
+        if code in (0, None):
+            return 0
+        return 1
     except Exception as error:  # noqa: BLE001 — the mapping decides the code, nothing escapes
         return report_error(error)
 
