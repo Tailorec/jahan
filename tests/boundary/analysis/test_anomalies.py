@@ -53,7 +53,7 @@ def _measured_digest(adoption: float) -> OutcomeDigest:
 def _unmeasured_digest() -> OutcomeDigest:
     return OutcomeDigest.model_validate(digest_payload(
         audience_pmfs={}, audience_shares={}, community_pmfs={}, community_sizes={},
-        unmeasured_reason="no anchor version is pinned", unscored_turns=4, turn_count=4,
+        unmeasured_reason="no anchor version is pinned", turns_without_intent=4, turn_count=4,
         action_mix={"comment": 4}))
 
 

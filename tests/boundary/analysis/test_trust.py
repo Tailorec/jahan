@@ -60,7 +60,8 @@ def test_embedding_is_the_only_model_call_through_the_pinned_model(tmp_path):
     header, view = _seeded_view(TraceStore(tmp_path))
     population = Population.model_validate(population_payload())
     pin = header.config.pins.embed.model_id
-    result = digest(view, scenario=header.scenario, population=population, pinned_embed_model=pin)
+    result = digest(view, scenario=header.scenario, population=population, seed=header.replicate_seed,
+                    pinned_embed_model=pin)
     assert result.adoption is not None
     clusters = cluster_objections(view, embed=FakeEmbed(model_id=pin), pinned_embed_model=pin)
     assert all(cluster.embed_model_id == pin for cluster in clusters)
@@ -70,7 +71,8 @@ def test_trace_in_another_embedding_space_refused(tmp_path):
     header, view = _seeded_view(TraceStore(tmp_path))
     population = Population.model_validate(population_payload())
     with pytest.raises(ValueError, match="pins .* for every embedding"):
-        digest(view, scenario=header.scenario, population=population, pinned_embed_model="other/model-1")
+        digest(view, scenario=header.scenario, population=population, seed=header.replicate_seed,
+               pinned_embed_model="other/model-1")
     with pytest.raises(ValueError, match="pins .* for every embedding"):
         cluster_objections(view, embed=FakeEmbed(), pinned_embed_model="other/model-1")
     with pytest.raises(ValueError, match="pins .* for every embedding"):

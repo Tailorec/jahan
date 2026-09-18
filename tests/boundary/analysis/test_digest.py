@@ -58,7 +58,7 @@ def test_digest_of_a_real_recorded_world_names_its_scenario_and_tick_unit(tmp_pa
     store = TraceStore(tmp_path)
     header, _, _ = _seed_world(store)
     view = store.view(header.config.run_id, header.world_id)
-    result = digest(view, scenario=header.scenario, population=_population())
+    result = digest(view, scenario=header.scenario, population=_population(), seed=header.replicate_seed)
     assert result.scenario_hash == canonical_hash(header.scenario)
     assert result.tick_unit is header.scenario.tick_unit
 
@@ -67,32 +67,32 @@ def test_world_with_scored_intent_reports_masses_with_shares_and_sizes(tmp_path)
     store = TraceStore(tmp_path)
     header, _, _ = _seed_world(store)
     view = store.view(header.config.run_id, header.world_id)
-    result = digest(view, scenario=header.scenario, population=_population())
+    result = digest(view, scenario=header.scenario, population=_population(), seed=header.replicate_seed)
     assert result.adoption is not None
     assert set(result.audience_pmfs) == set(result.audience_shares) == {"gym_regulars"}
     assert abs(sum(result.audience_shares.values()) - 1.0) < 1e-3
     assert set(result.community_pmfs) == set(result.community_sizes)
     assert result.unmeasured_reason is None
-    assert result.unscored_turns == 2
+    assert result.turns_without_intent == 2
 
 
 def test_world_with_no_scored_intent_reports_unmeasured_with_the_count(tmp_path):
     store = TraceStore(tmp_path)
     header, _, _ = _seed_world(store, payload=_strip_intent(partition_payload()))
     view = store.view(header.config.run_id, header.world_id)
-    result = digest(view, scenario=header.scenario, population=_population())
+    result = digest(view, scenario=header.scenario, population=_population(), seed=header.replicate_seed)
     assert result.adoption is None
     assert result.polarization is None
     assert result.audience_divergence is None
     assert result.unmeasured_reason is not None
-    assert result.unscored_turns == result.turn_count == 3
+    assert result.turns_without_intent == result.turn_count == 3
 
 
 def test_action_mix_belief_movement_and_wom_match_recomputation(tmp_path):
     store = TraceStore(tmp_path)
     header, _, _ = _seed_world(store)
     view = store.view(header.config.run_id, header.world_id)
-    result = digest(view, scenario=header.scenario, population=_population())
+    result = digest(view, scenario=header.scenario, population=_population(), seed=header.replicate_seed)
 
     events = view.events(EventFilter())
     turns = [event for event in events if event.payload.kind == "turn"]
@@ -133,6 +133,9 @@ def test_persona_counted_in_exactly_one_audience(tmp_path):
     assert assigned[:2] == ["gym_regulars", "gym_regulars"]
     assert assigned[2:] == ["protein_dieters", "protein_dieters"]
 
+    from simcore.schemas import PartitionHeader, RunRegistryEntry, TraceEvent
+    from tests.study_builders import partition_header_payload, partition_run_config
+
     store = TraceStore(tmp_path)
     payload = partition_payload()
     # Score a community-2 turn so both audiences and both communities carry masses.
@@ -140,9 +143,20 @@ def test_persona_counted_in_exactly_one_audience(tmp_path):
         turn = (record.get("payload") or {}).get("turn")
         if turn is not None and turn["impression"]["persona_id"] == "p-000003":
             turn["reaction"]["intent"] = ssr_payload()
-    header, _, _ = _seed_world(store, payload=payload)
+    scenario_dict = scenario_payload()
+    header_dict = partition_header_payload(scenario_dict)
+    header_dict["population"] = manifest.model_dump(mode="json")
+    header_dict["config"] = partition_run_config(
+        scenario_dict, population_hash=manifest.population_hash, graph_hash=manifest.graph_hash)
+    header = PartitionHeader.model_validate(header_dict)
+    store.registry.record(RunRegistryEntry.model_validate({
+        "config": header.config.model_dump(mode="json"), "contract_version": header.contract_version,
+        "status": "running", "engine_version": "0a35555"}))
+    store.create_world(header.config.run_id, header)
+    events = [TraceEvent.model_validate({**record, "world_id": header.world_id}) for record in payload["events"]]
+    write_by_tick(store, events)
     view = store.view(header.config.run_id, header.world_id)
-    result = digest(view, scenario=header.scenario, population=population)
+    result = digest(view, scenario=_scenario(), population=population, seed=header.replicate_seed)
     assert set(result.audience_pmfs) == {"gym_regulars", "protein_dieters"}
     assert set(result.community_pmfs) == {"community-1", "community-2"}
 
@@ -151,7 +165,7 @@ def test_digesting_the_same_view_twice_is_identical(tmp_path):
     store = TraceStore(tmp_path)
     header, _, _ = _seed_world(store)
     population = _population()
-    first = digest(store.view(header.config.run_id, header.world_id), scenario=header.scenario, population=population)
-    second = digest(store.view(header.config.run_id, header.world_id), scenario=header.scenario, population=population)
+    first = digest(store.view(header.config.run_id, header.world_id), scenario=header.scenario, population=population, seed=header.replicate_seed)
+    second = digest(store.view(header.config.run_id, header.world_id), scenario=header.scenario, population=population, seed=header.replicate_seed)
     assert first == second
     assert first.model_dump_json() == second.model_dump_json()

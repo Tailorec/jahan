@@ -23,7 +23,7 @@ from simcore.schemas import (
     canonical_hash,
     ensure_same_tick_unit,
 )
-from tests.study_builders import digest_payload, run_config_payload, scenario_payload, ulid
+from tests.study_builders import digest_payload, population_manifest_payload, run_config_payload, scenario_payload, ulid
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EVIDENCE = [f"ev-{ulid(1)}", f"ev-{ulid(2)}"]
@@ -63,8 +63,11 @@ def ref_payload(**overrides):
 
 
 def report_payload(**overrides):
+    config = run_config_payload(scenarios=[BASELINE, PREMIUM])
+    # The report pins the population the digested worlds ran over, so digest world ids resolve.
+    config["population_hash"] = population_manifest_payload()["population_hash"]
     payload = {
-        "config": run_config_payload(scenarios=[BASELINE, PREMIUM]),
+        "config": config,
         "trust": {"level": "uncalibrated", "caveats": ["engine has never been benchmarked"]},
         "findings": [
             finding_payload(),
