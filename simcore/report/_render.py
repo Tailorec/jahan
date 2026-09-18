@@ -113,6 +113,14 @@ class _Document:
     validation: str
 
 
+def _inline(text: str) -> str:
+    """Free text on one line. A persona's verbatim is a sentence somebody wrote, quoted into a
+    structured document (ADR 0041); a line break and a `##` in it would otherwise become a
+    heading of the report. The record keeps the text as written — only the page renders it flat.
+    """
+    return " ".join(str(text).split())
+
+
 def _measure(name: str, value: float | None) -> str:
     """A measured quantity, or the word where it would have been (ADR 0038)."""
     return name + ": " + ("unmeasured" if value is None else _number(value))
@@ -201,22 +209,22 @@ def _to_markdown(doc: _Document) -> str:
     lines.extend(["## Trust", ""])
     lines.extend(["Calibration: " + doc.trust_level + ".", ""])
     for caveat in doc.trust_caveats:
-        lines.extend([caveat, ""])
+        lines.extend([_inline(caveat), ""])
     lines.extend(["## Findings", ""])
     if not doc.findings:
         lines.extend(["No findings were authored for this run.", ""])
     for finding in doc.findings:
         lines.extend(["### " + finding.finding_id + " · " + finding.kind + " · confidence " + finding.confidence, ""])
-        lines.extend([finding.statement, ""])
+        lines.extend([_inline(finding.statement), ""])
         lines.extend(["Evidence: " + ", ".join(finding.evidence_trace_ids), ""])
-        lines.extend(["Disconfirming test: " + finding.disconfirming_test, ""])
+        lines.extend(["Disconfirming test: " + _inline(finding.disconfirming_test), ""])
     lines.extend(["## Objection clusters", ""])
     if not doc.clusters:
         lines.extend(["No objection clusters were reported for this run.", ""])
     for cluster in doc.clusters:
         lines.extend(
             [
-                '"' + cluster.label + '" — '
+                '"' + _inline(cluster.label) + '" — '
                 + repr(cluster.size)
                 + " verbatims at cosine "
                 + _number(cluster.threshold),
@@ -229,7 +237,7 @@ def _to_markdown(doc: _Document) -> str:
         lines.extend(["Scenario: " + digest.scenario_hash, ""])
         lines.extend(["Tick unit: " + digest.tick_unit, ""])
         if digest.adoption is None:
-            lines.extend(["Adoption: unmeasured — " + str(digest.unmeasured_reason), ""])
+            lines.extend(["Adoption: unmeasured — " + _inline(str(digest.unmeasured_reason)), ""])
         else:
             lines.extend(["Adoption: " + _number(digest.adoption), ""])
         lines.extend([_measure("Polarization", digest.polarization), ""])
@@ -260,7 +268,7 @@ def _to_markdown(doc: _Document) -> str:
     if not doc.assumptions:
         lines.extend(["No assumptions were recorded for this study.", ""])
     for assumption in doc.assumptions:
-        lines.extend(["- " + assumption.text + " (" + assumption.source + ")", ""])
+        lines.extend(["- " + _inline(assumption.text) + " (" + assumption.source + ")", ""])
     lines.extend(["## Method disclosure", ""])
     for role, model_id in doc.pins:
         lines.extend(["- " + role + ": " + model_id, ""])
@@ -285,7 +293,7 @@ def _to_markdown(doc: _Document) -> str:
         )
     lines.extend(["Config hash: " + doc.config_hash, ""])
     lines.extend(["## Recommended real-world validation", ""])
-    lines.extend([doc.validation, ""])
+    lines.extend([_inline(doc.validation), ""])
     return "\n".join(lines)
 
 

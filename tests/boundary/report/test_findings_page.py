@@ -122,3 +122,20 @@ def test_polarization_and_divergence_are_stated_where_they_would_have_appeared()
     assert "Audience divergence: unmeasured" in report.markdown
     entry = report.data["digests"][0]
     assert entry["polarization"] is None and entry["audience_divergence"] is None
+
+
+def test_a_quoted_verbatim_cannot_restructure_the_document():
+    """A cluster's label is a sentence a persona wrote (ADR 0041) and a finding's statement
+    quotes it. Printed as-is, a verbatim holding a line break and a `##` becomes a heading of
+    the report itself."""
+    label = "it is fine\n## Real heading injected"
+    report = render(
+        [finding_payload(statement="2 personas said something this cluster groups, quoted as " + repr(label))],
+        digests(),
+        pack(clusters=[cluster_payload(label=label, size=2)]),
+    )
+    headings = [line for line in report.markdown.splitlines() if line.startswith("#")]
+    assert not any("Real heading injected" in heading for heading in headings)
+    assert "Real heading injected" in report.markdown
+    # The record keeps what the persona wrote; only the page renders it on one line.
+    assert report.data["objection_clusters"][0]["label"] == label
