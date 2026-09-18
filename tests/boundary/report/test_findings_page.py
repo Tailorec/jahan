@@ -1,0 +1,91 @@
+"""Phase 3: findings on the page — evidence, ledger, unmeasured adoption, confidence, quotes."""
+
+from simcore.report import render
+from simcore.schemas import BriefPack
+from tests.boundary.report.support import BASELINE, EVIDENCE, digests, finding_payload, pack
+from tests.study_builders import digest_payload, pack_payload
+
+
+def cluster_payload(**overrides):
+    payload = {
+        "label": "tastes chalky after the gym",
+        "verbatim_trace_ids": EVIDENCE,
+        "size": 14,
+        "threshold": 0.75,
+        "embed_model_id": "openai/text-embedding-3-small",
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_every_finding_shows_its_evidence_ids_and_its_disconfirming_test():
+    second = finding_payload(
+        finding_id="f-belief-01",
+        kind="belief_shift",
+        statement="credence in value rose by 0.10 on average over 12 moves",
+        evidence_trace_ids=EVIDENCE[:1],
+        disconfirming_test="rerun the same scenario with 12 fresh personas",
+        confidence="high",
+    )
+    report = render([finding_payload(), second], digests(), pack())
+    for finding in (finding_payload(), second):
+        for trace_id in finding["evidence_trace_ids"]:
+            assert trace_id in report.markdown
+        assert finding["disconfirming_test"] in report.markdown
+    # Findings read by kind then id, so the belief-shift finding leads in both formats.
+    assert [entry["finding_id"] for entry in report.data["findings"]] == ["f-belief-01", "f-objection-01"]
+    assert [entry["evidence_trace_ids"] for entry in report.data["findings"]] == [EVIDENCE[:1], EVIDENCE]
+
+
+def test_the_assumption_ledger_appears_with_sources():
+    report = render([finding_payload()], digests(), pack())
+    assert "Respondents distinguish clear from milky protein formats" in report.markdown
+    assert "Hydrates like water, not milk" in report.markdown
+    sources = {item["source"] for item in report.data["assumptions"]}
+    assert {"user_asserted", "assumed"} <= sources
+
+
+def test_what_the_brief_left_unstated_appears_in_the_ledger():
+    brief_pack = BriefPack.model_validate(pack_payload(audiences=()))
+    report = render([finding_payload()], digests(), pack(brief_pack=brief_pack))
+    assert "assumed to be the whole population" in report.markdown
+
+
+def test_unmeasured_adoption_is_stated_where_it_would_have_appeared():
+    reason = "no anchor version is pinned, so no turn was scored"
+    worlds = [
+        digest_payload(
+            BASELINE,
+            audience_pmfs={},
+            audience_shares={},
+            community_pmfs={},
+            community_sizes={},
+            unmeasured_reason=reason,
+        )
+    ]
+    report = render([finding_payload()], worlds, pack())
+    assert "Adoption: unmeasured — " + reason in report.markdown
+    assert report.data["digests"][0]["adoption"] is None
+    assert report.data["digests"][0]["unmeasured_reason"] == reason
+
+
+def test_measured_adoption_renders_as_a_number_in_the_same_place():
+    report = render([finding_payload()], digests(), pack())
+    adoptions = [entry["adoption"] for entry in report.data["digests"]]
+    assert all(adoption is not None for adoption in adoptions)
+    for adoption in adoptions:
+        assert "Adoption: " + repr(adoption) in report.markdown
+
+
+def test_confidence_beside_each_finding_and_calibration_never_beside_any():
+    report = render([finding_payload()], digests(), pack())
+    findings_section = report.markdown.split("## Findings")[1].split("## Objection")[0]
+    assert "confidence medium" in findings_section
+    assert "uncalibrated" not in findings_section
+    assert "calibrat" not in findings_section
+
+
+def test_objection_clusters_render_their_quoted_label_never_a_paraphrase():
+    report = render([finding_payload()], digests(), pack(clusters=[cluster_payload()]))
+    assert '"tastes chalky after the gym"' in report.markdown
+    assert report.data["objection_clusters"][0]["label"] == "tastes chalky after the gym"

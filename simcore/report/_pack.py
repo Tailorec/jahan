@@ -48,9 +48,21 @@ class ReportPack:
             raise ValueError("a report records the contract version it was rendered under")
         if any(_blank(version) for version in self.forced_from):
             raise ValueError("a forced engine version is a version, never a blank")
-        # Tuples, so a pack cannot change after it is rendered from.
-        object.__setattr__(self, "anomalies", tuple(self.anomalies))
-        object.__setattr__(self, "clusters", tuple(self.clusters))
+        # Tuples of validated models, so a pack cannot change after it is rendered from.
+        # Hand-built sets are welcome: mappings are validated on the way in.
+        object.__setattr__(
+            self,
+            "anomalies",
+            tuple(item if isinstance(item, Anomaly) else Anomaly.model_validate(item) for item in self.anomalies),
+        )
+        object.__setattr__(
+            self,
+            "clusters",
+            tuple(
+                item if isinstance(item, ObjectionCluster) else ObjectionCluster.model_validate(item)
+                for item in self.clusters
+            ),
+        )
         object.__setattr__(self, "forced_from", tuple(self.forced_from))
 
 
