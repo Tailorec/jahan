@@ -29,21 +29,32 @@ digest report; only non-canonical JSON ordering varies.
 | Turns | 80 | 80 |
 | Scored for intent | 42 | 42 |
 | Adoption | 0.65 | 0.65 |
-| Findings | 1 objection, 2 belief-shift | 1 objection, 2 belief-shift |
-| Anomalies | 2 (herding rule, see below) | 2 |
+| Findings | 1 cluster, 2 belief-shift | 1 cluster, 2 belief-shift |
+| Anomalies | 0 flagged, herding unmeasured | same |
 | Word of mouth | 0 deliveries (survey room) | 0 |
 
 Spread across seeds is 0.0, reported as such rather than omitted; no world ran
 degraded. Trust is `UNCALIBRATED`.
 
-Two notes on the numbers. The adoption of 0.65 is a plumbing check, not a finding:
+One note on the numbers. The adoption of 0.65 is a plumbing check, not a finding:
 the masses behind it are stub-recorded, and the stub scored only half the turns.
-The herding flags fire because the replicate spread is 0.0 — the two worlds agree
-exactly, so twice the spread is 0 and any window movement is beyond it. That is the
-rule as specified (`|mean| > 2σ`), applied literally; a zero yardstick measures
-nothing, and the flags say so with their carried threshold of 0.
 
 ## What reconciling exposed
+
+**A yardstick of zero measured everything.** The two worlds agree exactly, so the
+replicate spread is 0.0, so twice it is 0, so every window that moved at all was
+herding: two flags per world carrying a threshold of 0. A single-seed study — the
+ordinary case — produces the same spread and would have flagged the same way, while
+a missing spread silently produced no herding and said nothing. Herding now reports
+as an `UnmeasuredAnomaly` with its reason in both cases, which is the vocabulary ADR
+0040 already gives a rule that cannot be evaluated.
+
+**A cluster was counted in sentences and reported in people.** "80 personas raised
+the objection" over 80 verbatims written by 40 personas, and the quoted label —
+"I would try it after training" — is not an objection at all. Clustering groups what
+personas said and cannot tell praise from a complaint, so a finding now counts the
+distinct personas, states the verbatim count beside them, and quotes without saying
+what the quote means.
 
 **A two-seed run could not validate a report.** `Report` held one digest per
 scenario, so the two digests of this study's single scenario were refused as
