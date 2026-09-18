@@ -8,8 +8,6 @@ Deterministic: two runs over one trace produce the same findings in the same ord
 No finding states calibration; confidence reflects the evidence behind it alone.
 """
 
-from collections import Counter
-
 from simcore.schemas import EventFilter, Finding, VerbatimGrouping
 
 from ._clusters import cluster_objections
