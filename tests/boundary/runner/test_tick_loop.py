@@ -316,3 +316,35 @@ def test_a_completed_world_is_finalized_so_its_record_becomes_the_lasting_one():
     result, trace, _ = _basic_run(horizon=3)
     assert result.status.value == "completed"
     assert sorted(trace.finalized) == sorted(outcome.world_id for outcome in result.outcomes)
+
+
+def test_a_scenario_says_what_its_personas_are_asked():
+    """A study exists to ask purchase intent, and nothing in a run configuration could ask for it:
+    the runner named the task itself, so every turn was a reaction and adoption was unreachable
+    even with anchors that pass. Found by the first real study, which produced 400 verbatims and
+    no intent at all."""
+    from simcore.schemas import Scenario, TurnTask
+
+    assert "elicits" in Scenario.model_fields
+    assert Scenario.model_validate({**scenario_payload(), "elicits": "purchase"}).elicits is TurnTask.PURCHASE
+    assert Scenario.model_validate(scenario_payload()).elicits is TurnTask.REACTION
+
+    from simcore.schemas import canonical_hash
+
+    asked: list[str] = []
+
+    def agent_fn(jobs):
+        asked.extend(job.task.value for job in jobs)
+        return tuple(_completed(j, i) for i, j in enumerate(jobs))
+
+    trace, registry = InMemoryTraceSink(), InMemoryRegistry()
+    pack, population = _pack(), _population(4)
+    scenario = {**scenario_payload(horizon_ticks=3, interventions=[]), "elicits": "purchase"}
+    config = RunConfig.model_validate(
+        {**_config(horizon=3).model_dump(mode="json"), "scenarios": [scenario],
+         "brief_hash": canonical_hash(pack.brief), "ontology_hash": canonical_hash(pack.ontology),
+         "population_hash": population.manifest.population_hash, "graph_hash": population.manifest.graph_hash}
+    )
+    run(config, pack=pack, population=population, trace=trace, registry=registry,
+        world_factory=lambda header: FakeWorld(header), agent_fn=agent_fn)
+    assert asked and set(asked) == {"purchase"}, f"the scenario asked for purchase intent and got {set(asked)}"
