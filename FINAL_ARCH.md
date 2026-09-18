@@ -534,16 +534,22 @@ spine, and belongs with `report`/`cli`; deferred deliberately.
 
 ### 5.12 `cli` — entrypoints
 
+Entry is `python -m simcore.cli`. Plumbing only: the CLI wires modules together, formats errors and writes files. It derives nothing, renders nothing and decides nothing a study did not already state.
+
 | Command | Behavior |
 |---|---|
-| `coreset-gate --brief b.yaml --n 1500 --seed 4021` | gate report + population manifest |
-| `ssr-replica --anchors PI-oralcare-v3 --population manifest.json` | distribution diagnostics |
-| `concepts run brief.yaml [--fake]` | report.md + report.json + run_id |
-| `sweep run --grid grid.yaml --budget 42` | sweep heatmap JSON |
+| `coreset-gate --brief b.yaml --n 1500 --seed 4021` | gate report + population manifest, no world starts |
+| `ssr-replica --anchors <set-id> --construct <construct> --anchor-version v1 --population manifest.json` | the anchor check (ladder, rank stability, non-collapse) with its diagnostics; a failing version is reported as failing and is not pinned |
+| `concepts run brief.yaml [--fake]` | one baseline study: report.md + report.json + run_id |
+| `sweep run --grid grid.yaml --budget 42` | the grid as one run under one budget, with per-scenario summaries carrying each cell's seeds and their spread |
 
-Every command prints `run_id`. Exit codes come from the exception class, so a failed gate is distinguishable from a crash: `SimError` 1 (crash), `GateFailure` 2, `BudgetExhausted` 3, `SchemaVersionError` 5.
+Every command prints its `run_id` and the path it wrote to. Artefacts land in a run-named directory, never in the caller's working directory: `report.md`, `report.json`, `digest.json`, `result.json`, `manifest.json`, `gate-report.json`, per-scenario `summary-NN.json`, and the `trace/` store beside them. Exit codes come from the exception class, mapped in one place (`cli/_errors.py`): `SimError` 1 (crash), `GateFailure` 2, `BudgetExhausted` 3, `SchemaVersionError` 5 — and an unmapped exception exits 1 rather than something arbitrary. A study's verdict is never mistaken for a defect.
 
-`--fake` uses `FakeInference` + `SyntheticCoresetSource`, requires no API key and no dataset download, and runs the full pipeline end to end. This is the path a new user hits first, so it is a first-class CI target, not a debug flag.
+`--fake` uses stub inference over a synthetic coreset derived from the study's own brief and ontology, requires no API key and no dataset download, and runs the full pipeline end to end — population, world, agent, runner, trace, analysis, report, with no module stubbed. This is the path a new user hits first, so it is a first-class CI target, not a debug flag; two fake runs under one seed produce identical reports. `--coreset-fixture` runs offline studies over committed test rows instead. A real study pins `--model` and `--embed-model`, reads its corpus from the user's shard cache (refusing with the fetch command when nothing is cached) and its endpoint configuration from the environment, passed through without reinterpretation.
+
+A study that measured no adoption still exits 0 and reports why. An exhausted budget exits 3 after the completed worlds' artefacts are in place. Re-running with the same run id resumes: finished cells replay without stepping, unfinished cells continue. (`CONTEXT.md` already defines Study, World, Sweep, Rung and Unmeasured, and `SALVAGE.md`'s `cli` rows — the sweep-grid pattern and pins-seeding-recorded-defaults — describe exactly this wiring, so both stand unchanged.)
+
+**Boundary tests:** commands invoked in-process against temporary directories; the fake end-to-end run, the failing-gate and exhausted-budget exits, both pre-flights (including a passing anchor check through the real gate), the offline-provable slices of the real path, and sweep summaries, degraded marking, budget-kept partials and resume-without-recompute are all in the suite. The suite reaches no network.
 
 ---
 
