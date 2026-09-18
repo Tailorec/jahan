@@ -18,6 +18,8 @@ _OBJECTION_HIGH = 8
 _OBJECTION_MEDIUM = 3
 _BELIEF_MEANINGFUL = 0.05
 _BELIEF_HIGH_N = 10
+# A statement reads "rose by 0.03", so a mean that rounds to 0.00 there states nothing.
+_BELIEF_STATED_DECIMALS = 2
 
 
 def findings(view, *, embed, threshold: float = 0.75, seed: int = 0,
@@ -91,7 +93,12 @@ def _belief_shift_findings(view) -> list[Finding]:
     for position, key in enumerate(sorted(moves), start=1):
         deltas = moves[key]
         mean = sum(delta for _, delta in deltas) / len(deltas)
-        if abs(mean) < _BELIEF_MEANINGFUL and len(deltas) < 2:
+        # Either the move is large enough to matter on its own, or it is small and held across
+        # enough moves to be more than noise. Two moves of a thousandth are neither.
+        if abs(mean) < _BELIEF_MEANINGFUL and len(deltas) < _BELIEF_HIGH_N:
+            continue
+        # Moves that cancel have no direction to report: "fell by 0.00" is a claim about nothing.
+        if round(abs(mean), _BELIEF_STATED_DECIMALS) == 0.0:
             continue
         evidence = _resolve(view, tuple(event_id for event_id, _ in sorted(deltas)))
         direction = "rose" if mean > 0 else "fell"

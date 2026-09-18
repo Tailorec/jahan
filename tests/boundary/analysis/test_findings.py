@@ -126,3 +126,55 @@ def test_an_objection_finding_states_what_was_measured_not_a_sentiment(tmp_path)
     assert len(authored) == 1
     assert "objection" not in authored[0].statement.lower()
     assert "I would buy this tomorrow" in authored[0].statement
+
+
+class _MovesOnlyView:
+    """A view over caller-supplied belief moves alone: turns with a change and nothing else."""
+
+    def __init__(self, moves: list[tuple[str, float]]):
+        from types import SimpleNamespace
+
+        self._events = tuple(
+            SimpleNamespace(
+                payload=SimpleNamespace(kind="turn", turn=SimpleNamespace(
+                    reaction=SimpleNamespace(belief_change=SimpleNamespace(
+                        dimensions={dim: delta}, claim_credence={})))),
+                tick=index, seq=index, event_id=f"ev-{'0' * 21}{index:05d}", persona_id=f"p-00000{index}")
+            for index, (dim, delta) in enumerate(moves)
+        )
+
+    def events(self, _filter):
+        return self._events
+
+    def verbatims(self, _grouping):
+        return ()
+
+    def edges(self):
+        return ()
+
+    def resolve(self, trace_ids):
+        known = {event.event_id for event in self._events}
+        missing = sorted(set(trace_ids) - known)
+        if missing:
+            raise KeyError(f"no events for trace ids: {missing}")
+        return trace_ids
+
+
+def test_a_shift_too_small_to_state_is_not_a_finding():
+    """Two moves of a thousandth clear no bar; stating them prints "rose by 0.00", which is a
+    claim about nothing."""
+    view = _MovesOnlyView([("value", 0.001), ("value", 0.001)])
+    assert [f for f in findings(view, embed=None) if f.kind.value == "belief_shift"] == []
+
+
+def test_moves_that_cancel_are_not_reported_as_a_direction():
+    """Ten moves up and ten down average exactly zero: a report that says they "fell" is wrong."""
+    view = _MovesOnlyView([("value", 0.2)] * 10 + [("value", -0.2)] * 10)
+    assert [f for f in findings(view, embed=None) if f.kind.value == "belief_shift"] == []
+
+
+def test_a_small_shift_held_across_many_moves_is_still_a_finding():
+    view = _MovesOnlyView([("value", 0.03)] * 12)
+    authored = [f for f in findings(view, embed=None) if f.kind.value == "belief_shift"]
+    assert len(authored) == 1
+    assert "rose by 0.03" in authored[0].statement
