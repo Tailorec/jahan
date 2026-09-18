@@ -33,8 +33,11 @@ def _finding_key(finding: Finding) -> tuple[str, str]:
     return (finding.kind.value, finding.finding_id)
 
 
-def _cluster_key(label: str) -> str:
-    return label
+def _cluster_key(cluster) -> tuple[int, str, str]:
+    """Largest first, ties by the quoted label, then by the world it was grouped from — two
+    worlds of one study cluster the same sentence, and without the last key their order would
+    be the caller's rather than the data's."""
+    return (-cluster.size, cluster.label, cluster.world_id or "")
 
 
 def _digest_key(digest: OutcomeDigest) -> tuple[str, int]:
@@ -58,6 +61,7 @@ class _ClusterSection:
     threshold: float
     verbatim_trace_ids: tuple[str, ...]
     embed_model_id: str
+    world_id: str | None
 
 
 @dataclass(frozen=True)
@@ -157,7 +161,6 @@ def _build(findings: tuple[Finding, ...], digests: tuple[OutcomeDigest, ...], pa
         )
         for finding in sorted(findings, key=_finding_key)
     )
-    by_label = sorted(pack.clusters, key=lambda cluster: _cluster_key(cluster.label))
     ordered_clusters = tuple(
         _ClusterSection(
             label=cluster.label,
@@ -165,8 +168,9 @@ def _build(findings: tuple[Finding, ...], digests: tuple[OutcomeDigest, ...], pa
             threshold=cluster.threshold,
             verbatim_trace_ids=tuple(cluster.verbatim_trace_ids),
             embed_model_id=cluster.embed_model_id,
+            world_id=cluster.world_id,
         )
-        for cluster in sorted(by_label, key=lambda cluster: cluster.size, reverse=True)
+        for cluster in sorted(pack.clusters, key=_cluster_key)
     )
     ordered_digests = tuple(
         _DigestSection(
@@ -242,7 +246,8 @@ def _to_markdown(doc: _Document) -> str:
                 '"' + _inline(cluster.label) + '" — '
                 + repr(cluster.size)
                 + " verbatims at cosine "
-                + _number(cluster.threshold),
+                + _number(cluster.threshold)
+                + (" in world " + cluster.world_id if cluster.world_id else ""),
                 "",
             ]
         )
@@ -345,6 +350,7 @@ def _to_data(doc: _Document) -> dict:
                 "threshold": cluster.threshold,
                 "verbatim_trace_ids": list(cluster.verbatim_trace_ids),
                 "embed_model_id": cluster.embed_model_id,
+                "world_id": cluster.world_id,
             }
             for cluster in doc.clusters
         ],

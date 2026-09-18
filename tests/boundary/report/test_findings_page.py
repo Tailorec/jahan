@@ -160,3 +160,16 @@ def test_a_finding_citing_a_few_records_shows_them_all():
     evidence_line = next(line for line in report.markdown.splitlines() if line.startswith("Evidence: "))
     assert all(trace_id in evidence_line for trace_id in EVIDENCE)
     assert "…" not in evidence_line
+
+
+def test_clusters_of_two_worlds_are_told_apart_on_the_page():
+    """A two-seed study reports each world's clusters, and the stub personas say the same thing
+    in both, so the list read as the same line printed twice with nothing to tell them apart —
+    the defect the finding ids had, in the section beside them."""
+    first = cluster_payload(world_id="a00631e91974")
+    second = cluster_payload(world_id="4ecd96cdea45")
+    report = render([finding_payload()], digests(), pack(clusters=[first, second]))
+    lines = [line for line in report.markdown.splitlines() if line.startswith('"')]
+    assert len(lines) == 2 and lines[0] != lines[1]
+    assert "a00631e91974" in report.markdown and "4ecd96cdea45" in report.markdown
+    assert [entry["world_id"] for entry in report.data["objection_clusters"]] == ["4ecd96cdea45", "a00631e91974"]

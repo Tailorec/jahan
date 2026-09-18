@@ -425,7 +425,8 @@ def analyze_study(handles: StudyHandles, result: RunResult) -> dict:
         summary = summaries[canonical_hash(cell["scenario"])]
         # Cluster once and hand the result to `findings`: the same verbatims embedded twice
         # is the same answer at twice the price.
-        clusters = cluster_objections(cell["view"], embed=handles.embed, pinned_embed_model=handles.embed_pin)
+        clusters = cluster_objections(cell["view"], embed=handles.embed, pinned_embed_model=handles.embed_pin,
+                                      world_id=world_id)
         found = findings(cell["view"], embed=handles.embed, pinned_embed_model=handles.embed_pin,
                          seed=cell["seed"], world_id=world_id, clusters=clusters)
         detected = detect_anomalies(cell["view"], digest=cell["digest"], replicate_spread=summary.belief_move_spread)

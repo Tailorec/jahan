@@ -84,7 +84,7 @@ Stable order everywhere, so a report is a function of its findings. Findings by 
 
 - [x] Rendering one finding set twice produces byte-identical markdown and byte-identical JSON
 - [x] Shuffling the input findings produces the same output
-- [x] Ordering rules are explicit in the code rather than incidental
+- [x] Ordering rules are explicit in the code rather than incidental — **amended in review**: a cluster's ties now break on the world it was grouped from. Two worlds of one study cluster the same sentence at the same size, and the rule ordered them by nothing at all, so their order was the caller's rather than the data's
 - [x] Two reports differing only in one finding differ only where that finding appears
 
 ---

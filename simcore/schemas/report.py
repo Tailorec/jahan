@@ -163,6 +163,9 @@ class ObjectionCluster(SimBaseModel):
     size: PositiveInt
     threshold: UnitInterval
     embed_model_id: PinnedModelId
+    # Which world's verbatims were grouped. A study runs one scenario under several seeds and
+    # reports each world's clusters, so a report gathering them needs to tell them apart.
+    world_id: WorldId | None = None
 
     @model_validator(mode="after")
     def _cites_a_distinct_sample(self) -> Self:
