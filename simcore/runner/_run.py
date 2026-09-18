@@ -250,6 +250,7 @@ def run_world(
     ladder: LadderConfig | None = None,
     discarded_ticks: int = 0,
     starting_rung: object = None,
+    meter: object | None = None,
 ) -> tuple[tuple[TraceEvent, ...], dict[str, PersonaState], int, object, bool]:
     """Drive one world from after `from_tick` to its horizon under the ladder.
 
@@ -282,12 +283,27 @@ def run_world(
         except Exception:
             return tuple(written)
 
+    def _record(batch) -> None:
+        """Hand a batch to the trace, and count what it spent while it is in hand."""
+        trace.write(batch)  # type: ignore[attr-defined]
+        if meter is not None:
+            meter.add(batch)  # type: ignore[attr-defined]
+
     def _figure() -> float:
+        # The meter carries the run's spend as it writes; without one, the figure is derived
+        # from the record, which costs the record's size every time the ladder is tested.
+        if meter is not None:
+            return meter.figure(discarded_ticks)  # type: ignore[attr-defined]
         try:
             all_events = tuple(trace.all_events())  # type: ignore[attr-defined]
         except Exception:
             all_events = tuple(written)
         return pessimistic_figure(all_events, discarded_ticks)
+
+    def _unpriceable() -> bool:
+        if meter is not None:
+            return meter.unpriceable()  # type: ignore[attr-defined]
+        return unpriceable(_all_recorded())
 
     # What this world's personas are asked is the scenario's to say (a concept test asks purchase
     # intent; a feed study asks for reactions), and the header carries the scenario.
@@ -302,7 +318,7 @@ def run_world(
         # Calls were billed and nothing anywhere carries a price, so there is no figure to
         # enforce a ceiling against. A budget measured against invented prices is not a budget,
         # so the run stops rather than spending blind.
-        if budget_max and unpriceable(_all_recorded()):
+        if budget_max and _unpriceable():
             candidate = RUNG_ORDER[-1]
         # Escalation only; a replay applies the recorded rung rather than
         # recomputing a lower one from the ledger.
@@ -319,7 +335,7 @@ def run_world(
             seq += 1
             batch.append(_make_event(world_id, tick, seq, LifecycleRecorded(kind="lifecycle", phase=LifecyclePhase.PAUSED)))
             seq += 1
-            trace.write(batch)  # type: ignore[attr-defined]
+            _record(batch)
             written.extend(batch)
             current = effective
             paused = True
@@ -394,7 +410,7 @@ def run_world(
             if isinstance(outcome, CompletedTurn):
                 next_turns.append(outcome.turn)
         _emit(TickClosed(kind="tick_closed"))
-        trace.write(batch)  # type: ignore[attr-defined]
+        _record(batch)
         written.extend(batch)
         previous = next_turns
         current = effective
@@ -402,7 +418,7 @@ def run_world(
         closing: list[TraceEvent] = []
         closing.append(_make_event(world_id, horizon - 1, seq, LifecycleRecorded(kind="lifecycle", phase=LifecyclePhase.COMPLETED)))
         seq += 1
-        trace.write(closing)  # type: ignore[attr-defined]
+        _record(closing)
         written.extend(closing)
     return tuple(written), states, seq, current, paused
 
@@ -461,7 +477,16 @@ def run(
     """
     ladder_cfg = ladder or LadderConfig()
     from ._ladder import last_recorded_rung, recorded_rungs
-    from ._ledger import ledger_sum
+    from ._ledger import SpendMeter, ledger_sum
+
+    # One meter for the run: worlds share a budget, so they share what has been spent against it.
+    # Primed once from the record a resume picks up, then kept as each tick is written.
+    meter = SpendMeter()
+    if hasattr(trace, "all_events"):
+        try:
+            meter.add(tuple(trace.all_events()))  # type: ignore[attr-defined]
+        except Exception:
+            pass
 
     stored = registry.entry(config.run_id)  # type: ignore[attr-defined]
     forced_from: tuple[str, ...] = tuple(stored.forced_from) if stored is not None else ()
@@ -596,6 +621,7 @@ def run(
                 ladder=ladder_cfg,
                 discarded_ticks=discarded_total,
                 starting_rung=starting_rung,
+                meter=meter,
             )
         except ResumeRefused:
             raise

@@ -95,3 +95,25 @@ def test_a_fake_study_long_enough_to_reflect_still_completes(tmp_path, monkeypat
     code, output = run_command(*fake_args(out, run_id, horizon=6))
     assert code == 0, output
     assert (out / run_id / "report.md").is_file()
+
+
+def test_checking_the_budget_does_not_cost_the_record(tmp_path, monkeypatch):
+    """The ladder tests the budget once per tick per world. Deriving the figure from the trace
+    each time read every event of every world, so a longer horizon or a second seed multiplied
+    the reading: 731 events for one world over three ticks, 17,584 for two worlds over six."""
+    import simcore.cli._study as study
+
+    monkeypatch.chdir(tmp_path)
+    reads = {"calls": 0}
+    original = study.StoreTrace.all_events
+
+    def counted(self):
+        reads["calls"] += 1
+        return original(self)
+
+    monkeypatch.setattr(study.StoreTrace, "all_events", counted)
+    code, output = run_command(*fake_args(tmp_path / "runs", "run-" + "0" * 24 + "17",
+                                          horizon=6, seeds="4021,917731"))
+    assert code == 0, output
+    # Once to prime the run's meter, once to record what it spent — not once per tick per world.
+    assert reads["calls"] <= 4, reads

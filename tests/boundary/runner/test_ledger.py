@@ -281,3 +281,58 @@ def test_priced_and_unpriced_calls_together_still_degrade_on_the_ladder():
     rungs = [event.payload.rung.value for event in trace.all_events() if event.payload.kind == "degraded"]
     assert rungs, "a run with prices and unknowns never reached a rung"
     assert any(plan is not None and plan.tier_b_frozen for plan in plans) or "pause" in rungs
+
+
+def _cost_event(n: int, tick: int, cost: float | None, world: str = "a00631e91974"):
+    from simcore.schemas import TraceEvent
+
+    return TraceEvent.model_validate({
+        "event_id": f"ev-{ulid(900 + n)}", "world_id": world, "tick": tick, "seq": n,
+        "persona_id": None,
+        "payload": {"kind": "cost", "role": "tier_a", "model_id": "fake/tier-a-1",
+                    "served_model_id": "fake/tier-a-1", "route": "primary",
+                    "cost_source": "gateway" if cost is not None else "unknown",
+                    "input_tokens": 10, "output_tokens": 5,
+                    **({"cost": cost} if cost is not None else {})},
+    })
+
+
+def _closed(n: int, tick: int, world: str = "a00631e91974"):
+    from simcore.schemas import TraceEvent
+
+    return TraceEvent.model_validate({
+        "event_id": f"ev-{ulid(950 + n)}", "world_id": world, "tick": tick, "seq": n,
+        "persona_id": None, "payload": {"kind": "tick_closed"},
+    })
+
+
+@pytest.mark.parametrize("discarded", [0, 1, 3])
+def test_the_meter_answers_what_summing_the_record_answers(discarded):
+    """The ladder tests the figure once per tick per world. Re-deriving it read every event of
+    every world each time, so the cost of checking a budget grew with the record it checked.
+    The meter carries the same aggregates, so its answers must equal the pure functions'."""
+    from simcore.runner._ledger import SpendMeter, unpriceable
+
+    streams = [
+        [_cost_event(1, 0, 0.01), _closed(2, 0), _cost_event(3, 1, 0.03), _closed(4, 1)],
+        [_cost_event(1, 0, None), _closed(2, 0)],
+        [_cost_event(1, 0, 0.02), _cost_event(2, 0, None), _closed(3, 0), _cost_event(4, 1, 0.04), _closed(5, 1)],
+        [],
+    ]
+    for events in streams:
+        meter = SpendMeter()
+        for event in events:
+            meter.add([event])
+        assert meter.figure(discarded) == pytest.approx(pessimistic_figure(tuple(events), discarded))
+        assert meter.unpriceable() == unpriceable(tuple(events))
+
+
+def test_the_meter_is_primed_from_a_record_it_did_not_write():
+    from simcore.runner._ledger import SpendMeter
+
+    events = [_cost_event(1, 0, 0.01), _closed(2, 0)]
+    meter = SpendMeter()
+    meter.add(events)
+    later = _cost_event(3, 1, 0.05)
+    meter.add([later])
+    assert meter.figure(0) == pytest.approx(pessimistic_figure(tuple([*events, later]), 0))

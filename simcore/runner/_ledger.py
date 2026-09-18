@@ -73,3 +73,57 @@ def pessimistic_figure(events: tuple[TraceEvent, ...] | list[TraceEvent], discar
     """The figure the ladder tests: spend with unpriced calls charged, plus an estimate for
     each discarded tick, whose own spend is unknown but not zero (ADR 0033)."""
     return priced_spend(events) + discarded_ticks * mean_tick_cost(events)
+
+
+class SpendMeter:
+    """The same figure, kept as the run writes rather than re-summed from the record.
+
+    The ladder tests the budget once per tick per world, and deriving the figure from
+    `trace.all_events()` read every event of every world each time: the cost of checking a
+    budget grew with the record it was checking, so a long horizon or a wide sweep spent most
+    of its time re-reading its own trace. The meter carries exactly the aggregates the pure
+    functions above derive — known spend, unpriced calls, priced calls and the ticks that
+    closed — so its answers equal theirs over the same events (asserted in the boundary suite).
+
+    Worlds run a thread apiece against one budget, so the counters are taken under a lock.
+    """
+
+    def __init__(self) -> None:
+        import threading
+
+        self._lock = threading.Lock()
+        self._known = 0.0
+        self._unpriced = 0
+        self._priced = 0
+        self._closed_ticks: set[int] = set()
+
+    def add(self, events) -> None:
+        """Count a batch as it is written, or as it is read back when priming from a record."""
+        with self._lock:
+            for event in events:
+                payload = event.payload
+                if payload.kind == "cost":
+                    if payload.cost is None:
+                        self._unpriced += 1
+                    else:
+                        self._known += float(payload.cost)
+                        self._priced += 1
+                elif payload.kind == "tick_closed":
+                    self._closed_ticks.add(event.tick)
+
+    def _priced_spend(self) -> float:
+        if not self._unpriced or not self._priced:
+            return self._known
+        return self._known + self._unpriced * (self._known / self._priced)
+
+    def figure(self, discarded_ticks: int) -> float:
+        """Spend with unpriced calls charged, plus an estimate for each discarded tick."""
+        with self._lock:
+            spend = self._priced_spend()
+            mean_tick = spend / len(self._closed_ticks) if self._closed_ticks else 0.0
+            return spend + discarded_ticks * mean_tick
+
+    def unpriceable(self) -> bool:
+        """Whether calls were billed with no price anywhere to charge them at."""
+        with self._lock:
+            return self._unpriced > 0 and self._priced == 0
