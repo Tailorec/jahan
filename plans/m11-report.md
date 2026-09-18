@@ -28,11 +28,11 @@ The module's shape: findings and digests in, a `Report` carrying markdown and JS
 
 ### Acceptance criteria
 
-- [ ] `render` returns a report carrying both formats, built from one intermediate
-- [ ] Markdown and JSON contain the same finding ids, and neither holds one the other omits
-- [ ] The JSON records the contract version it was rendered under
-- [ ] A report with no findings renders both formats and says so plainly
-- [ ] Rendering reads nothing but what it was given
+- [x] `render` returns a report carrying both formats, built from one intermediate
+- [x] Markdown and JSON contain the same finding ids, and neither holds one the other omits
+- [x] The JSON records the contract version it was rendered under
+- [x] A report with no findings renders both formats and says so plainly
+- [x] Rendering reads nothing but what it was given
 
 ---
 
@@ -46,11 +46,11 @@ The parts that appear whatever the study found. The run's calibration, stated on
 
 ### Acceptance criteria
 
-- [ ] Every rendered report carries the run's trust statement exactly once
-- [ ] Every rendered report ends with its recommended real-world validation
-- [ ] The method disclosure names the pins, seeds, template versions and engine commit
-- [ ] A report whose run was forced across engine versions says so
-- [ ] Neither format can be rendered without all three parts, asserted by removing each
+- [x] Every rendered report carries the run's trust statement exactly once
+- [x] Every rendered report ends with its recommended real-world validation
+- [x] The method disclosure names the pins, seeds, template versions and engine commit
+- [x] A report whose run was forced across engine versions says so
+- [x] Neither format can be rendered without all three parts, asserted by removing each
 
 ---
 
@@ -64,11 +64,11 @@ What a reader sees per finding: the statement, its evidence trace ids, its confi
 
 ### Acceptance criteria
 
-- [ ] Every rendered finding shows its evidence ids and its disconfirming test
-- [ ] The assumption ledger appears, including what the brief left unstated
-- [ ] A digest with unmeasured adoption renders a line saying so, with the reason, where adoption would be
-- [ ] A finding's confidence renders beside it, and the run's calibration never does
-- [ ] Objection clusters render their quoted label, never a paraphrase
+- [x] Every rendered finding shows its evidence ids and its disconfirming test
+- [x] The assumption ledger appears, including what the brief left unstated
+- [x] A digest with unmeasured adoption renders a line saying so, with the reason, where adoption would be
+- [x] A finding's confidence renders beside it, and the run's calibration never does
+- [x] Objection clusters render their quoted label, never a paraphrase
 
 ---
 
@@ -82,10 +82,10 @@ Stable order everywhere, so a report is a function of its findings. Findings by 
 
 ### Acceptance criteria
 
-- [ ] Rendering one finding set twice produces byte-identical markdown and byte-identical JSON
-- [ ] Shuffling the input findings produces the same output
-- [ ] Ordering rules are explicit in the code rather than incidental
-- [ ] Two reports differing only in one finding differ only where that finding appears
+- [x] Rendering one finding set twice produces byte-identical markdown and byte-identical JSON
+- [x] Shuffling the input findings produces the same output
+- [x] Ordering rules are explicit in the code rather than incidental
+- [x] Two reports differing only in one finding differ only where that finding appears
 
 ---
 
@@ -99,7 +99,7 @@ The guarantee that the renderer cannot smuggle a claim. The package imports noth
 
 ### Acceptance criteria
 
-- [ ] The package imports nothing from `analysis`, asserted over its imports
-- [ ] No arithmetic on findings or digests beyond formatting, asserted over the module
-- [ ] A number in the report always appears in the digest or finding it came from
-- [ ] `FINAL_ARCH.md` §5.11 and `CONTEXT.md` describe what was built
+- [x] The package imports nothing from `analysis`, asserted over its imports
+- [x] No arithmetic on findings or digests beyond formatting, asserted over the module
+- [x] A number in the report always appears in the digest or finding it came from
+- [x] `FINAL_ARCH.md` §5.11 and `CONTEXT.md` describe what was built
