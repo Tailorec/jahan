@@ -194,16 +194,20 @@ class OutcomeDigest(SimBaseModel):
     polarization and audience divergence are computed from those, so none can be stated at odds
     with the masses, and are not measurable when the run scored none. The tick unit travels so an
     axis can be labeled truthfully. Beside intent it carries what every run produces: the action
-    mix, belief movement, word-of-mouth reach, and how many turns went unscored and why."""
+    mix, belief movement, word-of-mouth reach, and how many turns went unscored and why. It names
+    the world it describes — its scenario, replicate seed and derived world id — so one digest
+    per world lets a sweep's cells stay distinguishable."""
 
     scenario_hash: HashDigest
     tick_unit: TickUnit
+    seed: NonNegativeInt
+    world_id: WorldId
     audience_pmfs: FrozenDict[Identifier, PMF5] = FrozenDict({})
     audience_shares: FrozenDict[Identifier, UnitInterval] = FrozenDict({})
     community_pmfs: FrozenDict[Identifier, PMF5] = FrozenDict({})
     community_sizes: FrozenDict[Identifier, PositiveInt] = FrozenDict({})
     # How many turns went unscored for intent, and why adoption is not measurable when it is not.
-    unscored_turns: NonNegativeInt = 0
+    turns_without_intent: NonNegativeInt = 0
     unmeasured_reason: NonEmptyStr | None = None
     # What every run produces, even without ratings.
     turn_count: NonNegativeInt = 0
@@ -295,6 +299,15 @@ class ScenarioWorldEntry(SimBaseModel):
     world_id: WorldId
     digest: OutcomeDigest
 
+    @model_validator(mode="after")
+    def _entry_names_the_digest_it_carries(self) -> Self:
+        if self.seed != self.digest.seed or self.world_id != self.digest.world_id:
+            raise ValueError(
+                f"entry for seed {self.seed} world {self.world_id} carries a digest of "
+                f"seed {self.digest.seed} world {self.digest.world_id}"
+            )
+        return self
+
 
 class ScenarioSummary(SimBaseModel):
     """A scenario's worlds gathered: each seed's digest beside the spread between them.
@@ -356,7 +369,7 @@ def ensure_same_tick_unit(*digests: OutcomeDigest) -> None:
 
 class Report(SimBaseModel):
     """The run's document: the configuration it describes, trust stated once, findings each falsifiable,
-    and one digest per scenario of that run. The configuration discloses the method — model pins, seeds,
+    and one digest per world of that run. The configuration discloses the method — model pins, seeds,
     templates and anchor sets — and every digest, anomaly and ranking must belong to one of its scenarios."""
 
     config: RunConfig
@@ -367,14 +380,28 @@ class Report(SimBaseModel):
     digests: tuple[OutcomeDigest, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def _digests_describe_this_runs_scenarios(self) -> Self:
+    def _digests_describe_this_runs_worlds(self) -> Self:
+        from .run import derive_world_id
+
         scenarios = {canonical_hash(scenario): scenario for scenario in self.config.scenarios}
-        if _repeated(digest.scenario_hash for digest in self.digests):
-            raise ValueError("a scenario is digested more than once")
+        worlds = {
+            derive_world_id(scenario, seed, self.config.population_hash)
+            for scenario in self.config.scenarios
+            for seed in self.config.seeds
+        }
+        if _repeated(digest.world_id for digest in self.digests):
+            raise ValueError("a world is digested more than once")
         for digest in self.digests:
+            if digest.world_id not in worlds:
+                raise ValueError(f"digest for world {digest.world_id}, which this run does not configure")
             scenario = scenarios.get(digest.scenario_hash)
             if scenario is None:
                 raise ValueError(f"digest for scenario {digest.scenario_hash}, which this run does not configure")
+            if digest.world_id != derive_world_id(scenario, digest.seed, self.config.population_hash):
+                raise ValueError(
+                    f"digest for world {digest.world_id} names seed {digest.seed}, "
+                    "which does not derive that world"
+                )
             if digest.tick_unit is not scenario.tick_unit:
                 raise ValueError(f"digest in {digest.tick_unit.value} ticks for a scenario run in {scenario.tick_unit.value}")
             unknown = sorted(set(digest.audience_pmfs) - set(scenario.audience_weights))

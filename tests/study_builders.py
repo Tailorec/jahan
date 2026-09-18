@@ -488,9 +488,14 @@ def partition_payload(**header_overrides) -> dict:
 def digest_payload(scenario: dict | None = None, **overrides) -> dict:
     from simcore.schemas import Scenario, canonical_hash
 
+    scenario = scenario or scenario_payload()
+    seed = overrides.pop("seed", 4021)
+    world_id = overrides.pop("world_id", world_id_for(scenario, seed))
     payload = {
-        "scenario_hash": canonical_hash(Scenario.model_validate(scenario or scenario_payload())),
+        "scenario_hash": canonical_hash(Scenario.model_validate(scenario)),
         "tick_unit": "day",
+        "seed": seed,
+        "world_id": world_id,
         "audience_pmfs": {"gym_regulars": (0.05, 0.10, 0.20, 0.30, 0.35), "protein_dieters": (0.10, 0.20, 0.30, 0.25, 0.15)},
         "audience_shares": {"gym_regulars": 0.6, "protein_dieters": 0.4},
         "community_pmfs": {"community-1": (0.04, 0.10, 0.21, 0.30, 0.35), "community-2": (0.30, 0.25, 0.20, 0.15, 0.10)},

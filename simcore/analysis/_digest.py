@@ -27,20 +27,28 @@ def _persona_values(persona) -> dict:
     return {**persona.conditioning, **persona.attributes}
 
 
-def digest(view, *, scenario: Scenario, population: PopulationModel,
+def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
            pinned_embed_model: str | None = None) -> OutcomeDigest:
-    """Describe one world's run. The view is scoped to that world; the scenario names it.
+    """Describe one world's run. The view is scoped to that world; the scenario and replicate
+    seed name it, and the derived world id is checked against the world the view read.
 
     When the run's pinned embedding model is given, a turn scored in another embedding
     space is refused rather than mixed into the masses.
     """
     from simcore.schemas import canonical_hash
+    from simcore.schemas.run import derive_world_id
 
     events = view.events(EventFilter())
     turns = [event for event in events if event.payload.kind == "turn" and event.persona_id is not None]
     turns.sort(key=lambda event: event.seq)
 
     scenario_hash = canonical_hash(scenario)
+    world_id = derive_world_id(scenario, seed, population.manifest.population_hash)
+    read_worlds = {event.world_id for event in events}
+    if read_worlds and read_worlds != {world_id}:
+        raise ValueError(
+            f"a digest describes one world: asked for {world_id} but the view read {sorted(read_worlds)}"
+        )
     weights = dict(scenario.audience_weights) if scenario.audience_weights is not None else {}
     if not weights:
         shares = dict(population.pack.brief.audience_shares or {})
@@ -121,11 +129,13 @@ def digest(view, *, scenario: Scenario, population: PopulationModel,
     return OutcomeDigest.model_validate({
         "scenario_hash": scenario_hash,
         "tick_unit": scenario.tick_unit.value,
+        "seed": seed,
+        "world_id": world_id,
         "audience_pmfs": audience_pmfs,
         "audience_shares": audience_shares,
         "community_pmfs": community_pmfs,
         "community_sizes": community_sizes,
-        "unscored_turns": unscored,
+        "turns_without_intent": unscored,
         "unmeasured_reason": unmeasured_reason,
         "turn_count": turn_count,
         "action_mix": dict(sorted(action_mix.items())),
