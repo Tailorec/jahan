@@ -50,7 +50,7 @@ from ._beliefs import (
     split_summary,
 )
 from ._config import AgentConfig
-from ._context import AssembledContext, ContextBudgetExceeded, assemble, render_beliefs
+from ._context import AssembledContext, ContextBudgetExceeded, assemble, render_beliefs, render_shown
 from ._guard import allowed_stimuli, check, strict_question
 from ._ids import memory_id, reaction_id
 from ._intent import PURCHASE_CONSTRUCT, score_intents, wants_intent
@@ -187,7 +187,7 @@ def _due(entry: _Reacted, cfg: AgentConfig) -> bool:
 
 
 class _Prepared:
-    __slots__ = ("assembled", "costs", "early", "job", "memory_ids", "persona_block", "persona_block_hash", "request", "retrieved")
+    __slots__ = ("assembled", "costs", "early", "job", "memory_ids", "persona_block", "persona_block_hash", "request", "retrieved", "shown")
 
     def __init__(
         self,
@@ -200,6 +200,7 @@ class _Prepared:
         assembled: AssembledContext | None = None,
         retrieved: tuple[str, ...] = (),
         costs: list | None = None,
+        shown: list | None = None,
     ) -> None:
         self.job = job
         self.request = request
@@ -211,6 +212,7 @@ class _Prepared:
         # Every call this job made, as the ports billed it; the outcome carries them out.
         self.costs = list(costs or ())
         self.retrieved = retrieved
+        self.shown = list(shown or ())
 
 
 @dataclass
@@ -319,8 +321,7 @@ def _prepare(
             persona_block_hash=block_hash,
             beliefs_text=beliefs_text,
             memory_texts=memory_texts,
-            impression_json=impression.model_dump_json(),
-            view_json=job.presentation.view.model_dump_json(),
+            shown=render_shown(impression, job.presentation.view, stimulus_texts),
             question=question,
             budget=cfg.token_budget[tier],
         )
@@ -350,6 +351,7 @@ def _prepare(
         job, request, block_hash, memory_ids, None, block, assembled,
         tuple(memory.description for memory in recalled),
         spent,
+        render_shown(impression, job.presentation.view, stimulus_texts),
     )
 
 
@@ -452,8 +454,7 @@ def _strict_request(entry: _Reacted, cfg: AgentConfig) -> ChatRequest:
         persona_block_hash=entry.item.assembled.persona_block_hash,
         beliefs_text=entry.item.assembled.beliefs_text,
         memory_texts=entry.item.assembled.memory_texts,
-        impression_json=job.presentation.impression.model_dump_json(),
-        view_json=job.presentation.view.model_dump_json(),
+        shown=entry.item.shown,
         question=strict_question(_question_for(job.task), allowed),
         budget=cfg.token_budget[cfg.tier_for(job.task)],
     )

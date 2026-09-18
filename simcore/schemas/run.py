@@ -27,7 +27,7 @@ from .base import (
     proportions_sum_to_one,
 )
 from .brief import BriefPack, ClaimId, CurrencyCode, Price, ProductBrief
-from .enums import InferenceRole, InterventionKind, TickUnit
+from .enums import TurnTask, InferenceRole, InterventionKind, TickUnit
 
 VariantId = Identifier
 WorldId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{12}$")]
@@ -150,6 +150,10 @@ class Scenario(SimBaseModel):
     interventions: tuple[Intervention, ...] = ()
     # Stimuli one persona can be shown per channel per tick; the survey room always shows exactly one.
     exposure_budget: PositiveInt = 3
+    # What an activated persona is asked. A study exists to ask purchase intent, and until this
+    # was a scenario's to say, the runner named the task itself and adoption was unreachable from
+    # any configuration — 400 real turns produced verbatims and no intent at all.
+    elicits: TurnTask = TurnTask.REACTION
 
     @model_validator(mode="after")
     def _audience_weights_sum_to_one(self) -> Self:

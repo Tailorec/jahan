@@ -19,7 +19,11 @@ REACTION_QUESTION = (
     "'subject_stimulus_id' (one stimulus id shown above), 'action' (one of answer, "
     "post, comment, like, repost, quote, follow, buy, ask_peer, reject, complain, "
     "reply, upvote, downvote, ignore) and 'verbatim' (what you say, when the action "
-    "produces text). Answer in your own words, as yourself."
+    "produces text) and 'belief_deltas' (how this changed your views, if at all: an object with "
+    "'dimensions' mapping any of value, fit, trust to a move in -1..1, and 'claim_credence' "
+    "mapping claim ids like C1 to a move in -1..1; leave out what did not move). Answer in your "
+    "own words, as yourself, and keep the verbatim to one or two brief sentences — a longer "
+    "answer is cut off at the token ceiling and arrives unreadable."
 )
 
 

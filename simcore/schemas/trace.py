@@ -26,7 +26,7 @@ from .enums import ActionKind, Channel, CostSource, DegradationRung, DropReason,
 from .errors import SchemaVersionError
 from .population import Population, PopulationManifest
 from .run import PinnedModelId, RunConfig, Scenario, WorldId, check_scenario_against_brief, derive_world_id
-from .sim import BeliefChange, Beliefs, Impression, MemoryEvent, MemoryId, ProbeResult, Stimulus, Turn, View, check_view_covers_impression
+from .sim import BeliefChange, Beliefs, Impression, MemoryEvent, MemoryId, ProbeResult, Stimulus, Turn, View, action_lands, check_view_covers_impression
 
 ContractVersion = Annotated[str, StringConstraints(pattern=r"^\d+\.\d+\.\d+$")]
 
@@ -538,6 +538,10 @@ class TracePartition(SimBaseModel):
                 _check_view(view, impression.persona_id, authors, parents, visible, f"event {event.seq} ({payload.kind})")
                 if isinstance(payload, TurnRecorded):
                     counted = _ENGAGEMENT.get(payload.turn.reaction.action)
+                    # Only where the channel affords it: a feed has no votes, so an upvote there
+                    # changed no state and no view shows it.
+                    if counted is not None and not action_lands(payload.turn.impression.channel, payload.turn.reaction.action):
+                        counted = None
                     if counted is not None:
                         pending.setdefault(payload.turn.reaction.subject_stimulus_id, Counter())[counted] += 1
         return self
@@ -578,7 +582,15 @@ def _check_view(
         if list(context.ancestry) != chain:
             raise ValueError(f"{where} shows ancestry {list(context.ancestry)} for {stimulus_id}, but its reply chain is {chain}")
         author = authors.get(stimulus_id)
-        if author is None or author == viewer:
+        teller = context.via_persona_id
+        if teller is not None:
+            # Word of mouth carries the tie to whoever passed it on, so a peer may tell you about
+            # anything at all — including the study's own concept, which has no author.
+            if teller == viewer:
+                raise ValueError(f"{where} says {stimulus_id} was told by itself, {teller}")
+            if context.tie_strength is None:
+                raise ValueError(f"{where} names {teller} as the teller of {stimulus_id} but records no tie to them")
+        elif author is None or author == viewer:
             if context.tie_strength is not None or context.shared_community is not None:
                 whose = "the study's" if author is None else "the viewer's own"
                 raise ValueError(f"{where} records an author relationship for {stimulus_id}, which is {whose}")

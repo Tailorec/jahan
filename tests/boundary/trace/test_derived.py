@@ -64,7 +64,8 @@ def test_edges_returns_one_row_per_pair_channel_and_direction(tmp_path):
     # p-000004 passed p-000001's post on to p-000002, so that edge runs from the teller;
     # p-000003 saw the same post with no teller named, so its edge falls back to the author.
     assert [(e.u, e.v, e.channel.value, e.count, e.last_tick) for e in edges] == [
-        ("p-000001", "p-000003", "social_feed", 1, 4),
+        # p-000003's turn is on the forum, where its vote lands; the edge carries that channel.
+        ("p-000001", "p-000003", "forum", 1, 4),
         ("p-000004", "p-000002", "social_feed", 1, 3),
     ]
 

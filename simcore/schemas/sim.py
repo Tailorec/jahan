@@ -405,6 +405,27 @@ class Reaction(SimBaseModel):
         return self
 
 
+# What each channel lets a persona do. A persona may attempt anything; the channel decides what
+# lands, and an action it does not afford changes no state and appears in no view. `world` enforces
+# it and the partition counts engagement by it — one rule, so the record and the world cannot
+# disagree about whether an upvote on a feed ever happened.
+CHANNEL_AFFORDANCES: dict[Channel, frozenset[ActionKind]] = {
+    Channel.SURVEY_ROOM: frozenset({ActionKind.ANSWER}),
+    Channel.SOCIAL_FEED: frozenset(
+        {ActionKind.POST, ActionKind.COMMENT, ActionKind.LIKE, ActionKind.REPOST, ActionKind.QUOTE, ActionKind.FOLLOW}
+    ),
+    Channel.FORUM: frozenset({ActionKind.POST, ActionKind.REPLY, ActionKind.UPVOTE, ActionKind.DOWNVOTE}),
+    Channel.WOM: frozenset({ActionKind.ASK_PEER, ActionKind.COMMENT, ActionKind.COMPLAIN, ActionKind.REJECT, ActionKind.BUY}),
+}
+
+
+def action_lands(channel: Channel, action: ActionKind) -> bool:
+    """Whether an action lands on a channel. Ignoring always lands; anything else must be afforded."""
+    if action is ActionKind.IGNORE:
+        return True
+    return action in CHANNEL_AFFORDANCES[channel]
+
+
 class StimulusContext(SimBaseModel):
     """The public context around one shown stimulus: the engagement counts beside it, its reply
     ancestry from nearest parent to root, and the viewer's relationship to its author.

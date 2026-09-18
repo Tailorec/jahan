@@ -44,14 +44,15 @@ def test_each_prompt_carries_its_persona_alone():
     turns(jobs, chat=chat)
     assert len(chat.calls) == 3
     own_markers = ["25_34", "35_44", "45_54"]
-    own_ids = ["p-000001", "p-000002", "p-000003"]
+    every_id = ["p-000001", "p-000002", "p-000003"]
     for position, raw in enumerate(chat.calls):
         assert own_markers[position] in raw
         for other in own_markers[:position] + own_markers[position + 1 :]:
             assert other not in raw
-        assert own_ids[position] in raw
-        for other in own_ids[:position] + own_ids[position + 1 :]:
-            assert other not in raw
+        # No persona id reaches a prompt at all now, its own included: an id is the engine's
+        # plumbing, and a persona is told what it is like rather than what it is keyed by.
+        for identifier in every_id:
+            assert identifier not in raw
 
 
 def test_a_reaction_names_the_stimulus_it_is_about():

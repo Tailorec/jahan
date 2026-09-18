@@ -13,39 +13,17 @@ with its rejection and dropped — what a persona tried is data, not an error.
 
 from enum import StrEnum
 
-from simcore.schemas import ActionKind, Channel
+from simcore.schemas import CHANNEL_AFFORDANCES, action_lands, ActionKind, Channel
 
 # What each channel supports. Ignoring needs no support: doing nothing lands anywhere.
-AFFORDANCES: dict[Channel, frozenset[ActionKind]] = {
-    Channel.SURVEY_ROOM: frozenset({ActionKind.ANSWER}),
-    Channel.SOCIAL_FEED: frozenset(
-        {
-            ActionKind.POST,
-            ActionKind.COMMENT,
-            ActionKind.LIKE,
-            ActionKind.REPOST,
-            ActionKind.QUOTE,
-            ActionKind.FOLLOW,
-        }
-    ),
-    Channel.FORUM: frozenset(
-        {
-            ActionKind.POST,
-            ActionKind.REPLY,
-            ActionKind.UPVOTE,
-            ActionKind.DOWNVOTE,
-        }
-    ),
-    Channel.WOM: frozenset({ActionKind.ANSWER}),
-}
+# The table lives in `schemas`, beside the record that counts engagement by it: the world and the
+# partition cannot disagree about whether an action landed.
+AFFORDANCES = CHANNEL_AFFORDANCES
 
 
 def is_supported(channel: Channel, action: ActionKind) -> bool:
-    """Whether an action lands on a channel. Ignoring always lands; anything
-    else must be afforded, or it is recorded as rejected and changes no state."""
-    if action is ActionKind.IGNORE:
-        return True
-    return action in AFFORDANCES[channel]
+    """Whether an action lands on a channel; rejected actions change no state."""
+    return action_lands(channel, action)
 
 
 class ForumPreset(StrEnum):

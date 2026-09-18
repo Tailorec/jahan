@@ -1,0 +1,87 @@
+{
+ "study": "code-review AI on Stack Overflow rows",
+ "chat_model": "mistral.ministral-3-8b-instruct",
+ "embed_model": "amazon.titan-embed-text-v2:0",
+ "served": {
+  "mistral.ministral-3-8b-instruct": [
+   "mistral.ministral-3-8b-instruct"
+  ]
+ },
+ "personas": 200,
+ "source_mix": {
+  "stackoverflow": 1.0
+ },
+ "gate_evidence": "extracted",
+ "gates_overall": true,
+ "ticks": 3,
+ "channel": "social_feed",
+ "run_status": "completed",
+ "world_outcomes": [
+  {
+   "world": "49b2449ff744",
+   "status": "completed",
+   "last_closed_tick": 2,
+   "rungs": []
+  }
+ ],
+ "events_recorded": 4052,
+ "events_visible": 4052,
+ "event_kinds": {
+  "lifecycle": 2,
+  "stimulus_published": 116,
+  "tick_closed": 3,
+  "belief_snapshot": 695,
+  "turn": 495,
+  "memory": 702,
+  "cost": 2015,
+  "guardrail_violation": 6,
+  "probe": 18
+ },
+ "partition_validates": 4052,
+ "finalized_parquet": true,
+ "verbatims": 495,
+ "verbatim_sample": [
+  "As a developer, I\u2019m skeptical of AI in code reviews\u2014especially when it requires new tooling. But if it *actually* catches bugs reviewers miss *without* disrupting workflows (like the first two points suggest), I\u2019d need concrete evidence. Right now, it feels like another buzzword until proven otherwise.",
+  "If it consistently catches the most common bugs reviewers overlook\u2014with actual metrics\u2014then it\u2019s worth testing. But I\u2019d still need benchmarks showing how often it reduces false positives vs. false negatives.",
+  "This is just another attempt to automate away human judgment in code reviews. AI-assisted tools like this don\u2019t just miss edge cases\u2014they *introduce* new risks by overgeneralizing patterns and misflagging legitimate changes as 'risky.'",
+  "Another AI-driven attempt to replace nuanced human expertise with black-box 'risk detection'\u2014this just shifts the burden of false positives onto developers, who now have to justify *their* code against arbitrary AI whims. The idea that an algorithm can reliably flag edge cases without introducing new fragility is laughable.",
+  "Another overhyped AI tool trying to replace critical thinking with algorithmic guesswork. If this thing flags *anything* as 'risky' without context, it\u2019s just noise\u2014developers need *human* judgment, not another layer of automated gatekeeping that\u2019ll drown us in false positives."
+ ],
+ "intents_scored": 0,
+ "intents_unscored": 0,
+ "unscored_reason": null,
+ "probes": 18,
+ "probe_disagreement": 0.0,
+ "beliefs_points_first_persona": [
+  0,
+  1,
+  2
+ ],
+ "calls": {
+  "embed": 1204,
+  "chat": 812
+ },
+ "routes": {
+  "primary": 1710,
+  "cache": 505
+ },
+ "tokens": {
+  "embed_in": 58121,
+  "tier_a_in": 337455,
+  "tier_a_out": 99755,
+  "tier_b_in": 80020,
+  "tier_b_out": 41569
+ },
+ "failures": {},
+ "registry": {
+  "status": "completed",
+  "recorded_cost": 0.08476121000000006,
+  "discarded_ticks": 0,
+  "engine_version": "1.0.0-runner.1"
+ },
+ "spend_usd_metered": 0.084982,
+ "seconds": {
+  "population_build": 240.6,
+  "study_run": 1812.7
+ }
+}

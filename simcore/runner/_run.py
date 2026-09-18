@@ -289,6 +289,9 @@ def run_world(
             all_events = tuple(written)
         return pessimistic_figure(all_events, discarded_ticks)
 
+    # What this world's personas are asked is the scenario's to say (a concept test asks purchase
+    # intent; a feed study asks for reactions), and the header carries the scenario.
+    elicits = header.scenario.elicits
     previous: list[Turn] = list(previous_turns) if previous_turns is not None else []
     paused = bool(current is not None and getattr(current, "value", None) == "pause")
     if paused:
@@ -341,7 +344,7 @@ def run_world(
                         "persona": persona.model_dump(mode="json"),
                         "state": states[pid].model_dump(mode="json"),
                         "presentation": presentation.model_dump(mode="json"),
-                        "task": "reaction",
+                        "task": elicits.value,
                     }
                 )
             )

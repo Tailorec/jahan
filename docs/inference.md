@@ -156,6 +156,15 @@ the run fixes its embedding space on the first batch and refuses a later dimensi
 mapping validation (`python -m simcore.elicitation`) measures whether SSR survives this
 substitution.
 
+**Rate limits count what the provider sees, not what the engine sent.** The engine's limiter counts
+its own HTTP requests, but a gateway fans one batched embedding call into one provider call per text:
+a batch of 64 is one request to the limiter and 64 to the provider. Titan Text Embeddings v2 allows
+60 requests per minute by default, so the default batch of 64 blows the quota on the first call while
+the engine believes it is well inside it. Against a quota that tight, set
+`SIMCORE_INFERENCE_EMBEDDINGS_BATCH_SIZE=1` and `SIMCORE_INFERENCE_REQUESTS_PER_MINUTE` below the
+quota; check yours with `aws service-quotas list-service-quotas --service-code bedrock`. Teaching the
+limiter to count texts rather than requests is a follow-up.
+
 **Other Bedrock embedding models.** Cohere Embed v4 (`cohere.embed-v4:0`) is sold through AWS Marketplace:
 the account needs a valid payment method, or calls fail with `INVALID_PAYMENT_INSTRUMENT` and the model
 agreement stays `PENDING`. Amazon Nova 2 multimodal embeddings (`amazon.nova-2-multimodal-embeddings-v1:0`)
