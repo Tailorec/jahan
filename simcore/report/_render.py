@@ -67,7 +67,21 @@ class _DigestSection:
     world_id: str
     tick_unit: str
     adoption: float | None
+    polarization: float | None
+    audience_divergence: float | None
     unmeasured_reason: str | None
+    # What every run produces, scored intent or not (ADR 0038). A report that prints only the
+    # unmeasured adoption line says the study measured nothing, which is the opposite of what
+    # the digest carries.
+    turn_count: int
+    turns_without_intent: int
+    action_mix: tuple[tuple[str, int], ...]
+    belief_movement_mean: tuple[tuple[str, float], ...]
+    belief_movement_abs: tuple[tuple[str, float], ...]
+    belief_move_mean: float
+    wom_deliveries: int
+    wom_reach: int
+    rungs: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -97,6 +111,11 @@ class _Document:
     template_hashes: tuple[tuple[str, str], ...]
     anchor_set_hashes: tuple[tuple[str, str], ...]
     validation: str
+
+
+def _measure(name: str, value: float | None) -> str:
+    """A measured quantity, or the word where it would have been (ADR 0038)."""
+    return name + ": " + ("unmeasured" if value is None else _number(value))
 
 
 def _number(value: float) -> str:
@@ -134,7 +153,18 @@ def _build(findings: tuple[Finding, ...], digests: tuple[OutcomeDigest, ...], pa
             world_id=digest.world_id,
             tick_unit=digest.tick_unit.value,
             adoption=digest.adoption,
+            polarization=digest.polarization,
+            audience_divergence=digest.audience_divergence,
             unmeasured_reason=digest.unmeasured_reason,
+            turn_count=digest.turn_count,
+            turns_without_intent=digest.turns_without_intent,
+            action_mix=tuple(sorted((action.value, count) for action, count in digest.action_mix.items())),
+            belief_movement_mean=tuple(sorted((dim.value, value) for dim, value in digest.belief_movement_mean.items())),
+            belief_movement_abs=tuple(sorted((dim.value, value) for dim, value in digest.belief_movement_abs.items())),
+            belief_move_mean=digest.belief_move_mean,
+            wom_deliveries=digest.wom_deliveries,
+            wom_reach=digest.wom_reach,
+            rungs=tuple(rung.value for rung in digest.rungs),
         )
         for digest in sorted(digests, key=_digest_key)
     )
@@ -202,6 +232,30 @@ def _to_markdown(doc: _Document) -> str:
             lines.extend(["Adoption: unmeasured — " + str(digest.unmeasured_reason), ""])
         else:
             lines.extend(["Adoption: " + _number(digest.adoption), ""])
+        lines.extend([_measure("Polarization", digest.polarization), ""])
+        lines.extend([_measure("Audience divergence", digest.audience_divergence), ""])
+        lines.extend([
+            "Turns: " + repr(digest.turn_count)
+            + ", of which " + repr(digest.turns_without_intent) + " scored no intent"
+            + (" — " + ", ".join(action + " " + repr(count) for action, count in digest.action_mix)
+               if digest.action_mix else ""),
+            "",
+        ])
+        lines.extend([
+            "Belief movement: " + _number(digest.belief_move_mean) + " per record"
+            + ("; " + ", ".join(
+                dim + " " + _number(value) + " (" + _number(absolute) + " absolute)"
+                for (dim, value), (_, absolute) in zip(digest.belief_movement_mean, digest.belief_movement_abs))
+               if digest.belief_movement_mean else ""),
+            "",
+        ])
+        lines.extend([
+            "Word of mouth: " + repr(digest.wom_deliveries) + " deliveries reaching "
+            + repr(digest.wom_reach) + " personas",
+            "",
+        ])
+        if digest.rungs:
+            lines.extend(["Ran degraded: " + ", ".join(digest.rungs), ""])
     lines.extend(["## Assumption ledger", ""])
     if not doc.assumptions:
         lines.extend(["No assumptions were recorded for this study.", ""])
@@ -271,7 +325,18 @@ def _to_data(doc: _Document) -> dict:
                 "world_id": digest.world_id,
                 "tick_unit": digest.tick_unit,
                 "adoption": digest.adoption,
+                "polarization": digest.polarization,
+                "audience_divergence": digest.audience_divergence,
                 "unmeasured_reason": digest.unmeasured_reason,
+                "turn_count": digest.turn_count,
+                "turns_without_intent": digest.turns_without_intent,
+                "action_mix": dict(digest.action_mix),
+                "belief_movement_mean": dict(digest.belief_movement_mean),
+                "belief_movement_abs": dict(digest.belief_movement_abs),
+                "belief_move_mean": digest.belief_move_mean,
+                "wom_deliveries": digest.wom_deliveries,
+                "wom_reach": digest.wom_reach,
+                "rungs": list(digest.rungs),
             }
             for digest in doc.digests
         ],

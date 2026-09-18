@@ -89,3 +89,36 @@ def test_objection_clusters_render_their_quoted_label_never_a_paraphrase():
     report = render([finding_payload()], digests(), pack(clusters=[cluster_payload()]))
     assert '"tastes chalky after the gym"' in report.markdown
     assert report.data["objection_clusters"][0]["label"] == "tastes chalky after the gym"
+
+
+def test_what_a_run_without_ratings_measured_reaches_the_page():
+    """ADR 0038: a digest carries the action mix, belief movement and word-of-mouth reach so a
+    run that scored no intent still reports what happened. A report that prints only the
+    unmeasured adoption line says the study measured nothing, which is the opposite."""
+    worlds = [digest_payload(
+        BASELINE, audience_pmfs={}, audience_shares={}, community_pmfs={}, community_sizes={},
+        unmeasured_reason="no anchor version is pinned", turn_count=12, turns_without_intent=12,
+        action_mix={"answer": 9, "ignore": 3}, belief_movement_mean={"value": 0.04},
+        belief_movement_abs={"value": 0.06}, belief_move_mean=0.02, wom_deliveries=7, wom_reach=5)]
+    report = render([finding_payload()], worlds, pack())
+    markdown = report.markdown
+    assert "12" in markdown and "answer 9" in markdown and "ignore 3" in markdown
+    assert "0.04" in markdown and "0.06" in markdown
+    assert "7" in markdown and "5" in markdown
+    entry = report.data["digests"][0]
+    assert entry["turn_count"] == 12 and entry["turns_without_intent"] == 12
+    assert entry["action_mix"] == {"answer": 9, "ignore": 3}
+    assert entry["belief_movement_mean"] == {"value": 0.04}
+    assert entry["wom_deliveries"] == 7 and entry["wom_reach"] == 5
+
+
+def test_polarization_and_divergence_are_stated_where_they_would_have_appeared():
+    worlds = [digest_payload(
+        BASELINE, audience_pmfs={}, audience_shares={}, community_pmfs={}, community_sizes={},
+        unmeasured_reason="no anchor version is pinned", turn_count=1, action_mix={"answer": 1},
+        turns_without_intent=1)]
+    report = render([finding_payload()], worlds, pack())
+    assert "Polarization: unmeasured" in report.markdown
+    assert "Audience divergence: unmeasured" in report.markdown
+    entry = report.data["digests"][0]
+    assert entry["polarization"] is None and entry["audience_divergence"] is None

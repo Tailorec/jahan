@@ -33,6 +33,7 @@ def add_study_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--tick-unit", default="day")
     parser.add_argument("--budget", type=float, default=20.0, help="max spend in USD")
     parser.add_argument("--channel", default="survey_room")
+    parser.add_argument("--force", action="store_true", help="resume despite moved inputs; recorded, never silent")
 
 
 def cmd_concepts_run(argv: list[str] | None = None) -> int:
@@ -60,7 +61,7 @@ def cmd_concepts_run(argv: list[str] | None = None) -> int:
         budget=args.budget,
         args=args,
     )
-    result = run_study(handles, channel=args.channel)
+    result = run_study(handles, channel=args.channel, force=args.force)
     (handles.run_dir / "result.json").write_text(result.model_dump_json(indent=2) + "\n")
 
     if any(outcome.status.value == "completed" for outcome in result.outcomes):
