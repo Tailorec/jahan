@@ -490,16 +490,21 @@ def run(
 
     stored = registry.entry(config.run_id)  # type: ignore[attr-defined]
     forced_from: tuple[str, ...] = tuple(stored.forced_from) if stored is not None else ()
+    forced_inputs: tuple[str, ...] = tuple(stored.forced_inputs) if stored is not None else ()
     base_discarded = 0
     if stored is not None:
         base_discarded = int(stored.discarded_ticks)
         try:
             check_resume_inputs(config, pack, population, engine_version, stored.config, stored.engine_version)
-        except ResumeRefused:
+        except ResumeRefused as refusal:
             if not force:
                 raise
             if hasattr(registry, "mark_forced"):
                 registry.mark_forced(config.run_id)  # type: ignore[attr-defined]
+            # What it was forced past goes on the entry, so the force is in the record and not
+            # only in a method the in-memory registry happens to have (ADR 0036).
+            if refusal.name not in forced_inputs:
+                forced_inputs = (*forced_inputs, refusal.name)
             # The version it ran under before goes on the entry, so a result that spans engines
             # is marked in the record and not only in the process that forced it (ADR 0036).
             if stored.engine_version != engine_version and stored.engine_version not in forced_from:
@@ -538,6 +543,7 @@ def run(
                     "recorded_cost": float(stored.recorded_cost),
                     "discarded_ticks": base_discarded + pending_discarded,
                     "forced_from": list(forced_from),
+                    "forced_inputs": list(forced_inputs),
                 }
             )
         )
@@ -677,6 +683,9 @@ def run(
     # The ledger is derived: sum what the trace holds, never a kept number.
     recorded_cost, _ = ledger_sum(tuple(trace.all_events()) if hasattr(trace, "all_events") else ())  # type: ignore[attr-defined]
     status = RunStatus.COMPLETED if all(o.status is WorldStatus.COMPLETED for o in outcomes) else RunStatus.PARTIAL
+    # A forced resume runs the new configuration's worlds, and a result reports the worlds its
+    # entry configures, so the entry follows the configuration it actually ran — allowed only
+    # because the same update records what it was forced past (ADR 0036).
     entry = RunRegistryEntry.model_validate(
         {
             "config": config.model_dump(mode="json"),
@@ -686,6 +695,7 @@ def run(
             "recorded_cost": recorded_cost,
             "discarded_ticks": discarded_total,
             "forced_from": list(forced_from),
+            "forced_inputs": list(forced_inputs),
         }
     )
     _remember(registry, entry)

@@ -457,6 +457,7 @@ def write_report(handles: StudyHandles, analysis: dict, *, validation: str) -> d
         anomalies=tuple(all_anomalies),
         clusters=tuple(all_clusters),
         forced_from=tuple(entry.forced_from),
+        forced_inputs=tuple(entry.forced_inputs),
     )
     rendered = render(tuple(all_findings), tuple(analysis["digests"]), pack)
     (handles.run_dir / "report.md").write_text(rendered.markdown)

@@ -24,7 +24,9 @@ class ReportPack:
     `validation` is the report's recommended real-world validation, stated last in
     every document. `engine_commit` names the code that produced the run; `forced_from`
     names the engine versions the run was forced across before, oldest first, and is
-    empty when the run stayed on one version.
+    empty when the run stayed on one version. `forced_inputs` names what else a forced
+    resume was forced past — the brief, the population, the scenario — so a run holding
+    two studies says so (ADR 0036).
     """
 
     config: RunConfig
@@ -35,6 +37,7 @@ class ReportPack:
     anomalies: tuple[Anomaly, ...] = ()
     clusters: tuple[ObjectionCluster, ...] = ()
     forced_from: tuple[str, ...] = ()
+    forced_inputs: tuple[str, ...] = ()
     contract_version: str = SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -48,6 +51,8 @@ class ReportPack:
             raise ValueError("a report records the contract version it was rendered under")
         if any(_blank(version) for version in self.forced_from):
             raise ValueError("a forced engine version is a version, never a blank")
+        if any(_blank(name) for name in self.forced_inputs):
+            raise ValueError("a forced input is named, never a blank")
         # Tuples of validated models, so a pack cannot change after it is rendered from.
         # Hand-built sets are welcome: mappings are validated on the way in.
         object.__setattr__(
@@ -64,6 +69,7 @@ class ReportPack:
             ),
         )
         object.__setattr__(self, "forced_from", tuple(self.forced_from))
+        object.__setattr__(self, "forced_inputs", tuple(self.forced_inputs))
 
 
 @dataclass(frozen=True)

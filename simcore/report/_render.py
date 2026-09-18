@@ -99,6 +99,7 @@ class _Document:
     contract_version: str
     engine_commit: str
     forced_from: tuple[str, ...]
+    forced_inputs: tuple[str, ...]
     trust_level: str
     trust_caveats: tuple[str, ...]
     findings: tuple[_FindingSection, ...]
@@ -188,6 +189,7 @@ def _build(findings: tuple[Finding, ...], digests: tuple[OutcomeDigest, ...], pa
         contract_version=pack.contract_version,
         engine_commit=pack.engine_commit,
         forced_from=tuple(pack.forced_from),
+        forced_inputs=tuple(pack.forced_inputs),
         trust_level=pack.trust.level.value,
         trust_caveats=tuple(pack.trust.caveats),
         findings=ordered_findings,
@@ -291,6 +293,12 @@ def _to_markdown(doc: _Document) -> str:
                 "",
             ]
         )
+    if doc.forced_inputs:
+        lines.extend([
+            "This run was forced past inputs that moved: " + ", ".join(doc.forced_inputs)
+            + "; worlds recorded before and after the change are not directly comparable.",
+            "",
+        ])
     lines.extend(["Config hash: " + doc.config_hash, ""])
     lines.extend(["## Recommended real-world validation", ""])
     lines.extend([_inline(doc.validation), ""])
@@ -304,6 +312,7 @@ def _to_data(doc: _Document) -> dict:
         "config_hash": doc.config_hash,
         "engine_commit": doc.engine_commit,
         "forced_from": list(doc.forced_from),
+        "forced_inputs": list(doc.forced_inputs),
         "trust": {"level": doc.trust_level, "caveats": list(doc.trust_caveats)},
         "findings": [
             {

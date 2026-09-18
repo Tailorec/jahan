@@ -126,3 +126,34 @@ def test_the_command_passes_endpoint_configuration_through_untouched(tmp_path, m
                     asyncio.run(result)
             except Exception:
                 pass
+
+
+def test_a_forced_resume_is_recorded_in_the_registry_and_marked_in_the_report(tmp_path, monkeypatch):
+    """ADR 0036: a forced resume proceeds, is recorded in the registry, and marks the run's
+    results. The runner recorded it by calling `mark_forced`, which only the in-memory registry
+    of its own test suite has — against the real one a forced run left no trace of being forced."""
+    monkeypatch.chdir(tmp_path)
+    brief = tmp_path / "brief.yaml"
+    shutil.copy(BRIEF, brief)
+    shutil.copy(REPO_ROOT / "examples" / "protein_water.yaml.evidence.json", tmp_path / "brief.yaml.evidence.json")
+    out = tmp_path / "runs"
+    run_id = "run-" + "0" * 24 + "18"
+    base = ["concepts", "run", str(brief), "--fake", "--ontologies", str(ONTOLOGIES),
+            "--anchors", str(ANCHORS), "--out", str(out), "--run-id", run_id, "--n", "24", "--horizon", "2"]
+    assert run_command(*base)[0] == 0
+
+    brief.write_text(brief.read_text().replace(
+        "Respondents distinguish clear from milky protein formats",
+        "Respondents distinguish clear from milky protein formats, mostly",
+    ))
+    assert run_command(*base)[0] == 1
+    code, output = run_command(*base, "--force")
+    assert code == 0, output
+
+    from simcore.trace import TraceStore
+
+    entry = TraceStore(out / run_id / "trace").registry.entry(run_id)
+    assert entry is not None
+    assert "brief" in entry.forced_inputs
+    assert "forced" in (out / run_id / "report.md").read_text().lower()
+    assert json.loads((out / run_id / "report.json").read_text())["forced_inputs"] == ["brief"]

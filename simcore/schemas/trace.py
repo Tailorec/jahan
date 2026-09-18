@@ -328,10 +328,14 @@ def check_registry_update(held: "RunRegistryEntry", moved: "RunRegistryEntry") -
     does not — the configuration and the contract are pinned when the run is first recorded. The
     engine version moves only on a forced resume, and only when the entry records the version it
     is moving from, so a result that spans engines is marked in the record (ADR 0036).
+
+    The configuration moves under the same rule: a forced resume runs inputs that moved, and its
+    results are the new configuration's worlds, so the entry follows them — but only on an update
+    that records what it was forced past. An unforced update can never repin a study.
     """
     problems = []
-    if held.config_hash != moved.config_hash:
-        problems.append(f"configuration ({held.config_hash} to {moved.config_hash})")
+    if held.config_hash != moved.config_hash and not moved.forced_inputs:
+        problems.append(f"configuration ({held.config_hash} to {moved.config_hash}) without recording the force")
     if held.contract_version != moved.contract_version:
         problems.append(f"contract version ({held.contract_version} to {moved.contract_version})")
     if held.engine_version != moved.engine_version:
@@ -340,6 +344,9 @@ def check_registry_update(held: "RunRegistryEntry", moved: "RunRegistryEntry") -
             problems.append(
                 f"engine version ({held.engine_version} to {moved.engine_version}) without recording the force"
             )
+    forgotten = sorted(set(held.forced_inputs) - set(moved.forced_inputs))
+    if forgotten:
+        problems.append(f"a recorded force is not unrecorded ({', '.join(forgotten)})")
     if problems:
         raise ValueError(f"an update moves a run's progress, never what a replay pins: {', '.join(problems)}")
 
@@ -721,6 +728,11 @@ class RunRegistryEntry(SimBaseModel):
     # first. A forced resume is allowed and recorded, so a result that spans versions is marked
     # in the record rather than only in the process that forced it (ADR 0036).
     forced_from: tuple[Identifier, ...] = ()
+    # What a forced resume was forced past — the brief, the ontology, the population, the
+    # scenario, the pins. An engine version that moved is named in `forced_from`; everything
+    # else moved with the run's own inputs, and a record with nowhere to say so would leave a
+    # run holding two studies with nothing marking it (ADR 0036).
+    forced_inputs: tuple[Identifier, ...] = ()
 
     @computed_field
     @property
