@@ -333,8 +333,12 @@ def prepare_study(
     )
 
 
-def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1) -> RunResult:
-    """Run every world of the configuration to its horizon, recording the trace."""
+def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1, force: bool = False) -> RunResult:
+    """Run every world of the configuration to its horizon, recording the trace.
+
+    A resume whose inputs moved refuses unless forced; forcing is recorded in the
+    registry rather than only in the process that forced it.
+    """
     store = handles.store
     trace = StoreTrace(store, handles.run_dir / "trace", handles.run_id)
     blocks = PersonaBlockCache()
@@ -368,6 +372,7 @@ def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1) -> R
         world_factory=world_factory,
         agent_fn=agent_fn,
         max_workers=max_workers,
+        force=force,
     )
 
 
@@ -404,9 +409,12 @@ def analyze_study(handles: StudyHandles, result: RunResult) -> dict:
     worlds = {}
     for world_id, cell in cells.items():
         summary = summaries[canonical_hash(cell["scenario"])]
-        found = findings(cell["view"], embed=handles.embed, pinned_embed_model=handles.embed_pin, seed=cell["seed"])
-        detected = detect_anomalies(cell["view"], digest=cell["digest"], replicate_spread=summary.belief_move_spread)
+        # Cluster once and hand the result to `findings`: the same verbatims embedded twice
+        # is the same answer at twice the price.
         clusters = cluster_objections(cell["view"], embed=handles.embed, pinned_embed_model=handles.embed_pin)
+        found = findings(cell["view"], embed=handles.embed, pinned_embed_model=handles.embed_pin,
+                         seed=cell["seed"], world_id=world_id, clusters=clusters)
+        detected = detect_anomalies(cell["view"], digest=cell["digest"], replicate_spread=summary.belief_move_spread)
         worlds[world_id] = {
             "scenario": cell["scenario"],
             "seed": cell["seed"],

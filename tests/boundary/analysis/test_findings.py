@@ -178,3 +178,24 @@ def test_a_small_shift_held_across_many_moves_is_still_a_finding():
     authored = [f for f in findings(view, embed=None) if f.kind.value == "belief_shift"]
     assert len(authored) == 1
     assert "rose by 0.03" in authored[0].statement
+
+
+def test_findings_of_two_worlds_do_not_collide_by_id(tmp_path):
+    """A study runs the same scenario under several seeds. Numbering findings within a world
+    alone gives every world an `f-objection-01`, so a report over two worlds holds two findings
+    with one id and no way to tell them apart — which `Report` refuses outright."""
+    from tests.boundary.analysis.test_clusters import _TopicalEmbed
+
+    said = [("p-000001", "too pricey"), ("p-000002", "the price is too much")]
+    first = findings(_VerbatimView(said), embed=_TopicalEmbed(), seed=1, world_id="a00631e91974")
+    second = findings(_VerbatimView(said), embed=_TopicalEmbed(), seed=1, world_id="4ecd96cdea45")
+    assert first and second
+    assert not ({f.finding_id for f in first} & {f.finding_id for f in second})
+    assert all("a00631e91974" in f.finding_id for f in first)
+
+
+def test_a_finding_without_a_world_is_numbered_as_before():
+    from tests.boundary.analysis.test_clusters import _TopicalEmbed
+
+    authored = findings(_VerbatimView([("p-000001", "too pricey")]), embed=_TopicalEmbed(), seed=1)
+    assert [f.finding_id for f in authored] == ["f-objection-01"]

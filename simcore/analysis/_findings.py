@@ -21,14 +21,27 @@ _BELIEF_STATED_DECIMALS = 2
 
 
 def findings(view, *, embed, threshold: float = 0.75, seed: int = 0,
-             pinned_embed_model: str | None = None) -> tuple[Finding, ...]:
-    """Author every finding the trace supports, oldest evidence first within each kind."""
+             pinned_embed_model: str | None = None, world_id: str | None = None,
+             clusters: tuple | None = None) -> tuple[Finding, ...]:
+    """Author every finding the trace supports, oldest evidence first within each kind.
+
+    `world_id` names the world the view reads, and enters every finding id: a study runs one
+    scenario under several seeds, and findings numbered within a world alone collide across
+    them. `clusters`, when given, are this view's objection clusters already computed, so a
+    caller that needs them too does not embed the same verbatims twice.
+    """
     authored: list[Finding] = []
     authored.extend(_objection_findings(view, embed=embed, threshold=threshold, seed=seed,
-                                        pinned_embed_model=pinned_embed_model))
-    authored.extend(_belief_shift_findings(view))
-    authored.extend(_wom_path_findings(view))
+                                        pinned_embed_model=pinned_embed_model, world_id=world_id,
+                                        clusters=clusters))
+    authored.extend(_belief_shift_findings(view, world_id=world_id))
+    authored.extend(_wom_path_findings(view, world_id=world_id))
     return tuple(authored)
+
+
+def _finding_id(world_id: str | None, kind: str, position: int) -> str:
+    """`f-<world>-<kind>-NN`, or `f-<kind>-NN` for a view that did not name its world."""
+    return f"f-{world_id}-{kind}-{position:02d}" if world_id else f"f-{kind}-{position:02d}"
 
 
 def _resolve(view, evidence: tuple[str, ...]) -> tuple[str, ...]:
@@ -43,9 +56,11 @@ def _said_by(view) -> dict[str, str]:
 
 
 def _objection_findings(view, *, embed, threshold: float, seed: int,
-                        pinned_embed_model: str | None) -> list[Finding]:
-    clusters = cluster_objections(view, embed=embed, threshold=threshold, seed=seed,
-                                  pinned_embed_model=pinned_embed_model)
+                        pinned_embed_model: str | None, world_id: str | None = None,
+                        clusters: tuple | None = None) -> list[Finding]:
+    if clusters is None:
+        clusters = cluster_objections(view, embed=embed, threshold=threshold, seed=seed,
+                                      pinned_embed_model=pinned_embed_model)
     said_by = _said_by(view)
     out = []
     for index, cluster in enumerate(clusters, start=1):
@@ -55,14 +70,14 @@ def _objection_findings(view, *, embed, threshold: float, seed: int,
         people = len({said_by[event_id] for event_id in cluster.verbatim_trace_ids if event_id in said_by}) or size
         confidence = "high" if people >= _OBJECTION_HIGH else "medium" if people >= _OBJECTION_MEDIUM else "low"
         out.append(Finding.model_validate({
-            "finding_id": f"f-objection-{index:02d}",
+            "finding_id": _finding_id(world_id, "objection", index),
             "kind": "objection",
             # Clustering groups what personas said; it cannot tell praise from a complaint, so the
             # statement quotes and counts rather than characterising what the quote means.
             "statement": (
                 f"{people} {'persona' if people == 1 else 'personas'} said something this cluster "
                 f"groups, quoted as {cluster.label!r} ({size} {'verbatim' if size == 1 else 'verbatims'} "
-                f"at cosine {threshold})"
+                f"at cosine {cluster.threshold})"
             ),
             "evidence_trace_ids": list(evidence),
             "disconfirming_test": (
@@ -74,7 +89,7 @@ def _objection_findings(view, *, embed, threshold: float, seed: int,
     return out
 
 
-def _belief_shift_findings(view) -> list[Finding]:
+def _belief_shift_findings(view, *, world_id: str | None = None) -> list[Finding]:
     events = [event for event in view.events(EventFilter()) if event.payload.kind in ("turn", "reflection")]
     events.sort(key=lambda event: event.seq)
     moves: dict[str, list[tuple[str, float]]] = {}
@@ -102,7 +117,7 @@ def _belief_shift_findings(view) -> list[Finding]:
         direction = "rose" if mean > 0 else "fell"
         confidence = "high" if len(deltas) >= _BELIEF_HIGH_N and abs(mean) >= 0.1 else "medium" if len(deltas) >= 4 or abs(mean) >= _BELIEF_MEANINGFUL else "low"
         out.append(Finding.model_validate({
-            "finding_id": f"f-belief-{position:02d}",
+            "finding_id": _finding_id(world_id, "belief", position),
             "kind": "belief_shift",
             "statement": f"credence in {key} {direction} by {abs(mean):.2f} on average over {len(deltas)} moves",
             "evidence_trace_ids": list(evidence),
@@ -115,7 +130,7 @@ def _belief_shift_findings(view) -> list[Finding]:
     return out
 
 
-def _wom_path_findings(view) -> list[Finding]:
+def _wom_path_findings(view, *, world_id: str | None = None) -> list[Finding]:
     edges = sorted(view.edges(), key=lambda edge: (-edge.count, edge.u, edge.v, edge.channel.value))
     if not edges:
         return []
@@ -128,7 +143,7 @@ def _wom_path_findings(view) -> list[Finding]:
         evidence = _resolve(view, tuple(evidence_ids))
         confidence = "high" if edge.count >= 5 else "medium" if edge.count >= 2 else "low"
         out.append(Finding.model_validate({
-            "finding_id": f"f-wom-{position:02d}",
+            "finding_id": _finding_id(world_id, "wom", position),
             "kind": "wom_path",
             "statement": (
                 f"word of mouth travelled from {edge.u} to {edge.v} "
