@@ -27,8 +27,13 @@ def _persona_values(persona) -> dict:
     return {**persona.conditioning, **persona.attributes}
 
 
-def digest(view, *, scenario: Scenario, population: PopulationModel) -> OutcomeDigest:
-    """Describe one world's run. The view is scoped to that world; the scenario names it."""
+def digest(view, *, scenario: Scenario, population: PopulationModel,
+           pinned_embed_model: str | None = None) -> OutcomeDigest:
+    """Describe one world's run. The view is scoped to that world; the scenario names it.
+
+    When the run's pinned embedding model is given, a turn scored in another embedding
+    space is refused rather than mixed into the masses.
+    """
     from simcore.schemas import canonical_hash
 
     events = view.events(EventFilter())
@@ -56,6 +61,11 @@ def digest(view, *, scenario: Scenario, population: PopulationModel) -> OutcomeD
         reaction = event.payload.turn.reaction
         if reaction.intent is None:
             continue
+        if pinned_embed_model is not None and reaction.intent.embed_model_id != pinned_embed_model:
+            raise ValueError(
+                f"a turn scored in {reaction.intent.embed_model_id}, "
+                f"but the run pins {pinned_embed_model} for every embedding"
+            )
         mass = tuple(reaction.intent.pmf)
         scored.append((event.persona_id, mass))
         audience = audience_of.get(event.persona_id)

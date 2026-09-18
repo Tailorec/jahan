@@ -20,10 +20,12 @@ _BELIEF_MEANINGFUL = 0.05
 _BELIEF_HIGH_N = 10
 
 
-def findings(view, *, embed, threshold: float = 0.75, seed: int = 0) -> tuple[Finding, ...]:
+def findings(view, *, embed, threshold: float = 0.75, seed: int = 0,
+             pinned_embed_model: str | None = None) -> tuple[Finding, ...]:
     """Author every finding the trace supports, oldest evidence first within each kind."""
     authored: list[Finding] = []
-    authored.extend(_objection_findings(view, embed=embed, threshold=threshold, seed=seed))
+    authored.extend(_objection_findings(view, embed=embed, threshold=threshold, seed=seed,
+                                        pinned_embed_model=pinned_embed_model))
     authored.extend(_belief_shift_findings(view))
     authored.extend(_wom_path_findings(view))
     return tuple(authored)
@@ -34,8 +36,10 @@ def _resolve(view, evidence: tuple[str, ...]) -> tuple[str, ...]:
     return evidence
 
 
-def _objection_findings(view, *, embed, threshold: float, seed: int) -> list[Finding]:
-    clusters = cluster_objections(view, embed=embed, threshold=threshold, seed=seed)
+def _objection_findings(view, *, embed, threshold: float, seed: int,
+                        pinned_embed_model: str | None) -> list[Finding]:
+    clusters = cluster_objections(view, embed=embed, threshold=threshold, seed=seed,
+                                  pinned_embed_model=pinned_embed_model)
     out = []
     for index, cluster in enumerate(clusters, start=1):
         evidence = _resolve(view, tuple(cluster.verbatim_trace_ids))

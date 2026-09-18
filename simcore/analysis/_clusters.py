@@ -14,15 +14,23 @@ import numpy as np
 from simcore.schemas import ObjectionCluster, VerbatimGrouping, VerbatimRecord
 
 
-def cluster_objections(view, *, embed, threshold: float = 0.75, seed: int = 0) -> tuple[ObjectionCluster, ...]:
+def cluster_objections(view, *, embed, threshold: float = 0.75, seed: int = 0,
+                       pinned_embed_model: str | None = None) -> tuple[ObjectionCluster, ...]:
     """Group one world's verbatims by embedding cosine similarity.
 
     The view supplies the verbatims; `embed` is the run's pinned embedding model, called
     exactly once with every verbatim in deterministic order. `threshold` is the recorded
-    cosine-similarity parameter and travels on every cluster reported.
+    cosine-similarity parameter and travels on every cluster reported. When the run's pin
+    is given, an embedding model other than the pin is refused: a digest cannot be computed
+    in a different embedding space from the study it describes.
     """
     if not 0.0 <= threshold <= 1.0:
         raise ValueError(f"clustering threshold lies in [0, 1], got {threshold}")
+    if pinned_embed_model is not None and embed.model_id != pinned_embed_model:
+        raise ValueError(
+            f"the run pins {pinned_embed_model} for every embedding, "
+            f"but clustering was asked through {embed.model_id}"
+        )
     records = _ordered_verbatims(view)
     if not records:
         return ()
