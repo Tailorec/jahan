@@ -539,6 +539,19 @@ def run(
             closed = last_closed_tick(tuple(existing))
             seq = next_seq(tuple(existing))
             starting_rung = last_recorded_rung(tuple(existing)) if closed >= 0 else None
+            if closed >= scenario.horizon_ticks - 1:
+                # Already ran to its horizon: never re-run and never re-close. Re-emitting
+                # the closing event would append a duplicate behind a sink that keeps
+                # everything and crash against a record that is finalized and read-only.
+                _finalize(trace, world_id)
+                return WorldOutcome.model_validate(
+                    {
+                        "world_id": world_id,
+                        "status": WorldStatus.COMPLETED.value,
+                        "last_closed_tick": closed,
+                        "rungs": [r.value for r in recorded_rungs(tuple(existing))],
+                    }
+                )
             if closed >= 0:
                 rebuilt = rebuild_persona_states(population, tuple(existing), memory_cap=memory_cap)
                 checkpoint = (checkpoints or {}).get(world_id)
