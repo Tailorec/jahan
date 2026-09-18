@@ -15,25 +15,29 @@ ANCHORS = REPO_ROOT / "anchors"
 
 
 def run_command(*argv: str) -> tuple[int, str]:
-    """Invoke the CLI in-process, capturing stdout. Returns (exit code, output)."""
-    buffer = io.StringIO()
-    with redirect_stdout(buffer):
+    """Invoke the CLI in-process, capturing stdout and stderr. Returns (exit code, output)."""
+    import io as _io
+    from contextlib import redirect_stderr
+
+    buffer = _io.StringIO()
+    with redirect_stdout(buffer), redirect_stderr(buffer):
         code = main(list(argv))
     return code, buffer.getvalue()
 
 
-def fake_args(out: Path, run_id: str, **overrides) -> list[str]:
+def fake_args(out: Path, run_id: str, fake: bool = True, **overrides) -> list[str]:
     """A small fake study: fast enough for the suite, large enough to pass the graph gates."""
-    args = [
-        "concepts", "run", str(BRIEF),
-        "--fake",
+    args = ["concepts", "run", str(BRIEF)]
+    if fake:
+        args.append("--fake")
+    args.extend([
         "--ontologies", str(ONTOLOGIES),
         "--anchors", str(ANCHORS),
         "--out", str(out),
         "--run-id", run_id,
         "--n", "24",
         "--horizon", "2",
-    ]
+    ])
     for flag, value in overrides.items():
         args.extend([f"--{flag.replace('_', '-')}", str(value)])
     return args
