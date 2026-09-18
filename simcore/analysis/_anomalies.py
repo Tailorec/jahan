@@ -11,6 +11,8 @@ from dataclasses import dataclass
 
 from simcore.schemas import Anomaly, EventFilter, OutcomeDigest, UnmeasuredAnomaly
 
+from ._movement import signed_moves
+
 
 @dataclass(frozen=True)
 class AnomalyThresholds:
@@ -71,26 +73,8 @@ def detect_anomalies(
 
 
 def _moves(view) -> list[tuple[int, str, float]]:
-    """`(tick, event_id, signed move)` per turn and reflection, oldest first.
-
-    A move is the mean signed belief delta the record states — across dimensions and
-    claim credences alike — so the rule reads what personas said changed, recomputable
-    by hand from the same events.
-    """
-    records: list[tuple[int, str, float]] = []
-    for event in view.events(EventFilter()):
-        kind = event.payload.kind
-        if kind == "turn":
-            change = event.payload.turn.reaction.belief_change
-        elif kind == "reflection":
-            change = event.payload.change
-        else:
-            continue
-        deltas = [float(delta) for delta in change.dimensions.values()] + [float(delta) for delta in change.claim_credence.values()]
-        if not deltas:
-            continue
-        records.append((event.tick, event.event_id, sum(deltas) / len(deltas)))
-    return sorted(records)
+    """The signed move each turn and reflection recorded, from the one place it is computed."""
+    return signed_moves(view.events(EventFilter()))
 
 
 def _windows(moves: list[tuple[int, str, float]], window: int) -> dict[int, list[tuple[int, str, float]]]:

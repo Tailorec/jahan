@@ -3,6 +3,7 @@
   "scenario_hash": "d29520241cf372eb1e9df01c9d3b79b5e6c210b41bb4083003d4bd38ce4d91ad",
   "spread": {
     "adoption_spread": 0.0,
+    "belief_move_spread": 0.0,
     "divergence_spread": 0.0,
     "entries": [
       {
@@ -32,6 +33,7 @@
             "gym_regulars": 0.6,
             "protein_dieters": 0.4
           },
+          "belief_move_mean": 0.064375,
           "belief_movement_abs": {
             "fit": 0.0,
             "trust": 0.0,
@@ -120,6 +122,7 @@
             "gym_regulars": 0.6,
             "protein_dieters": 0.4
           },
+          "belief_move_mean": 0.064375,
           "belief_movement_abs": {
             "fit": 0.0,
             "trust": 0.0,
@@ -321,6 +324,7 @@
           "gym_regulars": 0.6,
           "protein_dieters": 0.4
         },
+        "belief_move_mean": 0.064375,
         "belief_movement_abs": {
           "fit": 0.0,
           "trust": 0.0,
@@ -788,6 +792,7 @@
           "gym_regulars": 0.6,
           "protein_dieters": 0.4
         },
+        "belief_move_mean": 0.064375,
         "belief_movement_abs": {
           "fit": 0.0,
           "trust": 0.0,

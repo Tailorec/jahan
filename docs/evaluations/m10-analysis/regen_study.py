@@ -259,7 +259,7 @@ def analyse(store, config, pack, population, scenario) -> dict:
         found = findings(view, embed=FakeEmbed(model_id=pin), pinned_embed_model=pin, seed=seed)
         for finding in found:
             view.resolve(tuple(finding.evidence_trace_ids))
-        detected = detect_anomalies(view, digest=result, replicate_spread=summary.adoption_spread)
+        detected = detect_anomalies(view, digest=result, replicate_spread=summary.belief_move_spread)
         clusters = cluster_objections(view, embed=FakeEmbed(model_id=pin), pinned_embed_model=pin)
         report_worlds.append({
             "seed": seed, "world_id": wid, "beside_trace": beside,

@@ -49,6 +49,14 @@ a missing spread silently produced no herding and said nothing. Herding now repo
 as an `UnmeasuredAnomaly` with its reason in both cases, which is the vocabulary ADR
 0040 already gives a rule that cannot be evaluated.
 
+**The yardstick was in the wrong units, and absent.** The rule compared a signed
+belief delta against the spread of *adoption* — a probability share — and no study
+can score intent yet (ADR 0029), so on a real trace that spread is `None` and the
+rule would never fire at all. A digest now carries `belief_move_mean`, the mean
+signed move a record made, computed in one place and read by both the digest and the
+rule, and a scenario summary carries its spread. In this study the two worlds move
+identically, so that spread is 0.0 and herding is honestly unmeasured.
+
 **A cluster was counted in sentences and reported in people.** "80 personas raised
 the objection" over 80 verbatims written by 40 personas, and the quoted label —
 "I would try it after training" — is not an objection at all. Clustering groups what

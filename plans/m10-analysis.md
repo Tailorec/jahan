@@ -131,7 +131,7 @@ Three rules over recorded numbers. Herding: belief movement beyond twice the rep
 - [x] Flop reports as not measurable with its reason, on any run without adoption — **added in review**: and on a run with adoption whose view holds no record to cite, where it used to fail inside `Anomaly`'s evidence rule
 - [x] Thresholds are configuration, and the applied values travel with the anomaly
 - [x] Detection is arithmetic over recorded numbers, recomputable by hand on the fixture
-- [x] The replicate spread, not within-world variation, is what a threshold is measured against
+- [x] The replicate spread, not within-world variation, is what a threshold is measured against — **amended in review**: *of the same quantity the rule reads*. The only caller measured a signed belief delta against the spread of adoption, a probability share; and since no run can score intent (ADR 0029), that spread is `None` on every study the engine can currently do, so the rule would never fire on a real trace. A digest now carries `belief_move_mean` — the mean signed move a record made, computed in `_movement.py` and read by both the digest and the rule — and a scenario summary carries its spread
 
 ---
 

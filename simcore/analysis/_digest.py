@@ -18,6 +18,7 @@ from simcore.schemas.enums import RUNG_ORDER
 from simcore.schemas import Population as PopulationModel
 
 from ._audience import audience_of_persona
+from ._movement import signed_moves
 
 
 def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
@@ -89,6 +90,10 @@ def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
             movement[dim.value].append(delta)
             absolute[dim.value].append(abs(delta))
 
+    # The scalar the herding rule is measured against, over turns and reflections alike.
+    moves = [move for _, _, move in signed_moves(events)]
+    belief_move_mean = sum(moves) / len(moves) if moves else 0.0
+
     edges = view.edges()
     wom_deliveries = sum(edge.count for edge in edges)
     wom_reach = len({edge.v for edge in edges})
@@ -141,6 +146,7 @@ def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
         "action_mix": dict(sorted(action_mix.items())),
         "belief_movement_mean": {dim: (sum(values) / len(values) if values else 0.0) for dim, values in sorted(movement.items())},
         "belief_movement_abs": {dim: (sum(values) / len(values) if values else 0.0) for dim, values in sorted(absolute.items())},
+        "belief_move_mean": belief_move_mean,
         "wom_deliveries": wom_deliveries,
         "wom_reach": wom_reach,
         "rungs": [rung.value for rung in rungs],

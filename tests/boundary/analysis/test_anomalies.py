@@ -157,3 +157,42 @@ def test_a_flop_with_nothing_to_cite_reports_as_unmeasured():
     assert [a for a in report.anomalies if a.kind.value == "flop"] == []
     flop = [u for u in report.unmeasured if u.kind.value == "flop"]
     assert len(flop) == 1 and "cite" in flop[0].reason
+
+
+def test_herding_has_a_yardstick_on_a_run_that_scored_no_intent():
+    """The yardstick is the spread of belief movement between a scenario's worlds, which every
+    run produces. Measuring a belief delta against the spread of *adoption* compares a signed
+    move to a probability share — and no study can score intent yet (ADR 0029), so that spread
+    is `None` on every run the engine can currently do, leaving the rule permanently dead."""
+    from simcore.analysis import spread
+    from tests.study_builders import scenario_payload as sp
+
+    scenario = sp()
+    quiet = OutcomeDigest.model_validate(digest_payload(
+        scenario, seed=4021, audience_pmfs={}, audience_shares={}, community_pmfs={}, community_sizes={},
+        unmeasured_reason="no anchor version is pinned", turn_count=2, action_mix={"comment": 2},
+        belief_move_mean=0.02))
+    loud = OutcomeDigest.model_validate(digest_payload(
+        scenario, seed=917731, audience_pmfs={}, audience_shares={}, community_pmfs={}, community_sizes={},
+        unmeasured_reason="no anchor version is pinned", turn_count=2, action_mix={"comment": 2},
+        belief_move_mean=0.12))
+    summary = spread([quiet, loud])
+    assert summary.adoption_spread is None
+    assert summary.belief_move_spread == pytest.approx(0.05)
+
+    events = [_turn(0, 0, 0.0), _turn(1, 1, 0.0), _turn(2, 2, 0.0), _turn(3, 3, 0.3), _turn(4, 4, 0.3)]
+    report = detect_anomalies(_MovesView(events), digest=loud,
+                              replicate_spread=summary.belief_move_spread)
+    herding = [a for a in report.anomalies if a.kind.value == "herding"]
+    assert len(herding) == 1 and herding[0].tick == 4
+    assert herding[0].threshold == pytest.approx(0.10)
+
+
+def test_the_digest_scalar_is_the_quantity_the_rule_reads():
+    """The rule's per-record move and the digest's mean of it are one computation, so a threshold
+    and the value it is measured against cannot drift apart."""
+    from simcore.analysis._movement import signed_moves
+
+    events = [_turn(0, 0, 0.2, 0.0), _turn(1, 1, -0.1, 0.1)]
+    moves = signed_moves(events)
+    assert [move for _, _, move in moves] == pytest.approx([0.1, 0.0])

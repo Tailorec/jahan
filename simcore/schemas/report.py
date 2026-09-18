@@ -214,6 +214,11 @@ class OutcomeDigest(SimBaseModel):
     action_mix: FrozenDict[ActionKind, NonNegativeInt] = FrozenDict({})
     belief_movement_mean: FrozenDict[BeliefDim, float] = FrozenDict({})
     belief_movement_abs: FrozenDict[BeliefDim, float] = FrozenDict({})
+    # The mean signed move one record made, across dimensions and claim credences alike, over the
+    # turns and reflections of this world. `belief_movement_mean` breaks the same record out per
+    # dimension and over turns alone; this scalar is the quantity an anomaly rule reads, and the
+    # spread of it between a scenario's worlds is the yardstick that rule is measured against.
+    belief_move_mean: float = 0.0
     wom_deliveries: NonNegativeInt = 0
     wom_reach: NonNegativeInt = 0
     # The budget rungs this world ran under, so a scenario can mark worlds that ran degraded.
@@ -356,6 +361,15 @@ class ScenarioSummary(SimBaseModel):
     def divergence_spread(self) -> float | None:
         values = [entry.digest.audience_divergence for entry in self.entries if entry.digest.audience_divergence is not None]
         return _spread(values, len(self.entries))
+
+    @computed_field
+    @property
+    def belief_move_spread(self) -> float | None:
+        """How far this scenario's worlds disagreed on how much belief moved. Every run produces
+        it, scored intent or not, which is why it — and not the spread of adoption — is what the
+        herding rule is measured against: a belief delta and a probability share are not the same
+        quantity, and no study can score intent until an anchor version passes (ADR 0029)."""
+        return _spread([entry.digest.belief_move_mean for entry in self.entries], len(self.entries))
 
     @computed_field
     @property
