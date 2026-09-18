@@ -126,6 +126,7 @@ from .report import (
     ScenarioSummary,
     ScenarioWorldEntry,
     TrustStatement,
+    UnmeasuredAnomaly,
     ensure_same_tick_unit,
 )
 from .run import (
@@ -387,6 +388,7 @@ __all__ = [
     "TrustStatement",
     "Turn",
     "TurnRecorded",
+    "UnmeasuredAnomaly",
     "EventFilter",
     "VerbatimGroup",
     "VerbatimGrouping",

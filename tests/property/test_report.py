@@ -71,7 +71,8 @@ def report_payload(**overrides):
             finding_payload(finding_id="f-ranking-01", kind="ranking", statement="baseline outperforms premium on adoption",
                             ranked_scenarios=[scenario_hash(BASELINE), scenario_hash(PREMIUM)]),
         ],
-        "anomalies": [{"kind": "herding", "scenario_hash": scenario_hash(BASELINE), "tick": 12, "evidence_trace_ids": EVIDENCE[:1]}],
+        "anomalies": [{"kind": "herding", "scenario_hash": scenario_hash(BASELINE), "tick": 12, "evidence_trace_ids": EVIDENCE[:1],
+                       "threshold": 0.1, "observed": 0.2}],
         "objection_clusters": [{"label": "aftertaste", "verbatim_trace_ids": EVIDENCE, "size": 14,
                                   "threshold": 0.75, "embed_model_id": "openai/text-embedding-3-small"}],
         "digests": [digest_payload(BASELINE), digest_payload(PREMIUM)],
@@ -179,7 +180,8 @@ def test_nothing_in_the_repository_produces_a_calibration_reference():
 
 def test_anomaly_kinds_are_closed_and_evidence_is_required_once_each():
     assert {k.value for k in AnomalyKind} == {"herding", "backlash", "flop"}
-    anomaly = {"kind": "herding", "scenario_hash": scenario_hash(BASELINE), "tick": 12, "evidence_trace_ids": EVIDENCE[:1]}
+    anomaly = {"kind": "herding", "scenario_hash": scenario_hash(BASELINE), "tick": 12, "evidence_trace_ids": EVIDENCE[:1],
+               "threshold": 0.1, "observed": 0.2}
     assert Anomaly.model_validate(anomaly).kind is AnomalyKind.HERDING
     with pytest.raises(ValidationError):
         Anomaly.model_validate({**anomaly, "evidence_trace_ids": []})
@@ -309,4 +311,5 @@ def test_report_refuses_repeated_finding_ids_and_rankings_of_undigested_scenario
 )
 def test_anomalies_belong_to_a_scenario_of_this_run(anomaly, match):
     with pytest.raises(ValidationError, match=match):
-        Report.model_validate(report_payload(anomalies=[{"kind": "backlash", "evidence_trace_ids": EVIDENCE[:1], **anomaly}]))
+        Report.model_validate(report_payload(anomalies=[{"kind": "backlash", "evidence_trace_ids": EVIDENCE[:1],
+                                                              "threshold": 0.3, "observed": 0.5, **anomaly}]))

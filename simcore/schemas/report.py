@@ -124,18 +124,31 @@ class Finding(SimBaseModel):
 
 
 class Anomaly(SimBaseModel):
-    """A rule-based flag over one scenario's trace; it carries the evidence that produced it."""
+    """A rule-based flag over one scenario's trace; it carries the evidence that produced it and the
+    applied threshold beside the observed value, so any reader can recompute the call."""
 
     kind: AnomalyKind
     scenario_hash: HashDigest
     tick: NonNegativeInt
     evidence_trace_ids: tuple[EventId, ...] = Field(min_length=1)
+    threshold: float
+    observed: float
 
     @model_validator(mode="after")
     def _evidence_cited_once(self) -> Self:
         if _repeated(self.evidence_trace_ids):
             raise ValueError(f"evidence cited more than once: {_repeated(self.evidence_trace_ids)}")
         return self
+
+
+class UnmeasuredAnomaly(SimBaseModel):
+    """An anomaly rule that could not be evaluated: flop needs adoption, so until intent exists it
+    reports as not measurable with its reason, rather than as absent."""
+
+    kind: AnomalyKind
+    scenario_hash: HashDigest
+    reason: NonEmptyStr
+    threshold: float
 
 
 class ObjectionCluster(SimBaseModel):
