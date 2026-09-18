@@ -89,16 +89,19 @@ class _ShardArrays:
     inferred: Mapping[int, np.ndarray]  # field_index -> rows whose grounding says a model inferred it
     labels: dict = field(default_factory=dict)  # attribute -> decoded-label array, cached
     unexpressible: dict = field(default_factory=dict)  # attribute -> rows whose override the vocabulary cannot express
-    _inferred_rows: dict = field(default_factory=dict)  # field_index -> set of rows, for the per-row decode
 
     def inferred_at(self, field_index: int, row: int) -> bool:
-        """Whether this row's grounding named an assignment other than a recorded one."""
-        cached = self._inferred_rows.get(field_index)
-        if cached is None:
-            rows = self.inferred.get(field_index)
-            cached = {int(item) for item in rows} if rows is not None else set()
-            self._inferred_rows[field_index] = cached
-        return row in cached
+        """Whether this row's grounding named an assignment other than a recorded one.
+
+        Searched, never indexed: a field can be inferred on most of a shard's hundred thousand
+        rows and a shard carries 1,290 fields, so a set of row numbers per field is memory the
+        machine does not have. `inferred` holds each field's rows ascending, so a binary search
+        answers in logarithmic time and allocates nothing."""
+        rows = self.inferred.get(field_index)
+        if rows is None or not len(rows):
+            return False
+        position = int(np.searchsorted(rows, row))
+        return position < len(rows) and int(rows[position]) == row
 
 
 class HfCoresetSource:
@@ -438,7 +441,12 @@ def _stream_inferred(reader) -> dict[int, np.ndarray]:
         for field_index, rows in _inferred_rows(batch.column("grounding")).items():
             parts.setdefault(field_index, []).append(rows + rows_before)
         rows_before += batch.num_rows
-    return {field_index: np.concatenate(chunks) for field_index, chunks in parts.items()}
+    merged = {}
+    for field_index, chunks in parts.items():
+        rows = np.concatenate(chunks)
+        rows.sort()  # ascending, in place, so membership can be searched rather than indexed
+        merged[field_index] = rows
+    return merged
 
 
 def _inferred_rows(grounding) -> dict[int, np.ndarray]:

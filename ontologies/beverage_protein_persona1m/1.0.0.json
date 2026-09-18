@@ -1,0 +1,57 @@
+{
+  "category": "beverage_protein_persona1m",
+  "version": "1.0.0",
+  "attribute_domains": {
+    "age_bracket": "demographic",
+    "gender_identity": "demographic",
+    "socioeconomic_band": "economic",
+    "lstyle_exercise_freq": "category_behaviour",
+    "health_fitness_level": "category_behaviour",
+    "lstyle_diet_type": "psychographic"
+  },
+  "conditioning_set": [
+    "age_bracket",
+    "gender_identity",
+    "lstyle_exercise_freq",
+    "health_fitness_level"
+  ],
+  "relevance_order": [
+    "lstyle_exercise_freq",
+    "health_fitness_level",
+    "age_bracket",
+    "gender_identity",
+    "lstyle_diet_type",
+    "socioeconomic_band"
+  ],
+  "anchor_sets": {
+    "purchase_intent": "purchase-intent-v1"
+  },
+  "completion_policy": {
+    "completable_domains": [
+      "economic",
+      "decision_rule",
+      "media"
+    ]
+  },
+  "ordinal_scales": [
+    {
+      "attribute": "lstyle_exercise_freq",
+      "bands": [
+        {"label": "Never", "midpoint": 0.0},
+        {"label": "Rarely", "midpoint": 0.25},
+        {"label": "Monthly", "midpoint": 1.0},
+        {"label": "Weekly", "midpoint": 4.0},
+        {"label": "Daily", "midpoint": 20.0}
+      ]
+    },
+    {
+      "attribute": "health_fitness_level",
+      "bands": [
+        {"label": "Sedentary", "midpoint": 0.0},
+        {"label": "Average", "midpoint": 1.0},
+        {"label": "Fit", "midpoint": 2.0},
+        {"label": "Athlete", "midpoint": 3.0}
+      ]
+    }
+  ]
+}

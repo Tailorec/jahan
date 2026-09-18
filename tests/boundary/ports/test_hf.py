@@ -343,3 +343,27 @@ def test_a_refusal_suggests_the_names_the_codebook_does_have(fake_cache):
     with pytest.raises(GateFailure) as raised:
         source.matching({}, present=["age"])
     assert "age_bracket" in str(raised.value)
+
+
+def test_membership_of_an_inferred_row_costs_no_memory():
+    """A field can be inferred on most of a shard's hundred thousand rows, and a shard carries
+    1,290 fields. Answering "was this row's field inferred?" by building a set of row numbers per
+    field is how the second real draw died — `MemoryError`, inside the decode of one persona."""
+    import numpy as np
+
+    from simcore.ports.hf import _ShardArrays
+
+    rows = np.arange(0, 200_000, 2, dtype=np.int64)
+    arrays = _ShardArrays(
+        row_ids=(), attributes=np.zeros((1, 1), dtype=np.uint8), bitmap=None,
+        vocabulary_sizes=np.zeros(1, dtype=np.int16), sources=np.empty(0, dtype=object),
+        counts=np.zeros(1, dtype=np.int32), overrides={}, inferred={3: rows},
+    )
+    assert arrays.inferred_at(3, 0) is True
+    assert arrays.inferred_at(3, 4) is True
+    assert arrays.inferred_at(3, 5) is False
+    assert arrays.inferred_at(3, 199_998) is True
+    assert arrays.inferred_at(3, 200_000) is False
+    assert arrays.inferred_at(7, 4) is False
+    assert not any(isinstance(value, (set, dict)) and value for name, value in vars(arrays).items()
+                   if name.startswith("_")), "a per-field index of rows was materialised"
