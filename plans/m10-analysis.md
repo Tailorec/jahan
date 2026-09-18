@@ -31,12 +31,12 @@ The shapes a digest needs once intent is optional. `OutcomeDigest` carries respo
 
 ### Acceptance criteria
 
-- [ ] A digest validates with no response masses, and its adoption, polarization and divergence are `None`
-- [ ] A digest with masses computes adoption from them as before, and a stated value contradicting the masses is refused
-- [ ] A digest records how many turns went unscored and why, and cannot report unmeasured adoption without a reason
-- [ ] A digest carries the action mix, belief movement and word-of-mouth reach of the world it describes
-- [ ] `ScenarioSummary` holds one entry per seed and the spread across them, and refuses worlds from different scenarios
-- [ ] Pinned identities are re-pinned, with the change recorded in the commit that moves them
+- [x] A digest validates with no response masses, and its adoption, polarization and divergence are `None`
+- [x] A digest with masses computes adoption from them as before, and a stated value contradicting the masses is refused
+- [x] A digest records how many turns went unscored and why, and cannot report unmeasured adoption without a reason
+- [x] A digest carries the action mix, belief movement and word-of-mouth reach of the world it describes
+- [x] `ScenarioSummary` holds one entry per seed and the spread across them, and refuses worlds from different scenarios — **amended in review**: a spread is stated only when *every* world in the summary measured the quantity. Two worlds where one scored no intent reported an adoption spread of 0.0, which reads as the seeds agreeing exactly about a scenario where one of them never answered
+- [x] Pinned identities are re-pinned, with the change recorded in the commit that moves them — nothing hashed moved: the pinned identities are the briefs, the ontology, the policy and the run configuration, and none of them carries a digest shape
 
 ---
 
@@ -50,12 +50,12 @@ The shapes a digest needs once intent is optional. `OutcomeDigest` carries respo
 
 ### Acceptance criteria
 
-- [ ] A digest of a real recorded world names its scenario and its tick unit
-- [ ] A world with scored intent reports masses per audience and per community, with shares and sizes
-- [ ] A world with no scored intent reports adoption as not measurable, naming the count of unscored turns
-- [ ] The action mix, belief movement and word-of-mouth reach match the same quantities recomputed from raw events
-- [ ] A persona counted in an audience mass is counted in exactly one audience
-- [ ] Digesting the same view twice produces an identical digest
+- [x] A digest of a real recorded world names its scenario and its tick unit
+- [x] A world with scored intent reports masses per audience and per community, with shares and sizes
+- [x] A world with no scored intent reports adoption as not measurable, naming the count of unscored turns — **added in review**: so does a world whose personas fall in no audience the scenario weights, naming the audiences it weighted. Adoption is share-weighted over audiences (ADR 0007), so scoring every turn is not enough; that case used to die inside the digest's own validator
+- [x] The action mix, belief movement and word-of-mouth reach match the same quantities recomputed from raw events
+- [x] A persona counted in an audience mass is counted in exactly one audience
+- [x] Digesting the same view twice produces an identical digest
 
 ---
 
@@ -69,12 +69,12 @@ The shapes a digest needs once intent is optional. `OutcomeDigest` carries respo
 
 ### Acceptance criteria
 
-- [ ] A scenario's digests aggregate into one summary carrying each seed's values
-- [ ] The spread is computed between worlds, never within one, asserted against a hand-worked fixture
-- [ ] One seed yields a spread of zero, reported as such rather than omitted
-- [ ] Digests from different scenarios are refused
-- [ ] Digests with differing tick units are refused
-- [ ] A cell whose worlds ran at different degradation rungs is marked (ADR 0037)
+- [x] A scenario's digests aggregate into one summary carrying each seed's values
+- [x] The spread is computed between worlds, never within one, asserted against a hand-worked fixture
+- [x] One seed yields a spread of zero, reported as such rather than omitted — and a quantity only some of a scenario's worlds measured yields no spread at all (**amended in review**, above)
+- [x] Digests from different scenarios are refused
+- [x] Digests with differing tick units are refused
+- [x] A cell whose worlds ran at different degradation rungs is marked (ADR 0037)
 
 ---
 
@@ -88,12 +88,12 @@ What personas objected to, grouped. Verbatims are embedded once through the run'
 
 ### Acceptance criteria
 
-- [ ] Clustering the same verbatims twice produces identical clusters, in identical order
-- [ ] A cluster's label is a verbatim that appears in the trace, never generated text
-- [ ] The threshold is a recorded parameter, reported wherever clusters are
-- [ ] Verbatims saying the same thing in different words group together, on a fixture built for it
-- [ ] Verbatims embedded once per run, never re-embedded per cluster
-- [ ] A run with no verbatims produces no clusters and no error
+- [x] Clustering the same verbatims twice produces identical clusters, in identical order
+- [x] A cluster's label is a verbatim that appears in the trace, never generated text
+- [x] The threshold is a recorded parameter, reported wherever clusters are
+- [x] Verbatims saying the same thing in different words group together, on a fixture built for it
+- [x] Verbatims embedded once per run, never re-embedded per cluster
+- [x] A run with no verbatims produces no clusters and no error
 
 ---
 
@@ -107,12 +107,12 @@ Findings authored by extraction, not generation: objection clusters become objec
 
 ### Acceptance criteria
 
-- [ ] Every finding resolves its evidence ids against the view at authorship, and an unresolvable id raises there
-- [ ] A finding cannot be constructed without evidence or without a disconfirming test
-- [ ] Objection, belief-shift and word-of-mouth findings are authored from a fixture trace holding each
-- [ ] Two runs of `findings` over one trace produce the same findings in the same order
-- [ ] No finding states calibration; the run's trust statement carries it once
-- [ ] A finding's confidence reflects the evidence behind it, and is independent of the engine's calibration
+- [x] Every finding resolves its evidence ids against the view at authorship, and an unresolvable id raises there
+- [x] A finding cannot be constructed without evidence or without a disconfirming test
+- [x] Objection, belief-shift and word-of-mouth findings are authored from a fixture trace holding each — **amended in review** twice over. An objection finding counts the distinct personas behind its cluster, not its verbatims (80 sentences from 40 personas were reported as 80 personas), and states the quote without naming a sentiment, because clustering groups what personas said and cannot tell praise from a complaint. A belief-shift finding is authored only when the move is large enough to state: twenty moves cancelling to zero were reported as a fall "by 0.00"
+- [x] Two runs of `findings` over one trace produce the same findings in the same order
+- [x] No finding states calibration; the run's trust statement carries it once
+- [x] A finding's confidence reflects the evidence behind it, and is independent of the engine's calibration
 
 ---
 
@@ -126,12 +126,12 @@ Three rules over recorded numbers. Herding: belief movement beyond twice the rep
 
 ### Acceptance criteria
 
-- [ ] A fixture trace with a planted herding pattern produces exactly one herding anomaly, at the right tick
-- [ ] A planted sign split produces backlash; a quiet trace produces neither anomaly
-- [ ] Flop reports as not measurable with its reason, on any run without adoption
-- [ ] Thresholds are configuration, and the applied values travel with the anomaly
-- [ ] Detection is arithmetic over recorded numbers, recomputable by hand on the fixture
-- [ ] The replicate spread, not within-world variation, is what a threshold is measured against
+- [x] A fixture trace with a planted herding pattern produces exactly one herding anomaly, at the right tick — **amended in review**: herding is evaluated only against a replicate spread above zero. Twice a spread of zero is cleared by any movement at all, and a spread of zero is what a single-seed study produces, so the rule reported herding at every tick of the regenerated study; a missing spread was the opposite failure, silently producing nothing. Both now report as `UnmeasuredAnomaly` with the reason, and a negative spread is refused
+- [x] A planted sign split produces backlash; a quiet trace produces neither anomaly
+- [x] Flop reports as not measurable with its reason, on any run without adoption — **added in review**: and on a run with adoption whose view holds no record to cite, where it used to fail inside `Anomaly`'s evidence rule
+- [x] Thresholds are configuration, and the applied values travel with the anomaly
+- [x] Detection is arithmetic over recorded numbers, recomputable by hand on the fixture
+- [x] The replicate spread, not within-world variation, is what a threshold is measured against
 
 ---
 
@@ -145,11 +145,11 @@ The refusal that keeps the engine from overclaiming. A run's `TrustStatement` is
 
 ### Acceptance criteria
 
-- [ ] A trust level above `UNCALIBRATED` without a calibration reference raises
-- [ ] A run's calibration is stated once and no finding carries one
-- [ ] No path in the package calls a chat model, asserted over the package
-- [ ] The only model call is embedding, through the run's pinned embedding model
-- [ ] A digest or finding built from a trace whose embedding model differs from the run's pin is refused
+- [x] A trust level above `UNCALIBRATED` without a calibration reference raises
+- [x] A run's calibration is stated once and no finding carries one
+- [x] No path in the package calls a chat model, asserted over the package
+- [x] The only model call is embedding, through the run's pinned embedding model
+- [x] A digest or finding built from a trace whose embedding model differs from the run's pin is refused
 
 ---
 
@@ -163,8 +163,8 @@ The module against a real trace, and the documents in step. A recorded study —
 
 ### Acceptance criteria
 
-- [ ] A real recorded trace digests without error, and its numbers match the first study's recorded report where both measured the same thing
-- [ ] The evaluation's figures are produced by `digest`, not by a script gathering them separately
-- [ ] `FINAL_ARCH.md` §5.10, `SALVAGE.md` and `CONTEXT.md` describe what was built
-- [ ] Any defect the real trace exposes is fixed with a test that fails on the old code
-- [ ] The regenerated trace is kept somewhere durable, not in a temporary directory
+- [ ] A real recorded trace digests without error, and its numbers match the first study's recorded report where both measured the same thing — **owed**: the regenerated study runs the real `runner` and the real trace store, but its model and embeddings are stubs, so no number in it is behaviour and there is nothing to match the first study against. Regenerating on Bedrock is ~$0.09 and ~35 minutes and needs saying so first
+- [x] The evaluation's figures are produced by `digest`, not by a script gathering them separately
+- [x] `FINAL_ARCH.md` §5.10, `SALVAGE.md` and `CONTEXT.md` describe what was built
+- [x] Any defect the real trace exposes is fixed with a test that fails on the old code — the regenerated trace, not a real one, and it exposed four: a report that could not hold two seeds of one scenario, a digest that named no world, a herding rule measuring against zero, and a cluster counted in sentences and reported in people
+- [x] The regenerated trace is kept somewhere durable, not in a temporary directory

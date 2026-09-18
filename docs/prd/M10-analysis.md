@@ -34,7 +34,9 @@ Two calls, both pure functions of a trace view.
 `digest(view) -> OutcomeDigest` describes one world (ADR 0039), naming the scenario it belongs to. It carries
 response masses where the run scored them and reports adoption, polarization and audience divergence as `None`
 where it could not, recording how many turns went unscored and why (ADR 0038). Beside those it reports what
-every run produces: the action mix, belief movement, word-of-mouth reach, and the objections personas raised.
+every run produces: the action mix, belief movement and word-of-mouth reach. What personas said is grouped
+beside the digest rather than inside it, as `ObjectionCluster`s (ADR 0041), since a cluster is one scenario's
+verbatims and a digest is one world's.
 
 `spread(digests) -> ScenarioSummary` aggregates a scenario's worlds, carrying each seed's values beside their
 spread, because that spread is the yardstick every anomaly threshold is measured against.
