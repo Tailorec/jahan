@@ -60,7 +60,7 @@ def _unmeasured_digest() -> OutcomeDigest:
 def test_planted_herding_produces_exactly_one_anomaly_at_the_right_tick():
     # Spread 0.05, multiplier 2 -> limit 0.10; window 3 ending at tick 4 means 0.20.
     events = [_turn(0, 0, 0.0), _turn(1, 1, 0.0), _turn(2, 2, 0.0), _turn(3, 3, 0.3), _turn(4, 4, 0.3)]
-    report = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+    report = detect_anomalies(_MovesView(events),
                               digest=_unmeasured_digest(), replicate_spread=0.05)
     herding = [a for a in report.anomalies if a.kind.value == "herding"]
     assert len(herding) == 1
@@ -71,7 +71,7 @@ def test_planted_herding_produces_exactly_one_anomaly_at_the_right_tick():
 
 def test_planted_sign_split_produces_backlash_and_quiet_trace_produces_neither():
     events = [_turn(2, 0, 0.2), _turn(2, 1, 0.2), _turn(2, 2, -0.2), _turn(2, 3, -0.2)]
-    report = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+    report = detect_anomalies(_MovesView(events),
                               digest=_unmeasured_digest(), replicate_spread=0.05)
     backlash = [a for a in report.anomalies if a.kind.value == "backlash"]
     assert len(backlash) == 1
@@ -79,14 +79,14 @@ def test_planted_sign_split_produces_backlash_and_quiet_trace_produces_neither()
     assert backlash[0].threshold == pytest.approx(0.30)
 
     quiet = [_turn(tick, tick, 0.01) for tick in range(5)]
-    calm = detect_anomalies(_MovesView(quiet), scenario_hash=_scenario_hash(),
+    calm = detect_anomalies(_MovesView(quiet),
                             digest=_unmeasured_digest(), replicate_spread=0.05)
     assert [a for a in calm.anomalies if a.kind.value in ("herding", "backlash")] == []
 
 
 def test_flop_without_adoption_is_unmeasured_with_its_reason():
     events = [_turn(0, 0, 0.0)]
-    report = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+    report = detect_anomalies(_MovesView(events),
                               digest=_unmeasured_digest(), replicate_spread=0.05)
     assert [a for a in report.anomalies if a.kind.value == "flop"] == []
     assert len(report.unmeasured) == 1
@@ -97,7 +97,7 @@ def test_flop_without_adoption_is_unmeasured_with_its_reason():
 def test_thresholds_are_configuration_and_travel_with_the_anomaly():
     events = [_turn(0, 0, 0.0), _turn(1, 1, 0.0), _turn(2, 2, 0.0), _turn(3, 3, 0.3), _turn(4, 4, 0.3)]
     custom = AnomalyThresholds(window=3, herding_multiplier=3.0)
-    report = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+    report = detect_anomalies(_MovesView(events),
                               digest=_unmeasured_digest(), replicate_spread=0.05, thresholds=custom)
     herding = [a for a in report.anomalies if a.kind.value == "herding"]
     assert herding and herding[0].threshold == pytest.approx(0.15)
@@ -105,9 +105,9 @@ def test_thresholds_are_configuration_and_travel_with_the_anomaly():
 
 def test_replicate_spread_is_what_the_threshold_is_measured_against():
     events = [_turn(0, 0, 0.0), _turn(1, 1, 0.0), _turn(2, 2, 0.0), _turn(3, 3, 0.3), _turn(4, 4, 0.3)]
-    narrow = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+    narrow = detect_anomalies(_MovesView(events),
                               digest=_unmeasured_digest(), replicate_spread=0.05)
-    wide = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+    wide = detect_anomalies(_MovesView(events),
                             digest=_unmeasured_digest(), replicate_spread=0.5)
     assert len([a for a in narrow.anomalies if a.kind.value == "herding"]) == 1
     assert [a for a in wide.anomalies if a.kind.value == "herding"] == []
@@ -115,7 +115,7 @@ def test_replicate_spread_is_what_the_threshold_is_measured_against():
 
 def test_low_measured_adoption_is_a_flop():
     events = [_turn(0, 0, 0.0, intent=True), _turn(1, 1, 0.0, intent=True)]
-    report = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+    report = detect_anomalies(_MovesView(events),
                               digest=_measured_digest(0.10), replicate_spread=0.05)
     flop = [a for a in report.anomalies if a.kind.value == "flop"]
     assert len(flop) == 1
@@ -127,7 +127,7 @@ def test_a_spread_of_zero_reports_herding_as_unmeasured_rather_than_flagging_eve
     """One seed, or seeds that agreed exactly, give a spread of 0.0 — twice which is zero, so
     every window that moved at all would clear it. A yardstick of zero measures nothing."""
     events = [_turn(tick, tick, 0.1) for tick in range(4)]
-    report = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+    report = detect_anomalies(_MovesView(events),
                               digest=_unmeasured_digest(), replicate_spread=0.0)
     assert [a for a in report.anomalies if a.kind.value == "herding"] == []
     herding = [u for u in report.unmeasured if u.kind.value == "herding"]
@@ -137,7 +137,7 @@ def test_a_spread_of_zero_reports_herding_as_unmeasured_rather_than_flagging_eve
 
 def test_no_spread_at_all_reports_herding_as_unmeasured_rather_than_silently_skipping():
     events = [_turn(tick, tick, 0.1) for tick in range(4)]
-    report = detect_anomalies(_MovesView(events), scenario_hash=_scenario_hash(),
+    report = detect_anomalies(_MovesView(events),
                               digest=_unmeasured_digest(), replicate_spread=None)
     assert [a for a in report.anomalies if a.kind.value == "herding"] == []
     assert [u.kind.value for u in report.unmeasured].count("herding") == 1
@@ -145,14 +145,14 @@ def test_no_spread_at_all_reports_herding_as_unmeasured_rather_than_silently_ski
 
 def test_a_negative_spread_is_refused():
     with pytest.raises(ValueError, match="spread"):
-        detect_anomalies(_MovesView([_turn(0, 0, 0.1)]), scenario_hash=_scenario_hash(),
+        detect_anomalies(_MovesView([_turn(0, 0, 0.1)]),
                          digest=_unmeasured_digest(), replicate_spread=-0.1)
 
 
 def test_a_flop_with_nothing_to_cite_reports_as_unmeasured():
     """Adoption is measured from the digest, but an anomaly has to cite the records behind it.
     A view holding no scored turn has nothing to cite, and says so rather than raising."""
-    report = detect_anomalies(_MovesView([]), scenario_hash=_scenario_hash(),
+    report = detect_anomalies(_MovesView([]),
                               digest=_measured_digest(0.10), replicate_spread=0.05)
     assert [a for a in report.anomalies if a.kind.value == "flop"] == []
     flop = [u for u in report.unmeasured if u.kind.value == "flop"]

@@ -253,15 +253,13 @@ def analyse(store, config, pack, population, scenario) -> dict:
             assert abs(result.adoption - hand) < 1e-9
         worlds.append((seed, wid, result, beside, view))
 
-    digests = [(seed, wid, result) for seed, wid, result, _, _ in worlds]
-    summary = spread(digests)
+    summary = spread([result for _, _, result, _, _ in worlds])
     report_worlds = []
     for seed, wid, result, beside, view in worlds:
         found = findings(view, embed=FakeEmbed(model_id=pin), pinned_embed_model=pin, seed=seed)
         for finding in found:
             view.resolve(tuple(finding.evidence_trace_ids))
-        detected = detect_anomalies(view, scenario_hash=scenario_hash, digest=result,
-                                    replicate_spread=summary.adoption_spread)
+        detected = detect_anomalies(view, digest=result, replicate_spread=summary.adoption_spread)
         clusters = cluster_objections(view, embed=FakeEmbed(model_id=pin), pinned_embed_model=pin)
         report_worlds.append({
             "seed": seed, "world_id": wid, "beside_trace": beside,

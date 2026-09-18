@@ -95,7 +95,7 @@ def test_two_worlds_spread_report_findings_and_trust():
         view = PartitionView(partition.events)
         result = digest(view, scenario=partition.header.scenario, population=population,
                         seed=partition.header.replicate_seed, pinned_embed_model=pin)
-        digests.append((partition.header.replicate_seed, wid, result))
+        digests.append(result)
         for finding in findings(view, embed=FakeEmbed(model_id=pin), pinned_embed_model=pin,
                                 seed=partition.header.replicate_seed):
             view.resolve(tuple(finding.evidence_trace_ids))
@@ -110,11 +110,11 @@ def test_two_worlds_spread_report_findings_and_trust():
         "findings": [],
         "anomalies": [],
         "objection_clusters": [],
-        "digests": [d.model_dump(mode="json") for _, _, d in digests],
+        "digests": [d.model_dump(mode="json") for d in digests],
     })
     assert len(report.digests) == 2
     assert report.trust.level.value == "uncalibrated"
 
     committed = json.loads((EVAL / "digest-report.json").read_text())
-    assert [w["digest"]["adoption"] for w in committed["worlds"]] == [d.adoption for _, _, d in digests]
+    assert [w["digest"]["adoption"] for w in committed["worlds"]] == [d.adoption for d in digests]
     assert committed["spread"]["adoption_spread"] == summary.adoption_spread

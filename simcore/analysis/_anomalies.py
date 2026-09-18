@@ -37,16 +37,19 @@ class AnomalyReport:
 def detect_anomalies(
     view,
     *,
-    scenario_hash: str,
     digest: OutcomeDigest,
     replicate_spread: float | None,
     thresholds: AnomalyThresholds = AnomalyThresholds(),
 ) -> AnomalyReport:
     """Run the three rules over one world's recorded numbers.
 
+    The digest names the scenario every anomaly is reported against, so nothing passed
+    beside it can label a flag with a scenario the numbers did not come from.
+
     `replicate_spread` is the spread between that scenario's worlds — never within-world
     variation — so an anomaly threshold is measured against what replicates disagreed on.
     """
+    scenario_hash = digest.scenario_hash
     if replicate_spread is not None and replicate_spread < 0:
         raise ValueError(f"a replicate spread is a distance between worlds and is never negative, got {replicate_spread}")
     moves = _moves(view)
