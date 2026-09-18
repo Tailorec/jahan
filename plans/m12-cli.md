@@ -27,12 +27,12 @@ The path from a clean checkout to a report, with nothing required. `concepts run
 
 ### Acceptance criteria
 
-- [ ] `concepts run brief.yaml --fake` writes `report.md` and `report.json` into a run-named directory
-- [ ] It needs no API key, no corpus download and no network, asserted by the suite's own network refusal
-- [ ] It prints the run id, and the id matches the artefacts and the registry entry
-- [ ] The whole pipeline runs — population, world, agent, runner, trace, analysis, report — with no module stubbed
-- [ ] The command is a CI target rather than a manual step
-- [ ] Two fake runs under one seed produce identical reports
+- [x] `concepts run brief.yaml --fake` writes `report.md` and `report.json` into a run-named directory
+- [x] It needs no API key, no corpus download and no network, asserted by the suite's own network refusal
+- [x] It prints the run id, and the id matches the artefacts and the registry entry
+- [x] The whole pipeline runs — population, world, agent, runner, trace, analysis, report — with no module stubbed
+- [x] The command is a CI target rather than a manual step
+- [x] Two fake runs under one seed produce identical reports
 
 ---
 
@@ -46,11 +46,11 @@ The mapping a shell can branch on, in one place. A failed gate exits 2, an exhau
 
 ### Acceptance criteria
 
-- [ ] Each mapped exception class produces its documented exit code
-- [ ] An unmapped exception exits 1 and prints what happened
-- [ ] A failed gate exits 2 and writes the gate report that explains it
-- [ ] An exhausted budget exits 3 and leaves every completed world's artefacts in place
-- [ ] The mapping lives in one place, and a new exception class without a mapping is caught by a test
+- [x] Each mapped exception class produces its documented exit code
+- [x] An unmapped exception exits 1 and prints what happened
+- [x] A failed gate exits 2 and writes the gate report that explains it
+- [x] An exhausted budget exits 3 and leaves every completed world's artefacts in place
+- [x] The mapping lives in one place, and a new exception class without a mapping is caught by a test
 
 ---
 
@@ -64,11 +64,11 @@ The two pre-flight commands. `coreset-gate` draws a population and reports its g
 
 ### Acceptance criteria
 
-- [ ] `coreset-gate` writes a gate report and a population manifest, and starts no world
-- [ ] Its exit code distinguishes a failed gate from a crash
-- [ ] `ssr-replica` reports the ladder, rank stability and non-collapse for a named anchor set
-- [ ] A version that fails its check is reported as failing and is not pinned
-- [ ] Both commands print the run id and the path they wrote
+- [x] `coreset-gate` writes a gate report and a population manifest, and starts no world
+- [x] Its exit code distinguishes a failed gate from a crash
+- [x] `ssr-replica` reports the ladder, rank stability and non-collapse for a named anchor set
+- [x] A version that fails its check is reported as failing and is not pinned
+- [x] Both commands print the run id and the path they wrote
 
 ---
 
@@ -82,11 +82,11 @@ The same command without `--fake`: a real population from the corpus, a real end
 
 ### Acceptance criteria
 
-- [ ] A real run writes its trace, digest and both report formats, and prints the run id
-- [ ] A study with no measurable adoption exits 0 and reports why
-- [ ] The report's method disclosure names the pins, seeds and engine commit that produced it
-- [ ] A resume refused by changed inputs exits with the refusal naming what moved
-- [ ] The command passes the environment's endpoint configuration through without reinterpreting it
+- [x] A real run writes its trace, digest and both report formats, and prints the run id
+- [x] A study with no measurable adoption exits 0 and reports why
+- [x] The report's method disclosure names the pins, seeds and engine commit that produced it
+- [x] A resume refused by changed inputs exits with the refusal naming what moved
+- [x] The command passes the environment's endpoint configuration through without reinterpreting it
 
 ---
 
@@ -100,9 +100,9 @@ A grid of scenarios and seeds run as one study under one budget, with per-cell s
 
 ### Acceptance criteria
 
-- [ ] `sweep run --grid grid.yaml --budget 42` runs the grid as one run under one budget
-- [ ] Per-cell summaries are written, carrying each cell's seeds and their spread
-- [ ] A cell that ran degraded is marked in the output
-- [ ] A budget exhausted mid-sweep exits 3 and keeps the completed cells' artefacts
-- [ ] Re-running an interrupted sweep completes only the cells that had not finished
-- [ ] `FINAL_ARCH.md` §5.12, `SALVAGE.md` and `CONTEXT.md` describe what was built
+- [x] `sweep run --grid grid.yaml --budget 42` runs the grid as one run under one budget
+- [x] Per-cell summaries are written, carrying each cell's seeds and their spread
+- [x] A cell that ran degraded is marked in the output
+- [x] A budget exhausted mid-sweep exits 3 and keeps the completed cells' artefacts
+- [x] Re-running an interrupted sweep completes only the cells that had not finished
+- [x] `FINAL_ARCH.md` §5.12, `SALVAGE.md` and `CONTEXT.md` describe what was built
