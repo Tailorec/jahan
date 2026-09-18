@@ -236,3 +236,53 @@ def test_counts_by_source_agree_with_reading_the_matched_rows(fake_cache, predic
     rows = list(source.rows(source.matching(predicates, present=["age_bracket"])))
     assert source.count(predicates, ["age_bracket"], by_source=True) == dict(Counter(row.source for row in rows))
     assert source.count(predicates, ["age_bracket"], by_source=False) == len(rows)
+
+
+def _grounding_chunks(rows_per_chunk):
+    """A grounding column in several chunks, as a parquet reader hands back a large shard."""
+    import pyarrow as pa
+
+    kind = pa.list_(pa.struct([("field_index", pa.int32()), ("assignment_type", pa.string())]))
+    return pa.chunked_array([pa.array(rows, type=kind) for rows in rows_per_chunk], type=kind)
+
+
+def test_inferred_rows_are_numbered_across_chunks():
+    """Each chunk numbers its rows from zero; the shard numbers them from the start of the shard."""
+    from simcore.ports.hf import _inferred_rows
+
+    column = _grounding_chunks([
+        [[{"field_index": 3, "assignment_type": "inferred"}], [{"field_index": 3, "assignment_type": "direct"}]],
+        [[{"field_index": 3, "assignment_type": "inferred"}]],
+    ])
+    assert {field: sorted(int(row) for row in rows) for field, rows in _inferred_rows(column).items()} == {3: [0, 2]}
+
+
+class _Unjoinable:
+    """A chunked column whose chunks cannot be concatenated, as Arrow refuses past 2 GB."""
+
+    def __init__(self, column):
+        self._column = column
+        self.chunks = list(column.chunks)
+
+    def __len__(self):
+        return len(self._column)
+
+    def combine_chunks(self):
+        import pyarrow as pa
+
+        raise pa.lib.ArrowInvalid("offset overflow while concatenating arrays")
+
+
+def test_a_shard_too_large_to_combine_is_still_read():
+    """`grounding` on the release's largest shard holds more than two gigabytes of child data, and
+    combining its chunks into one array overflows Arrow's 32-bit string offsets: the first real
+    population draw died with `ArrowInvalid: offset overflow while concatenating arrays`. The
+    fixtures are small, and the real-corpus tests read the first 25 rows of a batch, so nothing
+    ever combined a whole shard's column."""
+    from simcore.ports.hf import _inferred_rows
+
+    column = _Unjoinable(_grounding_chunks([
+        [[{"field_index": 1, "assignment_type": "inferred"}]],
+        [[{"field_index": 1, "assignment_type": "direct"}], [{"field_index": 2, "assignment_type": "inferred"}]],
+    ]))
+    assert {field: sorted(int(row) for row in rows) for field, rows in _inferred_rows(column).items()} == {1: [0], 2: [2]}

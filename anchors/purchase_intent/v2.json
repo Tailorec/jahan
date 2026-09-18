@@ -1,0 +1,48 @@
+{
+  "construct": "purchase_intent",
+  "version": "v2",
+  "sets": [
+    [
+      "I would never buy this.",
+      "I probably would not buy this.",
+      "I might or might not buy this.",
+      "I probably would buy this.",
+      "I would definitely buy this."
+    ],
+    [
+      "There is no chance that I would buy this.",
+      "It is unlikely that I would buy this.",
+      "It is an even chance that I would buy this.",
+      "It is likely that I would buy this.",
+      "It is certain that I would buy this."
+    ],
+    [
+      "I will not be buying this at all.",
+      "I doubt that I will be buying this.",
+      "I am undecided about whether I will buy this.",
+      "I expect that I will be buying this.",
+      "I am sure that I will be buying this."
+    ],
+    [
+      "Buying this is out of the question for me.",
+      "Buying this is improbable for me.",
+      "Buying this is a coin flip for me.",
+      "Buying this is probable for me.",
+      "Buying this is a certainty for me."
+    ],
+    [
+      "I would definitely not buy this.",
+      "I would most likely not buy this.",
+      "I may or may not buy this.",
+      "I would most likely buy this.",
+      "I would certainly buy this."
+    ],
+    [
+      "Under no circumstances would I buy this.",
+      "I am not likely to buy this.",
+      "I am as likely to buy this as not.",
+      "I am quite likely to buy this.",
+      "I am absolutely going to buy this."
+    ]
+  ]
+}

@@ -145,3 +145,28 @@ def test_ssr_replica_passes_a_version_that_clears_its_check(tmp_path, monkeypatc
     diagnostics = json.loads((out / RUN_ID / "anchors-check.json").read_text())
     assert diagnostics["passed"] is True and diagnostics["pinnable"] is True
     assert_pinnable("test-set-v9", "purchase_intent", "v9", tmp_path / "anchors", embed_model_id="test/designed-1")
+
+
+def test_a_study_says_which_anchor_version_it_runs_on(tmp_path, monkeypatch):
+    """A construct holding several frozen versions refuses with "the study must say which one",
+    and until now there was no way to say it: the moment a second version exists — which is what
+    happens when a failing scale is superseded — no study could run at all."""
+    import shutil
+
+    monkeypatch.chdir(tmp_path)
+    anchors = tmp_path / "anchors"
+    shutil.copytree(ANCHORS, anchors)
+    shutil.copy(anchors / "purchase_intent" / "v1.json", anchors / "purchase_intent" / "v9.json")
+    (anchors / "purchase_intent" / "v9.json").write_text(
+        (anchors / "purchase_intent" / "v1.json").read_text().replace('"v1"', '"v9"'))
+
+    out = tmp_path / "runs"
+    base = ["concepts", "run", str(BRIEF), "--fake", "--ontologies", str(ONTOLOGIES),
+            "--anchors", str(anchors), "--out", str(out), "--n", "24", "--horizon", "2"]
+    code, output = run_command(*base, "--run-id", "run-" + "0" * 24 + "20")
+    assert code == 2
+    assert "v1" in output and "v9" in output
+
+    code, output = run_command(*base, "--run-id", "run-" + "0" * 24 + "21",
+                               "--anchor-version", "purchase_intent=v9")
+    assert code == 0, output

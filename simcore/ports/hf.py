@@ -370,20 +370,36 @@ def _inferred_rows(grounding) -> dict[int, np.ndarray]:
 
     Read with vector compute: a wiki shard carries tens of millions of grounding entries, far too many to
     walk as Python objects. A null assignment type is not an inference, so nullness is tested explicitly —
-    `is_in` reports a null as a non-member rather than as null."""
+    `is_in` reports a null as a non-member rather than as null.
+
+    Read chunk by chunk, never combined: the release's largest shard holds more than two gigabytes of
+    grounding child data, and concatenating its chunks into one array overflows Arrow's 32-bit offsets.
+    Each chunk numbers its rows from zero, so the rows it reports are shifted by the rows before it."""
     import pyarrow as pa
     import pyarrow.compute as pc
 
-    column = grounding.combine_chunks() if hasattr(grounding, "combine_chunks") else grounding
-    entries = column.flatten()
-    if len(entries) == 0:
+    chunks = list(grounding.chunks) if hasattr(grounding, "chunks") else [grounding]
+    value_set = pa.array(sorted(_RECORDED_ASSIGNMENTS))
+    field_parts: list[np.ndarray] = []
+    parent_parts: list[np.ndarray] = []
+    rows_before = 0
+    for chunk in chunks:
+        entries = chunk.flatten()
+        if len(entries):
+            chunk_parents = pc.list_parent_indices(chunk).to_numpy() + rows_before
+            chunk_fields = entries.field("field_index").to_numpy(zero_copy_only=False)
+            types = entries.field("assignment_type")
+            recorded = pc.or_(pc.is_in(types, value_set=value_set), pc.is_null(types))
+            inferred = ~recorded.to_numpy(zero_copy_only=False)
+            field_parts.append(chunk_fields[inferred])
+            parent_parts.append(chunk_parents[inferred])
+        rows_before += len(chunk)
+    if not field_parts:
         return {}
-    parents = pc.list_parent_indices(column).to_numpy()
-    fields = entries.field("field_index").to_numpy(zero_copy_only=False)
-    types = entries.field("assignment_type")
-    recorded = pc.or_(pc.is_in(types, value_set=pa.array(sorted(_RECORDED_ASSIGNMENTS))), pc.is_null(types))
-    inferred = ~recorded.to_numpy(zero_copy_only=False)
-    fields, parents = fields[inferred], parents[inferred]
+    fields = np.concatenate(field_parts)
+    parents = np.concatenate(parent_parts)
+    if len(fields) == 0:
+        return {}
     order = np.argsort(fields, kind="stable")
     fields, parents = fields[order], parents[order]
     boundaries = np.flatnonzero(np.diff(fields)) + 1
