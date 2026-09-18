@@ -38,7 +38,7 @@ Feeds modules: **`agent`, `world`, `trace`**. Fully redistributable — Apache-2
 
 ## 2. ASAL — `github.com/SakanaAI/asal` (Apache-2.0, JAX)
 
-Nothing is copy-pasted: JAX/CLIP is the wrong modality, so anything used here is reimplemented in plain Python. Only the sweep pattern ships now; the illumination and optimisation algorithms map to `analysis` and are deferred (`FINAL_ARCH.md` §12).
+Nothing is copy-pasted: JAX/CLIP is the wrong modality, so anything used here is reimplemented in plain Python. Only the sweep pattern ships now; the illumination and optimisation algorithms map to `analysis` and are deferred (`FINAL_ARCH.md` §12). **Shipped (M10 `analysis`):** derivation itself — per-world digests with optional intent, scenario spread, medoid-quoted embedding clusters, rule-based anomalies, extracted findings and the trust guard — is new code with no salvage: cosine clustering, the JSD-based polarization and the anomaly arithmetic are implemented directly against the trace views.
 
 | Repo path | Verdict | → Module | Notes |
 |---|---|---|---|
