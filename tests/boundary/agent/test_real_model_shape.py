@@ -77,3 +77,50 @@ def test_the_question_asks_for_a_short_answer():
 
     assert "brief" in REACTION_QUESTION.lower() or "short" in REACTION_QUESTION.lower()
     assert "sentence" in REACTION_QUESTION.lower()
+
+
+def test_a_probe_answer_is_parsed_as_models_write_it():
+    """Every probe in the first real study came back `(no answer)`: the probe parser had the same
+    bare `json.loads` the turn parser had, and the model fenced its JSON the same way."""
+    from simcore.agent._probe import parse_probe_answers
+
+    body = '{"answers": ["6-10"]}'
+    assert parse_probe_answers(f"```json\n{body}\n```", 1) == ["6-10"]
+    assert parse_probe_answers(body, 1) == ["6-10"]
+    assert parse_probe_answers("I would rather not say", 1) is None
+
+
+def test_the_turn_asks_the_persona_how_its_views_moved():
+    """Across 400 real turns no belief moved at all — the parser reads `belief_deltas` but the
+    question never asked for them. With beliefs frozen, reflection can only ever fire on its
+    cadence, word of mouth never fires at all (its gate is how strongly a reaction was felt),
+    and a belief-shift finding has nothing to find."""
+    from simcore.agent._prompt import REACTION_QUESTION
+
+    assert "belief_deltas" in REACTION_QUESTION
+    for dimension in ("value", "fit", "trust"):
+        assert dimension in REACTION_QUESTION
+
+
+def test_a_stated_belief_move_reaches_the_turn_and_the_state():
+    from simcore.agent import advance_state
+
+    job = make_job(0, tick=1)
+    stimulus_id = job.presentation.impression.exposures[0].stimulus_id
+
+    def moved(messages, template_id: str) -> str:
+        body = json.dumps(
+            {
+                "subject_stimulus_id": stimulus_id,
+                "action": "comment",
+                "verbatim": "that claim moved me",
+                "belief_deltas": {"dimensions": {"trust": 0.2}, "claim_credence": {"C1": 0.3}},
+            }
+        )
+        return f"```json\n{body}\n```"
+
+    (outcome,) = turns([job], chat=FakeChat(responder=moved), config=AgentConfig(run_seed=7))
+    assert isinstance(outcome, CompletedTurn)
+    assert outcome.belief_change.dimensions, "a stated belief move never reached the turn"
+    after = advance_state(job.state, outcome, tick=1, memory_cap=50)
+    assert after.beliefs.dimensions != job.state.beliefs.dimensions

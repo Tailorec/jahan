@@ -71,6 +71,9 @@ class Metered:
         self.tokens: Counter = Counter()
         self.calls: Counter = Counter()
         self.failures: Counter = Counter()
+        # A cached answer costs nothing and reaches no endpoint; counting it as a billed call
+        # would report a run that never happened.
+        self.routes: Counter = Counter()
 
     @property
     def served_models(self):
@@ -86,6 +89,9 @@ class Metered:
             self.calls["chat"] += 1
             billed = (outcome.cost, *outcome.discarded_costs) if isinstance(outcome, Completion) else outcome.costs
             for cost in billed:
+                self.routes[cost.route.value] += 1
+                if cost.route.value == "cache":
+                    continue
                 self.tokens[f"{cost.role.value}_in"] += cost.input_tokens
                 self.tokens[f"{cost.role.value}_out"] += cost.output_tokens
             if not isinstance(outcome, Completion):
@@ -96,7 +102,9 @@ class Metered:
         result = self.client.embed(texts)
         self.calls["embed"] += 1
         for cost in result.costs:
-            self.tokens["embed_in"] += cost.input_tokens
+            self.routes[cost.route.value] += 1
+            if cost.route.value != "cache":
+                self.tokens["embed_in"] += cost.input_tokens
         return result
 
     @property
@@ -228,8 +236,18 @@ def main() -> None:
         store.create_world(config.run_id, header)
         return World(header, population=population, config=WorldConfig(platform=args.channel))
 
+    published: dict[str, str] = {}
+
     def agent_fn(jobs, plan=None):
-        return agent_turns(jobs, chat=metered, config=agent_config, ontology=pack.ontology, blocks=blocks, embed=metered)
+        # Every stimulus this world has published, by id: what a persona is actually shown.
+        for world_id in store.world_ids(config.run_id):
+            for event in Sink(store, config.run_id).events_for(world_id):
+                if event.payload.kind == "stimulus_published":
+                    published[event.payload.stimulus.stimulus_id] = event.payload.stimulus.text
+        return agent_turns(
+            jobs, chat=metered, config=agent_config, ontology=pack.ontology, blocks=blocks,
+            embed=metered, stimulus_texts=published,
+        )
 
     ran = time.time()
     result = run(
@@ -294,6 +312,7 @@ def main() -> None:
         "probe_disagreement": _probe_rate(events),
         "beliefs_points_first_persona": [point.tick for point in view.beliefs(sorted(p.persona_id for p in population.personas)[0]).points],
         "calls": dict(metered.calls),
+        "routes": dict(metered.routes),
         "tokens": dict(metered.tokens),
         "failures": dict(metered.failures),
         "registry": {

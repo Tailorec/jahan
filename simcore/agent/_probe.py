@@ -15,6 +15,7 @@ import random
 import re
 from collections.abc import Sequence
 
+from simcore.ports.answers import coerce_json
 from simcore.schemas import ChatRequest, InferenceRole, Persona, ProbeAnswer, ProbeResult
 
 PROBE_QUESTION = (
@@ -145,9 +146,11 @@ def probe_request(block: str, asked: Sequence[tuple[str, str, Sequence[str]]], t
 
 def parse_probe_answers(text: str, count: int) -> list[str] | None:
     """The model's answers in order, or nothing when the response cannot be used."""
+    # The same tolerance the turn parser has: a real model fences its JSON, and every probe of
+    # the first real study came back "(no answer)" because this one did not.
     try:
-        raw = json.loads(text)
-    except (json.JSONDecodeError, TypeError, ValueError):
+        raw = coerce_json(text)
+    except ValueError:
         return None
     if not isinstance(raw, dict) or not isinstance(raw.get("answers"), list):
         return None
