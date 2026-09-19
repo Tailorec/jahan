@@ -137,6 +137,7 @@ export interface Variant {
   emphasized_claims: string[];
 }
 export interface Scenario {
+  scenario_hash?: string;
   variant: Variant;
   price: Price;
   audience_weights: Record<string, number>;
@@ -225,6 +226,7 @@ export interface Finding {
   evidence_trace_ids: string[];
   disconfirming_test: string;
   confidence: Confidence;
+  ranked_scenarios?: string[];
 }
 export interface ObjectionCluster {
   label: string;
