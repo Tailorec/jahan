@@ -21,6 +21,7 @@ from simcore.analysis import (
     digest,
     findings,
     spread,
+    trace_summary,
     trust_statement,
 )
 from simcore.brief import load_brief
@@ -524,6 +525,25 @@ def analyze_study(handles: StudyHandles, result: RunResult) -> dict:
             "clusters": clusters,
         }
     return {"digests": digests, "worlds": worlds, "summaries": summaries}
+
+
+def write_trace_summary(handles: StudyHandles, result: RunResult) -> dict:
+    """Write `trace-summary.json` over every world that has any record.
+
+    A finished run's worlds answer from their finalized record, a paused run's
+    from its live one — a live view shows every closed tick and nothing more, so
+    a paused run writes what it has. The summary joins the five shapes and nothing
+    else; the CLI derives nothing.
+    """
+    views = {}
+    for outcome in result.outcomes:
+        try:
+            views[outcome.world_id] = handles.store.view(handles.run_id, outcome.world_id)
+        except Exception:
+            continue
+    summary = trace_summary(views, run_id=handles.run_id)
+    (handles.run_dir / "trace-summary.json").write_text(summary.model_dump_json(indent=2) + "\n")
+    return json.loads(summary.model_dump_json())
 
 
 def write_report(handles: StudyHandles, analysis: dict, *, validation: str) -> dict:

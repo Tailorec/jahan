@@ -26,6 +26,7 @@ from ._study import (
     prepare_study,
     run_study,
     write_report,
+    write_trace_summary,
 )
 
 
@@ -99,6 +100,7 @@ def cmd_sweep_run(argv: list[str] | None = None) -> int:
     )
     result = run_study(handles, channel=args.channel, force=args.force)
     (handles.run_dir / "result.json").write_text(result.model_dump_json(indent=2) + "\n")
+    write_trace_summary(handles, result)
 
     if any(outcome.status.value == "completed" for outcome in result.outcomes):
         analysis = analyze_study(handles, result)
