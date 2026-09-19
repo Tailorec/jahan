@@ -7,7 +7,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import yaml from "js-yaml";
 import type {
-  Brief, CategoryOntology, GateReport, OutcomeDigest, PopulationManifest,
+  Brief, CategoryOntology, GateReport, OutcomeDigest, PopulationManifest, PersonaRecord,
   RunSummary, StudyReport, UITrace, ScenarioSummary,
 } from "./engine";
 
@@ -316,7 +316,7 @@ export async function readTrace(runId: string): Promise<UITrace | null> {
    HTTP and no file is read. Resolved finding evidence is gathered per world
    through `resolve`, capped the way the export script caps it. */
 export async function readRunDetailViaApi(runId: string) {
-  const [summary, digest, report, gate, manifest, traceSummary] = await Promise.all([
+  const [summary, digest, report, gate, manifest, traceSummary, personas, ontology] = await Promise.all([
     engineFetch<RunSummary>(`/api/runs/${runId}`),
     engineFetch<{ digests: OutcomeDigest[]; run_id: string; summaries: Record<string, ScenarioSummary> }>(
       `/api/runs/${runId}/digest`,
@@ -325,6 +325,10 @@ export async function readRunDetailViaApi(runId: string) {
     engineFetch<GateReport>(`/api/runs/${runId}/gate`).catch(() => null),
     engineFetch<PopulationManifest>(`/api/runs/${runId}/manifest`).catch(() => null),
     engineFetch<TraceSummaryFile>(`/api/runs/${runId}/summary`),
+    engineFetch<{ personas: PersonaRecord[]; total: number }>(
+      `/api/runs/${runId}/personas?limit=6`,
+    ).catch(() => null),
+    engineFetch<CategoryOntology>(`/api/runs/${runId}/ontology`).catch(() => null),
   ]);
   const resolved: UITrace["resolved"] = {};
   if (report) {
@@ -349,13 +353,16 @@ export async function readRunDetailViaApi(runId: string) {
     report,
     trace: projectSummary(traceSummary, resolved),
     pins: (summary as unknown as { pins: Record<string, { model_id: string }> | null }).pins ?? null,
+    personas: personas?.personas ?? null,
+    personaTotal: personas?.total ?? 0,
+    ontology,
   };
 }
 
 export async function readRunDetail(runId: string) {
   if (engineApiBase()) return readRunDetailViaApi(runId);
   const dir = path.join(engineRoot(), "runs", runId);
-  const [summary, gate, manifest, digest, report, trace] = await Promise.all([
+  const [summary, gate, manifest, digest, report, trace, personasFile, ontology] = await Promise.all([
     readRunSummary(runId),
     readJson<GateReport>(path.join(dir, "gate-report.json")),
     readJson<PopulationManifest>(path.join(dir, "manifest.json")),
@@ -364,11 +371,19 @@ export async function readRunDetail(runId: string) {
     ),
     readJson<StudyReport>(path.join(dir, "report.json")),
     readTrace(runId),
+    readJson<{ run_id: string; personas: PersonaRecord[] }>(path.join(dir, "personas.json")),
+    readJson<CategoryOntology>(path.join(dir, "ontology.json")),
   ]);
   const result = await readJson<{ registry: { config: { pins: Record<string, { model_id: string }> } } }>(
     path.join(dir, "result.json"),
   );
-  return { summary, gate, manifest, digest, report, trace, pins: result?.registry.config.pins ?? null };
+  return {
+    summary, gate, manifest, digest, report, trace,
+    pins: result?.registry.config.pins ?? null,
+    personas: personasFile?.personas.slice(0, 6) ?? null,
+    personaTotal: personasFile?.personas.length ?? 0,
+    ontology,
+  };
 }
 
 export async function readAnchorsCheck() {

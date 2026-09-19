@@ -59,7 +59,7 @@ export default function OverviewPage() {
                     <td className="num">{r.finding_count}</td>
                     <td className="num">
                       {r.has_report ? <Link href={`/report?run=${r.run_id}`}>Report {ICONS.ext}</Link>
-                        : r.has_gate_report ? <Link href={`/cohort?run=${r.run_id}`}>Gates {ICONS.ext}</Link> : null}
+                        : r.has_gate_report ? <Link href={`/population?run=${r.run_id}`}>Gates {ICONS.ext}</Link> : null}
                     </td>
                   </tr>
                 ))}

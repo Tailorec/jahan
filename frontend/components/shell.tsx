@@ -7,7 +7,7 @@ import React from "react";
 const PAGES: { href: string; label: string; step?: string }[] = [
   { href: "/", label: "Overview" },
   { href: "/intake", label: "New study", step: "1" },
-  { href: "/cohort", label: "Cohort preview", step: "2" },
+  { href: "/population", label: "Population", step: "2" },
   { href: "/run", label: "Simulation run", step: "3" },
   { href: "/atlas", label: "Scenario atlas", step: "4" },
   { href: "/report", label: "Report", step: "5" },
@@ -42,7 +42,7 @@ export default function Shell({ crumbs, children }: { crumbs: React.ReactNode; c
           <div className="nav-label">Studies</div>
           <Link className="nav-item" href="/report"><span className="step-no">•</span>Oral-care electric brush</Link>
           <Link className="nav-item" href="/atlas"><span className="step-no">•</span>Protein water launch</Link>
-          <Link className="nav-item" href="/cohort"><span className="step-no">•</span>Refill pouch pricing</Link>
+          <Link className="nav-item" href="/population"><span className="step-no">•</span>Refill pouch pricing</Link>
         </nav>
         <div className="side-foot">
           <div>Engine <span className="mono">v0.4.1</span> · seeds pinned</div>

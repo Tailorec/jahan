@@ -80,6 +80,7 @@ export interface GateResult {
   chi_square?: number;
   degrees_of_freedom?: number;
   p_value?: number;
+  significance_level?: number;
   ks_statistic?: number;
   ks_similarity?: number;
   similarity_threshold?: number;
@@ -118,6 +119,13 @@ export interface PopulationManifest {
   synthesized_share: number;
   completion?: { model_id: string; template_id: string; template_hash: string } | null;
   parameters?: unknown;
+}
+export interface PersonaRecord {
+  persona_id: string;
+  source: string;
+  conditioning: Record<string, string>;
+  attributes: Record<string, string>;
+  origins: Record<string, FieldOrigin>;
 }
 
 /* ---------- run ---------- */

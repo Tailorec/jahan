@@ -269,7 +269,7 @@ export default function IntakePage() {
             </div>
           </div>
           <div className="panel">
-            <div className="panel-head"><h2>Cohort gate</h2><span className="hint">real coreset-gate · --fake corpus · no spend</span></div>
+            <div className="panel-head"><h2>Population gate</h2><span className="hint">real coreset-gate · --fake corpus · no spend</span></div>
             <div className="panel-body" style={{ display: "grid", gap: 10 }}>
               <div className="field" style={{ margin: 0 }}><label>n personas</label><input className="input mono" value={n} onChange={(e) => setN(e.target.value)} /></div>
               <button className="btn primary" disabled={gating} onClick={runGate}>{gating ? "Gating…" : `Run gate ${ICONS.arrow}`}</button>
@@ -289,7 +289,7 @@ export default function IntakePage() {
                       ))}
                     </tbody></table>
                     {gate.manifest && <p className="sub mono" style={{ color: "var(--ink-3)" }}>{gate.manifest.persona_ids.length} personas · synthesized {(gate.manifest.synthesized_share * 100).toFixed(1)}% · saved under runs/</p>}
-                    {gate.gate.overall && gate.run_id && <Link className="btn sm" href={`/cohort?run=${gate.run_id}`}>Open gate report {ICONS.arrow}</Link>}
+                    {gate.gate.overall && gate.run_id && <Link className="btn sm" href={`/population?run=${gate.run_id}`}>Open gate report {ICONS.arrow}</Link>}
                   </>
                 ) : (
                   <Callout icon="alert"><div><b>Intake refused the brief (exit {gate.code}).</b><pre className="mono" style={{ fontSize: 11, whiteSpace: "pre-wrap", marginTop: 6 }}>{gate.stderr || gate.stdout}</pre></div></Callout>

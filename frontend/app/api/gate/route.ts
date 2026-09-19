@@ -8,7 +8,7 @@ import { engineRoot } from "@/lib/server";
 
 const run = promisify(execFile);
 
-/* Run the engine's real cohort gate on an authored brief — fully offline
+/* Run the engine's real population gate on an authored brief — fully offline
    (--fake corpus, fake pins). Mirrors `coreset-gate`: the draw is gated
    before any model is called, a failing draw exits 2 with its gate report. */
 export async function POST(req: Request) {
