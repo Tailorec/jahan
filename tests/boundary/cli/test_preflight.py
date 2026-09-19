@@ -217,3 +217,31 @@ def test_a_study_says_what_it_asks_its_personas(tmp_path, monkeypatch):
     assert asked.elicits.value == "purchase"
     with pytest.raises((GateFailure, ValueError)):
         assemble_scenario(pack, variant_id="v1", name="n", description="d", elicits="nonsense")
+
+
+def test_a_pinned_scale_can_actually_be_scored_with():
+    """`anchor_pins` hands the agent the hashes it scores against, and both `_pinned` and
+    `resolve_anchors` look them up by anchor set id — `resolve_anchors` says so outright.
+    Keyed by construct instead, a passing scale pinned cleanly into the run configuration and
+    then every turn recorded `unpinned_anchors`: 252 real answers kept, not one scored."""
+    from pathlib import Path
+
+    from simcore.agent import AgentConfig
+    from simcore.agent._intent import PURCHASE_CONSTRUCT, _pinned
+    from simcore.brief import load_brief
+    from simcore.cli._study import anchor_pins
+
+    pack = load_brief(REPO_ROOT / "examples" / "protein_water_persona1m.yaml", ONTOLOGIES)
+    set_hashes, set_ids, versions, hashes = anchor_pins(
+        pack, REPO_ROOT / "anchors", embed_pin="amazon.titan-embed-text-v2:0",
+        chosen={"purchase_intent": "v2"})
+    assert set_ids[PURCHASE_CONSTRUCT] == "purchase-intent-v1"
+    assert versions[PURCHASE_CONSTRUCT] == "v2"
+    # The hashes the scorer resolves against are keyed the way the scorer looks them up.
+    assert set(hashes) <= set(set_hashes), "anchor hashes are keyed by anchor set id"
+    assert set_ids[PURCHASE_CONSTRUCT] in hashes
+
+    cfg = AgentConfig(
+        run_seed=4021, anchor_set_ids=set_ids, anchor_versions=versions, anchor_hashes=hashes,
+        anchors_dir=str(REPO_ROOT / "anchors"), category=pack.brief.product.category)
+    assert _pinned(cfg), "a scale that passed its check must be usable for scoring"

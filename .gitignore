@@ -8,3 +8,8 @@ dist/
 build/
 # Regenerated scratch of the M10 reconciliation study; the committed partitions beside it are the record.
 docs/evaluations/m10-analysis/trace/
+
+# Study artefacts: traces, reports and populations a run writes. They are large, they are
+# regenerable from the configuration that made them, and a SQLite trace is not reviewable in a
+# diff. Kept on disk, never in the repository.
+runs/

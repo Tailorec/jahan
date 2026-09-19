@@ -172,7 +172,11 @@ def anchor_pins(
     pack: BriefPack, anchors_dir: Path, *, embed_pin: str, chosen: dict[str, str] | None = None
 ) -> tuple[dict[str, str], dict[str, str], dict[str, str], dict[str, str]]:
     """Pin every anchor set the ontology names by content hash, and the versions the
-    check lets through for scoring. A set with no frozen version file, or several,
+    check lets through for scoring.
+
+    Returns `(set_hashes, set_ids, versions, hashes)`: every set the ontology names by set id,
+    the set and version each construct scores on, and — by set id again — the hashes a scorer
+    resolves against. A set with no frozen version file, or several,
     refuses: the study must say which scale it runs on. A version whose check failed —
     every version until one passes — stays pinned but unscored, so intent goes
     unmeasured and the verbatim is kept with its failure (ADR 0029, ADR 0032).
@@ -221,7 +225,11 @@ def anchor_pins(
             continue
         set_ids[construct] = record.anchor_set_id
         versions[construct] = record.version
-        hashes[construct] = record.anchor_hash
+        # Keyed by anchor set id, because that is how the scorer looks them up: `resolve_anchors`
+        # takes `RunConfig.anchor_set_hashes` — set id to content hash — and `_pinned` asks whether
+        # the construct's set id is among them. Keyed by construct, a scale that passed its check
+        # pinned cleanly and then failed to score a single turn.
+        hashes[record.anchor_set_id] = record.anchor_hash
     return set_hashes, set_ids, versions, hashes
 
 
