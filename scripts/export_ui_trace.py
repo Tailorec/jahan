@@ -1,12 +1,16 @@
-"""Export Trace View answers to `ui-trace.json` for the Next.js UI layer.
+"""Export a run's trace summary for the Next.js UI layer.
 
-Reads a finalized run's parquet partitions through simcore's own
-ParquetTraceView (the same Trace View the report cites) and writes a compact,
-UI-ready summary: per-world event counts, sampled belief histories, top WOM
-edges, verbatim groups, cost ledger by role, and resolved finding evidence.
+Builds `trace-summary.json` through `simcore.analysis.trace_summary` — the one
+implementation that joins the five shapes — over the run's finalized record, then
+projects the legacy `ui-trace.json` the interface reads today (counts, sampled
+belief histories, top edges, verbatim samples, costs, resolved finding evidence).
 
 Usage:
     .venv/bin/python scripts/export_ui_trace.py runs/<run-id> [--worlds w1,w2]
+
+New runs do not need this: the CLI writes `trace-summary.json` beside
+`report.json` at the end of every run. It exists for runs recorded before the
+summary was an artefact.
 """
 
 from __future__ import annotations
@@ -14,7 +18,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from collections import Counter
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -29,7 +32,7 @@ def main() -> int:
     ap.add_argument("--edge-top", type=int, default=60)
     args = ap.parse_args()
 
-    from simcore.schemas.query import EventFilter
+    from simcore.analysis import trace_summary
     from simcore.trace.views import ParquetTraceView
 
     run_dir: Path = args.run_dir
@@ -41,9 +44,18 @@ def main() -> int:
         world_ids = [w for w in world_ids if w in want]
 
     trace_root = run_dir / "trace"
+    views = {world_id: ParquetTraceView(str(trace_root), run_id, (world_id,)) for world_id in world_ids}
+
+    # The engine's own join — every number below comes from this object.
+    summary = trace_summary(views, run_id=run_id)
+    summary_dest = run_dir / "trace-summary.json"
+    summary_dest.write_text(summary.model_dump_json(indent=2) + "\n")
+
+    dumped = json.loads(summary.model_dump_json())
+    by_world = {world["world_id"]: world for world in dumped["per_world"]}
     out: dict = {
         "run_id": run_id,
-        "worlds": world_ids,
+        "worlds": dumped["worlds"],
         "event_counts": {},
         "max_tick": {},
         "belief_histories": {},
@@ -51,89 +63,59 @@ def main() -> int:
         "edges_top": [],
         "verbatim_groups": {},
         "costs": [],
-        "recorded_cost": result["registry"].get("recorded_cost", 0.0),
+        "recorded_cost": dumped["recorded_cost"],
         "resolved": {},
     }
 
     for world_id in world_ids:
-        view = ParquetTraceView(str(trace_root), run_id, (world_id,))
-        events = view.events(EventFilter())
-        counts = Counter(e.payload.kind for e in events)
-        out["event_counts"][world_id] = dict(counts)
-        out["max_tick"][world_id] = max((e.tick for e in events), default=0)
-
-        # Belief histories: personas with the longest snapshot trails.
-        persona_ticks: Counter[str] = Counter(
-            e.persona_id for e in events
-            if e.payload.kind == "belief_snapshot" and e.persona_id
-        )
-        chosen = [p for p, _ in persona_ticks.most_common(args.belief_personas)]
+        world = by_world[world_id]
+        out["event_counts"][world_id] = world["event_counts"]
+        out["max_tick"][world_id] = world["max_tick"]
+        chosen = [history["persona_id"] for history in world["belief_histories"]][: args.belief_personas]
         out["belief_personas"][world_id] = chosen
-        histories: dict[str, list] = {}
-        for pid in chosen:
-            try:
-                h = view.beliefs(pid)
-                histories[pid] = [
-                    {"tick": p.tick, "beliefs": json.loads(p.model_dump_json())["beliefs"]}
-                    for p in h.points
-                ]
-            except Exception:
-                continue
-        out["belief_histories"][world_id] = histories
-
-        # WOM / influence edges.
-        try:
-            edges = view.edges()
-            out["edges_top"] = [
-                {"u": e.u, "v": e.v, "channel": e.channel,
-                 "count": e.count, "last_tick": e.last_tick}
-                for e in sorted(edges, key=lambda e: -e.count)[: args.edge_top]
+        out["belief_histories"][world_id] = {
+            history["persona_id"]: [
+                {"tick": point["tick"], "beliefs": _flatten(point["beliefs"])}
+                for point in history["points"]
             ]
-        except Exception:
-            pass
-
-        # Verbatims grouped by persona and by tick (counts + samples).
+            for history in world["belief_histories"]
+            if history["persona_id"] in set(chosen)
+        }
+        top = sorted(world["edges"], key=lambda e: -e["count"])[: args.edge_top]
+        out["edges_top"].extend(top)
         for grouping in ("persona", "tick"):
-            try:
-                groups = view.verbatims(grouping)  # type: ignore[arg-type]
-            except Exception:
-                continue
-            ranked = sorted(groups, key=lambda g: -len(g.records))
-            out["verbatim_groups"][grouping] = [
+            groups = sorted(
+                world["verbatim_groups"].get(grouping, []),
+                key=lambda g: -len(g["records"]),
+            )[:24]
+            out["verbatim_groups"].setdefault(grouping, []).extend([
                 {
-                    "key": g.key,
-                    "count": len(g.records),
+                    "key": group["key"],
+                    "count": len(group["records"]),
                     "samples": [
                         {
-                            "event_id": r.event_id,
-                            "persona_id": r.persona_id,
-                            "tick": r.tick,
-                            "text": r.text[:500],
-                            "action": r.action,
+                            "event_id": record["event_id"],
+                            "persona_id": record["persona_id"],
+                            "tick": record["tick"],
+                            "text": record["text"][:500],
+                            "action": record["action"],
                         }
-                        for r in g.records[:3]
+                        for record in group["records"][:3]
                     ],
                 }
-                for g in ranked[:24]
-            ]
+                for group in groups
+            ])
 
-        # Cost ledger by role from cost events.
-        roles: dict[str, dict] = {}
-        for e in events:
-            if e.payload.kind != "cost":
-                continue
-            p = e.payload
-            role = getattr(p, "role", "unknown")
-            row = roles.setdefault(role, {"role": role, "calls": 0,
-                                          "input_tokens": 0, "output_tokens": 0,
-                                          "cost": 0.0})
-            row["calls"] += 1
-            row["input_tokens"] += getattr(p, "input_tokens", 0) or 0
-            row["output_tokens"] += getattr(p, "output_tokens", 0) or 0
-            c = getattr(p, "cost", None)
-            if c is not None:
-                row["cost"] += c
-        out["costs"] = list(roles.values())
+    out["costs"] = [
+        {
+            "role": row["role"],
+            "calls": row["calls"],
+            "input_tokens": row["input_tokens"],
+            "output_tokens": row["output_tokens"],
+            "cost": row["cost"],
+        }
+        for row in dumped["costs"]
+    ]
 
     # Resolve every finding's cited evidence through the Trace View.
     report_path = run_dir / "report.json"
@@ -144,17 +126,13 @@ def main() -> int:
             want_ids.extend(f.get("evidence_trace_ids", [])[:12])
         for c in report.get("objection_clusters", [])[:24]:
             want_ids.extend(c.get("verbatim_trace_ids", [])[:4])
-        seen: dict[str, bool] = {}
-        unique = [i for i in want_ids if not seen.setdefault(i, True) and True]
-        # (dedup preserving order)
         unique = list(dict.fromkeys(want_ids))
         for world_id in world_ids:
-            view = ParquetTraceView(str(trace_root), run_id, (world_id,))
             missing = [i for i in unique if i not in out["resolved"]]
             if not missing:
                 break
             try:
-                for e in view.resolve(missing):
+                for e in views[world_id].resolve(missing):
                     d = e.model_dump(mode="json")
                     out["resolved"][e.event_id] = {
                         "event_id": e.event_id,
@@ -169,8 +147,17 @@ def main() -> int:
 
     dest = run_dir / "ui-trace.json"
     dest.write_text(json.dumps(out))
+    print(f"wrote {summary_dest} ({summary_dest.stat().st_size / 1024:.0f} KiB)")
     print(f"wrote {dest} ({dest.stat().st_size / 1024:.0f} KiB)")
     return 0
+
+
+def _flatten(beliefs: dict) -> dict:
+    """A `Beliefs` snapshot as one flat record: dimensions beside claim credences."""
+    flat = dict(beliefs.get("dimensions", {}))
+    for claim, credence in (beliefs.get("claim_credence") or {}).items():
+        flat[claim] = credence
+    return flat
 
 
 if __name__ == "__main__":
