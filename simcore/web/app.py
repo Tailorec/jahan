@@ -149,6 +149,7 @@ def create_app(
     briefs_dir: str | Path | None = None,
     anchors_dir: str | Path | None = None,
     engine_root: str | Path | None = None,
+    corpus_dir: str | Path | None = None,
 ) -> FastAPI:
     """Serve the engine's record over HTTP. Reads artefacts and views, derives nothing."""
 
@@ -163,6 +164,7 @@ def create_app(
     app.state.briefs_dir = str(briefs_dir) if briefs_dir is not None else None
     app.state.anchors_dir = str(anchors_dir) if anchors_dir is not None else None
     app.state.engine_root = str(engine_root) if engine_root is not None else str(Path.cwd())
+    app.state.corpus_dir = str(corpus_dir) if corpus_dir is not None else None
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -446,6 +448,91 @@ def create_app(
         evidence = _read_json_silent(Path(root, f"{name}.yaml.evidence.json"))
         return {"name": name, "brief": raw, "evidence": evidence}
 
+    @app.get("/api/codebook")
+    def read_codebook(
+        request: Request, query: str = "", offset: int = 0, limit: int = 50,
+    ) -> dict[str, Any]:
+        """The corpus's own attributes with their declared value sets.
+
+        Read from the cached corpus, never from a copy: what can be studied
+        is bounded by the data. Without a corpus present there is nothing to
+        bound it by, and the builder says so.
+        """
+        codebook = _codebook_or_refuse(request)
+        lowered = query.lower()
+        matched = [
+            {"id": attribute, "values": list(codebook.vocabulary(attribute) or ())}
+            for attribute in codebook.attributes
+            if lowered in attribute.lower()
+        ]
+        return {"attributes": _page(matched, offset, limit), "total": len(matched)}
+
+    @app.post("/api/ontologies/validate")
+    def validate_ontology(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """Check a draft against the corpus before it can become a version.
+
+        A draft may be authored without the corpus present, but pinning one
+        needs the codebook — without it the check refuses rather than guesses.
+        """
+        from simcore.brief import validate_against_codebook
+        from simcore.schemas import CategoryOntology
+
+        draft = body.get("ontology", body)
+        try:
+            ontology = CategoryOntology.model_validate(draft)
+        except ValueError as exc:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=422, detail=str(exc))
+        codebook = _codebook_or_refuse(request)
+        try:
+            validate_against_codebook(ontology, codebook)
+        except ValueError as exc:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=422, detail=str(exc))
+        return {"valid": True, "category": ontology.category, "version": str(ontology.version)}
+
+    @app.post("/api/ontologies", status_code=201)
+    def save_ontology(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """Save a validated draft as a new version, leaving every existing one alone.
+
+        An ontology is hashed into every identity a study mints, so an edit is
+        a new version rather than a changed file: past studies keep resolving
+        to what they actually ran on.
+        """
+        from simcore.brief import validate_against_codebook
+        from simcore.schemas import CategoryOntology
+
+        root = request.app.state.ontology_dir
+        if root is None:
+            raise _missing("no ontology directory is configured")
+        draft = body.get("ontology", body)
+        try:
+            ontology = CategoryOntology.model_validate(draft)
+        except ValueError as exc:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=422, detail=str(exc))
+        codebook = _codebook_or_refuse(request)
+        try:
+            validate_against_codebook(ontology, codebook)
+        except ValueError as exc:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=422, detail=str(exc))
+        dest = Path(root, ontology.category, f"{ontology.version}.json")
+        if dest.exists():
+            from fastapi import HTTPException
+
+            raise HTTPException(
+                status_code=409,
+                detail=f"{ontology.category}@{ontology.version} already exists: save as a new version",
+            )
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text("\n".join([ontology.model_dump_json(indent=2), ""]), encoding="utf-8")
+        return {"category": ontology.category, "version": str(ontology.version)}
+
     @app.exception_handler(404)
     async def _not_found(_request: Request, exc: Exception) -> JSONResponse:
         from fastapi import HTTPException
@@ -454,6 +541,31 @@ def create_app(
         return JSONResponse(status_code=404, content={"error": detail})
 
     return app
+
+
+def _codebook_or_refuse(request: Request):
+    """The corpus's own codebook, or an honest refusal when no corpus is cached."""
+    from simcore.ports.decoder import Codebook
+
+    candidates = []
+    if request.app.state.corpus_dir is not None:
+        candidates.append(Path(request.app.state.corpus_dir, "persona_codes.schema.json"))
+    try:
+        from simcore.ports.hf import default_cache_dir
+
+        candidates.append(Path(default_cache_dir(), "persona_codes.schema.json"))
+    except Exception:
+        pass
+    for candidate in candidates:
+        if candidate.is_file():
+            return Codebook.from_json(candidate)
+    from fastapi import HTTPException
+
+    raise HTTPException(
+        status_code=409,
+        detail="no corpus is cached here, so no draft can be pinned: author freely, "
+        "then validate where the corpus is present",
+    )
 
 
 def _run_entry(run_dir: Path) -> dict[str, Any] | None:
