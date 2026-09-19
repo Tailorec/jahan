@@ -18,6 +18,7 @@ USAGE = """usage: python -m simcore.cli <command>
   sweep run --grid grid.yaml         a grid of scenarios and seeds under one budget
   coreset-gate --brief b.yaml        gate report and population manifest, no study
   ontology check --ontology o.json   an ontology draft against the corpus codebook
+  brief check --brief b.yaml         a brief against the engine contracts, with its ledger
   ssr-replica --anchors <set>        the anchor check and its distribution diagnostics
 """
 
@@ -53,6 +54,13 @@ def main(argv: list[str] | None = None) -> int:
             from ._ontology import cmd_ontology_check
 
             return cmd_ontology_check(rest[1:])
+        if command == "brief":
+            if not rest or rest[0] != "check":
+                print(USAGE)
+                return 1
+            from ._brief import cmd_brief_check
+
+            return cmd_brief_check(rest[1:])
         if command == "ssr-replica":
             from ._ssr_replica import cmd_ssr_replica
 

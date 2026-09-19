@@ -11,17 +11,27 @@ present, but it cannot become a version until it validates against one.
 from __future__ import annotations
 
 import difflib
+from typing import Protocol
 
-from simcore.ports.decoder import Codebook
 from simcore.schemas import CategoryOntology
 
 
-def suggest_attributes(name: str, codebook: Codebook, limit: int = 3) -> tuple[str, ...]:
+class CodebookLike(Protocol):
+    """What validation needs of a codebook: its attribute names and their
+    vocabularies. A protocol, never a concrete adapter — core imports the
+    protocol only, and any corpus-backed codebook answers it."""
+
+    @property
+    def attributes(self) -> tuple[str, ...]: ...
+    def vocabulary(self, attribute: str) -> tuple[str, ...] | None: ...
+
+
+def suggest_attributes(name: str, codebook: CodebookLike, limit: int = 3) -> tuple[str, ...]:
     """What the codebook has that resembles a name it does not carry."""
     return tuple(difflib.get_close_matches(name, list(codebook.attributes), limit, cutoff=0.5))
 
 
-def validate_against_codebook(ontology: CategoryOntology, codebook: Codebook) -> None:
+def validate_against_codebook(ontology: CategoryOntology, codebook: CodebookLike) -> None:
     """Refuse an ontology the corpus cannot back, naming what moved.
 
     Raises `ValueError` — the web layer renders it as a 422 — so a study can
