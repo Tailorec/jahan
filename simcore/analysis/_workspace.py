@@ -6,7 +6,7 @@ entries rather than by walking partitions.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from simcore.schemas import (
     NonNegativeInt,
     RunRegistryEntry,
@@ -34,11 +34,15 @@ class WorkspaceSummary(SimBaseModel):
 def workspace_summary(
     entries: Sequence[RunRegistryEntry],
     *,
-    reports_written: int | None = None,
+    report_run_ids: Collection[str] | None = None,
 ) -> WorkspaceSummary:
     """Derive a workspace summary from a sequence of RunRegistryEntry objects.
 
     Every number comes from the entries themselves; no partition or trace file is walked.
+    A run that reached `completed` has not necessarily written its report — analysis
+    can fail after the worlds finish — so the caller that knows which runs have a report
+    names them, and only those count as reports written. Without that knowledge a
+    completed run is the best the entries can say.
     """
     total = len(entries)
     completed = sum(1 for e in entries if e.status is RunStatus.COMPLETED or e.status.value == "completed")
@@ -49,7 +53,11 @@ def workspace_summary(
     total_budget = sum(
         float(e.config.budget.max_cost) for e in entries if getattr(e.config, "budget", None) is not None
     )
-    reports = reports_written if reports_written is not None else completed
+    reports = (
+        completed
+        if report_run_ids is None
+        else sum(1 for e in entries if e.config.run_id in report_run_ids)
+    )
 
     return WorkspaceSummary(
         total_studies=total,

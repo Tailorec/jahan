@@ -4,6 +4,7 @@ from ._anomalies import AnomalyReport, AnomalyThresholds, detect_anomalies
 from ._clusters import cluster_objections
 from ._digest import digest
 from ._findings import findings, ranking_findings, risk_findings
+from ._progress import WorldProgress, world_progress
 from ._spread import spread
 from ._trace_summary import trace_summary
 from ._trajectory import TrajectoryPoint, WorldTrajectories, trajectories
@@ -15,6 +16,7 @@ __all__ = [
     "AnomalyThresholds",
     "TrajectoryPoint",
     "WorkspaceSummary",
+    "WorldProgress",
     "WorldTrajectories",
     "cluster_objections",
     "detect_anomalies",
@@ -27,5 +29,6 @@ __all__ = [
     "trajectories",
     "trust_statement",
     "workspace_summary",
+    "world_progress",
 ]
 
