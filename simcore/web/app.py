@@ -365,6 +365,20 @@ def create_app(
     def run_manifest(request: Request, run_id: str) -> dict[str, Any]:
         return _read_json(Path(_run_dir(request, run_id), "manifest.json"))
 
+    @app.get("/api/runs/{run_id}/ontology")
+    def run_ontology(request: Request, run_id: str) -> dict[str, Any]:
+        return _read_json(Path(_run_dir(request, run_id), "ontology.json"))
+
+    @app.get("/api/runs/{run_id}/personas")
+    def run_personas(request: Request, run_id: str, offset: int = 0, limit: int = 6) -> dict[str, Any]:
+        stored = _read_json(Path(_run_dir(request, run_id), "personas.json"))
+        personas = stored.get("personas", [])
+        return {
+            "personas": _page(personas, offset, limit),
+            "total": len(personas),
+            "run_id": stored.get("run_id", run_id),
+        }
+
     @app.get("/api/ontologies")
     def list_ontologies(request: Request) -> dict[str, Any]:
         found = []
