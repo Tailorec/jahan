@@ -33,9 +33,11 @@ export default function ReportPage() {
         title="Study report"
         sub={r ? <>Config <span className="mono">{r.config_hash.slice(0, 12)}…</span> · contract <span className="mono">{r.contract_version}</span> · engine commit <span className="mono">{r.engine_commit.slice(0, 12)}</span></> : "Findings carry their trace evidence and the test that would falsify them."}
         actions={r && (
-          r.trust.level === "uncalibrated"
+          <>{r.trust.level === "uncalibrated"
             ? <Chip className="tier-explo">uncalibrated</Chip>
-            : <Chip className="tier-cust">{r.trust.level.replace("_", " ")}</Chip>
+            : <Chip className="tier-cust">{r.trust.level.replace("_", " ")}</Chip>}
+            {r.method.pins.length > 0 && r.method.pins.every((p) => p.model_id.startsWith("fake/")) &&
+              <Chip className="tier-explo" title="No key, no corpus, no network">fake study</Chip>}</>
         )}
       />
       {error && <Callout icon="alert"><div>{error}</div></Callout>}

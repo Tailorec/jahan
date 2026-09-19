@@ -4,7 +4,7 @@ import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
 import { PageHead, Chip, Callout, PmfBar, PmfLegend, ICONS, TrustLine } from "@/components/ui";
-import { useApi, useRunId } from "@/lib/api";
+import { useApi, useRunId, api } from "@/lib/api";
 import { pmfMean, top2box, type OutcomeDigest, type RunSummary, type ScenarioSummary } from "@/lib/engine";
 
 interface Detail {
@@ -17,12 +17,49 @@ interface Detail {
 
 export default function RunPage() {
   const runId = useRunId();
-  const { data, error } = useApi<Detail>(runId ? `/api/runs/${runId}` : null);
+  const [poll, setPoll] = React.useState(0);
+  const { data, error } = useApi<Detail>(runId ? `/api/runs/${runId}?t=${poll}` : null);
   const [world, setWorld] = React.useState<string | null>(null);
+  const [busy, setBusy] = React.useState<"cancel" | "resume" | null>(null);
   const s = data?.summary ?? null;
   const digests = data?.digest?.digests ?? [];
   const summaries = data?.digest?.summaries ?? {};
   const active = digests.find((d) => d.world_id === world) ?? digests[0] ?? null;
+  const watching = !!s && (s.live || s.status === "running");
+
+  // Progress is polled while the run is going; a tick takes tens of seconds
+  // and streaming buys nothing.
+  React.useEffect(() => {
+    if (!watching) return;
+    const timer = setInterval(() => setPoll((p) => p + 1), 5000);
+    return () => clearInterval(timer);
+  }, [watching, runId]);
+
+  async function cancel() {
+    if (!runId || busy) return;
+    setBusy("cancel");
+    try {
+      await api(`/api/runs/${runId}`, { method: "DELETE" });
+      setPoll((p) => p + 1);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function resume() {
+    if (!runId || busy) return;
+    setBusy("resume");
+    try {
+      await api(`/api/runs/${runId}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "resume" }),
+      });
+      setPoll((p) => p + 1);
+    } finally {
+      setBusy(null);
+    }
+  }
 
   return (
     <Shell crumbs={<><Link href="/">Workspace</Link> / <b>Run</b>{runId && <> / <span className="mono">{runId}</span></>}</>}>
@@ -30,11 +67,32 @@ export default function RunPage() {
         title="Run — worlds over the population"
         sub={s ? <>One run over many worlds — scenarios × seeds sharing one budget. Status <b>{s.status}</b> · engine <span className="mono">{s.engine_version}</span> · config <span className="mono">{s.config_hash?.slice(0, 12)}…</span></>
           : "A sweep is one run over many worlds sharing one budget."}
-        actions={s && <><span className={`chip ${s.status === "completed" ? "ok" : "plain"}`}><span className="dot" />{s.status}</span><span className="chip plain mono">${s.recorded_cost.toFixed(2)} / ${s.budget?.max_cost.toFixed(2)}</span></>}
+        actions={s && <><span className={`chip ${s.status === "completed" ? "ok" : "plain"}`}><span className="dot" />{s.live ? "running" : s.status}</span><span className="chip plain mono">${s.recorded_cost.toFixed(2)} / ${s.budget?.max_cost.toFixed(2)}</span>{s.fake && <span className="chip tier-explo" title="No key, no corpus, no network">fake study</span>}</>}
       />
       {error && <Callout icon="alert"><div>{error}</div></Callout>}
       {!data && !error && <div className="empty"><b>Loading run…</b></div>}
       {data && <TrustLine level={data.report?.trust.level ?? null} runId={runId} />}
+      {s && (watching || (s.progress ?? []).length > 0) && (
+        <div className="panel" style={{ marginBottom: 20 }}>
+          <div className="panel-head"><h2>{watching ? "Running" : "Stopped"} — live progress</h2><span className="hint">status, recorded cost and ticks closed, published as the run works</span>
+            <div className="tools" style={{ display: "flex", gap: 8 }}>
+              {watching && <button className="btn sm" onClick={cancel} disabled={busy !== null}>{busy === "cancel" ? "Cancelling…" : "Cancel run"}</button>}
+              {!watching && s.status !== "completed" && <button className="btn sm" onClick={resume} disabled={busy !== null}>{busy === "resume" ? "Resuming…" : "Resume run"}</button>}
+            </div></div>
+          <div className="panel-body tight"><table className="tbl">
+            <thead><tr><th>World</th><th className="num">Last closed tick</th><th className="num">Turns landed</th><th>Rung in force</th></tr></thead>
+            <tbody>
+              {(s.progress ?? []).map((p) => (
+                <tr key={p.world_id}><td className="mono">{p.world_id}</td>
+                  <td className="num">{p.last_closed_tick ?? "—"}</td>
+                  <td className="num">{p.turns ?? "—"}</td>
+                  <td className="mono sub">{(p.rungs ?? []).length ? p.rungs!.join(", ") : "full fidelity"}</td></tr>
+              ))}
+              {!(s.progress ?? []).length && <tr><td colSpan={4} className="sub" style={{ textAlign: "center" }}>starting — the registry write comes after the build</td></tr>}
+            </tbody>
+          </table></div>
+        </div>
+      )}
       {s && (
         <>
           <div className="stat-strip" style={{ marginBottom: 20 }}>

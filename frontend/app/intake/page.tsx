@@ -72,6 +72,11 @@ export default function IntakePage() {
   const [n, setN] = React.useState("200");
   const [gate, setGate] = React.useState<GateResult | null>(null);
   const [gating, setGating] = React.useState(false);
+  const [horizon, setHorizon] = React.useState("4");
+  const [seeds, setSeeds] = React.useState("4021");
+  const [budget, setBudget] = React.useState("20");
+  const [launching, setLaunching] = React.useState(false);
+  const [launched, setLaunched] = React.useState<{ run_id?: string; error?: string } | null>(null);
 
   React.useEffect(() => {
     api<{ category: string; version: string }[]>("/api/ontologies").then(setOntoList).catch(() => {});
@@ -134,6 +139,25 @@ export default function IntakePage() {
       setGate({ code: 1, run_id: null, stdout: "", stderr: String(e), gate: null, manifest: null });
     }
     setGating(false);
+  };
+
+  const launchStudy = async () => {
+    setLaunching(true);
+    setLaunched(null);
+    try {
+      const r = await api<{ run_id: string }>("/api/runs", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          brief_yaml: briefYaml, evidence_json: evidence,
+          n: Number(n), horizon: Number(horizon), seeds,
+          budget: Number(budget), channel: "survey_room", fake: true,
+        }),
+      });
+      setLaunched({ run_id: r.run_id });
+    } catch (e) {
+      setLaunched({ error: String(e) });
+    }
+    setLaunching(false);
   };
 
   const attrs = onto ? Object.keys(onto.attribute_domains) : [];
@@ -272,6 +296,20 @@ export default function IntakePage() {
                 )
               )}
               <p className="sub" style={{ color: "var(--ink-3)", fontSize: 12 }}>A failing draw exits 2 with its gate report — a doomed study costs nothing.</p>
+            </div>
+          </div>
+          <div className="panel">
+            <div className="panel-head"><h2>Launch study</h2><span className="hint">fake first — no key, no corpus, no network</span></div>
+            <div className="panel-body" style={{ display: "grid", gap: 10 }}>
+              <div className="grid g2">
+                <div className="field" style={{ margin: 0 }}><label>Horizon (ticks)</label><input className="input mono" value={horizon} onChange={(e) => setHorizon(e.target.value)} /></div>
+                <div className="field" style={{ margin: 0 }}><label>Seeds</label><input className="input mono" value={seeds} onChange={(e) => setSeeds(e.target.value)} /></div>
+              </div>
+              <div className="field" style={{ margin: 0 }}><label>Budget (USD)</label><input className="input mono" value={budget} onChange={(e) => setBudget(e.target.value)} /></div>
+              <button className="btn primary" disabled={launching} onClick={launchStudy}>{launching ? "Launching…" : `Run fake study ${ICONS.arrow}`}</button>
+              {launched?.run_id && <Link className="btn sm" href={`/run?run=${launched.run_id}`}>Watch {launched.run_id} {ICONS.arrow}</Link>}
+              {launched?.error && <Callout icon="alert"><div><b>Launch refused.</b><pre className="mono" style={{ fontSize: 11, whiteSpace: "pre-wrap", marginTop: 6 }}>{launched.error}</pre></div></Callout>}
+              <p className="sub" style={{ color: "var(--ink-3)", fontSize: 12 }}>Runs as a subprocess under the same id a resume reuses. The first study is always <span className="mono">--fake</span>, marked as fake in every view of it.</p>
             </div>
           </div>
         </div>

@@ -24,10 +24,10 @@ export function engineApiBase(): string | null {
   return base && base.length ? base.replace(/\/$/, "") : null;
 }
 
-export async function engineFetch<T>(apiPath: string): Promise<T> {
+export async function engineFetch<T>(apiPath: string, init?: RequestInit): Promise<T> {
   const base = engineApiBase();
   if (!base) throw new Error("SIMCORE_WEB_URL is not configured");
-  const res = await fetch(`${base}${apiPath}`);
+  const res = await fetch(`${base}${apiPath}`, init);
   if (!res.ok) throw new Error(`${apiPath}: ${res.status}`);
   return res.json() as Promise<T>;
 }
@@ -155,6 +155,10 @@ export async function readRunSummary(runId: string): Promise<RunSummary | null> 
 
   const gate = await readJson<GateReport>(path.join(dir, "gate-report.json"));
   const report = await readJson<StudyReport>(path.join(dir, "report.json"));
+  const progress = await readJson<{
+    status: string; recorded_cost: number | null; world_id: string; tick_closed: number;
+  }>(path.join(dir, "progress.json"));
+  const cancelled = await readJson<{ stopped: boolean }>(path.join(dir, "cancelled.json"));
 
   if (result) {
     const { registry, outcomes, status } = result;
@@ -168,6 +172,26 @@ export async function readRunSummary(runId: string): Promise<RunSummary | null> 
       has_gate_report: gate !== null, has_report: report !== null,
       trust_level: report?.trust.level ?? null,
       finding_count: report?.findings.length ?? 0,
+      live: false,
+    };
+  }
+  // A run with progress but no result.json is still going — or was stopped
+  // mid-flight. The registry entry is the authority; progress.json is its
+  // cache for readers that hold no registry.
+  if (progress) {
+    const launch = await readJson<{ pid?: number }>(path.join(dir, "launch.json"));
+    let live: boolean | undefined;
+    if (launch?.pid) {
+      try { process.kill(launch.pid, 0); live = true; } catch { live = false; }
+    }
+    return {
+      run_id: runId, status: cancelled ? "partial" : "running",
+      recorded_cost: progress.recorded_cost ?? 0, discarded_ticks: 0,
+      seeds: [], scenarios: [], world_ids: [], outcomes: [],
+      has_gate_report: gate !== null, has_report: report !== null,
+      trust_level: null, finding_count: 0,
+      live,
+      progress: [{ world_id: progress.world_id, last_closed_tick: progress.tick_closed }],
     };
   }
   // Gate-only runs (coreset-gate wrote no result.json yet).

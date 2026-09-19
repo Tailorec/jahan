@@ -144,6 +144,12 @@ export interface WorldOutcome {
   last_closed_tick?: number | null;
   rungs: DegradationRung[];
 }
+export interface WorldProgress {
+  world_id: string;
+  last_closed_tick?: number | null;
+  turns?: number;
+  rungs?: string[];
+}
 export interface RunSummary {
   run_id: string;
   status: RunStatus;
@@ -160,6 +166,10 @@ export interface RunSummary {
   has_report: boolean;
   trust_level?: TrustLevel | null;
   finding_count?: number;
+  fake?: boolean;
+  live?: boolean;
+  progress?: WorldProgress[];
+  has_trace_summary?: boolean;
 }
 
 /* ---------- digest ---------- */
