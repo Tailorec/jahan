@@ -17,6 +17,7 @@ USAGE = """usage: python -m simcore.cli <command>
   concepts run brief.yaml [--fake]   the whole study: report.md, report.json, run id
   sweep run --grid grid.yaml         a grid of scenarios and seeds under one budget
   coreset-gate --brief b.yaml        gate report and population manifest, no study
+  ontology check --ontology o.json   an ontology draft against the corpus codebook
   ssr-replica --anchors <set>        the anchor check and its distribution diagnostics
 """
 
@@ -45,6 +46,13 @@ def main(argv: list[str] | None = None) -> int:
             from ._coreset_gate import cmd_coreset_gate
 
             return cmd_coreset_gate(rest)
+        if command == "ontology":
+            if not rest or rest[0] != "check":
+                print(USAGE)
+                return 1
+            from ._ontology import cmd_ontology_check
+
+            return cmd_ontology_check(rest[1:])
         if command == "ssr-replica":
             from ._ssr_replica import cmd_ssr_replica
 
