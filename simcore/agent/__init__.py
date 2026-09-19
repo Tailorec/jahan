@@ -27,6 +27,7 @@ from ._render import PersonaBlockCache, render_block, selected_attributes
 from ._guard import GUARDRAILS
 from ._probe import disagreement_rate, probe_attributes, sampled_for_probe
 from ._replay import rebuild_state, states_equal
+from ._reconstruct import ReconstructedPrompt, Unreconstructible, reconstruct_turn
 from ._turns import turns
 
 __all__ = [
@@ -35,6 +36,8 @@ __all__ = [
     "DEFAULT_TIER_ROUTING",
     "GUARDRAILS",
     "PersonaBlockCache",
+    "ReconstructedPrompt",
+    "Unreconstructible",
     "advance_state",
     "append_memories",
     "apply_change",
@@ -46,6 +49,7 @@ __all__ = [
     "max_abs_change",
     "probe_attributes",
     "rebuild_state",
+    "reconstruct_turn",
     "reflection_due",
     "reflection_interval_for",
     "render_block",
