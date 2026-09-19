@@ -21,6 +21,10 @@ otel = [
     "opentelemetry-exporter-otlp-proto-http>=1.44.0",
     "opentelemetry-sdk>=1.44.0",
 ]
+web = [
+    "fastapi>=0.115",
+    "uvicorn>=0.53",
+]
 
 [dependency-groups]
 dev = [
