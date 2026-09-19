@@ -251,12 +251,17 @@ def run_world(
     discarded_ticks: int = 0,
     starting_rung: object = None,
     meter: object | None = None,
+    progress: object | None = None,
 ) -> tuple[tuple[TraceEvent, ...], dict[str, PersonaState], int, object, bool]:
     """Drive one world from after `from_tick` to its horizon under the ladder.
 
     Returns newly written events, carried states, next seq, the last rung in
     force, and whether the world paused. Each tick is buffered and written in
     one call with its `tick_closed` last; an interruption writes nothing.
+
+    `progress`, when given, is called as `progress(world_id, tick, spent)` after
+    every tick that closes — the published cache of what the trace already says,
+    so spend is something a person can act on rather than read afterwards.
     """
     from simcore.schemas.enums import RUNG_ORDER
 
@@ -412,6 +417,9 @@ def run_world(
         _emit(TickClosed(kind="tick_closed"))
         _record(batch)
         written.extend(batch)
+        if progress is not None:
+            spent = meter.spent() if meter is not None and hasattr(meter, "spent") else None  # type: ignore[attr-defined]
+            progress(world_id, tick, spent)  # type: ignore[operator]
         previous = next_turns
         current = effective
     if not paused:
@@ -460,6 +468,7 @@ def run(
     checkpoints: dict[str, dict] | None = None,
     force: bool = False,
     max_workers: int = 1,
+    progress: object | None = None,
 ) -> RunResult:
     """Run every world of the configuration to its horizon.
 
@@ -467,6 +476,10 @@ def run(
     up after their last closed tick, personas are rebuilt from the record,
     and completed ticks are never re-run. A checkpoint, if present, is a
     cache validated against the record and discarded on disagreement.
+
+    `progress`, when given, is called after every tick that closes so status,
+    recorded cost and ticks closed are readable while the run is going — the
+    entry is the published cache of what the trace already says.
 
     A resume whose inputs or engine moved is refused, naming what moved; a
     forced resume proceeds, is recorded, and spans versions.
@@ -628,6 +641,7 @@ def run(
                 discarded_ticks=discarded_total,
                 starting_rung=starting_rung,
                 meter=meter,
+                progress=progress,
             )
         except ResumeRefused:
             raise

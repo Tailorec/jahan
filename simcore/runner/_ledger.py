@@ -121,6 +121,15 @@ class SpendMeter:
             return self._known
         return self._known + self._unpriced * (self._known / self._priced)
 
+    def spent(self) -> float:
+        """What the run's own records add up to so far — the published figure, not the enforced one.
+
+        The ladder enforces against `figure` (unpriced calls charged, discarded ticks
+        estimated); the registry publishes what was actually billed, which is this.
+        """
+        with self._lock:
+            return self._known
+
     def figure(self, discarded_ticks: int) -> float:
         """Spend with unpriced calls charged, plus an estimate for each discarded tick."""
         with self._lock:
