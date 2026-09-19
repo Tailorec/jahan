@@ -13,6 +13,7 @@ Nothing reaches storage another way, and no endpoint returns a row, a frame, a
 filesystem path or a cursor.
 """
 
+from . import _lifecycle as lifecycle
 from .app import create_app
 
-__all__ = ["create_app"]
+__all__ = ["create_app", "lifecycle"]
