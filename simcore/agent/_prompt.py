@@ -28,22 +28,45 @@ def offered_actions(channel: object | None = None) -> tuple[str, ...]:
     return tuple(sorted(action.value for action in afforded))
 
 
+def _envelope(channel: object | None, verbatim: str) -> str:
+    """The JSON the turn is recorded from: subject, action, what was said, what moved.
+
+    Every turn returns this shape whatever it was asked, because the parser reads it and the
+    verbatim inside it is the text `elicitation` scores. A question that replaces the envelope
+    rather than sitting inside it produces prose the pipeline cannot record at all.
+    """
+    return (
+        "Reply with a JSON object with keys 'subject_stimulus_id' (one stimulus id shown above), "
+        f"'action' (one of {', '.join(offered_actions(channel))}) and 'verbatim' ({verbatim}) and "
+        "'belief_deltas' (how this changed your views, if at all: an object with 'dimensions' "
+        "mapping any of value, fit, trust to a move in -1..1, and 'claim_credence' mapping claim "
+        "ids like C1 to a move in -1..1; leave out what did not move)."
+    )
+
+
+_BREVITY = (
+    " Answer in your own words, as yourself, and keep the verbatim to one or two brief sentences "
+    "— a longer answer is cut off at the token ceiling and arrives unreadable."
+)
+
+
 def reaction_question(channel: object | None = None) -> str:
     """The frozen question for a plain reaction turn, offering what this channel can land.
 
     It asks what the persona does, and never for a number.
     """
     # No path here requests a score: intent is elicited as words and scored by `elicitation`.
-    return (
-        "You saw the above. Reply with a JSON object with keys "
-        "'subject_stimulus_id' (one stimulus id shown above), 'action' (one of "
-        f"{', '.join(offered_actions(channel))}) and 'verbatim' (what you say, when the action "
-        "produces text) and 'belief_deltas' (how this changed your views, if at all: an object "
-        "with 'dimensions' mapping any of value, fit, trust to a move in -1..1, and "
-        "'claim_credence' mapping claim ids like C1 to a move in -1..1; leave out what did not "
-        "move). Answer in your own words, as yourself, and keep the verbatim to one or two brief "
-        "sentences — a longer answer is cut off at the token ceiling and arrives unreadable."
-    )
+    return "You saw the above. " + _envelope(channel, "what you say, when the action produces text") + _BREVITY
+
+
+def intent_question(ask: str, channel: object | None = None) -> str:
+    """The elicitation question inside the turn envelope.
+
+    `ask` is `elicitation`'s own versioned template, included verbatim — it forbids numbers and
+    asks for words. The envelope around it is what lets the answer be recorded as a turn and its
+    verbatim scored; asking the question alone is what made the first intent study unrecordable.
+    """
+    return ask + " " + _envelope(channel, "your answer to the question above, in your own words") + _BREVITY
 
 
 # Every action, for a turn whose channel is not known; the question's shape is asserted over it.

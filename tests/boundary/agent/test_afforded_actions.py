@@ -60,3 +60,29 @@ def test_a_social_feed_offers_what_a_feed_affords():
     question = _question_for_channel("social_feed")
     for afforded in CHANNEL_AFFORDANCES[Channel.SOCIAL_FEED]:
         assert afforded.value in question, f"a feed affords {afforded.value} and did not offer it"
+
+
+def _question_for_task(task: str, channel: str = "survey_room") -> str:
+    seen, respond = _capture()
+    payload = job_payload(0, tick=3)
+    payload["presentation"]["impression"]["channel"] = channel
+    payload["task"] = task
+    turns([TurnJob.model_validate(payload)], chat=FakeChat(respond), config=AgentConfig(run_seed=7))
+    return seen["question"]
+
+
+def test_a_purchase_intent_turn_still_asks_for_the_turn_object():
+    """The intent question replaced the whole envelope, so the model answered in prose and the
+    parser — which reads `subject_stimulus_id`, `action`, `verbatim` and `belief_deltas`, and
+    whose verbatim is the very text `score_intents` scores — rejected all of it. The first study
+    that asked for intent recorded 1000 unparseable outputs and not one turn."""
+    question = _question_for_task("purchase")
+    assert "purchase the product" in question, "the SSR question is asked"
+    for key in ("subject_stimulus_id", "action", "verbatim", "belief_deltas"):
+        assert key in question, f"the turn envelope lost {key}"
+    assert "ask_peer" not in question, "a survey room still offers only what it affords"
+
+
+def test_a_purchase_intent_turn_still_forbids_a_number():
+    question = _question_for_task("purchase")
+    assert "Do not use numbers" in question

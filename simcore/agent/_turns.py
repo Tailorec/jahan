@@ -65,7 +65,7 @@ from ._probe import (
     probe_result,
     sampled_for_probe,
 )
-from ._prompt import hash_text, reaction_question, render_persona_block
+from ._prompt import hash_text, intent_question, reaction_question, render_persona_block
 from ._render import PersonaBlockCache
 
 REFLECTION_QUESTION = (
@@ -191,7 +191,7 @@ def _question_for(task: TurnTask, channel: object | None = None) -> str:
     words about buying, which no channel affords or refuses.
     """
     if wants_intent(task):
-        return question_text(PURCHASE_CONSTRUCT)
+        return intent_question(question_text(PURCHASE_CONSTRUCT), channel)
     return reaction_question(channel)
 
 
