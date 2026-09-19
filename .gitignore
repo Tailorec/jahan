@@ -12,7 +12,7 @@ docs/evaluations/m10-analysis/trace/
 # Study artefacts: traces, reports and populations a run writes. They are large, they are
 # regenerable from the configuration that made them, and a SQLite trace is not reviewable in a
 # diff. Kept on disk, never in the repository.
-runs/
+/runs/
 
 # Next.js frontend: dependencies and build output are installed and generated, never committed.
 frontend/node_modules/

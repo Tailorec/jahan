@@ -5,12 +5,19 @@ import React from "react";
 import Shell from "@/components/shell";
 import { PageHead, Chip, Callout, TrustLine } from "@/components/ui";
 import { useApi, useRunId } from "@/lib/api";
-import type { BeliefPoint, TraceEvent, UITrace } from "@/lib/engine";
+import type { BeliefPoint, TraceEdge, TraceEvent, UITrace } from "@/lib/engine";
 
 interface Detail {
   trace: UITrace | null;
   manifest: { persona_ids: string[] } | null;
   report: { trust: { level: string } } | null;
+}
+
+interface ReconstructedPromptData {
+  event_id: string;
+  shape: string;
+  messages: { role: string; content: string }[];
+  rejected_verified?: boolean;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -62,30 +69,104 @@ function summarize(ev: TraceEvent): string {
 export default function TracePage() {
   const runId = useRunId();
   const { data, error } = useApi<Detail>(runId ? `/api/runs/${runId}` : null);
-  const [q, setQ] = React.useState<"events" | "beliefs" | "edges" | "verbatims" | "resolve">("events");
+  const [q, setQ] = React.useState<"persona" | "events" | "beliefs" | "edges" | "verbatims" | "resolve">("persona");
   const [world, setWorld] = React.useState<string | null>(null);
   const [kind, setKind] = React.useState<string>("turn");
   const [persona, setPersona] = React.useState<string | null>(null);
   const [resolveId, setResolveId] = React.useState<string | null>(null);
 
+  // Phase 8: ephemeral reconstructed prompt state.
+  // CRITICAL: Prompts are never stored or persisted (no localStorage, no sessionStorage, no file write).
+  const [reconstructedTurnId, setReconstructedTurnId] = React.useState<string | null>(null);
+  const [reconstructedPrompt, setReconstructedPrompt] = React.useState<ReconstructedPromptData | null>(null);
+  const [promptLoading, setPromptLoading] = React.useState<boolean>(false);
+  const [promptError, setPromptError] = React.useState<string | null>(null);
+
+  // Phase 8: persona events timeline loaded from engine
+  const [personaEvents, setPersonaEvents] = React.useState<TraceEvent[]>([]);
+  const [personaEventsLoading, setPersonaEventsLoading] = React.useState<boolean>(false);
+
   const t = data?.trace ?? null;
   const worlds = t?.worlds ?? [];
   const w = world ?? worlds[0] ?? null;
+
+  const histories: Record<string, BeliefPoint[]> = (w ? t?.belief_histories[w] : undefined) ?? {};
+  const histPersonas: string[] = (w ? t?.belief_personas[w] : undefined) ?? [];
+  const activePersona = persona ?? histPersonas[0] ?? null;
 
   React.useEffect(() => {
     const qs = new URLSearchParams(window.location.search);
     const r = qs.get("resolve");
     if (r) { setResolveId(r); setQ("resolve"); }
     const p = qs.get("persona");
-    if (p) { setPersona(p); setQ("beliefs"); }
+    if (p) { setPersona(p); setQ("persona"); }
     const ww = qs.get("world");
     if (ww) setWorld(ww);
   }, []);
 
+  // Fetch persona's own events for the timeline
+  React.useEffect(() => {
+    if (!runId || !activePersona) return;
+    let cancelled = false;
+    setPersonaEventsLoading(true);
+    fetch(`/api/runs/${runId}/events?persona_id=${encodeURIComponent(activePersona)}${w ? `&world_id=${encodeURIComponent(w)}` : ""}&limit=200`)
+      .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`status ${res.status}`))))
+      .then((payload) => {
+        if (!cancelled) {
+          const rawEvents: TraceEvent[] = payload.events ?? [];
+          // Phase 8 acceptance criterion:
+          // A persona's events, beliefs and verbatims are shown in one timeline, and none of another persona's appear in it
+          const filtered = rawEvents.filter((e) => e.persona_id === activePersona || !e.persona_id);
+          setPersonaEvents(filtered);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setPersonaEvents([]);
+      })
+      .finally(() => {
+        if (!cancelled) setPersonaEventsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [runId, activePersona, w]);
+
+  // Phase 8: Prompt reconstruction action
+  const handleReconstructPrompt = async (turnEventId: string) => {
+    if (!runId || !w) return;
+    setReconstructedTurnId(turnEventId);
+    setPromptLoading(true);
+    setPromptError(null);
+    setReconstructedPrompt(null);
+    try {
+      const res = await fetch(`/api/runs/${runId}/worlds/${w}/turns/${turnEventId}/prompt`);
+      const body = await res.json();
+      if (!res.ok) {
+        // Acceptance criterion: A prompt that cannot be reconstructed says so and why, rather than showing an approximation
+        setPromptError(body.error || body.detail || `Cannot reconstruct prompt (status ${res.status})`);
+      } else {
+        setReconstructedPrompt(body);
+      }
+    } catch (e: unknown) {
+      setPromptError(`Cannot reconstruct prompt: ${String(e)}`);
+    } finally {
+      setPromptLoading(false);
+    }
+  };
+
   const resolved: TraceEvent | null = (resolveId && t?.resolved[resolveId]) ? t.resolved[resolveId] : null;
-  const histories: Record<string, BeliefPoint[]> = (w ? t?.belief_histories[w] : undefined) ?? {};
-  const histPersonas: string[] = (w ? t?.belief_personas[w] : undefined) ?? [];
-  const hist = persona ? histories[persona] : histories[histPersonas[0] ?? ""] ?? null;
+  const hist = activePersona ? histories[activePersona] : null;
+
+  // Phase 8: Influence neighbourhood drawn from recorded edges
+  const personaEdges = (t?.edges_top ?? []).filter(
+    (e) => activePersona && (e.u === activePersona || e.v === activePersona),
+  );
+  const heardFrom = personaEdges.filter((e) => e.v === activePersona);
+  const heardBy = personaEdges.filter((e) => e.u === activePersona);
+
+  // Phase 8: Belief movement before and after
+  const initialBeliefs = hist && hist.length > 0 ? hist[0].beliefs : null;
+  const finalBeliefs = hist && hist.length > 0 ? hist[hist.length - 1].beliefs : null;
 
   return (
     <Shell crumbs={<><Link href="/">Workspace</Link> / Study / <b>Trace view</b></>}>
@@ -101,8 +182,23 @@ export default function TracePage() {
       {t && w && (
         <>
           <div className="tabs" role="tablist">
-            {[["events", "Events"], ["beliefs", "Beliefs"], ["edges", "Edges"], ["verbatims", "Verbatims"], ["resolve", "Resolve"]].map(([id, label]) => (
-              <button key={id} className={`tab${q === id ? " active" : ""}`} role="tab" aria-selected={q === id} onClick={() => setQ(id as typeof q)}>{label}</button>
+            {[
+              ["persona", "Persona history"],
+              ["events", "Events"],
+              ["beliefs", "Beliefs"],
+              ["edges", "Edges"],
+              ["verbatims", "Verbatims"],
+              ["resolve", "Resolve"],
+            ].map(([id, label]) => (
+              <button
+                key={id}
+                className={`tab${q === id ? " active" : ""}`}
+                role="tab"
+                aria-selected={q === id}
+                onClick={() => setQ(id as typeof q)}
+              >
+                {label}
+              </button>
             ))}
             <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
               <select className="input" value={w} onChange={(e) => setWorld(e.target.value)} style={{ maxWidth: 160 }}>
@@ -110,6 +206,231 @@ export default function TracePage() {
               </select>
             </div>
           </div>
+
+          {/* Phase 8: One persona's whole history */}
+          {q === "persona" && (
+            <div style={{ display: "grid", gap: 16 }}>
+              <div className="panel">
+                <div className="panel-head">
+                  <h2>One persona’s whole history</h2>
+                  <span className="hint">Timeline of events, beliefs, verbatims and verified prompts</span>
+                  <div className="tools">
+                    <select
+                      className="input mono"
+                      value={activePersona ?? ""}
+                      onChange={(e) => setPersona(e.target.value)}
+                      style={{ maxWidth: 280 }}
+                    >
+                      {histPersonas.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                </div>
+                <div className="panel-body">
+                  {!activePersona ? (
+                    <div className="empty">No persona selected.</div>
+                  ) : (
+                    <div style={{ display: "grid", gap: 20 }}>
+                      {/* Belief movement per dimension and per claim, before and after */}
+                      <div>
+                        <h3>Belief movement</h3>
+                        <p className="sub" style={{ fontSize: 13, marginBottom: 12 }}>
+                          Movement per dimension and per claim, before and after, from recorded snapshots and turns.
+                        </p>
+                        {initialBeliefs && finalBeliefs ? (
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 16 }}>
+                            {["value", "fit", "trust"].map((dim) => {
+                              const before = initialBeliefs[dim] ?? 0;
+                              const after = finalBeliefs[dim] ?? 0;
+                              const delta = after - before;
+                              return (
+                                <div key={dim} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 12 }}>
+                                  <div className="mono sub" style={{ fontSize: 11, textTransform: "uppercase" }}>{dim}</div>
+                                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
+                                    <span style={{ fontSize: 18, fontWeight: 600 }}>{before.toFixed(2)} → {after.toFixed(2)}</span>
+                                    <span className="mono" style={{ fontSize: 12, color: delta >= 0 ? "var(--seg1)" : "var(--warn)" }}>
+                                      {delta >= 0 ? `+${delta.toFixed(2)}` : delta.toFixed(2)}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+                        {hist && hist.length > 0 && (
+                          <div className="chart-wrap" style={{ marginTop: 8 }}><BeliefChart history={hist} /></div>
+                        )}
+                      </div>
+
+                      {/* Influence neighbourhood */}
+                      <div>
+                        <h3>Influence neighbourhood</h3>
+                        <p className="sub" style={{ fontSize: 13, marginBottom: 10 }}>
+                          Recorded edges for this persona naming the channel and how often.
+                        </p>
+                        <div className="grid g2">
+                          <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 12 }}>
+                            <b>Heard from</b> <span className="sub">({heardFrom.length} contacts)</span>
+                            {heardFrom.length === 0 ? (
+                              <p className="sub" style={{ marginTop: 8, fontSize: 12 }}>None — persona received no word-of-mouth edges.</p>
+                            ) : (
+                              <table className="tbl tight" style={{ marginTop: 8 }}>
+                                <thead><tr><th>From</th><th>Channel</th><th className="num">Times</th><th className="num">Last tick</th></tr></thead>
+                                <tbody>
+                                  {heardFrom.map((e, idx) => (
+                                    <tr key={idx}>
+                                      <td className="mono">{e.u}</td>
+                                      <td className="mono">{e.channel}</td>
+                                      <td className="num">{e.count}</td>
+                                      <td className="num">{e.last_tick}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                          <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 12 }}>
+                            <b>Heard by</b> <span className="sub">({heardBy.length} contacts)</span>
+                            {heardBy.length === 0 ? (
+                              <p className="sub" style={{ marginTop: 8, fontSize: 12 }}>None — persona delivered no word-of-mouth edges.</p>
+                            ) : (
+                              <table className="tbl tight" style={{ marginTop: 8 }}>
+                                <thead><tr><th>To</th><th>Channel</th><th className="num">Times</th><th className="num">Last tick</th></tr></thead>
+                                <tbody>
+                                  {heardBy.map((e, idx) => (
+                                    <tr key={idx}>
+                                      <td className="mono">{e.v}</td>
+                                      <td className="mono">{e.channel}</td>
+                                      <td className="num">{e.count}</td>
+                                      <td className="num">{e.last_tick}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Timeline */}
+                      <div>
+                        <h3>Timeline</h3>
+                        <p className="sub" style={{ fontSize: 13, marginBottom: 12 }}>
+                          One persona’s timeline — what it was shown, what it said, how its beliefs moved tick by tick, and which memories it wrote. None of another persona’s appear in it.
+                        </p>
+                        {personaEventsLoading && <div className="empty">Loading persona events…</div>}
+                        {!personaEventsLoading && personaEvents.length === 0 && (
+                          <div className="empty">No recorded events for {activePersona} in world {w}.</div>
+                        )}
+                        {!personaEventsLoading && personaEvents.length > 0 && (
+                          <div style={{ display: "grid", gap: 10 }}>
+                            {personaEvents.map((ev) => {
+                              const isTurn = ev.payload.kind === "turn";
+                              const isReconstructed = reconstructedTurnId === ev.event_id && reconstructedPrompt;
+                              const isError = reconstructedTurnId === ev.event_id && promptError;
+                              const isLoadingPrompt = reconstructedTurnId === ev.event_id && promptLoading;
+
+                              return (
+                                <div
+                                  key={ev.event_id}
+                                  style={{
+                                    border: "1px solid var(--line)",
+                                    borderRadius: "var(--r-md)",
+                                    padding: 12,
+                                    background: isTurn ? "var(--surface-2)" : undefined,
+                                  }}
+                                >
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                    <b className="mono">{ev.event_id}</b>
+                                    <span className="mono sub">tick {ev.tick} · seq {ev.seq}</span>
+                                    <Chip className="plain">{KIND_LABEL[ev.payload.kind] ?? ev.payload.kind}</Chip>
+                                    {isTurn && (
+                                      <button
+                                        type="button"
+                                        className="btn btn-secondary"
+                                        style={{ marginLeft: "auto", fontSize: 12, padding: "4px 8px" }}
+                                        onClick={() => handleReconstructPrompt(ev.event_id)}
+                                        disabled={isLoadingPrompt}
+                                      >
+                                        {isLoadingPrompt ? "Reconstructing…" : "Reconstruct prompt"}
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  <div style={{ marginTop: 8 }}>{summarize(ev)}</div>
+
+                                  {/* Turn details: belief change delta if any */}
+                                  {isTurn && Boolean(ev.payload.belief_change) && (
+                                    <div className="mono sub" style={{ fontSize: 11, marginTop: 6 }}>
+                                      Belief delta: {JSON.stringify(ev.payload.belief_change)}
+                                    </div>
+                                  )}
+
+                                  {/* Prompt reconstruction display */}
+                                  {isTurn && isReconstructed && (
+                                    <div style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+                                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                        <Chip className="active">Hash verified</Chip>
+                                        <span className="sub" style={{ fontSize: 12 }}>
+                                          Shape: <span className="mono">{reconstructedPrompt.shape}</span> · Reconstructed from records and checked against turn prompt hash. Never persisted.
+                                        </span>
+                                      </div>
+                                      <div style={{ display: "grid", gap: 8 }}>
+                                        {reconstructedPrompt.messages.map((m, mIdx) => (
+                                          <div
+                                            key={mIdx}
+                                            style={{
+                                              background: "var(--surface)",
+                                              border: "1px solid var(--line)",
+                                              borderRadius: "var(--r-sm)",
+                                              padding: 10,
+                                            }}
+                                          >
+                                            <div className="mono" style={{ fontSize: 11, fontWeight: 600, color: "var(--primary)" }}>
+                                              {m.role.toUpperCase()}
+                                            </div>
+                                            <pre
+                                              style={{
+                                                fontSize: 12,
+                                                whiteSpace: "pre-wrap",
+                                                marginTop: 4,
+                                                fontFamily: "var(--font-mono)",
+                                                maxHeight: 280,
+                                                overflow: "auto",
+                                              }}
+                                            >
+                                              {m.content}
+                                            </pre>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Prompt reconstruction error */}
+                                  {isTurn && isError && (
+                                    <div style={{ marginTop: 10 }}>
+                                      <Callout icon="alert">
+                                        <div>
+                                          <b>Cannot reconstruct prompt:</b> {promptError}
+                                          <div className="sub" style={{ fontSize: 11, marginTop: 4 }}>
+                                            The record cannot be verified against the turn’s recorded hash, so no approximation is shown.
+                                          </div>
+                                        </div>
+                                      </Callout>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {q === "events" && (
             <div className="panel"><div className="panel-head"><h2>Events</h2><span className="hint">ordered by (persona, tick, seq) — closed ticks only</span>
