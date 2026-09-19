@@ -294,6 +294,22 @@ _Avoid_: theme, topic, category, insight
 A pattern in a run that a rule recognises — attention converging, opinion splitting, a concept landing flat. Rules only: nothing here is judged by a model.
 _Avoid_: outlier, alert, signal, red flag
 
+**Trace Summary**:
+The five shapes of a run's record joined once and frozen — belief histories, word-of-mouth edges, grouped verbatims, event counts per kind and costs per role, each from the shape that owns it. Two summaries of one trace are identical, so a diff means a difference in the record.
+_Avoid_: export, dump, UI file, snapshot
+
+**Trajectory**:
+A derived shape in `analysis`: per-tick adoption and polarization for audiences and, separately, for communities, over a scenario's worlds. Audiences and communities are plotted separately because camps and target-market splits are different findings.
+_Avoid_: chart data, curve, series
+
+**Workspace Summary**:
+The first screen's numbers — studies run, spend against budget, personas simulated, reports written — derived over registry entries rather than by walking partitions. The interface displays its fields and computes nothing itself.
+_Avoid_: dashboard stats, totals, rollup
+
+**Prompt Reconstruction**:
+Rebuilding the exact messages a turn sent from the recorded parts and displaying them only when the rebuilt hash matches the hash the turn carries. A prompt that cannot be rebuilt says so and why; nothing approximates one and nothing stores one.
+_Avoid_: prompt log, replay (replay re-runs a study), rendering
+
 **Disconfirming Test**:
 The real-world check that would show a finding to be wrong. A finding without one cannot be made.
 _Avoid_: validation, caveat, limitation
