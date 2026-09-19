@@ -95,6 +95,23 @@ def _page(items: list[Any], offset: int, limit: int) -> list[Any]:
     return items[offset:][:limit]
 
 
+def _validate_brief(brief_path: Path, ontology_dir: str | None) -> None:
+    """Load a brief the way the CLI will: unknown keys, unvalidated claims and
+    a version that resolves nowhere are refused here, before anything is spent."""
+    _load_pack(brief_path, ontology_dir)
+
+
+def _load_pack(brief_path: Path, ontology_dir: str | None):
+    """A brief pack or a plain ValueError: engine refusals become 422s at this boundary."""
+    from simcore.brief import load_brief
+    from simcore.schemas.errors import SimError
+
+    try:
+        return load_brief(brief_path, Path(ontology_dir) if ontology_dir is not None else Path("ontologies"))
+    except SimError as exc:
+        raise ValueError(str(exc))
+
+
 def _study_argv(request: Request, run_id: str, body: dict[str, Any]) -> list[str]:
     """The subprocess command a start runs: the CLI with study inputs as flags.
 
@@ -121,6 +138,7 @@ def _study_argv(request: Request, run_id: str, body: dict[str, Any]) -> list[str
         "--budget", str(body.get("budget", 20.0)),
         "--channel", str(body.get("channel", "survey_room")),
         "--seeds", str(seeds),
+        "--elicits", str(body.get("elicits", "reaction")),
     ]
     if body.get("fake", True):
         argv.append("--fake")
@@ -170,6 +188,69 @@ def create_app(
     def health() -> dict[str, str]:
         return {"status": "ok", "engine_version": ENGINE_VERSION}
 
+    @app.get("/api/status")
+    def status() -> dict[str, Any]:
+        """How a study may run: whether an endpoint is configured, never its key.
+
+        Execution configuration stays in the server's environment — the setup
+        screen reports whether an endpoint is configured and never asks for,
+        accepts or displays a key in a browser.
+        """
+        import os
+
+        configured = bool(
+            os.environ.get("SIMCORE_INFERENCE_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+        )
+        return {
+            "engine_version": ENGINE_VERSION,
+            "endpoint_configured": configured,
+            "fake_available": True,
+        }
+
+    @app.post("/api/briefs/validate")
+    def validate_brief(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """Author and validate a brief against the engine's own contracts.
+
+        Returns the assumption ledger the brief assembles — what it states,
+        what its claims assume, and what it leaves unstated — before a run
+        can start.
+        """
+        from simcore.brief import assumptions_of
+
+        brief_yaml = body.get("brief_yaml")
+        if not isinstance(brief_yaml, str) or not brief_yaml.strip():
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=422, detail="brief_yaml (string) is required")
+        tmp = Path(_runs_dir(request), "_validate")
+        tmp.mkdir(parents=True, exist_ok=True)
+        candidate = Path(tmp, "brief.yaml")
+        candidate.write_text(brief_yaml, encoding="utf-8")
+        evidence = body.get("evidence_json")
+        sidecar = Path(tmp, "brief.yaml.evidence.json")
+        if isinstance(evidence, dict):
+            sidecar.write_text("\n".join([json.dumps(evidence, indent=2, sort_keys=True), ""]), encoding="utf-8")
+        elif sidecar.exists():
+            sidecar.unlink()
+        try:
+            pack = _load_pack(candidate, request.app.state.ontology_dir)
+        except ValueError as exc:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=422, detail=str(exc))
+        ledger = assumptions_of(pack)
+        return {
+            "valid": True,
+            "product": pack.brief.product.name,
+            "category": pack.brief.product.category,
+            "ontology_version": pack.brief.ontology_version,
+            "claims": [claim.id for claim in pack.brief.claims],
+            "audiences": [audience.name for audience in pack.brief.audiences],
+            "assumption_ledger": [
+                {"text": item.text, "source": item.source.value} for item in ledger
+            ],
+        }
+
     @app.get("/api/runs")
     def list_runs(request: Request) -> dict[str, Any]:
         runs = []
@@ -216,6 +297,14 @@ def create_app(
             Path(run_dir, "brief.yaml.evidence.json").write_text(
                 "\n".join([json.dumps(evidence, indent=2, sort_keys=True), ""]), encoding="utf-8"
             )
+        # A brief is validated against the engine's own contracts before a run
+        # can start — not after it fails halfway through its first draw.
+        try:
+            _validate_brief(Path(run_dir, "brief.yaml"), request.app.state.ontology_dir)
+        except ValueError as exc:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=422, detail=str(exc))
         argv = _study_argv(request, run_id, body)
         lifecycle.write_launch_record(run_dir, {"argv": argv, "cwd": request.app.state.engine_root})
         try:
@@ -474,7 +563,7 @@ def create_app(
         A draft may be authored without the corpus present, but pinning one
         needs the codebook — without it the check refuses rather than guesses.
         """
-        from simcore.brief import validate_against_codebook
+        from simcore.brief._codebook import validate_against_codebook
         from simcore.schemas import CategoryOntology
 
         draft = body.get("ontology", body)
@@ -501,7 +590,7 @@ def create_app(
         a new version rather than a changed file: past studies keep resolving
         to what they actually ran on.
         """
-        from simcore.brief import validate_against_codebook
+        from simcore.brief._codebook import validate_against_codebook
         from simcore.schemas import CategoryOntology
 
         root = request.app.state.ontology_dir
