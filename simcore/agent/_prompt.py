@@ -12,23 +12,27 @@ import hashlib
 import json
 from collections.abc import Mapping
 
-def offered_actions(channel: object | None = None) -> tuple[str, ...]:
-    """The actions a persona may choose on this channel, plus ignoring what it saw.
+def offered_actions(channel: object | None = None, *, ignorable: bool = True) -> tuple[str, ...]:
+    """The actions a persona may choose on this channel, and ignoring what it saw.
 
     A channel that does not support an action rejects it, and the rejection changes no state —
     the world owns affordances. Offering the whole enum regardless is how the first real study
     spent 895 of its 897 turns on actions a survey room discards: it affords `answer` alone, and
-    625 personas asked a peer. Ignoring always lands, so it is always offered.
+    625 personas asked a peer. Ignoring always lands, so it is offered — except where it cannot
+    be recorded: see `intent_question`.
     """
     from simcore.schemas import CHANNEL_AFFORDANCES, ActionKind, Channel
 
     if channel is None:
-        return tuple(sorted(action.value for action in ActionKind))
-    afforded = set(CHANNEL_AFFORDANCES[Channel(channel)]) | {ActionKind.IGNORE}
-    return tuple(sorted(action.value for action in afforded))
+        actions = set(ActionKind)
+    else:
+        actions = set(CHANNEL_AFFORDANCES[Channel(channel)]) | {ActionKind.IGNORE}
+    if not ignorable:
+        actions -= {ActionKind.IGNORE}
+    return tuple(sorted(action.value for action in actions))
 
 
-def _envelope(channel: object | None, verbatim: str) -> str:
+def _envelope(channel: object | None, verbatim: str, *, ignorable: bool = True) -> str:
     """The JSON the turn is recorded from: subject, action, what was said, what moved.
 
     Every turn returns this shape whatever it was asked, because the parser reads it and the
@@ -37,7 +41,8 @@ def _envelope(channel: object | None, verbatim: str) -> str:
     """
     return (
         "Reply with a JSON object with keys 'subject_stimulus_id' (one stimulus id shown above), "
-        f"'action' (one of {', '.join(offered_actions(channel))}) and 'verbatim' ({verbatim}) and "
+        f"'action' (one of {', '.join(offered_actions(channel, ignorable=ignorable))}) and "
+        f"'verbatim' ({verbatim}) and "
         "'belief_deltas' (how this changed your views, if at all: an object with 'dimensions' "
         "mapping any of value, fit, trust to a move in -1..1, and 'claim_credence' mapping claim "
         "ids like C1 to a move in -1..1; leave out what did not move)."
@@ -65,8 +70,18 @@ def intent_question(ask: str, channel: object | None = None) -> str:
     `ask` is `elicitation`'s own versioned template, included verbatim — it forbids numbers and
     asks for words. The envelope around it is what lets the answer be recorded as a turn and its
     verbatim scored; asking the question alone is what made the first intent study unrecordable.
+
+    Ignoring is not offered. The question asks for an answer in the verbatim, and `Reaction`
+    refuses an ignored impression that carries one, so offering both invites a turn that cannot
+    be recorded at all — 81 of 150 conditioned personas answered the question *and* marked it
+    ignored, and every one was lost. A persona who would not buy says so at the bottom of the
+    scale; ignoring is a feed action, not a survey answer.
     """
-    return ask + " " + _envelope(channel, "your answer to the question above, in your own words") + _BREVITY
+    return (
+        ask + " "
+        + _envelope(channel, "your answer to the question above, in your own words", ignorable=False)
+        + _BREVITY
+    )
 
 
 # Every action, for a turn whose channel is not known; the question's shape is asserted over it.

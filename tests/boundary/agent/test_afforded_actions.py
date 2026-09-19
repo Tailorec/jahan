@@ -86,3 +86,18 @@ def test_a_purchase_intent_turn_still_asks_for_the_turn_object():
 def test_a_purchase_intent_turn_still_forbids_a_number():
     question = _question_for_task("purchase")
     assert "Do not use numbers" in question
+
+
+def test_an_intent_turn_does_not_offer_an_action_that_makes_it_unrecordable():
+    """The elicitation question asks for the persona's answer in the verbatim, and `Reaction`
+    refuses an ignored impression that carries one. Offering `ignore` on an intent turn invites
+    the model to do both — and 81 of 150 conditioned personas did exactly that, every one lost
+    as `call_failed`. A persona who would not buy says so at the bottom of the scale; ignoring
+    is a feed action, not a survey answer."""
+    question = _question_for_task("purchase")
+    assert "answer" in question
+    assert "ignore" not in question
+
+
+def test_a_reaction_turn_still_offers_ignoring():
+    assert "ignore" in _question_for_task("reaction")

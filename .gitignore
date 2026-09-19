@@ -13,3 +13,10 @@ docs/evaluations/m10-analysis/trace/
 # regenerable from the configuration that made them, and a SQLite trace is not reviewable in a
 # diff. Kept on disk, never in the repository.
 runs/
+
+# Next.js frontend: dependencies and build output are installed and generated, never committed.
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/next-env.d.ts
+.env*.local
