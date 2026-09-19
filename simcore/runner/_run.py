@@ -531,6 +531,7 @@ def run(
                 "engine_version": engine_version,
                 "recorded_cost": 0.0,
                 "discarded_ticks": 0,
+                "population_size": len(population.personas) if population else 0,
             }
         )
         _remember(registry, running)
@@ -555,6 +556,7 @@ def run(
                     "engine_version": stored.engine_version,
                     "recorded_cost": float(stored.recorded_cost),
                     "discarded_ticks": base_discarded + pending_discarded,
+                    "population_size": getattr(stored, "population_size", len(population.personas) if population else 0),
                     "forced_from": list(forced_from),
                     "forced_inputs": list(forced_inputs),
                 }
@@ -708,6 +710,7 @@ def run(
             "engine_version": engine_version,
             "recorded_cost": recorded_cost,
             "discarded_ticks": discarded_total,
+            "population_size": len(population.personas) if population else 0,
             "forced_from": list(forced_from),
             "forced_inputs": list(forced_inputs),
         }

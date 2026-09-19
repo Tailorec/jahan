@@ -724,6 +724,7 @@ class RunRegistryEntry(SimBaseModel):
     # rather than implying the floor is the truth (ADR 0033).
     recorded_cost: Annotated[float, Field(ge=0.0)] = 0.0
     discarded_ticks: NonNegativeInt = 0
+    population_size: NonNegativeInt = 0
     # The engine versions this run ran under before a resume was forced across them, oldest
     # first. A forced resume is allowed and recorded, so a result that spans versions is marked
     # in the record rather than only in the process that forced it (ADR 0036).
