@@ -3,7 +3,7 @@
 import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
-import { PageHead, Chip, Callout, PmfBar, PmfLegend, ICONS } from "@/components/ui";
+import { PageHead, Chip, Callout, PmfBar, PmfLegend, ICONS, TrustLine } from "@/components/ui";
 import { useApi, useRunId } from "@/lib/api";
 import { pmfMean, top2box, type OutcomeDigest, type RunSummary, type ScenarioSummary } from "@/lib/engine";
 
@@ -12,6 +12,7 @@ interface Detail {
   digest: { digests: OutcomeDigest[]; summaries: Record<string, ScenarioSummary> } | null;
   pins: Record<string, { model_id: string }> | null;
   trace: { max_tick: Record<string, number>; event_counts: Record<string, Record<string, number>> } | null;
+  report: { trust: { level: string } } | null;
 }
 
 export default function RunPage() {
@@ -33,6 +34,7 @@ export default function RunPage() {
       />
       {error && <Callout icon="alert"><div>{error}</div></Callout>}
       {!data && !error && <div className="empty"><b>Loading run…</b></div>}
+      {data && <TrustLine level={data.report?.trust.level ?? null} runId={runId} />}
       {s && (
         <>
           <div className="stat-strip" style={{ marginBottom: 20 }}>

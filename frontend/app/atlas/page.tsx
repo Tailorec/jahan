@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import Shell from "@/components/shell";
-import { PageHead, Chip, Callout, PmfBar } from "@/components/ui";
+import { PageHead, Chip, Callout, PmfBar, TrustLine } from "@/components/ui";
 import { useApi, useRunId } from "@/lib/api";
 import { pmfMean, top2box, type OutcomeDigest, type RunSummary, type ScenarioSummary } from "@/lib/engine";
 
 interface Detail {
   summary: RunSummary | null;
   digest: { digests: OutcomeDigest[]; summaries: Record<string, ScenarioSummary> } | null;
+  report: { trust: { level: string } } | null;
 }
 
 export default function AtlasPage() {
@@ -26,6 +27,7 @@ export default function AtlasPage() {
       />
       {error && <Callout icon="alert"><div>{error}</div></Callout>}
       {!data && !error && <div className="empty"><b>Loading sweep…</b></div>}
+      {data && <TrustLine level={data.report?.trust.level ?? null} runId={runId} />}
       {s && (
         <>
           <div className="panel">

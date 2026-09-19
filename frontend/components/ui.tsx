@@ -102,3 +102,25 @@ export function SegDot({ index, label }: { index: number; label?: string }) {
     </span>
   );
 }
+
+/* The run's calibration, stated once per study view — never per finding.
+   Findings carry only their own confidence; the ladder lives on the trust page. */
+export function TrustLine({ level, runId }: {
+  level?: string | null; runId?: string | null;
+}) {
+  if (!level) {
+    return (
+      <p className="sub" style={{ color: "var(--ink-3)", fontSize: 12.5, margin: "0 0 16px" }}>
+        Engine trust: <b>not yet stated</b> — the study has no report
+      </p>
+    );
+  }
+  const label = level.replace(/_/g, " ");
+  return (
+    <p className="sub" style={{ color: "var(--ink-3)", fontSize: 12.5, margin: "0 0 16px" }}>
+      Engine trust: <b>{label}</b>
+      {level !== "uncalibrated" ? null : <> — results have not been checked against real human data</>}
+      <> · <a href={runId ? `/calibration?run=${runId}` : "/calibration"}>what would earn the next rung →</a></>
+    </p>
+  );
+}

@@ -3,13 +3,14 @@
 import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
-import { PageHead, Chip, Callout } from "@/components/ui";
+import { PageHead, Chip, Callout, TrustLine } from "@/components/ui";
 import { useApi, useRunId } from "@/lib/api";
 import type { BeliefPoint, TraceEvent, UITrace } from "@/lib/engine";
 
 interface Detail {
   trace: UITrace | null;
   manifest: { persona_ids: string[] } | null;
+  report: { trust: { level: string } } | null;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -95,6 +96,7 @@ export default function TracePage() {
       />
       {error && <Callout icon="alert"><div>{error}</div></Callout>}
       {!data && !error && <div className="empty"><b>Loading trace…</b></div>}
+      {data && <TrustLine level={data.report?.trust.level ?? null} runId={runId} />}
       {data && !t && <Callout icon="alert"><div>No trace-summary.json for this run yet — it is written beside report.json at the end of every run, or backfill with <span className="mono">scripts/export_ui_trace.py runs/{runId}</span>.</div></Callout>}
       {t && w && (
         <>

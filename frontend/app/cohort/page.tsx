@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import Shell from "@/components/shell";
-import { PageHead, Chip, Callout } from "@/components/ui";
+import { PageHead, Chip, Callout, TrustLine } from "@/components/ui";
 import { useApi, useRunId } from "@/lib/api";
 import type { GateReport, PopulationManifest } from "@/lib/engine";
 
 interface Detail {
   gate: GateReport | null;
   manifest: PopulationManifest | null;
+  report: { trust: { level: string } } | null;
 }
 
 export default function CohortPage() {
@@ -25,6 +26,7 @@ export default function CohortPage() {
       />
       {error && <Callout icon="alert"><div>{error}</div></Callout>}
       {!data && !error && <div className="empty"><b>Loading gate report…</b></div>}
+      {data && <TrustLine level={data.report?.trust.level ?? null} runId={runId} />}
       {data && !gate && <Callout icon="alert"><div>No gate-report.json for this run.</div></Callout>}
       {gate && manifest && (
         <>
