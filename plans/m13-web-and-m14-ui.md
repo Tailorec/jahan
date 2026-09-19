@@ -32,12 +32,12 @@ The frontend already reads `ui-trace.json`, and nothing writes it. What it wants
 
 ### Acceptance criteria
 
-- [ ] `trace_summary(view)` returns a frozen model carrying belief histories, edges, grouped verbatims, event counts per kind and costs per role, each from the shape that owns it
-- [ ] Every quantity in it matches the same quantity recomputed from raw events on a fixture trace
-- [ ] It reaches storage only through the five shapes — no path, no frame, no second way in, asserted over the module
-- [ ] A study writes it into the run directory beside the other artefacts, and a paused run writes what it has
-- [ ] The interface renders a real recorded study's trace, beliefs and verbatims with no mock state
-- [ ] Two summaries of one trace are identical, so a diff means a difference in the record
+- [x] `trace_summary(view)` returns a frozen model carrying belief histories, edges, grouped verbatims, event counts per kind and costs per role, each from the shape that owns it
+- [x] Every quantity in it matches the same quantity recomputed from raw events on a fixture trace
+- [x] It reaches storage only through the five shapes — no path, no frame, no second way in, asserted over the module
+- [x] A study writes it into the run directory beside the other artefacts, and a paused run writes what it has
+- [x] The interface renders a real recorded study's trace, beliefs and verbatims with no mock state
+- [x] Two summaries of one trace are identical, so a diff means a difference in the record
 
 ---
 
@@ -51,13 +51,13 @@ The server, and the discipline that keeps it thin. `simcore/web/` serves the fiv
 
 ### Acceptance criteria
 
-- [ ] Each of the five shapes has an endpoint returning frozen models, with a typed filter rather than free keyword arguments
-- [ ] A live run and a finished run answer identically through the same endpoints
-- [ ] The package performs no arithmetic over what it serves, asserted over the module in the shape `report`'s discipline test already uses
-- [ ] No endpoint returns a filesystem path, a cursor or a frame
-- [ ] The API is exercised in-process against temporary directories with the fake backend, and reaches no network
-- [ ] The server ships as the `simcore[web]` extra, and the core's runtime dependencies are unchanged
-- [ ] The interface reads every engine number through the API, and its direct filesystem reads are gone
+- [x] Each of the five shapes has an endpoint returning frozen models, with a typed filter rather than free keyword arguments
+- [x] A live run and a finished run answer identically through the same endpoints
+- [x] The package performs no arithmetic over what it serves, asserted over the module in the shape `report`'s discipline test already uses
+- [x] No endpoint returns a filesystem path, a cursor or a frame
+- [x] The API is exercised in-process against temporary directories with the fake backend, and reaches no network
+- [x] The server ships as the `simcore[web]` extra, and the core's runtime dependencies are unchanged
+- [x] The interface reads every engine number through the API, and its direct filesystem reads are gone
 
 ---
 
@@ -71,12 +71,12 @@ The page the mockups call calibration, told honestly. The run's `TrustStatement`
 
 ### Acceptance criteria
 
-- [ ] Every study view states the run's calibration exactly once, and no finding carries one
-- [ ] The trust page shows the ladder and what a level above `UNCALIBRATED` requires, without displaying an accuracy number the engine has not earned
-- [ ] A quantity reported as not measurable renders its reason where the number would have appeared
-- [ ] A run forced across engine versions or past moved inputs says so
-- [ ] Nothing in the interface writes or overrides a trust level
-- [ ] A finding's own confidence renders beside it and is never presented as the engine's calibration
+- [x] Every study view states the run's calibration exactly once, and no finding carries one
+- [x] The trust page shows the ladder and what a level above `UNCALIBRATED` requires, without displaying an accuracy number the engine has not earned
+- [x] A quantity reported as not measurable renders its reason where the number would have appeared
+- [x] A run forced across engine versions or past moved inputs says so
+- [x] Nothing in the interface writes or overrides a trust level
+- [x] A finding's own confidence renders beside it and is never presented as the engine's calibration
 
 ---
 
@@ -92,13 +92,13 @@ The first study anyone runs is `--fake`: no key, no corpus, no network, a real r
 
 ### Acceptance criteria
 
-- [ ] A study starts from the interface and its run id, artefacts and registry entry agree
-- [ ] Recorded cost and ticks closed are readable while the run is going, not only when it ends
-- [ ] The interface shows ticks closing, turns landing, spend against the budget and the rung in force
-- [ ] Cancelling stops the run, loses at most the tick in flight, and the trace stays valid
-- [ ] A cancelled run resumes and completes, skipping the worlds that reached their horizon
-- [ ] A run outlives a restart of the server, and orphans are swept into a truthful status on start
-- [ ] A fake run needs no key, no corpus and no network, and is marked as fake in every view of it
+- [x] A study starts from the interface and its run id, artefacts and registry entry agree
+- [x] Recorded cost and ticks closed are readable while the run is going, not only when it ends
+- [x] The interface shows ticks closing, turns landing, spend against the budget and the rung in force
+- [x] Cancelling stops the run, loses at most the tick in flight, and the trace stays valid
+- [x] A cancelled run resumes and completes, skipping the worlds that reached their horizon
+- [x] A run outlives a restart of the server, and orphans are swept into a truthful status on start
+- [x] A fake run needs no key, no corpus and no network, and is marked as fake in every view of it
 
 ---
 
@@ -112,12 +112,12 @@ Who was drawn and whether the draw was sound. The gate report's per-attribute re
 
 ### Acceptance criteria
 
-- [ ] Every gate result shows its statistic, its threshold and its verdict, so a reader can recompute the call
-- [ ] Requested and achieved audience mix are shown together, and a relaxation that was applied is visible
-- [ ] The synthesized share and which domains may be completed are stated
-- [ ] Sample personas render from the population's own records, with each attribute's origin
-- [ ] Audiences and communities are presented as different things, and a population that formed no communities says so with the reason
-- [ ] A failed gate is readable, since a study that never ran is the case the page most needs to explain
+- [x] Every gate result shows its statistic, its threshold and its verdict, so a reader can recompute the call
+- [x] Requested and achieved audience mix are shown together, and a relaxation that was applied is visible
+- [x] The synthesized share and which domains may be completed are stated
+- [x] Sample personas render from the population's own records, with each attribute's origin
+- [x] Audiences and communities are presented as different things, and a population that formed no communities says so with the reason
+- [x] A failed gate is readable, since a study that never ran is the case the page most needs to explain
 
 ---
 
@@ -133,13 +133,13 @@ The conditioning set is presented as what it is: the field that decides whether 
 
 ### Acceptance criteria
 
-- [ ] The codebook's attributes are searchable with their declared value sets, from the corpus rather than from a copy
-- [ ] An attribute the corpus does not carry is refused as it is entered, naming what the codebook does have that resembles it
-- [ ] An ordinal scale is built from the codebook's own labels, in the order the codebook states them
-- [ ] Saving an edited ontology creates a new version and leaves every existing version untouched
-- [ ] A study names the version it ran on, and that version resolves for as long as the study exists
-- [ ] A draft may be authored without the corpus present and cannot be pinned until it validates against one
-- [ ] The conditioning set is explained where it is chosen, with what it costs to leave an attribute out
+- [x] The codebook's attributes are searchable with their declared value sets, from the corpus rather than from a copy
+- [x] An attribute the corpus does not carry is refused as it is entered, naming what the codebook does have that resembles it
+- [x] An ordinal scale is built from the codebook's own labels, in the order the codebook states them
+- [x] Saving an edited ontology creates a new version and leaves every existing version untouched
+- [x] A study names the version it ran on, and that version resolves for as long as the study exists
+- [x] A draft may be authored without the corpus present and cannot be pinned until it validates against one
+- [x] The conditioning set is explained where it is chosen, with what it costs to leave an attribute out
 
 ---
 
@@ -153,12 +153,12 @@ The brief and the scenario, configured in the engine's own words: product, claim
 
 ### Acceptance criteria
 
-- [ ] A brief is authored and validated against the engine's own contracts before a run can start
-- [ ] Every term the form uses is the glossary's, with its definition available where it is set
-- [ ] The assumption ledger is assembled from what the brief states and what it leaves unstated
-- [ ] A study states what its personas are asked, and a purchase-intent study names the anchor version that scores it
-- [ ] The interface reports whether an endpoint is configured and never accepts or displays a key
-- [ ] A real study runs from the interface end to end and writes the same artefacts the command line does
+- [x] A brief is authored and validated against the engine's own contracts before a run can start
+- [x] Every term the form uses is the glossary's, with its definition available where it is set
+- [x] The assumption ledger is assembled from what the brief states and what it leaves unstated
+- [x] A study states what its personas are asked, and a purchase-intent study names the anchor version that scores it
+- [x] The interface reports whether an endpoint is configured and never accepts or displays a key
+- [x] A real study runs from the interface end to end and writes the same artefacts the command line does
 
 ---
 
@@ -172,12 +172,12 @@ The unit the engine actually records. One persona's timeline — what it was sho
 
 ### Acceptance criteria
 
-- [ ] A persona's events, beliefs and verbatims are shown in one timeline, and none of another persona's appear in it
-- [ ] Belief movement is shown per dimension and per claim, before and after, from the recorded snapshots and turns
-- [ ] The influence neighbourhood is drawn from the recorded edges, naming the channel and how often
-- [ ] A turn's prompt is reconstructed from the record and displayed only when it matches the turn's recorded hash
-- [ ] A prompt that cannot be reconstructed says so and why, rather than showing an approximation
-- [ ] Nothing in the interface stores a prompt, asserted over what it persists
+- [x] A persona's events, beliefs and verbatims are shown in one timeline, and none of another persona's appear in it
+- [x] Belief movement is shown per dimension and per claim, before and after, from the recorded snapshots and turns
+- [x] The influence neighbourhood is drawn from the recorded edges, naming the channel and how often
+- [x] A turn's prompt is reconstructed from the record and displayed only when it matches the turn's recorded hash
+- [x] A prompt that cannot be reconstructed says so and why, rather than showing an approximation
+- [x] Nothing in the interface stores a prompt, asserted over what it persists
 
 ---
 
@@ -191,12 +191,12 @@ A study's shape rather than one persona's. Adoption against polarization across 
 
 ### Acceptance criteria
 
-- [ ] Trajectories per audience and per community per tick are a derived shape in `analysis`, matching the same quantities recomputed from raw events
-- [ ] `ranking` findings are authored by extraction from a scenario's digests, carrying the spread that says whether the order survives its replicates
-- [ ] `risk` findings are authored from recorded anomalies, each with its evidence and its disconfirming test
-- [ ] A cell whose worlds ran at different degradation rungs is marked rather than silently compared
-- [ ] A quantity no world measured is stated as unmeasured with its reason, never drawn as zero
-- [ ] Nothing generated appears as a finding, asserted over what the atlas renders
+- [x] Trajectories per audience and per community per tick are a derived shape in `analysis`, matching the same quantities recomputed from raw events
+- [x] `ranking` findings are authored by extraction from a scenario's digests, carrying the spread that says whether the order survives its replicates
+- [x] `risk` findings are authored from recorded anomalies, each with its evidence and its disconfirming test
+- [x] A cell whose worlds ran at different degradation rungs is marked rather than silently compared
+- [x] A quantity no world measured is stated as unmeasured with its reason, never drawn as zero
+- [x] Nothing generated appears as a finding, asserted over what the atlas renders
 
 ---
 
@@ -210,9 +210,9 @@ The first screen, and the documents in step. A workspace summary over registry e
 
 ### Acceptance criteria
 
-- [ ] A workspace summary is a derived shape over registry entries, and computes nothing from a trace
-- [ ] `RunRegistryEntry` carries what a rollup needs, so no total walks a partition
-- [ ] The whole of `web` performs no arithmetic over what it serves, asserted over the package
-- [ ] Every number the interface displays is traceable to the shape that produced it, asserted on a real recorded study
-- [ ] `FINAL_ARCH.md` §5.13 and §5.14, `SALVAGE.md` and `CONTEXT.md` describe what was built, and no claim contradicts the code
-- [ ] Any defect the interface exposes is fixed with a test that fails on the old code
+- [x] A workspace summary is a derived shape over registry entries, and computes nothing from a trace
+- [x] `RunRegistryEntry` carries what a rollup needs, so no total walks a partition
+- [x] The whole of `web` performs no arithmetic over what it serves, asserted over the package
+- [x] Every number the interface displays is traceable to the shape that produced it, asserted on a real recorded study
+- [x] `FINAL_ARCH.md` §5.13 and §5.14, `SALVAGE.md` and `CONTEXT.md` describe what was built, and no claim contradicts the code
+- [x] Any defect the interface exposes is fixed with a test that fails on the old code
