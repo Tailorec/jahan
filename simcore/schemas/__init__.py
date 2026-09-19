@@ -181,6 +181,7 @@ from .sim import (
 )
 from .agent import CompletedTurn, TurnFailure, TurnJob, TurnOutcome
 from .query import BeliefHistory, BeliefPoint, EventFilter, TraceEdge, VerbatimGroup, VerbatimRecord
+from .trace_summary import CostByRole, TraceSummary, WorldTraceSummary
 from .trace import (
     CONTRACT_MIGRATIONS,
     ContractMigration,
@@ -383,6 +384,7 @@ __all__ = [
     "TraceEdge",
     "TraceEvent",
     "TracePartition",
+    "TraceSummary",
     "TracePayload",
     "TrustLevel",
     "TrustStatement",
@@ -402,6 +404,7 @@ __all__ = [
     "TurnFailure",
     "TurnFailureKind",
     "CompletedTurn",
+    "CostByRole",
     "UnitInterval",
     "Variant",
     "VariantId",
@@ -411,6 +414,7 @@ __all__ = [
     "WorldOutcome",
     "WorldRecord",
     "WorldStatus",
+    "WorldTraceSummary",
     "canonical_hash",
     "canonical_json",
     "canonical_payload",
