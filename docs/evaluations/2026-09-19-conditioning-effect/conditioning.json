@@ -1,0 +1,58 @@
+{
+  "anchor_version": "purchase_intent/v2",
+  "arms": [
+    {
+      "arm": "conditioned",
+      "distinct_answers": 57,
+      "distinct_verbatims": 57,
+      "failed": 0,
+      "failure_kinds": [],
+      "jobs": 150,
+      "mean_expected_rating": 3.2018,
+      "mean_top_two_box": 0.4329,
+      "scored": 150,
+      "sd_expected_rating": 0.5383,
+      "sd_top_two_box": 0.153,
+      "verbatim_sample": [
+        "I'm inclined to try it since it's protein-rich and fits my fitness routine.",
+        "I'm not likely to buy it because I don't usually exercise and I'm not interested in protein drinks.",
+        "I might consider buying it because it's protein-infused and I'm always looking for ways to boost my nutrition."
+      ]
+    },
+    {
+      "arm": "unconditioned",
+      "distinct_answers": 1,
+      "distinct_verbatims": 1,
+      "failed": 0,
+      "failure_kinds": [],
+      "jobs": 150,
+      "mean_expected_rating": 3.3399,
+      "mean_top_two_box": 0.4352,
+      "scored": 150,
+      "sd_expected_rating": 0.0,
+      "sd_top_two_box": 0.0,
+      "verbatim_sample": [
+        "I'm neutral about buying it; it sounds like a typical health product.",
+        "I'm neutral about buying it; it sounds like a typical health product.",
+        "I'm neutral about buying it; it sounds like a typical health product."
+      ]
+    }
+  ],
+  "difference": {
+    "expected_rating": 0.1381,
+    "sd_ratio_unconditioned_over_conditioned": 0.0,
+    "top_two_box": 0.0023
+  },
+  "embed_model": "amazon.titan-embed-text-v2:0",
+  "empty_block_refusal": {
+    "completed": 0,
+    "jobs": 3,
+    "kinds": [
+      "unconditioned"
+    ]
+  },
+  "model": "amazon.nova-micro-v1:0",
+  "personas": 150,
+  "population_hash": "5e3615815bde013865776077c5b9c413fc43c0d8ee5617543337896c0c24f562",
+  "unconditioned_block": "You are a person."
+}

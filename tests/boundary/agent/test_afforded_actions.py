@@ -101,3 +101,17 @@ def test_an_intent_turn_does_not_offer_an_action_that_makes_it_unrecordable():
 
 def test_a_reaction_turn_still_offers_ignoring():
     assert "ignore" in _question_for_task("reaction")
+
+
+def test_a_single_offered_action_is_stated_not_chosen_from():
+    """"One of answer" reads as a field to fill in rather than a list to choose from: asked that
+    way, a real model answered `action: "consider"` and `action: "not likely to purchase"`, and
+    every turn failed as unparseable. Where there is no choice, the value is stated."""
+    question = _question_for_task("purchase")
+    assert '"answer"' in question or "'answer'" in question
+    assert "one of answer)" not in question
+
+
+def test_several_offered_actions_are_still_a_choice():
+    question = _question_for_task("reaction", channel="social_feed")
+    assert "one of" in question

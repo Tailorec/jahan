@@ -39,9 +39,13 @@ def _envelope(channel: object | None, verbatim: str, *, ignorable: bool = True) 
     verbatim inside it is the text `elicitation` scores. A question that replaces the envelope
     rather than sitting inside it produces prose the pipeline cannot record at all.
     """
+    actions = offered_actions(channel, ignorable=ignorable)
+    # A one-item "choose one of" reads as a field to fill in rather than a list to pick from, and
+    # a real model asked that way answered `action: "consider"`. Where there is no choice, say so.
+    chosen = f'always "{actions[0]}"' if len(actions) == 1 else "one of " + ", ".join(actions)
     return (
         "Reply with a JSON object with keys 'subject_stimulus_id' (one stimulus id shown above), "
-        f"'action' (one of {', '.join(offered_actions(channel, ignorable=ignorable))}) and "
+        f"'action' ({chosen}) and "
         f"'verbatim' ({verbatim}) and "
         "'belief_deltas' (how this changed your views, if at all: an object with 'dimensions' "
         "mapping any of value, fit, trust to a move in -1..1, and 'claim_credence' mapping claim "
