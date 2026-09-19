@@ -1,12 +1,22 @@
 import Link from "next/link";
 import Shell from "@/components/shell";
 import { PageHead, Chip, Callout } from "@/components/ui";
-import { readAnchorsCheck, readOntology, listOntologies } from "@/lib/server";
+import { readAnchorsCheck, readOntology, listOntologies, readRunDetail } from "@/lib/server";
 
-export default async function CalibrationPage() {
-  const [anchors, ontos] = await Promise.all([readAnchorsCheck(), listOntologies()]);
+export default async function CalibrationPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ run?: string }>;
+}) {
+  const { run: runId } = await searchParams;
+  const [anchors, ontos, detail] = await Promise.all([
+    readAnchorsCheck(),
+    listOntologies(),
+    runId ? readRunDetail(runId).catch(() => null) : Promise.resolve(null),
+  ]);
   const onto = ontos.find((o) => o.category === "beverage_protein_persona1m") ?? ontos[0];
   const full = onto ? await readOntology(onto.category, onto.version) : null;
+  const trust = detail?.report?.trust ?? null;
 
   return (
     <Shell crumbs={<><Link href="/">Workspace</Link> / Study / <b>Calibration</b></>}>
@@ -20,12 +30,22 @@ export default async function CalibrationPage() {
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-head"><h2>Trust ladder</h2><span className="hint">uncalibrated is the only level the engine can currently reach</span></div>
         <div className="panel-body">
+          {runId && (
+            <p className="sub" style={{ fontSize: 13, marginBottom: 12 }}>
+              Run <span className="mono">{runId}</span>: <b>{trust ? trust.level.replace(/_/g, " ") : "no report — trust not yet stated"}</b>
+              {trust?.caveats?.length ? <> — {trust.caveats.join(" ")}</> : null}
+            </p>
+          )}
           <div className="tier-ladder">
             <div className="tier-step cur"><b>Uncalibrated</b><span className="mono" style={{ fontSize: 10.5 }}>current · no human benchmark</span></div>
             <div className="tier-step"><b>Category-benchmarked</b><span className="mono" style={{ fontSize: 10.5 }}>needs KS ≥ 0.80 + rank ≥ 0.80</span></div>
             <div className="tier-step"><b>Prospectively-validated</b><span className="mono" style={{ fontSize: 10.5 }}>needs registered blind prediction</span></div>
           </div>
-          <Callout icon="info" style={{ marginTop: 12 }}><div>A report may not claim to match the measured category on anything short of measured evidence — that refusal is enforced by the gate schema, not by convention.</div></Callout>
+          <table className="tbl" style={{ marginTop: 12 }}><thead><tr><th>Next rung</th><th>What earns it</th></tr></thead><tbody>
+            <tr><td className="strong">Category-benchmarked</td><td className="sub">a <span className="mono">CalibrationRef</span> pinning a benchmark report and a human study by content hash, measuring distribution similarity ≥ 0.80 and rank attainment ≥ 0.80 — nothing in the repository produces one</td></tr>
+            <tr><td className="strong">Prospectively-validated</td><td className="sub">the above, plus a prediction registered before its outcome was observed and checked after it</td></tr>
+          </tbody></table>
+          <Callout icon="info" style={{ marginTop: 12 }}><div>A report may not claim to match the measured category on anything short of measured evidence — that refusal is enforced by the gate schema, not by convention. A finding&apos;s own confidence (low / medium / high) is the strength of that finding&apos;s evidence, never the engine&apos;s calibration.</div></Callout>
         </div>
       </div>
 
