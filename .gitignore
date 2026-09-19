@@ -20,3 +20,5 @@ frontend/.next/
 frontend/out/
 frontend/next-env.d.ts
 .env*.local
+frontend/tsconfig.tsbuildinfo
+frontend/.next-test/

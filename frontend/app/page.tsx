@@ -38,7 +38,7 @@ export default function OverviewPage() {
         sub="Every row below is a real artefact in runs/ — written by the engine CLI, read live by this UI. Nothing here is mock state."
         actions={<Link className="btn primary" href="/intake">New study {ICONS.arrow}</Link>}
       />
-      {error && <Callout icon="alert"><div>Could not reach the engine checkout: {error}. Set SIM_ENGINE_ROOT.</div></Callout>}
+      {error && <Callout icon="alert"><div>Could not reach the engine: {error}</div></Callout>}
       {!data && !error && <div className="empty"><b>Loading engine state…</b>reading runs/, ontologies/, examples/</div>}
       {data && (
         <>

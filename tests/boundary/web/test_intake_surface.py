@@ -26,7 +26,7 @@ def test_assumption_ledger_assembled_before_a_run():
     ):
         assert marker in text, f"intake lacks {marker!r}"
     route = (FRONTEND / "app" / "api" / "briefs" / "validate" / "route.ts").read_text()
-    assert "brief" in route and "check" in route
+    assert '"/api/briefs/validate"' in route
 
 
 def test_study_states_task_and_scale():

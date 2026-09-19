@@ -29,7 +29,7 @@ def test_the_run_page_watches_a_live_run():
 
 def test_intake_launches_a_fake_study():
     text = (FRONTEND / "app" / "intake" / "page.tsx").read_text()
-    for marker in ('"/api/runs"', "brief_yaml", "Horizon", "fake: true", "Watch"):
+    for marker in ('"/api/runs"', "brief_yaml", "Horizon", "fake: mode === \"fake\"", "Watch"):
         assert marker in text, f"intake never offers {marker!r}"
 
 
@@ -45,17 +45,20 @@ def test_run_entries_carry_liveness_fakery_and_progress():
         assert marker in engine, f"engine types lack {marker!r}"
 
 
-def test_launch_cancel_and_resume_have_server_routes():
+def test_launch_cancel_and_resume_are_proxied_to_the_engine():
     runs = (FRONTEND / "app" / "api" / "runs" / "route.ts").read_text()
-    assert "export async function POST" in runs
-    assert "launch.json" in runs
+    assert "export async function POST" in runs and '"/api/runs"' in runs
     detail = (FRONTEND / "app" / "api" / "runs" / "[id]" / "route.ts").read_text()
     assert "export async function DELETE" in detail
-    assert 'action !== "resume"' in detail
-    assert "cancelled.json" in detail
+    assert 'action !== "resume"' in detail and "/resume" in detail
 
 
-def test_disk_reads_merge_published_progress():
-    server = (FRONTEND / "lib" / "server.ts").read_text()
-    assert "progress.json" in server
-    assert "cancelled.json" in server
+def test_the_interface_starts_and_stops_nothing_itself():
+    """One implementation of a run's lifecycle, and it is the engine's: the interface holds no
+    process, no pid, no run directory. It had its own launcher, a second id minter that disagreed
+    with the engine's about how long an id is, and a cancel marker only it understood."""
+    forbidden = ("node:child_process", "spawn(", "execFile", "process.kill", "launch.json", "cancelled.json", "mintRunId")
+    for path in list((FRONTEND / "app").rglob("*.ts*")) + list((FRONTEND / "lib").rglob("*.ts*")):
+        text = path.read_text()
+        for marker in forbidden:
+            assert marker not in text, f"{path.relative_to(FRONTEND)} runs things itself: {marker!r}"

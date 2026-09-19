@@ -4,7 +4,7 @@ import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
 import { PageHead, Callout } from "@/components/ui";
-import { api, useApi } from "@/lib/api";
+import { api, ApiError, useApi, whyNot } from "@/lib/api";
 import type { CategoryOntology, PersonaFieldDomain } from "@/lib/engine";
 
 interface CodebookHit { id: string; values: string[] }
@@ -41,9 +41,12 @@ export default function OntologyPage() {
       const d = await api<{ attributes: CodebookHit[] }>("/api/codebook?query=" + encodeURIComponent(q) + "&limit=12");
       setHits(d.attributes);
       setCorpusMissing(false);
-    } catch {
+    } catch (e) {
       setHits(null);
-      setCorpusMissing(true);
+      // Only an absent corpus means "author freely"; anything else is the engine saying why it could not answer.
+      const absent = e instanceof ApiError && e.status === 409;
+      setCorpusMissing(absent);
+      if (!absent) setCheck({ valid: false, error: whyNot(e) });
     }
   }, []);
 
@@ -88,7 +91,7 @@ export default function OntologyPage() {
       });
       setCheck({ valid: d.valid });
     } catch (e) {
-      setCheck({ valid: false, error: String(e) });
+      setCheck({ valid: false, error: whyNot(e) });
     }
     setChecking(false);
   }
@@ -103,7 +106,7 @@ export default function OntologyPage() {
       setSaved(d);
       setCheck({ valid: true });
     } catch (e) {
-      setCheck({ valid: false, error: String(e) });
+      setCheck({ valid: false, error: whyNot(e) });
     }
     setChecking(false);
   }
@@ -118,7 +121,7 @@ export default function OntologyPage() {
       setVersion(bump(o.version));
       setSaved(null);
     } catch (e) {
-      setCheck({ valid: false, error: String(e) });
+      setCheck({ valid: false, error: whyNot(e) });
     }
   }
 

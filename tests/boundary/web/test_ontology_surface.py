@@ -15,8 +15,10 @@ def test_names_are_checked_as_typed_with_suggestions():
     text = (FRONTEND / "app" / "ontology" / "page.tsx").read_text()
     for marker in ("/api/ontologies/validate", "Refused", "did you mean"):
         assert marker in text or "resembl" in text, f"builder lacks {marker!r}"
+    # The check itself is the engine's, and is asserted where it lives: test_ontology.py
+    # (the refusal and its suggestions) and test_interface.py (that the reason reaches the browser).
     api = (FRONTEND / "app" / "api" / "ontologies" / "validate" / "route.ts").read_text()
-    assert "ontology" in api and ("ontology" in api and "check" in api)
+    assert '"/api/ontologies/validate"' in api
 
 
 def test_scales_come_from_codebook_labels_in_codebook_order():
@@ -29,8 +31,10 @@ def test_saving_makes_a_new_version():
     text = (FRONTEND / "app" / "ontology" / "page.tsx").read_text()
     for marker in ("Save new version", "never overwritten", "Load existing to edit"):
         assert marker in text, f"builder lacks {marker!r}"
+    # That a saved version never overwrites one is the engine's rule, asserted in test_ontology.py
+    # and, through the interface's own route, in test_interface.py.
     route = (FRONTEND / "app" / "api" / "ontologies" / "route.ts").read_text()
-    assert "already exists: save as a new version" in route
+    assert 'engineFetch("/api/ontologies"' in route
 
 
 def test_draft_without_corpus_cannot_pin():

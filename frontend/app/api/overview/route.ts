@@ -1,28 +1,11 @@
 import { NextResponse } from "next/server";
-import { execFile } from "node:child_process";
-import path from "node:path";
-import { promisify } from "node:util";
-import { engineApiBase, engineFetch, engineRoot, listRuns, listOntologies, listBriefs } from "@/lib/server";
+import { engineFetch, refused } from "@/lib/server";
 
-const run = promisify(execFile);
-
-/* The engine derives its own workspace summary; the interface computes nothing. */
-async function workspaceOnDisk(): Promise<Record<string, unknown> | null> {
-  try {
-    const res = await run(
-      path.join(engineRoot(), ".venv", "bin", "python"),
-      [path.join("scripts", "workspace_summary.py")],
-      { cwd: engineRoot(), timeout: 120000, maxBuffer: 8 * 1024 * 1024 },
-    );
-    return JSON.parse(res.stdout);
-  } catch {
-    return null;
-  }
-}
-
+/* The first screen: the engine's workspace summary — derived over registry entries in
+   `analysis` — beside the runs, ontologies and briefs it can offer. The interface adds
+   nothing up; every number here is a field of a shape the engine produced. */
 export async function GET() {
-  // Proxied to the engine API when it serves the record; readers of disk otherwise.
-  if (engineApiBase()) {
+  try {
     const [workspace, runs, ontologies, briefs] = await Promise.all([
       engineFetch<Record<string, unknown>>("/api/workspace"),
       engineFetch<{ runs: unknown[] }>("/api/runs"),
@@ -30,20 +13,9 @@ export async function GET() {
       engineFetch<{ briefs: unknown[] }>("/api/briefs"),
     ]);
     return NextResponse.json({
-      workspace: workspace, runs: runs.runs, ontologies: ontologies.ontologies, briefs: briefs.briefs,
+      workspace, runs: runs.runs, ontologies: ontologies.ontologies, briefs: briefs.briefs,
     });
+  } catch (e) {
+    return refused(e);
   }
-  const [workspace, runs, ontologies, briefs] = await Promise.all([
-    workspaceOnDisk(), listRuns(), listOntologies(), listBriefs(),
-  ]);
-  return NextResponse.json({
-    engine_root: engineRoot(),
-    workspace, runs, ontologies,
-    briefs: briefs.map((b) => ({
-      name: b.name, path: b.path,
-      product: b.brief.product.name, category: b.brief.product.category,
-      claims: b.brief.claims.length,
-      audiences: b.brief.audiences.map((a) => a.name),
-    })),
-  });
 }

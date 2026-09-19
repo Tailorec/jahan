@@ -63,8 +63,9 @@ def test_prompt_reconstructed_and_verified_against_recorded_hash():
     route = (
         FRONTEND / "app" / "api" / "runs" / "[id]" / "worlds" / "[worldId]" / "turns" / "[turnId]" / "prompt" / "route.ts"
     ).read_text()
-    assert "reconstruct_turn" in route
-    assert "Unreconstructible" in route
+    # Reconstruction and its verification against the recorded hash are the engine's
+    # (test_api.py, test_hardening.py); the route only carries the answer or the reason.
+    assert "/prompt" in route and "engineFetch" in route
 
 
 def test_unreconstructible_prompt_states_why_without_approximation():

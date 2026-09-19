@@ -4,7 +4,7 @@ import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
 import { PageHead, Chip, Callout, TrustLine } from "@/components/ui";
-import { useApi, useRunId } from "@/lib/api";
+import { useApi, useRunId, whyNot } from "@/lib/api";
 import type { BeliefPoint, TraceEdge, TraceEvent, UITrace } from "@/lib/engine";
 
 interface Detail {
@@ -148,7 +148,7 @@ export default function TracePage() {
         setReconstructedPrompt(body);
       }
     } catch (e: unknown) {
-      setPromptError(`Cannot reconstruct prompt: ${String(e)}`);
+      setPromptError(`Cannot reconstruct prompt: ${whyNot(e)}`);
     } finally {
       setPromptLoading(false);
     }

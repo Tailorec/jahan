@@ -6,9 +6,6 @@ whole of `web` performs no arithmetic; every number the interface displays
 is traceable to the shape that produced it, on a real recorded study.
 """
 
-import json
-import subprocess
-import sys
 from pathlib import Path
 
 from simcore.analysis import WorkspaceSummary, workspace_summary
@@ -106,24 +103,6 @@ def test_every_displayed_number_is_traceable():
     ):
         assert marker in text, f"overview lacks {marker!r}"
     assert ".reduce(" not in text, "the overview must not compute sums client-side"
-
-
-def test_disk_mode_derives_through_the_engine(tmp_path, monkeypatch):
-    from tests.boundary.cli.support import fake_args, run_command
-
-    monkeypatch.chdir(tmp_path)
-    out = tmp_path / "runs"
-    run_id = "run-" + "0" * 24 + "80"
-    code, output = run_command(*fake_args(out, run_id))
-    assert code == 0, output
-
-    proc = subprocess.run(
-        [str(REPO / ".venv" / "bin" / "python"), str(REPO / "scripts" / "workspace_summary.py")],
-        capture_output=True, text=True, cwd=tmp_path,
-    )
-    assert proc.returncode == 0, proc.stderr
-    body = json.loads(proc.stdout)
-    assert body["total_studies"] == 1 and body["reports_written"] == 1
 
 
 def run_command(*argv: str) -> tuple[int, str]:

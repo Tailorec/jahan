@@ -1,7 +1,12 @@
 import Link from "next/link";
 import Shell from "@/components/shell";
 import { PageHead, Chip, Callout } from "@/components/ui";
-import { readAnchorsCheck, readOntology, listOntologies, readRunDetail } from "@/lib/server";
+import { engineFetch, readRunDetail } from "@/lib/server";
+import type { CategoryOntology } from "@/lib/engine";
+
+interface OntologyRef { category: string; version: string; attributes: string[]; conditioning_set: string[] }
+interface Trust { levels: string[]; floors: { distribution_similarity: number; rank_attainment: number } }
+type AnchorsCheck = Record<string, unknown>;
 
 export default async function CalibrationPage({
   searchParams,
@@ -9,13 +14,21 @@ export default async function CalibrationPage({
   searchParams: Promise<{ run?: string }>;
 }) {
   const { run: runId } = await searchParams;
-  const [anchors, ontos, detail] = await Promise.all([
-    readAnchorsCheck(),
-    listOntologies(),
+  const [checks, ontos, trustLadder, detail] = await Promise.all([
+    engineFetch<{ checks: AnchorsCheck[] }>("/api/anchors-checks").catch(() => ({ checks: [] as AnchorsCheck[] })),
+    engineFetch<{ ontologies: OntologyRef[] }>("/api/ontologies").then((d) => d.ontologies).catch(() => [] as OntologyRef[]),
+    engineFetch<Trust>("/api/trust"),
     runId ? readRunDetail(runId).catch(() => null) : Promise.resolve(null),
   ]);
+  // The most recent check a run wrote; which run wrote it is stated beside it.
+  const anchors = checks.checks[checks.checks.length - 1] ?? null;
   const onto = ontos.find((o) => o.category === "beverage_protein_persona1m") ?? ontos[0];
-  const full = onto ? await readOntology(onto.category, onto.version) : null;
+  const full = onto
+    ? await engineFetch<CategoryOntology>(
+        `/api/ontologies/${encodeURIComponent(onto.category)}/${encodeURIComponent(onto.version)}`,
+      ).catch(() => null)
+    : null;
+  const { distribution_similarity: ks, rank_attainment: rank } = trustLadder.floors;
   const trust = detail?.report?.trust ?? null;
 
   return (
@@ -38,11 +51,11 @@ export default async function CalibrationPage({
           )}
           <div className="tier-ladder">
             <div className="tier-step cur"><b>Uncalibrated</b><span className="mono" style={{ fontSize: 10.5 }}>current · no human benchmark</span></div>
-            <div className="tier-step"><b>Category-benchmarked</b><span className="mono" style={{ fontSize: 10.5 }}>needs KS ≥ 0.80 + rank ≥ 0.80</span></div>
+            <div className="tier-step"><b>Category-benchmarked</b><span className="mono" style={{ fontSize: 10.5 }}>needs KS ≥ {ks.toFixed(2)} + rank ≥ {rank.toFixed(2)}</span></div>
             <div className="tier-step"><b>Prospectively-validated</b><span className="mono" style={{ fontSize: 10.5 }}>needs registered blind prediction</span></div>
           </div>
           <table className="tbl" style={{ marginTop: 12 }}><thead><tr><th>Next rung</th><th>What earns it</th></tr></thead><tbody>
-            <tr><td className="strong">Category-benchmarked</td><td className="sub">a <span className="mono">CalibrationRef</span> pinning a benchmark report and a human study by content hash, measuring distribution similarity ≥ 0.80 and rank attainment ≥ 0.80 — nothing in the repository produces one</td></tr>
+            <tr><td className="strong">Category-benchmarked</td><td className="sub">a <span className="mono">CalibrationRef</span> pinning a benchmark report and a human study by content hash, measuring distribution similarity ≥ {ks.toFixed(2)} and rank attainment ≥ {rank.toFixed(2)} — nothing in the repository produces one</td></tr>
             <tr><td className="strong">Prospectively-validated</td><td className="sub">the above, plus a prediction registered before its outcome was observed and checked after it</td></tr>
           </tbody></table>
           <Callout icon="info" style={{ marginTop: 12 }}><div>A report may not claim to match the measured category on anything short of measured evidence — that refusal is enforced by the gate schema, not by convention. A finding&apos;s own confidence (low / medium / high) is the strength of that finding&apos;s evidence, never the engine&apos;s calibration.</div></Callout>
@@ -52,7 +65,7 @@ export default async function CalibrationPage({
       <div className="grid g2">
         <div>
           <div className="panel">
-            <div className="panel-head"><h2>Anchor check (SSR mapping claim)</h2><span className="hint">runs/run-ssrv2/anchors-check.json</span></div>
+            <div className="panel-head"><h2>Anchor check (SSR mapping claim)</h2><span className="hint mono">{anchors ? String(anchors.run_id) : "no run has written one"}</span></div>
             <div className="panel-body tight">
               {anchors ? (
                 <table className="tbl"><tbody>
@@ -87,7 +100,7 @@ export default async function CalibrationPage({
             </div>
           </div>
           <div className="panel" style={{ marginTop: 16 }}>
-            <div className="panel-head"><h2>Ontologies on disk</h2></div>
+            <div className="panel-head"><h2>Ontologies</h2></div>
             <div className="panel-body tight"><table className="tbl">
               <thead><tr><th>Category</th><th className="num">Version</th><th>Anchors</th></tr></thead>
               <tbody>
