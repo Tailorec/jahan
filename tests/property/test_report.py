@@ -233,7 +233,10 @@ def test_polarization_is_computed_over_communities_and_divergence_over_audiences
     opposite = OutcomeDigest.model_validate(digest_payload(community_pmfs={"community-1": (0.9, 0.025, 0.025, 0.025, 0.025),
                                                                           "community-2": (0.025, 0.025, 0.025, 0.025, 0.9)}))
     assert opposite.polarization > 0.5 > calm.polarization
-    single = OutcomeDigest.model_validate(digest_payload(community_pmfs={"community-1": same}, community_sizes={"community-1": 200}))
+    # One community cannot be compared with another, and a digest that cannot measure says why.
+    single = OutcomeDigest.model_validate(digest_payload(
+        community_pmfs={"community-1": same}, community_sizes={"community-1": 200},
+        polarization_reason="1 of the population's 1 communities carry a response mass, and polarization compares at least two"))
     assert single.polarization is None
     assert 0.0 <= opposite.audience_divergence <= 1.0
     assert not {"adoption", "polarization", "audience_divergence"} & set(OutcomeDigest.model_fields)

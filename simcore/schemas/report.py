@@ -212,6 +212,10 @@ class OutcomeDigest(SimBaseModel):
     # How many turns went unscored for intent, and why adoption is not measurable when it is not.
     turns_without_intent: NonNegativeInt = 0
     unmeasured_reason: NonEmptyStr | None = None
+    # Why polarization could not be measured, when it could not. It needs two communities
+    # carrying response masses, and a population whose graph formed none — or whose partition
+    # was discarded — has none to compare, which is a different absence from unscored intent.
+    polarization_reason: NonEmptyStr | None = None
     # What every run produces, even without ratings.
     turn_count: NonNegativeInt = 0
     action_mix: FrozenDict[ActionKind, NonNegativeInt] = FrozenDict({})
@@ -243,6 +247,15 @@ class OutcomeDigest(SimBaseModel):
             raise ValueError("a digest with no response masses reports adoption as not measurable, with the reason")
         if self.audience_pmfs and self.unmeasured_reason is not None:
             raise ValueError("a digest with response masses measures adoption, so it names no unmeasured reason")
+        return self
+
+    @model_validator(mode="after")
+    def _unmeasurable_polarization_names_its_reason(self) -> Self:
+        measurable = len(self.community_pmfs) >= 2
+        if not measurable and self.community_pmfs and self.polarization_reason is None:
+            raise ValueError("polarization needs two communities to compare, and a digest that has fewer says so")
+        if measurable and self.polarization_reason is not None:
+            raise ValueError("a digest that measures polarization names no reason it could not")
         return self
 
     @model_validator(mode="after")

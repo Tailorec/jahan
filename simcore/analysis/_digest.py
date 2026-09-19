@@ -108,6 +108,7 @@ def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
         weighted = sum(weights[name] for name in audience_pmfs)
         community_pmfs = {name: _mean(masses) for name, masses in sorted(community_turns.items()) if masses}
         community_sizes = {name: community_population[name] for name in community_pmfs}
+        polarization_reason = _polarization_reason(community_pmfs, population)
         if audience_pmfs and weighted > 0.0:
             audience_shares = {name: weights[name] / weighted for name in audience_pmfs}
             unmeasured_reason = None
@@ -122,6 +123,7 @@ def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
             )
     else:
         audience_pmfs, audience_shares, community_pmfs, community_sizes = {}, {}, {}, {}
+        polarization_reason = _polarization_reason({}, population)
         failure_kinds = Counter(
             (event.payload.turn.reaction.elicitation_failure.kind.value
              if event.payload.turn.reaction.elicitation_failure is not None else "unscored")
@@ -142,6 +144,7 @@ def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
         "community_sizes": community_sizes,
         "turns_without_intent": unscored,
         "unmeasured_reason": unmeasured_reason,
+        "polarization_reason": polarization_reason,
         "turn_count": turn_count,
         "action_mix": dict(sorted(action_mix.items())),
         "belief_movement_mean": {dim: (sum(values) / len(values) if values else 0.0) for dim, values in sorted(movement.items())},
@@ -151,6 +154,28 @@ def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
         "wom_reach": wom_reach,
         "rungs": [rung.value for rung in rungs],
     })
+
+
+def _polarization_reason(community_pmfs: dict, population) -> str | None:
+    """Why polarization could not be measured, when it could not.
+
+    It compares communities, so it needs two of them carrying masses. A population whose graph
+    formed no qualifying partition has none at all — every community must clear a share of the
+    population, so one small remainder discards the whole partition — and that is a different
+    absence from a run that scored no intent (ADR 0038).
+    """
+    if len(community_pmfs) >= 2:
+        return None
+    formed = len(population.communities)
+    if formed == 0:
+        return (
+            "the population formed no communities, so there are 0 with response masses and "
+            "polarization has nothing to compare"
+        )
+    return (
+        f"{len(community_pmfs)} of the population's {formed} communities carry a response mass, "
+        "and polarization compares at least two"
+    )
 
 
 def _mean(masses: list[tuple[float, ...]]) -> tuple[float, float, float, float, float]:

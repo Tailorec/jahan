@@ -193,3 +193,21 @@ def test_scored_intent_outside_every_weighted_audience_reports_unmeasured(tmp_pa
     assert "protein_dieters" in result.unmeasured_reason
     # The turns were scored: the digest does not claim they went unscored.
     assert result.turns_without_intent < result.turn_count
+
+
+def test_unmeasurable_polarization_says_why(tmp_path):
+    """ADR 0038: unmeasured is stated with its reason, not left blank. A real 500-persona graph
+    formed eight communities at modularity 0.409 and one of them held ten people, below the 5%
+    floor every community must clear — so the partition was discarded, no community carried a
+    mass, and the report said "Polarization: unmeasured" with nothing about why."""
+    store = TraceStore(tmp_path)
+    header, _, _ = _seed_world(store)
+    view = store.view(header.config.run_id, header.world_id)
+    population = _population()
+
+    result = digest(view, scenario=header.scenario, population=population, seed=header.replicate_seed)
+    if result.polarization is None:
+        assert result.polarization_reason, "polarization is unmeasurable and says nothing about why"
+        assert str(len(result.community_pmfs)) in result.polarization_reason
+    else:
+        assert result.polarization_reason is None

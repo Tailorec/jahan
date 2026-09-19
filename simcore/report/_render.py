@@ -72,6 +72,7 @@ class _DigestSection:
     tick_unit: str
     adoption: float | None
     polarization: float | None
+    polarization_reason: str | None
     audience_divergence: float | None
     unmeasured_reason: str | None
     # What every run produces, scored intent or not (ADR 0038). A report that prints only the
@@ -180,6 +181,7 @@ def _build(findings: tuple[Finding, ...], digests: tuple[OutcomeDigest, ...], pa
             tick_unit=digest.tick_unit.value,
             adoption=digest.adoption,
             polarization=digest.polarization,
+            polarization_reason=digest.polarization_reason,
             audience_divergence=digest.audience_divergence,
             unmeasured_reason=digest.unmeasured_reason,
             turn_count=digest.turn_count,
@@ -260,7 +262,12 @@ def _to_markdown(doc: _Document) -> str:
             lines.extend(["Adoption: unmeasured — " + _inline(str(digest.unmeasured_reason)), ""])
         else:
             lines.extend(["Adoption: " + _number(digest.adoption), ""])
-        lines.extend([_measure("Polarization", digest.polarization), ""])
+        lines.extend([
+            _measure("Polarization", digest.polarization)
+            + (" — " + _inline(digest.polarization_reason)
+               if digest.polarization is None and digest.polarization_reason else ""),
+            "",
+        ])
         lines.extend([_measure("Audience divergence", digest.audience_divergence), ""])
         lines.extend([
             "Turns: " + repr(digest.turn_count)
@@ -362,6 +369,7 @@ def _to_data(doc: _Document) -> dict:
                 "tick_unit": digest.tick_unit,
                 "adoption": digest.adoption,
                 "polarization": digest.polarization,
+                "polarization_reason": digest.polarization_reason,
                 "audience_divergence": digest.audience_divergence,
                 "unmeasured_reason": digest.unmeasured_reason,
                 "turn_count": digest.turn_count,
