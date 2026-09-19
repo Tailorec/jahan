@@ -6,6 +6,7 @@ import React from "react";
 
 const PAGES: { href: string; label: string; step?: string }[] = [
   { href: "/", label: "Overview" },
+  { href: "/ontology", label: "Ontology builder", step: "0" },
   { href: "/intake", label: "New study", step: "1" },
   { href: "/population", label: "Population", step: "2" },
   { href: "/run", label: "Simulation run", step: "3" },

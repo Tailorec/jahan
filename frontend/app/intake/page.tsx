@@ -179,7 +179,8 @@ export default function IntakePage() {
                 <div className="field"><label>Category (ontology)</label>
                   <select className="input" value={product.category} onChange={(e) => setProduct({ ...product, category: e.target.value })}>
                     {ontoList.map((o) => <option key={o.category} value={o.category}>{o.category} @ {o.version}</option>)}
-                  </select></div>
+                  </select>
+                  <div className="help"><Link href="/ontology">Build or extend an ontology →</Link> what can be studied is bounded by the corpus, not by which files exist.</div></div>
               </div>
               <div className="field"><label>Concept statement</label>
                 <textarea className="input" rows={2} value={product.description} onChange={(e) => setProduct({ ...product, description: e.target.value })} />
