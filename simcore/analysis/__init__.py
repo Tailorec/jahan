@@ -8,11 +8,13 @@ from ._spread import spread
 from ._trace_summary import trace_summary
 from ._trajectory import TrajectoryPoint, WorldTrajectories, trajectories
 from ._trust import trust_statement
+from ._workspace import WorkspaceSummary, workspace_summary
 
 __all__ = [
     "AnomalyReport",
     "AnomalyThresholds",
     "TrajectoryPoint",
+    "WorkspaceSummary",
     "WorldTrajectories",
     "cluster_objections",
     "detect_anomalies",
@@ -24,5 +26,6 @@ __all__ = [
     "trace_summary",
     "trajectories",
     "trust_statement",
+    "workspace_summary",
 ]
 
