@@ -7,6 +7,16 @@ import { useApi } from "@/lib/api";
 import type { RunSummary } from "@/lib/engine";
 
 interface Overview {
+  workspace: {
+    total_studies: number;
+    completed_studies: number;
+    running_studies: number;
+    partial_studies: number;
+    total_spend: number;
+    total_personas: number;
+    total_budget: number;
+    reports_written: number;
+  };
   runs: RunSummary[];
   ontologies: { category: string; version: string; attributes: string[]; conditioning_set: string[] }[];
   briefs: { name: string; product: string; category: string; claims: number; audiences: string[] }[];
@@ -33,11 +43,11 @@ export default function OverviewPage() {
       {data && (
         <>
           <div className="stat-strip" style={{ marginBottom: 20 }}>
-            <div className="stat"><div className="k">Runs on disk</div><div className="v">{data.runs.length}</div><div className="d">{data.runs.filter((r) => r.has_report).length} with reports</div></div>
-            <div className="stat"><div className="k">Recorded spend</div><div className="v">${data.runs.reduce((a, r) => a + r.recorded_cost, 0).toFixed(2)}</div><div className="d">sum of cost ledgers</div></div>
-            <div className="stat"><div className="k">Worlds executed</div><div className="v">{data.runs.reduce((a, r) => a + r.world_ids.length, 0)}</div><div className="d">across all runs</div></div>
+            <div className="stat"><div className="k">Studies run</div><div className="v">{data.workspace.total_studies}</div><div className="d">{data.workspace.completed_studies} completed · {data.workspace.running_studies} running · {data.workspace.partial_studies} partial</div></div>
+            <div className="stat"><div className="k">Spend against budget</div><div className="v">${data.workspace.total_spend.toFixed(2)}<small style={{ fontSize: 12 }}> / ${data.workspace.total_budget.toFixed(2)}</small></div><div className="d">the cost ledger, summed from entries</div></div>
+            <div className="stat"><div className="k">Personas simulated</div><div className="v">{data.workspace.total_personas.toLocaleString()}</div><div className="d">from registry entries</div></div>
+            <div className="stat"><div className="k">Reports written</div><div className="v">{data.workspace.reports_written}</div><div className="d">derived shape, never walked</div></div>
             <div className="stat"><div className="k">Ontologies</div><div className="v">{data.ontologies.length}</div><div className="d">category × version</div></div>
-            <div className="stat"><div className="k">Briefs</div><div className="v">{data.briefs.length}</div><div className="d">examples/*.yaml</div></div>
           </div>
 
           <div className="sect-title">Runs</div>
