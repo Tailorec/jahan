@@ -15,6 +15,23 @@ export function engineRoot(): string {
   return process.env.SIM_ENGINE_ROOT ?? path.join(process.cwd(), "..");
 }
 
+/* When the engine API serves the record, the interface's own API routes become
+   proxies to it rather than readers of disk — one path to every number. When
+   unset, pages render the run directory's own artefacts (the server-less mode
+   the trace, belief and report pages light up in). */
+export function engineApiBase(): string | null {
+  const base = process.env.SIMCORE_WEB_URL;
+  return base && base.length ? base.replace(/\/$/, "") : null;
+}
+
+export async function engineFetch<T>(apiPath: string): Promise<T> {
+  const base = engineApiBase();
+  if (!base) throw new Error("SIMCORE_WEB_URL is not configured");
+  const res = await fetch(`${base}${apiPath}`);
+  if (!res.ok) throw new Error(`${apiPath}: ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
 async function readJson<T>(p: string): Promise<T | null> {
   try {
     return JSON.parse(await fs.readFile(p, "utf8")) as T;
@@ -32,7 +49,7 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
-function toBrief(raw: Record<string, unknown>, name: string): Brief {
+export function toBrief(raw: Record<string, unknown>, name: string): Brief {
   const claims = ((raw.claims ?? []) as Record<string, unknown>[]).map((c, i) => ({
     id: `C${i + 1}`,
     text: String(c.text ?? ""),
@@ -209,13 +226,10 @@ function flattenBeliefs(b: Record<string, unknown>): Record<string, number> {
    carry only the legacy ui-trace.json the export script projected. The summary is
    the source of every number; the legacy file contributes resolved finding
    evidence where it exists. */
-export async function readTrace(runId: string): Promise<UITrace | null> {
-  const dir = path.join(engineRoot(), "runs", runId);
-  const [summary, legacy] = await Promise.all([
-    readJson<TraceSummaryFile>(path.join(dir, "trace-summary.json")),
-    readJson<UITrace>(path.join(dir, "ui-trace.json")),
-  ]);
-  if (!summary) return legacy;
+export function projectSummary(
+  summary: TraceSummaryFile,
+  resolved: UITrace["resolved"] = {},
+): UITrace {
   const trace: UITrace = {
     run_id: summary.run_id,
     worlds: summary.worlds,
@@ -227,7 +241,7 @@ export async function readTrace(runId: string): Promise<UITrace | null> {
     verbatim_groups: {},
     costs: summary.costs,
     recorded_cost: summary.recorded_cost,
-    resolved: legacy?.resolved ?? {},
+    resolved,
   };
   for (const world of summary.per_world) {
     trace.event_counts[world.world_id] = world.event_counts;
@@ -264,7 +278,58 @@ export async function readTrace(runId: string): Promise<UITrace | null> {
   return trace;
 }
 
+export async function readTrace(runId: string): Promise<UITrace | null> {
+  const dir = path.join(engineRoot(), "runs", runId);
+  const [summary, legacy] = await Promise.all([
+    readJson<TraceSummaryFile>(path.join(dir, "trace-summary.json")),
+    readJson<UITrace>(path.join(dir, "ui-trace.json")),
+  ]);
+  if (!summary) return legacy;
+  return projectSummary(summary, legacy?.resolved ?? {});
+}
+
+/* The same detail through the engine API: every engine number arrives over
+   HTTP and no file is read. Resolved finding evidence is gathered per world
+   through `resolve`, capped the way the export script caps it. */
+export async function readRunDetailViaApi(runId: string) {
+  const [summary, digest, report, gate, manifest, traceSummary] = await Promise.all([
+    engineFetch<RunSummary>(`/api/runs/${runId}`),
+    engineFetch<{ digests: OutcomeDigest[]; run_id: string; summaries: Record<string, ScenarioSummary> }>(
+      `/api/runs/${runId}/digest`,
+    ).catch(() => null),
+    engineFetch<StudyReport>(`/api/runs/${runId}/report`).catch(() => null),
+    engineFetch<GateReport>(`/api/runs/${runId}/gate`).catch(() => null),
+    engineFetch<PopulationManifest>(`/api/runs/${runId}/manifest`).catch(() => null),
+    engineFetch<TraceSummaryFile>(`/api/runs/${runId}/summary`),
+  ]);
+  const resolved: UITrace["resolved"] = {};
+  if (report) {
+    const want: string[] = [];
+    for (const f of report.findings ?? []) want.push(...(f.evidence_trace_ids ?? []).slice(0, 12));
+    for (const c of report.objection_clusters ?? []) want.push(...(c.verbatim_trace_ids ?? []).slice(0, 4));
+    const unique = [...new Set(want)];
+    for (const world of traceSummary.worlds ?? []) {
+      const missing = unique.filter((id) => !(id in resolved));
+      if (!missing.length) break;
+      const chunk = await engineFetch<{ events: UITrace["resolved"][string][] }>(
+        `/api/runs/${runId}/worlds/${world}/resolve?${missing.map((id) => `trace_id=${encodeURIComponent(id)}`).join("&")}`,
+      ).catch(() => null);
+      for (const e of chunk?.events ?? []) resolved[e.event_id] = e;
+    }
+  }
+  return {
+    summary,
+    gate,
+    manifest,
+    digest,
+    report,
+    trace: projectSummary(traceSummary, resolved),
+    pins: (summary as unknown as { pins: Record<string, { model_id: string }> | null }).pins ?? null,
+  };
+}
+
 export async function readRunDetail(runId: string) {
+  if (engineApiBase()) return readRunDetailViaApi(runId);
   const dir = path.join(engineRoot(), "runs", runId);
   const [summary, gate, manifest, digest, report, trace] = await Promise.all([
     readRunSummary(runId),
