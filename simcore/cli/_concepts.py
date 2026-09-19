@@ -5,7 +5,15 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from ._study import DEFAULT_VALIDATION, analyze_study, check_budget, prepare_study, run_study, write_report, write_trace_summary
+from ._study import (
+    DEFAULT_VALIDATION,
+    analyze_study,
+    check_budget,
+    prepare_study,
+    run_study,
+    write_report,
+    write_trace_summary,
+)
 
 
 def add_backend_arguments(parser: argparse.ArgumentParser) -> None:
@@ -70,12 +78,14 @@ def cmd_concepts_run(argv: list[str] | None = None) -> int:
         args=args,
     )
     result = run_study(handles, channel=args.channel, force=args.force)
-    (handles.run_dir / "result.json").write_text(result.model_dump_json(indent=2) + "\n")
-    write_trace_summary(handles, result)
 
     if any(outcome.status.value == "completed" for outcome in result.outcomes):
         analysis = analyze_study(handles, result)
         write_report(handles, analysis, validation=args.validation or DEFAULT_VALIDATION)
+    write_trace_summary(handles, result)
+    # The completion marker goes last: a run reporting completed has its report,
+    # its digest and its trace summary on disk, never a promise of them.
+    (handles.run_dir / "result.json").write_text(result.model_dump_json(indent=2) + "\n")
 
     print(f"run_id: {handles.run_id}")
     print(f"artefacts: {handles.run_dir}")

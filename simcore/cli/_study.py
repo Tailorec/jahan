@@ -462,6 +462,27 @@ def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1, forc
             stimulus_texts=trace.published,
         )
 
+    def publish_progress(world_id: str, tick: int, spent: float | None) -> None:
+        """Publish spend while the run is going, not after it.
+
+        The registry entry is the published cache of what the trace already
+        says; `progress.json` is the same cache for readers that hold no
+        registry — a budget is something a person can act on mid-run.
+        """
+        try:
+            entry = store.registry.entry(handles.run_id)
+            if entry is not None and spent is not None:
+                store.registry.update(entry.model_copy(update={"recorded_cost": float(spent)}))
+            (handles.run_dir / "progress.json").write_text(json.dumps({
+                "run_id": handles.run_id,
+                "status": "running",
+                "recorded_cost": spent,
+                "world_id": world_id,
+                "tick_closed": tick,
+            }) + "\n")
+        except Exception:
+            pass
+
     return run(
         handles.config,
         pack=handles.pack,
@@ -472,6 +493,7 @@ def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1, forc
         agent_fn=agent_fn,
         max_workers=max_workers,
         force=force,
+        progress=publish_progress,
     )
 
 

@@ -99,8 +99,6 @@ def cmd_sweep_run(argv: list[str] | None = None) -> int:
         args=args,
     )
     result = run_study(handles, channel=args.channel, force=args.force)
-    (handles.run_dir / "result.json").write_text(result.model_dump_json(indent=2) + "\n")
-    write_trace_summary(handles, result)
 
     if any(outcome.status.value == "completed" for outcome in result.outcomes):
         analysis = analyze_study(handles, result)
@@ -125,6 +123,11 @@ def cmd_sweep_run(argv: list[str] | None = None) -> int:
                 )
                 + "\n"
             )
+
+    write_trace_summary(handles, result)
+    # The completion marker goes last: a run reporting completed has its report,
+    # its digest and its trace summary on disk, never a promise of them.
+    (handles.run_dir / "result.json").write_text(result.model_dump_json(indent=2) + "\n")
 
     print(f"run_id: {handles.run_id}")
     print(f"artefacts: {handles.run_dir}")
