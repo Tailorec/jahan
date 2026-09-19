@@ -63,12 +63,12 @@ export default function PopulationPage() {
       {gate && !gate.overall && (
         <Callout icon="alert"><div><b>This study never ran.</b> The draw failed its distribution gates, so no personas were built, no worlds ran and nothing was spent. The table below is the case this page most needs to explain — each gate names its statistic, its threshold and its verdict, so the call can be recomputed.</div></Callout>
       )}
-      {gate && manifest && (
+      {gate && (
         <>
           <div className="stat-strip" style={{ marginBottom: 20 }}>
-            <div className="stat"><div className="k">Personas</div><div className="v">{manifest.persona_ids.length.toLocaleString()}</div><div className="d">drawn for requested mix</div></div>
+            <div className="stat"><div className="k">Personas</div><div className="v">{manifest ? manifest.persona_ids.length.toLocaleString() : "none built"}</div><div className="d">{manifest ? "drawn for requested mix" : "the draw failed its gates, so no population was kept"}</div></div>
             <div className="stat"><div className="k">Source mix</div><div className="v">{Object.entries(gate.source_mix).map(([s, w]) => `${s} ${(w * 100).toFixed(1)}%`).join(" · ")}</div><div className="d">which corpus each row came from</div></div>
-            <div className="stat"><div className="k">Synthesized</div><div className="v">{(manifest.synthesized_share * 100).toFixed(1)}<small>%</small></div><div className="d">model-completed fields only</div></div>
+            <div className="stat"><div className="k">Synthesized</div><div className="v">{manifest ? <>{(manifest.synthesized_share * 100).toFixed(1)}<small>%</small></> : "—"}</div><div className="d">{manifest ? "model-completed fields only" : "no manifest to state it"}</div></div>
             <div className="stat"><div className="k">Relaxations</div><div className="v">{gate.relaxations.length}</div><div className="d">{gate.relaxations.length ? "filters loosened to fill quotas" : "audience matched as declared"}</div></div>
             <div className="stat"><div className="k">Reference</div><div className="v" style={{ fontSize: 16 }}>{gate.reference.replace("_", " ")}</div><div className="d">what the gates were judged against</div></div>
           </div>
@@ -80,9 +80,9 @@ export default function PopulationPage() {
                 <div className="panel-body tight"><table className="tbl">
                   <thead><tr><th>Audience</th><th className="num">Requested</th><th className="num">Achieved</th></tr></thead>
                   <tbody>
-                    {Object.keys(manifest.requested_mix).map((a) => (
+                    {Object.keys(manifest?.requested_mix ?? gate.achieved_mix).map((a) => (
                       <tr key={a}><td className="strong mono">{a}</td>
-                        <td className="num">{(manifest.requested_mix[a] * 100).toFixed(1)}%</td>
+                        <td className="num">{manifest ? `${(manifest.requested_mix[a] * 100).toFixed(1)}%` : "not recorded"}</td>
                         <td className="num">{((gate.achieved_mix[a] ?? 0) * 100).toFixed(1)}%</td></tr>
                     ))}
                   </tbody>
@@ -111,8 +111,8 @@ export default function PopulationPage() {
                 <div className="panel-body tight"><table className="tbl"><tbody>
                   <tr><td>May be completed</td><td className="mono sub">{completable.length ? completable.join(", ") : "—"}</td></tr>
                   <tr><td>Never synthesized</td><td className="mono sub">demographic, psychographic</td></tr>
-                  <tr><td>Model</td><td className="num mono">{manifest.completion?.model_id ?? "—"}</td></tr>
-                  <tr><td>Graph</td><td className="num mono">{manifest.graph_hash ? `${manifest.graph_hash.slice(0, 12)}…` : "none attached"}</td></tr>
+                  <tr><td>Model</td><td className="num mono">{manifest?.completion?.model_id ?? "—"}</td></tr>
+                  <tr><td>Graph</td><td className="num mono">{manifest ? (manifest.graph_hash ? `${manifest.graph_hash.slice(0, 12)}…` : "none attached") : "—"}</td></tr>
                 </tbody></table></div>
               </div>
             </div>
@@ -120,7 +120,9 @@ export default function PopulationPage() {
               <div className="panel">
                 <div className="panel-head"><h2>Sample personas</h2><span className="hint">{(data?.personaTotal ?? 0).toLocaleString()} in personas.json — every field states its origin</span></div>
                 <div className="panel-body" style={{ display: "grid", gap: 8 }}>
-                  {!personas && <div className="empty"><b>No persona records.</b>Runs recorded before personas.json need a re-run — the manifest alone cannot say where a field came from.</div>}
+                  {!personas && (manifest
+                    ? <div className="empty"><b>No persona records.</b>Runs recorded before personas.json need a re-run — the manifest alone cannot say where a field came from.</div>
+                    : <div className="empty"><b>No personas were built.</b>The draw failed its gates before any persona was kept, so there is no record to sample.</div>)}
                   {(personas ?? []).map((p) => (
                     <div key={p.persona_id} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>
                       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>

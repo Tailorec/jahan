@@ -4,15 +4,26 @@ import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
 import { PageHead, Chip, Callout, PmfBar, PmfLegend, ICONS, TrustLine } from "@/components/ui";
-import { useApi, useRunId, api } from "@/lib/api";
+import { useApi, useRunId, api, whyNot } from "@/lib/api";
 import { pmfMean, top2box, type OutcomeDigest, type RunSummary, type ScenarioSummary } from "@/lib/engine";
 
 interface Detail {
   summary: RunSummary | null;
   digest: { digests: OutcomeDigest[]; summaries: Record<string, ScenarioSummary> } | null;
-  pins: Record<string, { model_id: string }> | null;
+  pins: Record<string, unknown> | null;
   trace: { max_tick: Record<string, number>; event_counts: Record<string, Record<string, number>> } | null;
   report: { trust: { level: string } } | null;
+}
+
+/* A run's pins are a table of roles to models — and also the roles it leaves unpinned (`safety: null`)
+   and the fallbacks it names (`fallbacks: {}`), which have no model of their own. Only a role that
+   is pinned to a model is listed. */
+function pinned(pins: Record<string, unknown> | null | undefined): string {
+  const named = Object.entries(pins ?? {}).flatMap(([role, pin]) => {
+    const id = pin && typeof pin === "object" ? (pin as { model_id?: unknown }).model_id : undefined;
+    return typeof id === "string" ? [`${role}: ${id}`] : [];
+  });
+  return named.length ? named.join(" · ") : "—";
 }
 
 export default function RunPage() {
@@ -21,6 +32,7 @@ export default function RunPage() {
   const { data, error } = useApi<Detail>(runId ? `/api/runs/${runId}?t=${poll}` : null);
   const [world, setWorld] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<"cancel" | "resume" | null>(null);
+  const [refusal, setRefusal] = React.useState<string | null>(null);
   const s = data?.summary ?? null;
   const digests = data?.digest?.digests ?? [];
   const summaries = data?.digest?.summaries ?? {};
@@ -38,9 +50,12 @@ export default function RunPage() {
   async function cancel() {
     if (!runId || busy) return;
     setBusy("cancel");
+    setRefusal(null);
     try {
       await api(`/api/runs/${runId}`, { method: "DELETE" });
       setPoll((p) => p + 1);
+    } catch (e) {
+      setRefusal(whyNot(e));
     } finally {
       setBusy(null);
     }
@@ -49,6 +64,7 @@ export default function RunPage() {
   async function resume() {
     if (!runId || busy) return;
     setBusy("resume");
+    setRefusal(null);
     try {
       await api(`/api/runs/${runId}`, {
         method: "POST",
@@ -56,6 +72,9 @@ export default function RunPage() {
         body: JSON.stringify({ action: "resume" }),
       });
       setPoll((p) => p + 1);
+    } catch (e) {
+      // The engine says why — the run is already going, the inputs moved, it was never started here.
+      setRefusal(whyNot(e));
     } finally {
       setBusy(null);
     }
@@ -67,12 +86,17 @@ export default function RunPage() {
         title="Run — worlds over the population"
         sub={s ? <>One run over many worlds — scenarios × seeds sharing one budget. Status <b>{s.status}</b> · engine <span className="mono">{s.engine_version}</span> · config <span className="mono">{s.config_hash?.slice(0, 12)}…</span></>
           : "A sweep is one run over many worlds sharing one budget."}
-        actions={s && <><span className={`chip ${s.status === "completed" ? "ok" : "plain"}`}><span className="dot" />{s.live ? "running" : s.status}</span><span className="chip plain mono">${s.recorded_cost.toFixed(2)} / ${s.budget?.max_cost.toFixed(2)}</span>{s.fake && <span className="chip tier-explo" title="No key, no corpus, no network">fake study</span>}</>}
+        actions={s && <><span className={`chip ${s.status === "completed" ? "ok" : "plain"}`}><span className="dot" />{s.live ? "running" : s.status}</span><span className="chip plain mono">${s.recorded_cost.toFixed(2)}{s.budget ? ` / $${s.budget.max_cost.toFixed(2)}` : ""}</span>{s.fake && <span className="chip tier-explo" title="No key, no corpus, no network">fake study</span>}</>}
       />
       {error && <Callout icon="alert"><div>{error}</div></Callout>}
       {!data && !error && <div className="empty"><b>Loading run…</b></div>}
       {data && <TrustLine level={data.report?.trust.level ?? null} runId={runId} />}
-      {s && (watching || (s.progress ?? []).length > 0) && (
+      {refusal && <Callout icon="alert"><div><b>Refused.</b><pre className="mono" style={{ fontSize: 11, whiteSpace: "pre-wrap", marginTop: 6 }}>{refusal}</pre></div></Callout>}
+      {s && !watching && s.launch_error && (
+        <Callout icon="alert"><div><b>This study stopped before it finished.</b> The last thing it said:
+          <pre className="mono" style={{ fontSize: 11, whiteSpace: "pre-wrap", marginTop: 6 }}>{s.launch_error}</pre></div></Callout>
+      )}
+      {s && (watching || (s.progress ?? []).length > 0 || (s.status !== "completed" && !s.has_report && !s.has_gate_report)) && (
         <div className="panel" style={{ marginBottom: 20 }}>
           <div className="panel-head"><h2>{watching ? "Running" : "Stopped"} — live progress</h2><span className="hint">status, recorded cost and ticks closed, published as the run works</span>
             <div className="tools" style={{ display: "flex", gap: 8 }}>
@@ -99,7 +123,7 @@ export default function RunPage() {
             <div className="stat"><div className="k">Worlds</div><div className="v">{s.world_ids.length}</div><div className="d">{s.scenarios.length} scenario(s) × {s.seeds.length} seed(s)</div></div>
             <div className="stat"><div className="k">Cost ledger</div><div className="v">${s.recorded_cost.toFixed(2)}</div><div className="d">derived from billed calls, never kept separately</div></div>
             <div className="stat"><div className="k">Discarded ticks</div><div className="v">{s.discarded_ticks}</div><div className="d">{s.discarded_ticks ? "interrupted before tick-closed — spend unknown but not zero" : "every tick recorded whole"}</div></div>
-            <div className="stat"><div className="k">Pins</div><div className="v" style={{ fontSize: 13 }}>{data?.pins ? Object.entries(data.pins).map(([r, p]) => `${r}: ${p.model_id}`).join(" · ") : "—"}</div><div className="d">fixed for the whole run</div></div>
+            <div className="stat"><div className="k">Pins</div><div className="v" style={{ fontSize: 13 }}>{pinned(data?.pins)}</div><div className="d">fixed for the whole run</div></div>
             <div className="stat"><div className="k">Seeds</div><div className="v" style={{ fontSize: 15 }}>{s.seeds.join(", ") || "—"}</div><div className="d">world ids derived, not chosen</div></div>
           </div>
 
