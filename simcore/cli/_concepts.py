@@ -39,6 +39,8 @@ def add_study_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--tick-unit", default="day")
     parser.add_argument("--budget", type=float, default=20.0, help="max spend in USD")
     parser.add_argument("--channel", default="survey_room")
+    parser.add_argument("--elicits", default="reaction", metavar="TASK",
+                        help="what an activated persona is asked: reaction (default) or purchase")
     parser.add_argument("--force", action="store_true", help="resume despite moved inputs; recorded, never silent")
 
 

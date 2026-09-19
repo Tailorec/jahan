@@ -133,11 +133,16 @@ def assemble_scenario(
     description: str,
     tick_unit: str = "day",
     horizon_ticks: int = 4,
+    elicits: str = "reaction",
 ) -> Scenario:
     """The study's baseline scenario: the whole proposition at the brief's price.
 
     The variant emphasizes every claim the brief makes — the concept presents the
     product, not a slice of it — and the audiences run at the shares the brief declares.
+
+    `elicits` is what an activated persona is asked. A concept test exists to ask purchase
+    intent, and the default asks for a reaction: the first real study pinned a passing scale
+    and then asked 897 personas what they would do, so not one turn was scored for intent.
     """
     weights = pack.brief.audience_shares
     if weights is None:
@@ -157,6 +162,7 @@ def assemble_scenario(
         "tick_unit": tick_unit,
         "horizon_ticks": horizon_ticks,
         "interventions": [],
+        "elicits": elicits,
     })
     check_scenario_against_brief(scenario, pack.brief)
     return scenario
@@ -372,6 +378,7 @@ def prepare_study(
                 description=pack.brief.product.description,
                 tick_unit=args.tick_unit,
                 horizon_ticks=args.horizon,
+                elicits=getattr(args, "elicits", None) or "reaction",
             )
         ]
     run_id = run_id or mint_run_id()

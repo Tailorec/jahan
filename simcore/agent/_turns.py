@@ -65,7 +65,7 @@ from ._probe import (
     probe_result,
     sampled_for_probe,
 )
-from ._prompt import REACTION_QUESTION, hash_text, render_persona_block
+from ._prompt import hash_text, reaction_question, render_persona_block
 from ._render import PersonaBlockCache
 
 REFLECTION_QUESTION = (
@@ -184,11 +184,15 @@ def _dispatch(chat, calls: list[tuple[int, ChatRequest]]) -> dict[int, Completio
     return dict(zip(positions, outcomes))
 
 
-def _question_for(task: TurnTask) -> str:
-    """The frozen question per task: purchase intent is elicited as free text, never a number."""
+def _question_for(task: TurnTask, channel: object | None = None) -> str:
+    """The frozen question per task: purchase intent is elicited as free text, never a number.
+
+    A reaction offers the actions the persona's channel can land; an intent question asks for
+    words about buying, which no channel affords or refuses.
+    """
     if wants_intent(task):
         return question_text(PURCHASE_CONSTRUCT)
-    return REACTION_QUESTION
+    return reaction_question(channel)
 
 
 def _due(entry: _Reacted, cfg: AgentConfig) -> bool:
@@ -330,7 +334,7 @@ def _prepare(
     )
     memory_texts = tuple(f"[tick {memory.tick}] {memory.description}" for memory in recalled)
     memory_ids = tuple(memory.memory_id for memory in recalled)
-    question = _question_for(job.task)
+    question = _question_for(job.task, job.presentation.impression.channel)
     try:
         assembled = assemble(
             persona_block=block,
@@ -471,7 +475,7 @@ def _strict_request(entry: _Reacted, cfg: AgentConfig) -> ChatRequest:
         beliefs_text=entry.item.assembled.beliefs_text,
         memory_texts=entry.item.assembled.memory_texts,
         shown=entry.item.shown,
-        question=strict_question(_question_for(job.task), allowed),
+        question=strict_question(_question_for(job.task, job.presentation.impression.channel), allowed),
         budget=cfg.token_budget[cfg.tier_for(job.task)],
     )
     return ChatRequest(
