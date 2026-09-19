@@ -25,6 +25,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from simcore.schemas import PartitionHeader, TraceEvent
+from simcore.schemas.base import canonical_payload
 
 from . import derive as _derive
 from .errors import DuplicateSequenceError, FinalizedError, UnknownRunError, UnknownWorldError
@@ -55,6 +56,22 @@ def _connect_live(path: Path) -> sqlite3.Connection:
 def _meta(connection: sqlite3.Connection, key: str) -> str | None:
     row = connection.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
     return row[0] if row is not None else None
+
+
+def _same_header(stored: str, header: PartitionHeader) -> bool:
+    """Whether a pinned header is the world this header describes.
+
+    Compared as canonical payloads — set-valued fields sorted, output fields
+    excluded — so a resume in another process agrees with the process that
+    started the world. Raw JSON compares set iteration order, which follows
+    the process hash seed: the same study re-pinned its world as foreign
+    about as often as not. A stored header that no longer validates falls
+    back to the raw comparison rather than refusing on a technicality.
+    """
+    try:
+        return canonical_payload(PartitionHeader.model_validate(json.loads(stored))) == canonical_payload(header)
+    except Exception:
+        return json.loads(stored) == json.loads(header.model_dump_json())
 
 
 class TraceStore:
@@ -88,7 +105,7 @@ class TraceStore:
         world_dir.mkdir(parents=True, exist_ok=True)
         with _connect_live(world_dir / "live.sqlite") as connection:
             stored = _meta(connection, "header")
-            if stored is not None and json.loads(stored) != json.loads(header.model_dump_json()):
+            if stored is not None and not _same_header(stored, header):
                 raise ValueError(f"world {header.world_id} already runs under a different header")
             connection.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", ("header", header.model_dump_json()))
             connection.execute(

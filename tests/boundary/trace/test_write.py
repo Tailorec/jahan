@@ -107,3 +107,35 @@ def test_reads_are_gapless_and_ordered_by_persona_tick_and_seq(tmp_path):
     keys = [(e.persona_id or "", e.tick, e.seq) for e in ordered]
     assert keys == sorted(keys)
     assert {e.event_id for e in ordered} == {e.event_id for e in read}
+
+
+def test_repinning_a_world_agrees_across_processes(tmp_path):
+    """A resume in another process re-pins its world's header: set-valued fields
+    serialize in hash order, so raw JSON calls the same study foreign about as
+    often as not. The pin compares canonical payloads instead."""
+    import json
+
+    from simcore.schemas import PartitionHeader
+    from simcore.trace.store import _same_header
+    from tests.study_builders import partition_header_payload
+
+    header = PartitionHeader.model_validate(partition_header_payload())
+    raw = json.loads(header.model_dump_json())
+    # Another process's hash order: every ordering of the set-valued ontology
+    # fields names the same study.
+    reordered = json.loads(json.dumps(raw))
+    domains = reordered["pack"]["ontology"]["completion_policy"]["completable_domains"]
+    reordered["pack"]["ontology"]["completion_policy"]["completable_domains"] = domains[::-1]
+    conditioning = reordered["pack"]["ontology"]["conditioning_set"]
+    reordered["pack"]["ontology"]["conditioning_set"] = conditioning[::-1]
+    assert _same_header(json.dumps(reordered), header)
+
+    # A header that actually moved still refuses.
+    moved = json.loads(json.dumps(raw))
+    moved["population"]["population_hash"] = "00" * 32
+    assert not _same_header(json.dumps(moved), header)
+
+    # And through the store itself: re-pinning an ordered-differently header is a no-op.
+    store = TraceStore(tmp_path)
+    seed_header_and_entry(store)
+    store.create_world(header.config.run_id, header)
