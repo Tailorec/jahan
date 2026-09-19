@@ -161,7 +161,7 @@ The attributes a persona must have populated to be usable in a given category â€
 _Avoid_: required fields, minimum profile, completeness threshold
 
 **Conditioning**:
-Presenting a persona's own attributes to the model as the frame for its response. Unconditioned responses converge on a narrow optimism that does not match human answers, which is why conditioning is an invariant rather than a quality setting.
+Presenting a persona's own attributes to the model as the frame for its response. Unconditioned responses collapse: measured over 150 personas, every one returned the same answer, where conditioned personas gave fifty-seven different ones. Conditioning is what makes a population a population rather than one respondent repeated, which is why it is an invariant rather than a quality setting.
 _Avoid_: persona prompting, priming, context injection
 
 **Source**:
