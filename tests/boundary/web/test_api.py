@@ -205,6 +205,13 @@ def test_a_fake_study_serves_end_to_end_with_no_network(tmp_path, monkeypatch):
     assert [p["persona_id"] for p in second["personas"]] != [p["persona_id"] for p in personas["personas"]]
     assert client.get(f"/api/runs/{run_id}/personas", params={"offset": personas["total"]}).json()["personas"] == []
 
+    world_id = detail["world_ids"][0]
+    turn_id = client.get(f"/api/runs/{run_id}/events", params={"kind": "turn", "limit": 1}).json()["events"][0]["event_id"]
+    prompt = client.get(f"/api/runs/{run_id}/worlds/{world_id}/turns/{turn_id}/prompt").json()
+    assert [message["role"] for message in prompt["messages"]] == ["system", "user"]
+    assert prompt["shape"] in ("reaction", "purchase_intent")
+    assert client.get(f"/api/runs/{run_id}/worlds/{world_id}/turns/ev-00000000000000000000000001/prompt").status_code == 404
+
 
 def test_ontologies_and_briefs_come_from_the_engine_checkout(tmp_path):
     from fastapi.testclient import TestClient

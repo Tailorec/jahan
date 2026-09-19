@@ -90,6 +90,39 @@ def _event_filter(
     })
 
 
+def _persona_named(personas: list[Any], persona_id: str):
+    """One persona's own record, validated — reconstruction renders from records."""
+    from simcore.schemas import Persona
+
+    for record in personas:
+        if isinstance(record, dict) and record.get("persona_id") == persona_id:
+            try:
+                return Persona.model_validate(record)
+            except ValueError:
+                return None
+    return None
+
+
+def _ontology_named(raw: Any):
+    """The run's own ontology version, validated — or nothing to render against."""
+    if not isinstance(raw, dict):
+        return None
+    from simcore.schemas import CategoryOntology
+
+    try:
+        return CategoryOntology.model_validate(raw)
+    except ValueError:
+        return None
+
+
+def _stimulus_texts(view) -> dict[str, str]:
+    """What each stimulus said, from the stimuli the record published."""
+    texts = {}
+    for event in view.events(EventFilter.model_validate({"kinds": ("stimulus_published",)})):
+        texts[event.payload.stimulus.stimulus_id] = event.payload.stimulus.text
+    return texts
+
+
 def _page(items: list[Any], offset: int, limit: int) -> list[Any]:
     """One page of an ordered shape. Slicing, never arithmetic over what is served."""
     return items[offset:][:limit]
@@ -424,6 +457,54 @@ def create_app(
         except KeyError as exc:
             raise _missing(str(exc))
         return {"events": [json.loads(event.model_dump_json()) for event in resolved]}
+
+    @app.get("/api/runs/{run_id}/worlds/{world_id}/turns/{event_id}/prompt")
+    def turn_prompt(request: Request, run_id: str, world_id: str, event_id: str) -> dict[str, Any]:
+        """One turn's prompt, reconstructed from the record and verified.
+
+        Displays the messages only when their hash matches the turn's recorded
+        hash; anything else says so and why. Prompts are served transiently —
+        nothing here writes one anywhere.
+        """
+        from simcore.agent import Unreconstructible, reconstruct_turn
+
+        run_dir = _run_dir(request, run_id)
+        view = _view(_store(run_dir), run_id, world_id)
+        try:
+            resolved = view.resolve([event_id])
+        except KeyError as exc:
+            raise _missing(str(exc))
+        event = resolved[0]
+        if event.payload.kind != "turn" or event.persona_id is None:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=422, detail=f"{event_id} is not a turn")
+        stored = _read_json_silent(Path(run_dir, "personas.json"))
+        persona = _persona_named((stored or {}).get("personas", []), event.persona_id)
+        if persona is None:
+            from fastapi import HTTPException
+
+            raise HTTPException(
+                status_code=422,
+                detail="the turn's persona has no record in personas.json",
+            )
+        ontology = _ontology_named(_read_json_silent(Path(run_dir, "ontology.json")))
+        persona_events = view.events(EventFilter.model_validate({"persona_ids": (event.persona_id,)}))
+        texts = _stimulus_texts(view)
+        rebuilt = reconstruct_turn(
+            event.payload, event, persona=persona, ontology=ontology,
+            persona_events=persona_events, stimulus_texts=texts,
+        )
+        if isinstance(rebuilt, Unreconstructible):
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=422, detail=rebuilt.reason)
+        return {
+            "event_id": event_id,
+            "shape": rebuilt.shape,
+            "messages": [dict(message) for message in rebuilt.messages],
+            "rejected_verified": rebuilt.rejected_verified,
+        }
 
     @app.get("/api/runs/{run_id}/digest")
     def run_digest(request: Request, run_id: str) -> dict[str, Any]:
