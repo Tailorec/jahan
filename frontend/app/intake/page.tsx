@@ -77,6 +77,16 @@ export default function IntakePage() {
   const [budget, setBudget] = React.useState("20");
   const [launching, setLaunching] = React.useState(false);
   const [launched, setLaunched] = React.useState<{ run_id?: string; error?: string } | null>(null);
+  const [elicits, setElicits] = React.useState("reaction");
+  const [anchorVersion, setAnchorVersion] = React.useState("purchase_intent=v1");
+  const [ledger, setLedger] = React.useState<{
+    valid: boolean; product: string; category: string; ontology_version: string;
+    claims: string[]; audiences: string[];
+    assumption_ledger: { text: string; source: string }[];
+  } | null>(null);
+  const [ledgerError, setLedgerError] = React.useState<string | null>(null);
+  const [checkingBrief, setCheckingBrief] = React.useState(false);
+  const { data: endpoint } = useApi<{ endpoint_configured: boolean; fake_available: boolean }>("/api/status");
 
   React.useEffect(() => {
     api<{ category: string; version: string }[]>("/api/ontologies").then(setOntoList).catch(() => {});
@@ -151,6 +161,7 @@ export default function IntakePage() {
           brief_yaml: briefYaml, evidence_json: evidence,
           n: Number(n), horizon: Number(horizon), seeds,
           budget: Number(budget), channel: "survey_room", fake: true,
+          elicits, anchor_versions: [anchorVersion],
         }),
       });
       setLaunched({ run_id: r.run_id });
@@ -160,14 +171,34 @@ export default function IntakePage() {
     setLaunching(false);
   };
 
+  const checkBrief = async () => {
+    setCheckingBrief(true);
+    setLedger(null);
+    setLedgerError(null);
+    try {
+      const r = await api<{
+        valid: boolean; product: string; category: string; ontology_version: string;
+        claims: string[]; audiences: string[];
+        assumption_ledger: { text: string; source: string }[];
+      }>("/api/briefs/validate", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ brief_yaml: briefYaml, evidence_json: evidence }),
+      });
+      setLedger(r);
+    } catch (e) {
+      setLedgerError(String(e));
+    }
+    setCheckingBrief(false);
+  };
+
   const attrs = onto ? Object.keys(onto.attribute_domains) : [];
 
   return (
     <Shell crumbs={<><Link href="/">Workspace</Link> / <b>New study</b></>}>
       <PageHead
         title="New study"
-        sub={<>Author a <b>brief</b> against a pinned <b>category ontology</b>. Claims carry a <b>claim source</b> — asserted, public (needs evidence), or assumed — and the assumption ledger travels into every report.</>}
-        actions={<span className="chip plain mono">brief YAML · validated by intake</span>}
+        sub={<>Author a <b>brief</b> — the product, its claims, price, competitors, target market — against a pinned <b>category ontology</b>. Claims carry a <b>claim source</b> — asserted, public (needs evidence), or assumed — and the assumption ledger travels into every report.</>}
+        actions={<>{endpoint && <span className={`chip ${endpoint.endpoint_configured ? "ok" : "plain"}`} title="The server's environment configures the endpoint — never the browser"><span className="dot" />{endpoint.endpoint_configured ? "endpoint configured" : "no endpoint — fake only"}</span>}<span className="chip plain mono">brief YAML · validated by intake</span></>}
       />
       <div className="grid g-32">
         <div>
@@ -187,6 +218,7 @@ export default function IntakePage() {
                 <div className="help">Shown to personas verbatim. {onto && <>Conditioning set: <span className="mono">{onto.conditioning_set.join(", ")}</span></>}</div>
               </div>
               <div className="field"><label>Claims <span style={{ fontWeight: 400, color: "var(--ink-3)" }}>(C1… auto-numbered; public_source needs an evidence URL)</span></label>
+                <div className="help">A <b>claim</b> is one assertion about the product — the atomic unit of stimulus: posts, feed cards and findings all reference it.</div>
                 <div style={{ display: "grid", gap: 8 }}>
                   {claims.map((c, i) => (
                     <div key={i} style={{ display: "grid", gap: 6, border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>
@@ -225,7 +257,7 @@ export default function IntakePage() {
           </div>
 
           <div className="panel">
-            <div className="panel-head"><h2>2 · Audiences</h2><span className="hint">named slices; filters must use ontology attributes</span></div>
+            <div className="panel-head"><h2>2 · Audiences</h2><span className="hint">named slices of the target market; filters must use ontology attributes</span></div>
             <div className="panel-body" style={{ display: "grid", gap: 10 }}>
               {audiences.map((a, i) => (
                 <div key={i} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>
@@ -257,6 +289,7 @@ export default function IntakePage() {
               ))}
               <button className="btn sm" style={{ justifySelf: "start" }} onClick={() => setAudiences((xs) => [...xs, { name: `audience_${xs.length + 1}`, share: "", filters: {} }])}>+ Add audience</button>
               <div className="field"><label>Stated assumptions (one per line)</label>
+                <div className="help">An <b>assumption</b> is taken as true without evidence — recorded and surfaced in every report, never resolved away.</div>
                 <textarea className="input" rows={2} value={assumptions} onChange={(e) => setAssumptions(e.target.value)} /></div>
             </div>
           </div>
@@ -267,6 +300,30 @@ export default function IntakePage() {
             <div className="panel-head"><h2>Brief YAML</h2><span className="hint">exactly what intake reads</span></div>
             <div className="panel-body">
               <pre className="mono" style={{ fontSize: 11, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 12, maxHeight: 420, overflow: "auto", whiteSpace: "pre-wrap" }}>{briefYaml}</pre>
+            </div>
+          </div>
+          <div className="panel">
+            <div className="panel-head"><h2>Brief check</h2><span className="hint">the engine's own contracts — before a run can start</span></div>
+            <div className="panel-body" style={{ display: "grid", gap: 10 }}>
+              <button className="btn" disabled={checkingBrief} onClick={checkBrief}>{checkingBrief ? "Checking…" : "Validate brief"}</button>
+              {ledger && (
+                <>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    <span className="chip ok"><span className="dot" />valid</span>
+                    <span className="mono sub">{ledger.product} · {ledger.category}@{ledger.ontology_version}</span>
+                    <span className="mono sub">claims {ledger.claims.join(", ")}</span>
+                    <span className="mono sub">audiences {ledger.audiences.join(", ") || "—"}</span>
+                  </div>
+                  <div className="sub" style={{ fontSize: 12 }}>Assumption ledger — stated, assumed and unstated:</div>
+                  {ledger.assumption_ledger.map((a, i) => (
+                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <span className={`chip ${a.source === "assumed" ? "assump" : "plain"}`}><span className="dot" />{a.source.replace("_", " ")}</span>
+                      <span style={{ fontSize: 13 }}>{a.text}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+              {ledgerError && <Callout icon="alert"><div><b>The brief is refused.</b><pre className="mono" style={{ fontSize: 11, whiteSpace: "pre-wrap", marginTop: 6 }}>{ledgerError}</pre></div></Callout>}
             </div>
           </div>
           <div className="panel">
@@ -307,6 +364,15 @@ export default function IntakePage() {
                 <div className="field" style={{ margin: 0 }}><label>Seeds</label><input className="input mono" value={seeds} onChange={(e) => setSeeds(e.target.value)} /></div>
               </div>
               <div className="field" style={{ margin: 0 }}><label>Budget (USD)</label><input className="input mono" value={budget} onChange={(e) => setBudget(e.target.value)} /></div>
+              <div className="grid g2">
+                <div className="field" style={{ margin: 0 }}><label>Asked — what personas answer</label>
+                  <select className="input" value={elicits} onChange={(e) => setElicits(e.target.value)}>
+                    <option value="reaction">reaction</option>
+                    <option value="purchase">purchase intent</option>
+                  </select>
+                  <div className="help">A purchase-intent study is scored by the anchor version below.</div></div>
+                <div className="field" style={{ margin: 0 }}><label>Anchor version</label><input className="input mono" value={anchorVersion} onChange={(e) => setAnchorVersion(e.target.value)} /></div>
+              </div>
               <button className="btn primary" disabled={launching} onClick={launchStudy}>{launching ? "Launching…" : `Run fake study ${ICONS.arrow}`}</button>
               {launched?.run_id && <Link className="btn sm" href={`/run?run=${launched.run_id}`}>Watch {launched.run_id} {ICONS.arrow}</Link>}
               {launched?.error && <Callout icon="alert"><div><b>Launch refused.</b><pre className="mono" style={{ fontSize: 11, whiteSpace: "pre-wrap", marginTop: 6 }}>{launched.error}</pre></div></Callout>}

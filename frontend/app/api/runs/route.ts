@@ -42,6 +42,7 @@ function studyArgv(root: string, runDir: string, runId: string, body: Record<str
     "--budget", String(body.budget ?? 20.0),
     "--channel", String(body.channel ?? "survey_room"),
     "--seeds", String(body.seeds ?? "4021"),
+    "--elicits", String(body.elicits ?? "reaction"),
   ];
   if (body.fake ?? true) {
     argv.push("--fake");
