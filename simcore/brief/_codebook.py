@@ -11,6 +11,7 @@ present, but it cannot become a version until it validates against one.
 from __future__ import annotations
 
 import difflib
+import re
 from typing import Protocol
 
 from simcore.schemas import CategoryOntology
@@ -26,9 +27,40 @@ class CodebookLike(Protocol):
     def vocabulary(self, attribute: str) -> tuple[str, ...] | None: ...
 
 
+def _words(name: str) -> list[str]:
+    return [word for word in re.split(r"[^a-z0-9]+", name.lower()) if word]
+
+
+def _kin(word: str, other: str) -> bool:
+    """Two words that are the same word, or one is the other cut short: `freq`/`frequency`."""
+    if word == other:
+        return True
+    short, long = sorted((word, other), key=len)
+    return len(short) >= 3 and long.startswith(short)
+
+
 def suggest_attributes(name: str, codebook: CodebookLike, limit: int = 3) -> tuple[str, ...]:
-    """What the codebook has that resembles a name it does not carry."""
-    return tuple(difflib.get_close_matches(name, list(codebook.attributes), limit, cutoff=0.5))
+    """What the codebook has that resembles a name it does not carry.
+
+    The codebook's names are compound (`demo_household_income`), so what a person types
+    (`income`) shares a word with the attribute they meant far more often than it shares
+    letters: attributes that share words come first, most shared first, and character
+    similarity fills what is left. Letters alone suggested `ind_e_commerce` for `income`.
+    """
+    wanted = _words(name)
+    ranked: list[tuple[int, float, int, str]] = []
+    for attribute in codebook.attributes:
+        shared = sum(1 for word in wanted if any(_kin(word, have) for have in _words(attribute)))
+        if shared:
+            similarity = difflib.SequenceMatcher(None, name.lower(), attribute.lower()).ratio()
+            ranked.append((-shared, -similarity, len(attribute), attribute))
+    found = [attribute for *_, attribute in sorted(ranked)][:limit]
+    for attribute in difflib.get_close_matches(name, list(codebook.attributes), limit, cutoff=0.6):
+        if len(found) >= limit:
+            break
+        if attribute not in found:
+            found.append(attribute)
+    return tuple(found)
 
 
 def validate_against_codebook(ontology: CategoryOntology, codebook: CodebookLike) -> None:
