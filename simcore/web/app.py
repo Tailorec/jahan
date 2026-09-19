@@ -90,6 +90,22 @@ def _event_filter(
     })
 
 
+def _registry_model(run_dir: Path):
+    """One run's registry entry as a model, or None when it holds no record."""
+    from simcore.schemas import RunRegistryEntry
+
+    stored = _read_json_silent(Path(run_dir, "result.json"))
+    registry = (stored or {}).get("registry")
+    if registry is None:
+        registry = _live_entry(run_dir)
+    if not isinstance(registry, dict):
+        return None
+    try:
+        return RunRegistryEntry.model_validate(registry)
+    except ValueError:
+        return None
+
+
 def _persona_named(personas: list[Any], persona_id: str):
     """One persona's own record, validated — reconstruction renders from records."""
     from simcore.schemas import Persona
@@ -286,6 +302,39 @@ def create_app(
 
     @app.get("/api/runs")
     def list_runs(request: Request) -> dict[str, Any]:
+        runs = []
+        for child in sorted(_runs_dir(request).iterdir()):
+            if child.is_dir():
+                entry = _run_entry(child)
+                if entry is not None:
+                    runs.append(entry)
+        return {"runs": runs}
+
+    @app.get("/api/workspace")
+    def workspace(request: Request) -> dict[str, Any]:
+        """The workspace summary: derived in `analysis` over registry entries.
+
+        Studies run, spend against budget, personas simulated, reports written —
+        read from entries rather than by walking partitions, so the interface
+        displays no number without the shape that produced it.
+        """
+        from simcore.analysis import workspace_summary
+
+        from simcore.analysis import workspace_summary
+
+        runs_root = _runs_dir(request)
+        entries = [
+            entry
+            for entry in (
+                _registry_model(child)
+                for child in sorted(runs_root.iterdir())
+                if child.is_dir()
+            )
+            if entry is not None
+        ]
+        # Reports written derive in `analysis` from the entries — the web layer
+        # serialises the shape, it does not count.
+        return json.loads(workspace_summary(entries).model_dump_json())
         runs = []
         for child in sorted(_runs_dir(request).iterdir()):
             if child.is_dir():
