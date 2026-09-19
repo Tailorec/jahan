@@ -95,7 +95,7 @@ export default function TracePage() {
       />
       {error && <Callout icon="alert"><div>{error}</div></Callout>}
       {!data && !error && <div className="empty"><b>Loading trace…</b></div>}
-      {data && !t && <Callout icon="alert"><div>No ui-trace.json for this run yet — run <span className="mono">scripts/export_ui_trace.py runs/{runId}</span> to answer trace questions.</div></Callout>}
+      {data && !t && <Callout icon="alert"><div>No trace-summary.json for this run yet — it is written beside report.json at the end of every run, or backfill with <span className="mono">scripts/export_ui_trace.py runs/{runId}</span>.</div></Callout>}
       {t && w && (
         <>
           <div className="tabs" role="tablist">

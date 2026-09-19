@@ -174,6 +174,96 @@ export async function listRuns(): Promise<RunSummary[]> {
   return out;
 }
 
+/* ---------- trace summary ---------- */
+
+interface TraceSummaryFile {
+  run_id: string;
+  worlds: string[];
+  per_world: {
+    world_id: string;
+    event_counts: Record<string, number>;
+    max_tick: number;
+    belief_histories: { persona_id: string; points: { tick: number; beliefs: Record<string, unknown> }[] }[];
+    edges: { u: string; v: string; channel: string; count: number; last_tick: number }[];
+    verbatim_groups: Record<string, {
+      key: string;
+      records: { event_id: string; persona_id: string; tick: number; text: string; action: string }[];
+    }[]>;
+  }[];
+  costs: { role: string; calls: number; input_tokens: number; output_tokens: number; cost: number | null }[];
+  recorded_cost: number;
+}
+
+function flattenBeliefs(b: Record<string, unknown>): Record<string, number> {
+  const flat: Record<string, number> = {};
+  for (const [k, v] of Object.entries((b.dimensions ?? {}) as Record<string, unknown>)) {
+    if (typeof v === "number") flat[k] = v;
+  }
+  for (const [k, v] of Object.entries((b.claim_credence ?? {}) as Record<string, unknown>)) {
+    if (typeof v === "number") flat[k] = v;
+  }
+  return flat;
+}
+
+/* The CLI writes trace-summary.json beside report.json; runs recorded before it
+   carry only the legacy ui-trace.json the export script projected. The summary is
+   the source of every number; the legacy file contributes resolved finding
+   evidence where it exists. */
+export async function readTrace(runId: string): Promise<UITrace | null> {
+  const dir = path.join(engineRoot(), "runs", runId);
+  const [summary, legacy] = await Promise.all([
+    readJson<TraceSummaryFile>(path.join(dir, "trace-summary.json")),
+    readJson<UITrace>(path.join(dir, "ui-trace.json")),
+  ]);
+  if (!summary) return legacy;
+  const trace: UITrace = {
+    run_id: summary.run_id,
+    worlds: summary.worlds,
+    event_counts: {},
+    max_tick: {},
+    belief_histories: {},
+    belief_personas: {},
+    edges_top: [],
+    verbatim_groups: {},
+    costs: summary.costs,
+    recorded_cost: summary.recorded_cost,
+    resolved: legacy?.resolved ?? {},
+  };
+  for (const world of summary.per_world) {
+    trace.event_counts[world.world_id] = world.event_counts;
+    trace.max_tick[world.world_id] = world.max_tick;
+    trace.belief_personas[world.world_id] = world.belief_histories.map((h) => h.persona_id);
+    trace.belief_histories[world.world_id] = Object.fromEntries(
+      world.belief_histories.map((h) => [
+        h.persona_id,
+        h.points.map((p) => ({ tick: p.tick, beliefs: flattenBeliefs(p.beliefs) })),
+      ]),
+    );
+    trace.edges_top.push(...world.edges);
+    for (const grouping of ["persona", "tick"] as const) {
+      const groups = (world.verbatim_groups[grouping] ?? [])
+        .map((g) => ({
+          key: g.key,
+          count: g.records.length,
+          samples: g.records.slice(0, 3).map((r) => ({
+            event_id: r.event_id, persona_id: r.persona_id, tick: r.tick,
+            text: r.text.slice(0, 500), action: r.action,
+          })),
+        }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 24);
+      trace.verbatim_groups[grouping] = [...(trace.verbatim_groups[grouping] ?? []), ...groups];
+    }
+  }
+  trace.edges_top.sort((a, b) => b.count - a.count);
+  trace.edges_top = trace.edges_top.slice(0, 60);
+  for (const grouping of Object.keys(trace.verbatim_groups)) {
+    trace.verbatim_groups[grouping].sort((a, b) => b.count - a.count);
+    trace.verbatim_groups[grouping] = trace.verbatim_groups[grouping].slice(0, 24);
+  }
+  return trace;
+}
+
 export async function readRunDetail(runId: string) {
   const dir = path.join(engineRoot(), "runs", runId);
   const [summary, gate, manifest, digest, report, trace] = await Promise.all([
@@ -184,7 +274,7 @@ export async function readRunDetail(runId: string) {
       path.join(dir, "digest.json"),
     ),
     readJson<StudyReport>(path.join(dir, "report.json")),
-    readJson<UITrace>(path.join(dir, "ui-trace.json")),
+    readTrace(runId),
   ]);
   const result = await readJson<{ registry: { config: { pins: Record<string, { model_id: string }> } } }>(
     path.join(dir, "result.json"),
