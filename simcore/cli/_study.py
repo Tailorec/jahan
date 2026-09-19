@@ -357,6 +357,17 @@ def gate_and_build(
     built = build(pack, n, population_seed, coreset=coreset, inference=chat, parameters=parameters)
     population = built.population
     (run_dir / "manifest.json").write_text(population.manifest.model_dump_json(indent=2) + "\n")
+    (run_dir / "personas.json").write_text(json.dumps(
+        {
+            "run_id": run_dir.name,
+            "personas": [
+                {key: value for key, value in persona.model_dump(mode="json").items() if key != "embedding"}
+                for persona in population.personas
+            ],
+        },
+        indent=2,
+        sort_keys=True,
+    ) + "\n")
     return population
 
 
@@ -378,6 +389,17 @@ def prepare_study(
     and the manifest are written as the study earns them, so a failed gate leaves the
     report that explains it."""
     pack = load_brief(brief_path, ontologies_dir)
+    run_id = run_id or mint_run_id()
+    run_dir = out_dir / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+    # The study carries what it ran on: the brief as authored and the ontology
+    # version it names, so both resolve for as long as the study exists.
+    try:
+        if Path(brief_path).resolve() != (run_dir / "brief.yaml").resolve():
+            (run_dir / "brief.yaml").write_text(Path(brief_path).read_text(encoding="utf-8"), encoding="utf-8")
+    except OSError:
+        pass
+    (run_dir / "ontology.json").write_text(pack.ontology.model_dump_json(indent=2) + "\n")
     if scenarios is None:
         scenarios = [
             assemble_scenario(
@@ -390,9 +412,6 @@ def prepare_study(
                 elicits=getattr(args, "elicits", None) or "reaction",
             )
         ]
-    run_id = run_id or mint_run_id()
-    run_dir = out_dir / run_id
-    run_dir.mkdir(parents=True, exist_ok=True)
     chat, embed, coreset, pins, embed_pin = assemble_backend(pack, args)
     population = gate_and_build(pack, n=n, population_seed=population_seed, chat=chat, coreset=coreset,
                                 run_dir=run_dir, sources=sources_from(args))
