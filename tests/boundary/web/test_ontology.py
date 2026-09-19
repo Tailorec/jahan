@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from simcore.brief import suggest_attributes, validate_against_codebook
+from simcore.brief._codebook import suggest_attributes, validate_against_codebook
 from simcore.ports.decoder import Codebook
 from simcore.schemas import CategoryOntology
 from simcore.web import create_app

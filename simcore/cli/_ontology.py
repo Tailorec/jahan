@@ -11,7 +11,7 @@ import argparse
 import json
 from pathlib import Path
 
-from simcore.brief import validate_against_codebook
+from simcore.brief._codebook import validate_against_codebook
 from simcore.ports.decoder import Codebook
 from simcore.schemas import CategoryOntology
 from simcore.schemas.errors import GateFailure
