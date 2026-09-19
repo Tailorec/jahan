@@ -51,7 +51,7 @@ These are the rules that decide where code goes. They are binding; §13 records 
 
 ## 3. Module map
 
-Twelve modules. Every one is either a leaf contract, a deep behavioral module, or a thin adapter over salvaged code.
+Fourteen modules. Every one is either a leaf contract, a deep behavioral module, or a thin adapter — over salvaged code, or over the modules that own the numbers.
 
 | # | Module | Owns | Hides | Interface |
 |---|---|---|---|---|
@@ -60,13 +60,15 @@ Twelve modules. Every one is either a leaf contract, a deep behavioral module, o
 | 3 | `population` | who is in this study and how they are connected | 4-bit decode, conditioning filter, postings filter, audience-proportional sampling, distribution gates, sparse completion, graph generation, Leiden community detection | `build(brief, n, population_seed) -> Population` |
 | 4 | `inference` | every model call in the system | provider routing, retries, coalescing, caching, token accounting, model pinning, fake mode | `chat(role, msgs) -> Completion`, `embed(texts) -> Vectors` |
 | 5 | `elicitation` | free text → Likert PMF (SSR) | anchor sets, reference-set averaging, τ, non-collapse checks | `score(text) -> SsrResult` |
-| 6 | `agent` | one persona's reaction to one impression | context assembly, persona conditioning, memory retrieval, reflection, tier routing, output parsing, guardrails | `turns(jobs) -> outcomes` |
+| 6 | `agent` | one persona's reaction to one impression | context assembly, persona conditioning, memory retrieval, reflection, tier routing, output parsing, guardrails, prompt reconstruction | `turns(jobs) -> outcomes` |
 | 7 | `world` | environment mechanics and who sees what | platform state, action handling, recsys ranking, activation clock, interventions | `reset(header) -> WorldDelta`, `step(tick, turns) -> WorldDelta` |
-| 8 | `runner` | executing a study within a budget | job expansion, worker pool, checkpointing, resume, budget governance and its enforcement, sweep | `run(RunConfig) -> RunResult` |
+| 8 | `runner` | executing a study within a budget | job expansion, worker pool, checkpointing, resume, budget governance and its enforcement, sweep, progress publication | `run(RunConfig) -> RunResult` |
 | 9 | `trace` | the append-only record and its read views | SQLite→Parquet lifecycle, partitioning, registry, query shapes | `write(events)`, `view(run_id) -> TraceView` |
-| 10 | `analysis` | deriving meaning from a trace | digest computation, verbatim clustering, anomaly detection, finding authorship, trust guard | `digest(view) -> OutcomeDigest`, `findings(views) -> list[Finding]` |
+| 10 | `analysis` | deriving meaning from a trace | digest computation, verbatim clustering, anomaly detection, finding authorship, trust guard, trace summary, trajectories, workspace summary | `digest(view) -> OutcomeDigest`, `findings(views) -> list[Finding]`, `trace_summary(views)`, `trajectories(...)`, `workspace_summary(entries)` |
 | 11 | `report` | rendering | templates, markdown/JSON parity | `render(findings, digests) -> Report` |
-| 12 | `cli` | entrypoints | argument plumbing, exit codes | `coreset-gate`, `ssr-replica`, `concepts run`, `sweep run` |
+| 12 | `cli` | entrypoints | argument plumbing, exit codes | `coreset-gate`, `ssr-replica`, `concepts run`, `sweep run`, `ontology check`, `brief check` |
+| 13 | `web` | the engine over HTTP | serialisation, filtering, paging, run lifecycle as subprocesses | `create_app(...) -> FastAPI` |
+| 14 | `ui` | the Next.js interface | nothing — it renders what the API returns | the only module not written in Python |
 
 ### Mapping from the previous 28-module numbering
 
@@ -81,7 +83,7 @@ Kept so the salvage inventory and any existing notes stay resolvable.
 | M8, M10, `ContextBuilder` | `agent` | M19 | `trace` |
 | M9 | `elicitation` | M20 | `runner` (sweep) + `analysis` (digest) |
 | M11 | deferred (§12) | M21–M23 | deferred (§12) |
-| M12, M13, M14 | `world` (RetailShelf deferred, §12) | M24, M25 | `AnchorSource`/`PersonaPatchSource` ports + deferred harness (§12) |
+| M12, M13, M14 | `world` (RetailShelf deferred, §12) — old M-numbers, unrelated to the new §5.13 `web` | M24, M25 | `AnchorSource`/`PersonaPatchSource` ports + deferred harness (§12) |
 | — | — | M26 | deferred (§12) |
 | — | — | M27 | `analysis` (authorship) + `report` (render) |
 | — | — | M28 | `cli` |
@@ -542,14 +544,51 @@ Entry is `python -m simcore.cli`. Plumbing only: the CLI wires modules together,
 | `ssr-replica --anchors <set-id> --construct <construct> --anchor-version v1 --population manifest.json` | the anchor check (ladder, rank stability, non-collapse) with its diagnostics; a failing version is reported as failing and is not pinned |
 | `concepts run brief.yaml [--fake]` | one baseline study: report.md + report.json + run_id |
 | `sweep run --grid grid.yaml --budget 42` | the grid as one run under one budget, with per-scenario summaries carrying each cell's seeds and their spread |
+| `ontology check --ontology o.json` | an ontology draft against the corpus codebook; a refusal names what the codebook does have that resembles it |
+| `brief check --brief b.yaml` | a brief against the engine's contracts, printing the assumption ledger it assembles |
 
-Every command prints its `run_id` and the path it wrote to. Artefacts land in a run-named directory, never in the caller's working directory: `report.md`, `report.json`, `digest.json`, `result.json`, `manifest.json`, `gate-report.json`, per-scenario `summary-NN.json`, and the `trace/` store beside them. Exit codes come from the exception class, mapped in one place (`cli/_errors.py`): `SimError` 1 (crash), `GateFailure` 2, `BudgetExhausted` 3, `SchemaVersionError` 5 — and an unmapped exception exits 1 rather than something arbitrary. A malformed command line is unmapped too: argparse ends one with its own exit code 2, which is this table's failed gate, so a usage error exits 1 with argparse's message and `--help` exits 0. A study's verdict is never mistaken for a defect.
+Every command prints its `run_id` and the path it wrote to. Artefacts land in a run-named directory, never in the caller's working directory: `report.md`, `report.json`, `digest.json`, `result.json` (written last, so completed implies its siblings), `manifest.json`, `personas.json`, `ontology.json`, `brief.yaml`, `gate-report.json`, `trace-summary.json`, `progress.json`, per-scenario `summary-NN.json`, and the `trace/` store beside them. Exit codes come from the exception class, mapped in one place (`cli/_errors.py`): `SimError` 1 (crash), `GateFailure` 2, `BudgetExhausted` 3, `SchemaVersionError` 5 — and an unmapped exception exits 1 rather than something arbitrary. A malformed command line is unmapped too: argparse ends one with its own exit code 2, which is this table's failed gate, so a usage error exits 1 with argparse's message and `--help` exits 0. A study's verdict is never mistaken for a defect.
 
 `--fake` uses stub inference over a synthetic coreset derived from the study's own brief and ontology, requires no API key and no dataset download, and runs the full pipeline end to end — population, world, agent, runner, trace, analysis, report, with no module stubbed. This is the path a new user hits first, so it is exercised by the boundary suite rather than left as a manual step — including a study long enough for a persona to reflect, which is a third prompt shape the stub has to answer; two fake runs under one seed produce identical reports. (The repository carries no CI configuration yet, so "runs in CI" means "runs in the suite".) `--coreset-fixture` runs offline studies over committed test rows instead. A real study pins `--model` and `--embed-model`, reads its corpus from the user's shard cache (refusing with the fetch command when nothing is cached) and its endpoint configuration from the environment, passed through without reinterpretation.
 
 A study that measured no adoption still exits 0 and reports why. An exhausted budget exits 3 after the completed worlds' artefacts are in place. Re-running with the same run id resumes: finished cells replay without stepping, unfinished cells continue. A resume whose inputs moved refuses by name; `--force` proceeds, and what it was forced past is recorded in the registry and stated in the report (ADR 0036). (`CONTEXT.md` already defines Study, World, Sweep, Rung and Unmeasured, and `SALVAGE.md`'s `cli` rows — the sweep-grid pattern and pins-seeding-recorded-defaults — describe exactly this wiring, so both stand unchanged.)
 
 **Boundary tests:** commands invoked in-process against temporary directories; the fake end-to-end run, the failing-gate and exhausted-budget exits, both pre-flights (including a passing anchor check through the real gate), the offline-provable slices of the real path, and sweep summaries, degraded marking, budget-kept partials and resume-without-recompute are all in the suite. The suite reaches no network.
+
+---
+
+### 5.13 `web` — the engine over HTTP
+
+*M13. The engine with a face on it, and the discipline that keeps the face honest (ADR 0043–0046).*
+
+**Owns:** serving the engine over HTTP, and the discipline that keeps it thin. The five shapes, `analysis`'s digest, findings, clusters, anomalies, report, trace summary, trajectories and workspace summary — live, from a running or finished study, with the registry deciding which backend a view opens.
+**Hides:** serialisation, filtering, paging, the run lifecycle (studies as subprocesses, cancellation, resume, orphan sweep).
+
+**The rule that shapes everything:** the web layer derives nothing (ADR 0045). It serialises, filters, pages and streams. Every number it returns is a field of something `analysis`, `trace` or a contract produced — the five shapes, `TraceSummary`, the digest, findings, clusters, anomalies, the report, the workspace summary. A panel wanting an underived number is blocked until `analysis` derives it. An AST boundary test asserts the package performs no arithmetic over what it serves — no `sum`, no statistics import, no binary operator outside type unions — in the same shape `report`'s discipline test uses.
+
+**Routes** follow the five shapes one to one — `/api/runs/{run_id}/events`, `/api/runs/{run_id}/worlds/{world_id}/{beliefs|edges|verbatims|resolve}` — with `TraceSummary` at `/summary`, `analysis`'s digest, findings, clusters, anomalies and report as artefact reads, `/api/codebook` and `/api/ontologies` behind the ontology builder, `/api/briefs/validate` and `/api/status` for intake, and run lifecycle at `POST /api/runs`, `DELETE /api/runs/{run_id}`, `POST /api/runs/{run_id}/resume`. Each of the five shapes takes a typed filter (`EventFilter`, `VerbatimGrouping`) — never free keyword arguments. No endpoint returns a filesystem path, a cursor or a frame.
+
+**A live run and a finished run answer identically** through the same endpoints: the registry decides which backend a view opens, and `TraceStore.view` hides which. A run started from the interface is a subprocess (`web/_lifecycle.py`): the registry is authoritative for what happened, the process table only for whether it is still running, orphans are swept into a truthful status on server start, and cancelling loses at most the tick in flight because a tick is recorded whole or not at all. Resuming is a re-run with the same id. The runner publishes progress — status, recorded cost, ticks closed — to the registry entry as it works (the entry is the published cache of what the trace already says), so spend is something a person can act on rather than read afterwards. `result.json` is written last, so a run reporting completed has its report, digest and trace summary on disk. Execution configuration stays in the server's environment: base URL, key, concurrency and rate limits are never hashed, never rendered, never accepted in a browser — `/api/status` reports only whether an endpoint is configured.
+
+**One implementation, two delivery paths.** A derived shape is computed once in Python: the CLI writes it into the run directory at the end of a run (`trace-summary.json`, `personas.json`, `ontology.json`, `progress.json`, and `result.json` last), and the API serves the same function live — `TraceSummary` is recomputed from views only when the stored file is absent. Neither path recomputes what the other computes.
+
+**One turn's prompt is reconstructed and verified, never stored (ADR 0046).** `agent.reconstruct_turn` re-renders the persona block from the population's records, replays beliefs from snapshots and turns, resolves memories by id and stimuli by published text, then displays the messages only when their hash matches the turn's recorded hash — anything else says so and why. The web endpoint serves it transiently; nothing in the interface persists a prompt.
+
+**Trust is stated once.** The run's `TrustStatement` appears once per study view and never on a finding; the trust page shows the ladder and what a level above `UNCALIBRATED` requires; nothing in the interface writes or overrides a trust level; a finding's own confidence renders beside it and is never presented as the engine's calibration.
+
+**Test posture:** the API is exercised in-process against temporary directories with the fake backend — the suite reaches no network. A live run and a finished run answer identically through the same endpoints; the package performs no arithmetic over what it serves, asserted over the package in the shape `report`'s discipline test uses. The server ships as the `simcore[web]` extra (`fastapi`, `uvicorn`); the core's ten runtime dependencies are unchanged.
+
+---
+
+### 5.14 `ui` — the Next.js interface
+
+The only module not written in Python, and the only one that holds no engine logic. It renders what the API returns and configures what a study states: intake → ontology builder → population → run → trace → atlas → report → trust. The interface speaks the glossary — Population, never cohort; Audience and Community, never segment — with a redirect from the old cohort address.
+
+**One implementation, two delivery paths, same rule as the shapes:** a derived shape is computed once in Python; the CLI writes it into the run directory, and the API serves the same function live. The interface's own API routes become proxies to the engine when `SIMCORE_WEB_URL` is set, and read the run directory's artefacts when it is not — never a third implementation. In disk mode the workspace summary still arrives through the engine (a one-shot invocation of `analysis.workspace_summary`), because the interface computes no aggregate itself. `SIMCORE_WEB_URL` set means every engine number arrives over HTTP and no file is read.
+
+**Nothing generated is displayed as derived.** Cluster labels are quoted verbatims; findings carry their evidence and disconfirming tests; a quantity that could not be measured renders its reason where the number would have been. The run's calibration states once per study view (`TrustLine`) and is never adjustable; a fake run is marked as fake wherever it appears; audiences and communities are presented as different things. Where a chart would be empty the diagnostic appears instead — no communities formed, unmeasured with its reason, a failed gate readable because a study that never ran is the case the population page most needs to explain.
+
+**The interface is exercised against the real artefacts of a recorded run**, never against fixtures invented for it — three of this engine's worst defects lived behind fakes that answered whatever the test wanted. Its pages are intake (brief, claims with their sources and evidence, audiences, assumption ledger, the asked task and anchor version, endpoint status without keys), ontology builder (codebook search with declared value sets, drafts refused as typed against the corpus, versioned saves), population (gate statistics with thresholds, requested/achieved mix, origins, communities), run (watched live: ticks closing, turns landing, spend against budget, rung in force, cancel and resume), trace (the five questions), persona history (one persona's timeline with prompt reconstruction), atlas (adoption plane, trajectories, replicate spread, ranking and risk findings), report and calibration.
 
 ---
 
