@@ -195,6 +195,15 @@ def test_a_fake_study_serves_end_to_end_with_no_network(tmp_path, monkeypatch):
     assert "anomalies" in client.get(f"/api/runs/{run_id}/anomalies").json()
     assert client.get(f"/api/runs/{run_id}/gate").json()["overall"] is True
     assert "population_hash" in client.get(f"/api/runs/{run_id}/manifest").json()
+    ontology = client.get(f"/api/runs/{run_id}/ontology").json()
+    assert ontology["category"] and ontology["conditioning_set"]
+    personas = client.get(f"/api/runs/{run_id}/personas", params={"limit": 2}).json()
+    assert personas["total"] > 0 and len(personas["personas"]) == 2
+    first = personas["personas"][0]
+    assert first["persona_id"] and first["origins"] and first["conditioning"]
+    second = client.get(f"/api/runs/{run_id}/personas", params={"offset": 2, "limit": 2}).json()
+    assert [p["persona_id"] for p in second["personas"]] != [p["persona_id"] for p in personas["personas"]]
+    assert client.get(f"/api/runs/{run_id}/personas", params={"offset": personas["total"]}).json()["personas"] == []
 
 
 def test_ontologies_and_briefs_come_from_the_engine_checkout(tmp_path):

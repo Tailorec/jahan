@@ -125,3 +125,25 @@ def test_a_fake_study_writes_the_summary_beside_the_report(tmp_path, monkeypatch
             for event in store.view(run_id, world.world_id).events(EventFilter())
         )
         assert dict(world.event_counts) == dict(kinds)
+
+
+def test_a_fake_study_persists_what_it_ran_on_and_who_was_drawn(tmp_path, monkeypatch):
+    """The study carries its brief, its ontology version and its personas —
+    the population page renders records, never inventions."""
+    from simcore.schemas import PopulationManifest
+    from tests.boundary.cli.support import fake_args, run_command
+
+    monkeypatch.chdir(tmp_path)
+    out = tmp_path / "runs"
+    run_id = "run-" + "0" * 24 + "76"
+    code, output = run_command(*fake_args(out, run_id))
+    assert code == 0, output
+    assert (out / run_id / "brief.yaml").is_file()
+    ontology = json.loads((out / run_id / "ontology.json").read_text())
+    assert ontology["category"] and ontology["version"] and ontology["conditioning_set"]
+    stored = json.loads((out / run_id / "personas.json").read_text())
+    manifest = PopulationManifest.model_validate(json.loads((out / run_id / "manifest.json").read_text()))
+    assert stored["run_id"] == run_id
+    assert [p["persona_id"] for p in stored["personas"]] == list(manifest.persona_ids)
+    assert all(p["origins"] and p["conditioning"] for p in stored["personas"])
+    assert all("embedding" not in p for p in stored["personas"])
