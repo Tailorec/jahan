@@ -1,6 +1,6 @@
 # Salvage Inventory — OASIS · ASAL · MatrAIx
 
-**Status:** v2 · companion to `FINAL_ARCH.md`, whose twelve module names are used throughout. The older `M1`–`M28` numbering is retired; `FINAL_ARCH.md` §3 carries the mapping.
+**Status:** v2 · companion to `FINAL_ARCH.md`, whose fourteen module names are used throughout. The older `M1`–`M28` numbering is retired; `FINAL_ARCH.md` §3 carries the mapping.
 **Scope:** everything salvaged into the engine. Rows marked `deferred` feed capabilities parked in `FINAL_ARCH.md` §12 — they are recorded here so the mapping survives, not because they ship now.
 **Ground truth:** re-verified against local clones on 2026-09-14 — OASIS `0004f5b`, ASAL `677ba0e`, MatrAIx `3633d8d`, MiroFish `39d8491` — and against the `MatrAIx2026/MatrAIx_Persona_1M` dataset card, `persona_codes.schema.json`, `calibration_targets.json`, `RESULTS.md` and `manifest.json` on 2026-09-15. Earlier claims corrected by that pass are marked **corrected**.
 **Licenses:** OASIS Apache-2.0 · ASAL Apache-2.0 · MatrAIx code MIT · MiroFish **AGPL-3.0** (no code salvaged, §4) · MatrAIx Persona 1M dataset **`matraix-research-only`: non-commercial research use**, subsets inherit the terms, upstream sources add their own (Wikipedia CC BY-SA 4.0, Stack Overflow ODbL, PRISM CC BY-NC, Amazon Reviews research use, NORC terms for GSS). The engine is a research instrument (ADR 0016). It never bundles the shards and no corpus row enters the repository, the Dataset Viewer sample included — the user fetches shards explicitly (`hf download …`) into a cache outside the repository and accepts the dataset's own terms, and `HfCoresetSource` reads that cache, verifying every file against `manifest.json` on each use and downloading nothing on its own (ADR 0016, ADR 0020); a synthetic source keeps the quickstart working regardless (`FINAL_ARCH.md` §4).
@@ -132,6 +132,8 @@ It is the closest existing product: seed documents → LLM-generated ontology of
 3. **Re-benchmark after every salvage** — copied code changes behaviour. With no calibration harness (deferred, `FINAL_ARCH.md` §12), golden-run regression tests (`FINAL_ARCH.md` §8) are the referee. A salvage that changes golden-run output gets reviewed and re-committed deliberately, not silently.
 4. **No persona-invention code from any repo** — grounded sampling only (anti-collapse + provenance invariants, spec §5.4).
 5. **Upstream tracking:** OASIS and MatrAIx are actively maintained (OASIS releases monthly; MatrAIx iterates the dataset). Pin upstream SHAs in this file's future PRs; review upstream diffs quarterly for recsys/clock fixes worth re-porting.
+
+**M13/M14 add no salvage.** `web` and `ui` are new code over the engine's own modules — `web` reads through the five shapes and `analysis`'s derived shapes, and `ui` renders what the API returns. The Next.js app is new code with no upstream; FastAPI and uvicorn ship as the `simcore[web]` extra and are dependencies, not salvage.
 
 ---
 
