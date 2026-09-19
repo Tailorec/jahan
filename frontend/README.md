@@ -1,43 +1,49 @@
 # ConsumerSim frontend — UI layer for sim_engine (Next.js)
 
-Same lab-instrument design system as `~/jahan_sim/mockups` (Inter + JetBrains
-Mono, honey-amber tokens in `app/globals.css`), but every page is bound to the
-engine's real domain and artefacts. Vocabulary follows `CONTEXT.md`.
+Same lab-instrument design system as `~/jahan_sim/mockups` (Inter + JetBrains Mono, honey-amber tokens in
+`app/globals.css`), but every page is bound to the engine's real domain. Vocabulary follows `CONTEXT.md`:
+Population, Audience, Community — never cohort or segment.
 
 ## How it connects to the engine
 
-No mocks. The UI reads the checkout live (override with `SIM_ENGINE_ROOT`):
+Over HTTP, and nothing else. The interface holds no engine logic: it reads no run directory, starts no
+process and finds no checkout. Its own `app/api/*` routes are proxies to the engine API
+(`python -m simcore.web`, from the `simcore[web]` extra), so there is one path to every number.
+
+```bash
+# the engine (from the sim_engine checkout)
+uv run --extra web python -m simcore.web --runs runs --port 8000
+
+# the interface
+cd frontend && npm install
+SIMCORE_WEB_URL=http://127.0.0.1:8000 npm run dev   # http://localhost:3000 — the default URL is the one above
+```
+
+`SIMCORE_WEB_URL` is the only thing the interface is configured with. The inference endpoint, its key and its
+limits are the *server's* environment: this interface reports whether an endpoint is configured and never asks
+for, accepts or displays a key.
 
 | UI surface | Engine source |
 |---|---|
-| Overview — runs, ontologies, briefs | `runs/*/result.json`, `gate-report.json`, `report.json`, `ontologies/*/`, `examples/*.yaml` |
-| Intake — brief authoring + cohort gate | `CategoryOntology` JSON (attribute pickers, conditioning set); `POST /api/gate` runs the real `coreset-gate --fake` CLI and persists the run under `runs/` |
-| Cohort — gate report viewer | `gate-report.json` (χ²/KS gates, source mix, field origins, relaxations) + `manifest.json` |
-| Run — registry, cost ledger, worlds, digests | `result.json`, `digest.json` (audience PMFs, adoption, belief movement, action mix, WOM, rungs, replicate spread) |
-| Atlas — sweep matrix | scenarios × seeds from the run config with measured digests |
-| Report — findings, objections, ledger, method | `report.json` (evidence trace ids deep-link into trace view) |
-| Trace — the 5 Trace View questions | `runs/<id>/ui-trace.json`, produced by `scripts/export_ui_trace.py` through simcore's own `ParquetTraceView` |
-| Calibration — anchor check, trust, targets | `runs/run-ssrv2/anchors-check.json`, ontology `targets` |
+| Overview — runs, ontologies, briefs, totals | `/api/workspace` (derived in `analysis` over registry entries), `/api/runs`, `/api/ontologies`, `/api/briefs` |
+| Intake — brief authoring, brief check, population gate, launch | `/api/briefs/validate` (the assumption ledger), `/api/gate`, `POST /api/runs`, `/api/status` |
+| Ontology builder | `/api/codebook`, `/api/ontologies/validate`, `POST /api/ontologies` (a new version, never an overwrite) |
+| Population — gates, requested vs achieved mix, origins, communities | `/api/runs/{id}` (`gate`, `manifest`, `personas`, `ontology`, `digest`) |
+| Run — watched live, cancel, resume | `/api/runs/{id}` (progress, spend, rung), `DELETE /api/runs/{id}`, `POST /api/runs/{id}/resume` |
+| Trace, persona history | `/api/runs/{id}/summary`, `/events`, `/resolve`, `…/worlds/{w}/turns/{t}/prompt` (rebuilt and verified against the turn's hash) |
+| Atlas, report | `/api/runs/{id}` (`digest`, `report`) |
+| Calibration | `/api/trust` (the ladder and the floors), `/api/anchors-checks`, the run's `report.trust` |
 
-`lib/engine.ts` mirrors `simcore/schemas` (brief, claim sources, audiences,
-gates, digests, findings, trace view). `lib/server.ts` reads artefacts;
-`app/api/*` serves them.
+`lib/engine.ts` mirrors `simcore/schemas`. `lib/server.ts` is the API client; `lib/refusal.ts` keeps the reason
+the engine gave for a refusal all the way to the screen; `lib/briefYaml.ts` writes the form's brief out as the
+YAML intake reads (and back), with an audience's filter kept as the value, list or range it was stated as.
 
-## Trace export
-
-After a run finalizes, answer trace questions in the UI with:
+## Tests
 
 ```bash
-.venv/bin/python scripts/export_ui_trace.py runs/<run-id>
+npm test                                   # the plain functions in lib/, under node's own runner
+uv run --extra web pytest tests/boundary/web/test_interface.py   # from sim_engine/: the real stack
 ```
 
-This dumps event counts, sampled belief histories, top edges, verbatim groups,
-cost by role, and all finding evidence resolved through the Trace View.
-
-## Run it
-
-```bash
-npm install
-npm run dev   # http://localhost:3000
-npm run build # production check
-```
+`test_interface.py` starts the engine API and this server against a fake study and a gate-only run, asks the
+routes what the pages ask, and renders every page in headless Chrome (skipped where none is installed).

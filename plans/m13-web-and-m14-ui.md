@@ -216,3 +216,26 @@ The first screen, and the documents in step. A workspace summary over registry e
 - [x] Every number the interface displays is traceable to the shape that produced it, asserted on a real recorded study
 - [x] `FINAL_ARCH.md` §5.13 and §5.14, `SALVAGE.md` and `CONTEXT.md` describe what was built, and no claim contradicts the code
 - [x] Any defect the interface exposes is fixed with a test that fails on the old code
+
+---
+
+## Review: what the ticked criteria hid
+
+Every box above was ticked and 1,798 tests passed. A review that exercised the running stack found these; each is fixed, with a test that fails on the old code (`tests/boundary/web/test_restart.py`, `test_hardening.py`, `test_interface.py`, `test_suggest.py`, `frontend/test/`).
+
+- **Phase 2 — the interface still read the disk.** Every route kept a second implementation behind `SIMCORE_WEB_URL`-unset: its own launcher, cancel marker, run-id minter (16 characters where the engine mints 26), a Python-in-TypeScript events reader, a hard-coded `runs/run-ssrv2` on the calibration page. Removed: the interface is proxy-only, asserted over its source.
+- **Phase 2 — refusals lost their reason.** `engineFetch`/`api` threw `"<path>: 422"`, and every proxy turned it into a bare `502`, so "an attribute the corpus does not carry, naming what resembles it" never reached a screen. The status and the engine's sentence now travel end to end; every server refusal is one `{detail}` shape.
+- **Phase 2 — `/api/ontologies` changed shape at the proxy**, so the intake page could not load its own category list.
+- **Phase 4 — a run did not outlive a server restart.** The sweep at start marked any study the new server had no handle for `partial` while its process was alive. Launches now record their pid; survivors are adopted (checked against the run id in the process's argv, so a recycled pid is not mistaken for it) and only dead runs are swept. A study that died mid-session now reads partial rather than running forever, a live process is not reported finished, and a study that dies before it records anything says why (`launch.log`) instead of returning 404.
+- **Phase 4 — the Run page crashed on every study** (`pins.safety` is `null`). Found only by rendering in a browser.
+- **Phase 5 — a failed gate was unreadable.** `run-gate200` failed its gate and wrote no manifest; the page rendered its "never ran" callout and none of the gate statistics it points at, because every panel required a manifest. Reading a gate-only run also 500ed on `/summary` and *created* a `trace/registry.db` inside it (`TraceStore` mkdirs on open); a read no longer writes.
+- **Phase 6 — the "resembles" suggestions resembled nothing** (`income` → `ind_e_commerce`, `age` → nothing). Suggestions now rank by shared words in the codebook's compound names.
+- **Phase 7 — the intake form changed the study it loaded.** It dropped competitors, rewrote every assumption as `user_asserted`, truncated a list filter to its first value, turned a range filter into `[object Object]`, flattened a nested audience filter into a sibling key, and broke on a description containing a line break. It could only launch `fake: true`, ignored the tick unit, and could not select an ontology version. Fixed on js-yaml under the YAML 1.1 schema; a real study now pins its models against a configured endpoint, and never asks for a key.
+- **Phase 7 — the request was unvalidated.** Run ids climbed out of the runs root; `n=0`, a negative budget or unknown keys started a process that died silently. `StudyRequest` is a closed model; a run id must be one the trace accepts.
+- **Phase 9/10 — evidence resolved one world at a time**, and a world's `resolve` refuses a sibling's ids, so a multi-replicate study lost every citation. `/api/runs/{id}/resolve` resolves across the run.
+- **Phase 10 — the shell wrapped every page in invented state**: three made-up studies, "Engine v0.4.1", "$412 / $1,500", "Team plan", an avatar — against ADR 0043 and "no mock state". It now shows the engine's own.
+- **Phase 10 — the discipline test was too lax.** `web` computed a `max` and counted in `_live_progress`; the test forbade only `sum` and a few statistics names. Progress is now `analysis.world_progress`, and the test forbids what `report`'s does. `reports_written` counted completed runs, not reports.
+- **Trust page** hard-coded the 0.80 floors; `/api/trust` serves the schema's own.
+- **The suite's "surface" tests asserted that strings exist in the TSX** and so could not fail. They stay for the markers they check; the checks that matter now start the stack and render the pages.
+
+Not changed, and worth a decision: the recorded study `run-5t329fy3ct04k2tht5714ahms8` reports `$0.00` recorded cost across 1,804 priced calls (607,080 in / 173,881 out tokens at $0.035 / $0.14 per million pin prices, roughly $0.05) — the interface shows what the record says; whether cost accounting recorded a price-table cost there is an engine question, not an interface one.
