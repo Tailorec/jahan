@@ -4,14 +4,16 @@ import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
 import { PageHead, Callout, ICONS } from "@/components/ui";
-import { api, useApi } from "@/lib/api";
+import { api, useApi, whyNot } from "@/lib/api";
+import { briefToYaml, formFromBrief, splitList, type BriefForm, type FilterSpec } from "@/lib/briefYaml";
 import type { BriefRef, CategoryOntology, ClaimSource } from "@/lib/engine";
 
+/* What the population gate answers: the report and manifest the engine wrote, or — when the
+   draw was refused before a report existed — the engine's reason, never a path. */
 interface GateResult {
   code: number;
   run_id: string | null;
-  stdout: string;
-  stderr: string;
+  refusal: string | null;
   gate: {
     overall: boolean; evidence: string; reference: string;
     results: { kind: string; attribute?: string; p_value?: number; ks_similarity?: number; passed: boolean }[];
@@ -22,63 +24,44 @@ interface GateResult {
   manifest: { persona_ids: string[]; synthesized_share: number } | null;
 }
 
-function toYaml(o: Record<string, unknown>, indent = 0): string {
-  const pad = "  ".repeat(indent);
-  const lines: string[] = [];
-  for (const [k, v] of Object.entries(o)) {
-    if (Array.isArray(v)) {
-      lines.push(`${pad}${k}:`);
-      for (const item of v) {
-        if (item && typeof item === "object") {
-          const sub = toYaml(item as Record<string, unknown>, indent + 2);
-          const [first, ...rest] = sub.split("\n");
-          lines.push(`${pad}  - ${first.trim()}`);
-          for (const r of rest) lines.push(`${pad}    ${r.trim()}`);
-        } else {
-          lines.push(`${pad}  - ${JSON.stringify(item)}`);
-        }
-      }
-    } else if (v && typeof v === "object") {
-      lines.push(`${pad}${k}:`);
-      lines.push(toYaml(v as Record<string, unknown>, indent + 1));
-    } else if (typeof v === "string") {
-      lines.push(`${pad}${k}: ${v.includes(":") || v.includes("#") ? JSON.stringify(v) : v}`);
-    } else {
-      lines.push(`${pad}${k}: ${JSON.stringify(v)}`);
-    }
-  }
-  return lines.join("\n");
-}
+const BLANK: BriefForm = {
+  product: { name: "", category: "", description: "" },
+  price: "", currency: "USD",
+  claims: [{ text: "", source: "assumed", evidence_url: "" }],
+  competitors: [],
+  target: "",
+  audiences: [{ name: "audience_1", share: "1", filters: {} }],
+  assumptions: [],
+  ontologyVersion: "1.0.0",
+};
 
 export default function IntakePage() {
   const { data: briefs } = useApi<BriefRef[]>("/api/briefs");
-  const { data: ontos } = useApi<CategoryOntology[]>("/api/ontologies?category=x&version=y".replace("?category=x&version=y", ""));
   const [ontoList, setOntoList] = React.useState<{ category: string; version: string }[]>([]);
   const [onto, setOnto] = React.useState<CategoryOntology | null>(null);
 
-  const [product, setProduct] = React.useState({ name: "Protein water", category: "", description: "Clear protein-infused water with 20g whey isolate" });
-  const [price, setPrice] = React.useState("2.49");
-  const [claims, setClaims] = React.useState<{ text: string; source: ClaimSource; evidence_url: string }[]>([
-    { text: "20g protein with zero sugar", source: "user_asserted", evidence_url: "https://example.com/nutrition-panel" },
-    { text: "Hydrates like water, not milk", source: "assumed", evidence_url: "" },
-  ]);
-  const [target, setTarget] = React.useState("US urban adults 25-40 who train at least weekly");
-  const [audiences, setAudiences] = React.useState<{ name: string; share: string; filters: Record<string, string> }[]>([
-    { name: "gym_regulars", share: "0.6", filters: {} },
-    { name: "protein_dieters", share: "0.4", filters: {} },
-  ]);
-  const [assumptions, setAssumptions] = React.useState("Respondents distinguish clear from milky protein formats");
+  // The brief, as the form holds it. Nothing about it lives anywhere else: the YAML below is
+  // this state written out, and it is what the engine's intake reads.
+  const [form, setForm] = React.useState<BriefForm>(BLANK);
+  const setProduct = (patch: Partial<BriefForm["product"]>) => setForm((f) => ({ ...f, product: { ...f.product, ...patch } }));
   const [evidence, setEvidence] = React.useState<Record<string, { content_hash: string; fetched_at: string }>>({});
+
+  // The study: what is run, not what is said about the product.
   const [n, setN] = React.useState("200");
-  const [gate, setGate] = React.useState<GateResult | null>(null);
-  const [gating, setGating] = React.useState(false);
   const [horizon, setHorizon] = React.useState("4");
+  const [tickUnit, setTickUnit] = React.useState("day");
   const [seeds, setSeeds] = React.useState("4021");
   const [budget, setBudget] = React.useState("20");
-  const [launching, setLaunching] = React.useState(false);
-  const [launched, setLaunched] = React.useState<{ run_id?: string; error?: string } | null>(null);
   const [elicits, setElicits] = React.useState("reaction");
   const [anchorVersion, setAnchorVersion] = React.useState("purchase_intent=v1");
+  const [mode, setMode] = React.useState<"fake" | "real">("fake");
+  const [model, setModel] = React.useState("");
+  const [embedModel, setEmbedModel] = React.useState("");
+
+  const [gate, setGate] = React.useState<GateResult | null>(null);
+  const [gating, setGating] = React.useState(false);
+  const [launching, setLaunching] = React.useState(false);
+  const [launched, setLaunched] = React.useState<{ run_id?: string; error?: string } | null>(null);
   const [ledger, setLedger] = React.useState<{
     valid: boolean; product: string; category: string; ontology_version: string;
     claims: string[]; audiences: string[];
@@ -91,62 +74,47 @@ export default function IntakePage() {
   React.useEffect(() => {
     api<{ category: string; version: string }[]>("/api/ontologies").then(setOntoList).catch(() => {});
   }, []);
+  // A brief the engine already holds is where authoring usually starts; the first one loaded
+  // fills the form once, and after that the form is the person's.
+  const loadedFirst = React.useRef(false);
   React.useEffect(() => {
-    if (!briefs?.length) return;
+    if (!briefs?.length || loadedFirst.current) return;
+    loadedFirst.current = true;
     const b = briefs.find((x) => x.name === "protein_water") ?? briefs[0];
-    setProduct({ name: b.brief.product.name, category: b.brief.product.category, description: b.brief.product.description });
-    setPrice(String(b.brief.price.amount));
-    setClaims(b.brief.claims.map((c) => ({ text: c.text, source: c.source, evidence_url: c.evidence_url ?? "" })));
-    setTarget(b.brief.target_market);
-    setAudiences(b.brief.audiences.map((a) => ({
-      name: a.name, share: a.share != null ? String(a.share) : "",
-      filters: Object.fromEntries(Object.entries(a.attribute_filters).map(([k, v]) => [k, Array.isArray(v) ? v[0] : String(v)])),
-    })));
-    setAssumptions(b.brief.assumptions.map((a) => a.text).join("\n"));
-    api<{ evidence: Record<string, { content_hash: string; fetched_at: string }> }>(`/api/briefs/${b.name}`)
+    setForm(formFromBrief(b.brief));
+    api<{ evidence: Record<string, { content_hash: string; fetched_at: string }> | null }>(`/api/briefs/${b.name}`)
       .then((d) => { if (d.evidence) setEvidence(d.evidence); })
       .catch(() => {});
   }, [briefs]);
+  // A brief names one exact ontology version, and the form says which: the version the brief
+  // was loaded with, or the one picked here — never a silent substitution of the newest.
   React.useEffect(() => {
-    if (!product.category) {
-      if (ontoList.length) setProduct((p) => ({ ...p, category: ontoList[0].category }));
+    if (!form.product.category) {
+      if (ontoList.length) setForm((f) => ({ ...f, product: { ...f.product, category: ontoList[0].category }, ontologyVersion: ontoList[0].version }));
       return;
     }
-    const match = ontoList.find((o) => o.category === product.category);
-    if (match) api<CategoryOntology>(`/api/ontologies?category=${match.category}&version=${match.version}`).then(setOnto).catch(() => {});
-  }, [product.category, ontoList]);
-  void ontos;
+    let live = true;
+    api<CategoryOntology>(
+      `/api/ontologies?category=${encodeURIComponent(form.product.category)}&version=${encodeURIComponent(form.ontologyVersion)}`,
+    ).then((o) => { if (live) setOnto(o); }).catch(() => { if (live) setOnto(null); });
+    return () => { live = false; };
+  }, [form.product.category, form.ontologyVersion, ontoList]);
 
-  const briefYaml = React.useMemo(() => {
-    const audiencesYaml = audiences.map((a) => ({
-      name: a.name, ...(a.share !== "" ? { share: Number(a.share) } : {}),
-      attribute_filters: a.filters,
-    }));
-    return toYaml({
-      product: { name: product.name, category: product.category, description: product.description },
-      price: { amount: Number(price), currency: "USD" },
-      claims: claims.map((c) => ({
-        text: c.text, source: c.source, ...(c.evidence_url ? { evidence_url: c.evidence_url } : {}),
-      })),
-      competitors: [],
-      target_market: target,
-      audiences: audiencesYaml,
-      assumptions: assumptions.split("\n").filter(Boolean).map((t) => ({ text: t, source: "user_asserted" })),
-      ontology_version: onto?.version ?? "1.0.0",
-    });
-  }, [product, price, claims, target, audiences, assumptions, onto]);
+  const briefYaml = React.useMemo(() => briefToYaml(form), [form]);
+  const realNeedsEndpoint = mode === "real" && endpoint?.endpoint_configured === false;
+  const realNeedsPins = mode === "real" && (!model.trim() || !embedModel.trim());
+
+  const post = <T,>(path: string, body: unknown) => api<T>(path, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
 
   const runGate = async () => {
     setGating(true);
     setGate(null);
     try {
-      const r = await api<GateResult>("/api/gate", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brief_yaml: briefYaml, evidence_json: evidence, n: Number(n), seed: 4021 }),
-      });
-      setGate(r);
+      setGate(await post<GateResult>("/api/gate", { brief_yaml: briefYaml, evidence_json: evidence, n: Number(n), seed: 4021 }));
     } catch (e) {
-      setGate({ code: 1, run_id: null, stdout: "", stderr: String(e), gate: null, manifest: null });
+      setGate({ code: 1, run_id: null, refusal: whyNot(e), gate: null, manifest: null });
     }
     setGating(false);
   };
@@ -155,18 +123,18 @@ export default function IntakePage() {
     setLaunching(true);
     setLaunched(null);
     try {
-      const r = await api<{ run_id: string }>("/api/runs", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          brief_yaml: briefYaml, evidence_json: evidence,
-          n: Number(n), horizon: Number(horizon), seeds,
-          budget: Number(budget), channel: "survey_room", fake: true,
-          elicits, anchor_versions: [anchorVersion],
-        }),
+      const r = await post<{ run_id: string }>("/api/runs", {
+        brief_yaml: briefYaml, evidence_json: evidence,
+        n: Number(n), horizon: Number(horizon), tick_unit: tickUnit, seeds,
+        budget: Number(budget), channel: "survey_room", fake: mode === "fake",
+        // Model pins are study inputs — recorded and hashed. The endpoint and the key are the
+        // server's environment and are never asked for here.
+        ...(mode === "real" ? { model: model.trim(), embed_model: embedModel.trim() } : {}),
+        elicits, anchor_versions: [anchorVersion],
       });
       setLaunched({ run_id: r.run_id });
     } catch (e) {
-      setLaunched({ error: String(e) });
+      setLaunched({ error: whyNot(e) });
     }
     setLaunching(false);
   };
@@ -176,22 +144,35 @@ export default function IntakePage() {
     setLedger(null);
     setLedgerError(null);
     try {
-      const r = await api<{
-        valid: boolean; product: string; category: string; ontology_version: string;
-        claims: string[]; audiences: string[];
-        assumption_ledger: { text: string; source: string }[];
-      }>("/api/briefs/validate", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brief_yaml: briefYaml, evidence_json: evidence }),
-      });
-      setLedger(r);
+      setLedger(await post("/api/briefs/validate", { brief_yaml: briefYaml, evidence_json: evidence }));
     } catch (e) {
-      setLedgerError(String(e));
+      setLedgerError(whyNot(e));
     }
     setCheckingBrief(false);
   };
 
   const attrs = onto ? Object.keys(onto.attribute_domains) : [];
+  const setClaim = (i: number, patch: Partial<BriefForm["claims"][number]>) =>
+    setForm((f) => ({ ...f, claims: f.claims.map((x, j) => (j === i ? { ...x, ...patch } : x)) }));
+  const setAudience = (i: number, patch: Partial<BriefForm["audiences"][number]>) =>
+    setForm((f) => ({ ...f, audiences: f.audiences.map((x, j) => (j === i ? { ...x, ...patch } : x)) }));
+  const setFilter = (i: number, attribute: string, spec: FilterSpec) =>
+    setForm((f) => ({
+      ...f,
+      audiences: f.audiences.map((x, j) => (j === i ? { ...x, filters: { ...x.filters, [attribute]: spec } } : x)),
+    }));
+  // Changing how an attribute is matched keeps what was already said about it.
+  const retype = (spec: FilterSpec, kind: FilterSpec["kind"]): FilterSpec => {
+    const first = spec.kind === "exactly" ? String(spec.value) : spec.kind === "one_of" ? String(spec.values[0] ?? "") : spec.first;
+    const last = spec.kind === "range" ? spec.last : spec.kind === "one_of" ? String(spec.values[spec.values.length - 1] ?? "") : first;
+    if (kind === "exactly") return { kind, value: first };
+    if (kind === "one_of") return { kind, values: spec.kind === "one_of" ? spec.values : first ? [first] : [] };
+    return { kind, first, last };
+  };
+  const setCompetitor = (i: number, patch: Partial<BriefForm["competitors"][number]>) =>
+    setForm((f) => ({ ...f, competitors: f.competitors.map((x, j) => (j === i ? { ...x, ...patch } : x)) }));
+  const setAssumption = (i: number, patch: Partial<BriefForm["assumptions"][number]>) =>
+    setForm((f) => ({ ...f, assumptions: f.assumptions.map((x, j) => (j === i ? { ...x, ...patch } : x)) }));
 
   return (
     <Shell crumbs={<><Link href="/">Workspace</Link> / <b>New study</b></>}>
@@ -206,35 +187,45 @@ export default function IntakePage() {
             <div className="panel-head"><h2>1 · Product brief</h2><span className="hint">what the population will see</span></div>
             <div className="panel-body">
               <div className="grid g2">
-                <div className="field"><label>Product name</label><input className="input" value={product.name} onChange={(e) => setProduct({ ...product, name: e.target.value })} /></div>
+                <div className="field"><label>Product name</label><input className="input" value={form.product.name} onChange={(e) => setProduct({ name: e.target.value })} /></div>
                 <div className="field"><label>Category (ontology)</label>
-                  <select className="input" value={product.category} onChange={(e) => setProduct({ ...product, category: e.target.value })}>
-                    {ontoList.map((o) => <option key={o.category} value={o.category}>{o.category} @ {o.version}</option>)}
+                  <select
+                    className="input"
+                    value={`${form.product.category}@${form.ontologyVersion}`}
+                    onChange={(e) => {
+                      const [category, version] = e.target.value.split("@");
+                      setForm((f) => ({ ...f, product: { ...f.product, category }, ontologyVersion: version }));
+                    }}
+                  >
+                    {!ontoList.some((o) => o.category === form.product.category && o.version === form.ontologyVersion) && form.product.category && (
+                      <option value={`${form.product.category}@${form.ontologyVersion}`}>{form.product.category} @ {form.ontologyVersion} (not held here)</option>
+                    )}
+                    {ontoList.map((o) => <option key={`${o.category}@${o.version}`} value={`${o.category}@${o.version}`}>{o.category} @ {o.version}</option>)}
                   </select>
                   <div className="help"><Link href="/ontology">Build or extend an ontology →</Link> what can be studied is bounded by the corpus, not by which files exist.</div></div>
               </div>
               <div className="field"><label>Concept statement</label>
-                <textarea className="input" rows={2} value={product.description} onChange={(e) => setProduct({ ...product, description: e.target.value })} />
+                <textarea className="input" rows={2} value={form.product.description} onChange={(e) => setProduct({ description: e.target.value })} />
                 <div className="help">Shown to personas verbatim. {onto && <>Conditioning set: <span className="mono">{onto.conditioning_set.join(", ")}</span></>}</div>
               </div>
               <div className="field"><label>Claims <span style={{ fontWeight: 400, color: "var(--ink-3)" }}>(C1… auto-numbered; public_source needs an evidence URL)</span></label>
                 <div className="help">A <b>claim</b> is one assertion about the product — the atomic unit of stimulus: posts, feed cards and findings all reference it.</div>
                 <div style={{ display: "grid", gap: 8 }}>
-                  {claims.map((c, i) => (
+                  {form.claims.map((c, i) => (
                     <div key={i} style={{ display: "grid", gap: 6, border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>
                       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                         <span className="mono" style={{ color: "var(--ink-3)" }}>C{i + 1}</span>
-                        <input className="input" value={c.text} style={{ flex: 1 }} onChange={(e) => setClaims((cs) => cs.map((x, j) => (j === i ? { ...x, text: e.target.value } : x)))} />
-                        <select className="input" style={{ width: 140 }} value={c.source} onChange={(e) => setClaims((cs) => cs.map((x, j) => (j === i ? { ...x, source: e.target.value as ClaimSource } : x)))}>
+                        <input className="input" value={c.text} style={{ flex: 1 }} onChange={(e) => setClaim(i, { text: e.target.value })} />
+                        <select className="input" style={{ width: 140 }} value={c.source} onChange={(e) => setClaim(i, { source: e.target.value as ClaimSource })}>
                           <option value="user_asserted">user_asserted</option>
                           <option value="public_source">public_source</option>
                           <option value="assumed">assumed</option>
                         </select>
-                        <button className="btn quiet sm" onClick={() => setClaims((cs) => cs.filter((_, j) => j !== i))}>✕</button>
+                        <button className="btn quiet sm" onClick={() => setForm((f) => ({ ...f, claims: f.claims.filter((_, j) => j !== i) }))}>✕</button>
                       </div>
                       {c.source === "public_source" && (
                         <>
-                          <input className="input mono" placeholder="evidence_url — required for public_source" value={c.evidence_url} onChange={(e) => setClaims((cs) => cs.map((x, j) => (j === i ? { ...x, evidence_url: e.target.value } : x)))} />
+                          <input className="input mono" placeholder="evidence_url — required for public_source" value={c.evidence_url} onChange={(e) => setClaim(i, { evidence_url: e.target.value })} />
                           {c.evidence_url && (
                             <div style={{ display: "flex", gap: 8 }}>
                               <input className="input mono" placeholder="sidecar content_hash (64 hex)" value={evidence[c.evidence_url]?.content_hash ?? ""} style={{ flex: 1 }}
@@ -246,12 +237,32 @@ export default function IntakePage() {
                       )}
                     </div>
                   ))}
-                  <button className="btn sm" style={{ justifySelf: "start" }} onClick={() => setClaims((cs) => [...cs, { text: "", source: "assumed", evidence_url: "" }])}>+ Add claim</button>
+                  <button className="btn sm" style={{ justifySelf: "start" }} onClick={() => setForm((f) => ({ ...f, claims: [...f.claims, { text: "", source: "assumed", evidence_url: "" }] }))}>+ Add claim</button>
                 </div>
               </div>
               <div className="grid g2">
-                <div className="field"><label>Price (USD)</label><input className="input mono" value={price} onChange={(e) => setPrice(e.target.value)} /></div>
-                <div className="field"><label>Target market</label><input className="input" value={target} onChange={(e) => setTarget(e.target.value)} /></div>
+                <div className="field"><label>Price</label>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input className="input mono" value={form.price} onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))} />
+                    <input className="input mono" style={{ width: 80 }} aria-label="currency" value={form.currency} onChange={(e) => setForm((f) => ({ ...f, currency: e.target.value.toUpperCase() }))} />
+                  </div></div>
+                <div className="field"><label>Target market</label><input className="input" value={form.target} onChange={(e) => setForm((f) => ({ ...f, target: e.target.value }))} /></div>
+              </div>
+              <div className="field"><label>Competitors <span style={{ fontWeight: 400, color: "var(--ink-3)" }}>(what the population weighs the product against)</span></label>
+                <div style={{ display: "grid", gap: 8 }}>
+                  {form.competitors.map((c, i) => (
+                    <div key={i} style={{ display: "grid", gap: 6, border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input className="input" placeholder="name" value={c.name} style={{ flex: 1 }} onChange={(e) => setCompetitor(i, { name: e.target.value })} />
+                        <input className="input mono" placeholder="price" style={{ width: 90 }} value={c.price} onChange={(e) => setCompetitor(i, { price: e.target.value })} />
+                        <input className="input mono" placeholder={form.currency || "USD"} aria-label="competitor currency" style={{ width: 70 }} value={c.currency} onChange={(e) => setCompetitor(i, { currency: e.target.value.toUpperCase() })} />
+                        <button className="btn quiet sm" onClick={() => setForm((f) => ({ ...f, competitors: f.competitors.filter((_, j) => j !== i) }))}>✕</button>
+                      </div>
+                      <textarea className="input" rows={2} placeholder="what it claims — one per line" value={c.claims} onChange={(e) => setCompetitor(i, { claims: e.target.value })} />
+                    </div>
+                  ))}
+                  <button className="btn sm" style={{ justifySelf: "start" }} onClick={() => setForm((f) => ({ ...f, competitors: [...f.competitors, { name: "", price: "", currency: "", claims: "" }] }))}>+ Add competitor</button>
+                </div>
               </div>
             </div>
           </div>
@@ -259,38 +270,75 @@ export default function IntakePage() {
           <div className="panel">
             <div className="panel-head"><h2>2 · Audiences</h2><span className="hint">named slices of the target market; filters must use ontology attributes</span></div>
             <div className="panel-body" style={{ display: "grid", gap: 10 }}>
-              {audiences.map((a, i) => (
+              {form.audiences.map((a, i) => (
                 <div key={i} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <input className="input mono" style={{ maxWidth: 200 }} value={a.name} onChange={(e) => setAudiences((xs) => xs.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} />
-                    <input className="input mono" style={{ maxWidth: 100 }} placeholder="share" value={a.share} onChange={(e) => setAudiences((xs) => xs.map((x, j) => (j === i ? { ...x, share: e.target.value } : x)))} />
-                    <button className="btn quiet sm" style={{ marginLeft: "auto" }} onClick={() => setAudiences((xs) => xs.filter((_, j) => j !== i))}>✕</button>
+                    <input className="input mono" style={{ maxWidth: 200 }} value={a.name} onChange={(e) => setAudience(i, { name: e.target.value })} />
+                    <input className="input mono" style={{ maxWidth: 100 }} placeholder="share" value={a.share} onChange={(e) => setAudience(i, { share: e.target.value })} />
+                    <button className="btn quiet sm" style={{ marginLeft: "auto" }} onClick={() => setForm((f) => ({ ...f, audiences: f.audiences.filter((_, j) => j !== i) }))}>✕</button>
                   </div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-                    {Object.entries(a.filters).map(([k, v]) => (
-                      <span key={k} className="tag">{k} = {v} <button aria-label="remove filter" style={{ border: "none", background: "none", cursor: "pointer" }} onClick={() => setAudiences((xs) => xs.map((x, j) => (j === i ? { ...x, filters: Object.fromEntries(Object.entries(x.filters).filter(([kk]) => kk !== k)) } : x)))}>✕</button></span>
+                  <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    {Object.entries(a.filters).map(([k, f]) => (
+                      <span key={k} className="tag" style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+                        <b className="mono">{k}</b>
+                        <select className="input" aria-label={`${k} matches`} style={{ width: 96, padding: "1px 4px" }} value={f.kind}
+                          onChange={(e) => setFilter(i, k, retype(f, e.target.value as FilterSpec["kind"]))}>
+                          <option value="exactly">is</option>
+                          <option value="one_of">any of</option>
+                          <option value="range">from … to</option>
+                        </select>
+                        {f.kind === "exactly" && (
+                          <input className="input mono" aria-label={`${k} value`} style={{ width: 130, padding: "1px 6px" }} value={String(f.value)}
+                            onChange={(e) => setFilter(i, k, { kind: "exactly", value: e.target.value })} />
+                        )}
+                        {f.kind === "one_of" && (
+                          <input key={`${k}-list`} className="input mono" aria-label={`${k} alternatives`} style={{ width: 170, padding: "1px 6px" }} placeholder="a, b, c"
+                            defaultValue={f.values.join(", ")} onBlur={(e) => setFilter(i, k, { kind: "one_of", values: splitList(e.target.value) })} />
+                        )}
+                        {f.kind === "range" && (
+                          <>
+                            <input className="input mono" aria-label={`${k} first band`} style={{ width: 80, padding: "1px 6px" }} value={f.first}
+                              onChange={(e) => setFilter(i, k, { kind: "range", first: e.target.value, last: f.last })} />
+                            …
+                            <input className="input mono" aria-label={`${k} last band`} style={{ width: 80, padding: "1px 6px" }} value={f.last}
+                              onChange={(e) => setFilter(i, k, { kind: "range", first: f.first, last: e.target.value })} />
+                          </>
+                        )}
+                        <button aria-label="remove filter" style={{ border: "none", background: "none", cursor: "pointer" }} onClick={() => setAudience(i, { filters: Object.fromEntries(Object.entries(a.filters).filter(([kk]) => kk !== k)) })}>✕</button></span>
                     ))}
-                    <select className="input" style={{ width: 220 }} defaultValue="" onChange={(e) => {
+                    <select className="input" style={{ width: 220 }} value="" onChange={(e) => {
                       if (!e.target.value) return;
                       const [attr, band] = e.target.value.split("=");
-                      setAudiences((xs) => xs.map((x, j) => (j === i ? { ...x, filters: { ...x.filters, [attr]: band } } : x)));
-                      e.target.value = "";
+                      setFilter(i, attr, { kind: "exactly", value: band });
                     }}>
                       <option value="">+ filter…</option>
                       {onto?.ordinal_scales.flatMap((s) => s.bands.map((b) => (
                         <option key={`${s.attribute}=${b.label}`} value={`${s.attribute}=${b.label}`}>{s.attribute} = {b.label}</option>
                       )))}
-                      {attrs.filter((at) => !onto?.ordinal_scales.some((s) => s.attribute === at)).map((at) => (
-                        <option key={at} value={`${at}=`}>{at} = …</option>
+                      {attrs.filter((at) => !onto?.ordinal_scales.some((s) => s.attribute === at) && !(at in a.filters)).map((at) => (
+                        <option key={at} value={`${at}=`}>{at} = (type a value)</option>
                       ))}
                     </select>
                   </div>
                 </div>
               ))}
-              <button className="btn sm" style={{ justifySelf: "start" }} onClick={() => setAudiences((xs) => [...xs, { name: `audience_${xs.length + 1}`, share: "", filters: {} }])}>+ Add audience</button>
-              <div className="field"><label>Stated assumptions (one per line)</label>
-                <div className="help">An <b>assumption</b> is taken as true without evidence — recorded and surfaced in every report, never resolved away.</div>
-                <textarea className="input" rows={2} value={assumptions} onChange={(e) => setAssumptions(e.target.value)} /></div>
+              <button className="btn sm" style={{ justifySelf: "start" }} onClick={() => setForm((f) => ({ ...f, audiences: [...f.audiences, { name: `audience_${f.audiences.length + 1}`, share: "", filters: {} }] }))}>+ Add audience</button>
+              <div className="field"><label>Assumptions</label>
+                <div className="help">An <b>assumption</b> is taken as true without evidence — recorded and surfaced in every report, never resolved away. Each keeps the source it was stated with.</div>
+                <div style={{ display: "grid", gap: 6 }}>
+                  {form.assumptions.map((a, i) => (
+                    <div key={i} style={{ display: "flex", gap: 8 }}>
+                      <input className="input" style={{ flex: 1 }} value={a.text} onChange={(e) => setAssumption(i, { text: e.target.value })} />
+                      <select className="input" style={{ width: 140 }} value={a.source} onChange={(e) => setAssumption(i, { source: e.target.value as ClaimSource })}>
+                        <option value="user_asserted">user_asserted</option>
+                        <option value="assumed">assumed</option>
+                      </select>
+                      <button className="btn quiet sm" onClick={() => setForm((f) => ({ ...f, assumptions: f.assumptions.filter((_, j) => j !== i) }))}>✕</button>
+                    </div>
+                  ))}
+                  <button className="btn sm" style={{ justifySelf: "start" }} onClick={() => setForm((f) => ({ ...f, assumptions: [...f.assumptions, { text: "", source: "assumed" }] }))}>+ Add assumption</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -346,24 +394,49 @@ export default function IntakePage() {
                           <td>{r.passed ? <span className="chip ok"><span className="dot" />pass</span> : <span className="chip risk"><span className="dot" />fail</span>}</td></tr>
                       ))}
                     </tbody></table>
-                    {gate.manifest && <p className="sub mono" style={{ color: "var(--ink-3)" }}>{gate.manifest.persona_ids.length} personas · synthesized {(gate.manifest.synthesized_share * 100).toFixed(1)}% · saved under runs/</p>}
-                    {gate.gate.overall && gate.run_id && <Link className="btn sm" href={`/population?run=${gate.run_id}`}>Open gate report {ICONS.arrow}</Link>}
+                    {gate.manifest && <p className="sub mono" style={{ color: "var(--ink-3)" }}>{gate.manifest.persona_ids.length} personas · synthesized {(gate.manifest.synthesized_share * 100).toFixed(1)}% · kept with the run</p>}
+                    {gate.run_id && <Link className="btn sm" href={`/population?run=${gate.run_id}`}>Open gate report {ICONS.arrow}</Link>}
                   </>
                 ) : (
-                  <Callout icon="alert"><div><b>Intake refused the brief (exit {gate.code}).</b><pre className="mono" style={{ fontSize: 11, whiteSpace: "pre-wrap", marginTop: 6 }}>{gate.stderr || gate.stdout}</pre></div></Callout>
+                  <Callout icon="alert"><div><b>The gate could not draw this population (exit {gate.code}).</b><pre className="mono" style={{ fontSize: 11, whiteSpace: "pre-wrap", marginTop: 6 }}>{gate.refusal}</pre></div></Callout>
                 )
               )}
-              <p className="sub" style={{ color: "var(--ink-3)", fontSize: 12 }}>A failing draw exits 2 with its gate report — a doomed study costs nothing.</p>
+              <p className="sub" style={{ color: "var(--ink-3)", fontSize: 12 }}>A failing draw exits 2 with its gate report — a doomed study costs nothing. A failed gate stays readable on the population page.</p>
             </div>
           </div>
           <div className="panel">
-            <div className="panel-head"><h2>Launch study</h2><span className="hint">fake first — no key, no corpus, no network</span></div>
+            <div className="panel-head"><h2>Launch study</h2><span className="hint">{mode === "fake" ? "fake first — no key, no corpus, no network" : "a real study, on the server's endpoint"}</span></div>
             <div className="panel-body" style={{ display: "grid", gap: 10 }}>
+              <div className="field" style={{ margin: 0 }}><label>Kind of study</label>
+                <select className="input" value={mode} onChange={(e) => setMode(e.target.value as "fake" | "real")}>
+                  <option value="fake">fake — deterministic stand-ins, marked as fake everywhere</option>
+                  <option value="real">real — asks the models named below</option>
+                </select>
+                {mode === "real" && (
+                  <div className="help">{endpoint?.endpoint_configured
+                    ? "The endpoint and its key are the server's environment. This form never asks for either."
+                    : <b>No endpoint is configured where the server runs — set SIMCORE_INFERENCE_BASE_URL (and its key) in its environment, then restart it. A key is never typed into a browser.</b>}</div>
+                )}
+              </div>
+              {mode === "real" && (
+                <div className="grid g2">
+                  <div className="field" style={{ margin: 0 }}><label>Chat model (pinned)</label><input className="input mono" value={model} placeholder="model id" onChange={(e) => setModel(e.target.value)} /></div>
+                  <div className="field" style={{ margin: 0 }}><label>Embedding model (pinned)</label><input className="input mono" value={embedModel} placeholder="model id" onChange={(e) => setEmbedModel(e.target.value)} />
+                    <div className="help">Pins are study inputs — recorded, hashed, and fixed for the whole run.</div></div>
+                </div>
+              )}
               <div className="grid g2">
                 <div className="field" style={{ margin: 0 }}><label>Horizon (ticks)</label><input className="input mono" value={horizon} onChange={(e) => setHorizon(e.target.value)} /></div>
-                <div className="field" style={{ margin: 0 }}><label>Seeds</label><input className="input mono" value={seeds} onChange={(e) => setSeeds(e.target.value)} /></div>
+                <div className="field" style={{ margin: 0 }}><label>Tick unit</label>
+                  <select className="input" value={tickUnit} onChange={(e) => setTickUnit(e.target.value)}>
+                    <option value="hour">hour</option><option value="day">day</option><option value="week">week</option>
+                  </select></div>
               </div>
-              <div className="field" style={{ margin: 0 }}><label>Budget (USD)</label><input className="input mono" value={budget} onChange={(e) => setBudget(e.target.value)} /></div>
+              <div className="grid g2">
+                <div className="field" style={{ margin: 0 }}><label>Replicate seeds</label><input className="input mono" value={seeds} onChange={(e) => setSeeds(e.target.value)} />
+                  <div className="help">Comma-separated. More than one is what says whether an ordering survives.</div></div>
+                <div className="field" style={{ margin: 0 }}><label>Budget (USD)</label><input className="input mono" value={budget} onChange={(e) => setBudget(e.target.value)} /></div>
+              </div>
               <div className="grid g2">
                 <div className="field" style={{ margin: 0 }}><label>Asked — what personas answer</label>
                   <select className="input" value={elicits} onChange={(e) => setElicits(e.target.value)}>
@@ -373,10 +446,10 @@ export default function IntakePage() {
                   <div className="help">A purchase-intent study is scored by the anchor version below.</div></div>
                 <div className="field" style={{ margin: 0 }}><label>Anchor version</label><input className="input mono" value={anchorVersion} onChange={(e) => setAnchorVersion(e.target.value)} /></div>
               </div>
-              <button className="btn primary" disabled={launching} onClick={launchStudy}>{launching ? "Launching…" : `Run fake study ${ICONS.arrow}`}</button>
+              <button className="btn primary" disabled={launching || realNeedsEndpoint || realNeedsPins} onClick={launchStudy}>{launching ? "Launching…" : `Run ${mode} study ${ICONS.arrow}`}</button>
               {launched?.run_id && <Link className="btn sm" href={`/run?run=${launched.run_id}`}>Watch {launched.run_id} {ICONS.arrow}</Link>}
               {launched?.error && <Callout icon="alert"><div><b>Launch refused.</b><pre className="mono" style={{ fontSize: 11, whiteSpace: "pre-wrap", marginTop: 6 }}>{launched.error}</pre></div></Callout>}
-              <p className="sub" style={{ color: "var(--ink-3)", fontSize: 12 }}>Runs as a subprocess under the same id a resume reuses. The first study is always <span className="mono">--fake</span>, marked as fake in every view of it.</p>
+              <p className="sub" style={{ color: "var(--ink-3)", fontSize: 12 }}>Runs as a subprocess under the same id a resume reuses, and writes the same artefacts the command line does. A fake study is marked as fake in every view of it.</p>
             </div>
           </div>
         </div>

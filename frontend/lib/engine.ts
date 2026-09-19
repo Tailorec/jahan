@@ -41,7 +41,8 @@ export interface Competitor { name: string; price?: Price | null; claims: string
 export interface Audience {
   name: string;
   share?: number | null;
-  attribute_filters: Record<string, string | number | string[]>;
+  /* An exact value, a list of alternatives, or `{ range: [first, last] }` over the ordinal bands. */
+  attribute_filters: Record<string, string | number | (string | number)[] | { range: [string, string] }>;
 }
 export interface Assumption { text: string; source: ClaimSource }
 export interface Brief {
@@ -167,7 +168,7 @@ export interface RunSummary {
   discarded_ticks: number;
   config_hash?: string;
   seeds: number[];
-  budget?: { max_cost: number; currency: string };
+  budget?: { max_cost: number; currency: string } | null;
   scenarios: Scenario[];
   world_ids: string[];
   outcomes: WorldOutcome[];
@@ -179,6 +180,8 @@ export interface RunSummary {
   live?: boolean;
   progress?: WorldProgress[];
   has_trace_summary?: boolean;
+  /* Why a study that is not running and has no report stopped: the last thing it said. */
+  launch_error?: string | null;
 }
 
 /* ---------- digest ---------- */
