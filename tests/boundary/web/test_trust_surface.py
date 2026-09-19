@@ -60,7 +60,7 @@ def test_nothing_in_the_interface_writes_or_overrides_a_trust_level():
 
 def test_every_study_view_states_the_calibration_exactly_once():
     """`TrustLine` is the one statement per view; the report states it in its header."""
-    for page in ("run", "atlas", "cohort", "trace"):
+    for page in ("run", "atlas", "population", "trace"):
         text = (FRONTEND / "app" / page / "page.tsx").read_text()
         assert text.count("<TrustLine") == 1, f"{page} states calibration {text.count('<TrustLine')} times"
     report = (FRONTEND / "app" / "report" / "page.tsx").read_text()
