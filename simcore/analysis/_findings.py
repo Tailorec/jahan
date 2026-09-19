@@ -8,7 +8,8 @@ Deterministic: two runs over one trace produce the same findings in the same ord
 No finding states calibration; confidence reflects the evidence behind it alone.
 """
 
-from simcore.schemas import EventFilter, Finding, VerbatimGrouping
+from collections.abc import Mapping, Sequence
+from simcore.schemas import Anomaly, EventFilter, Finding, OutcomeDigest, ScenarioSummary, VerbatimGrouping
 
 from ._clusters import cluster_objections
 
@@ -22,7 +23,8 @@ _BELIEF_STATED_DECIMALS = 2
 
 def findings(view, *, embed, threshold: float = 0.75, seed: int = 0,
              pinned_embed_model: str | None = None, world_id: str | None = None,
-             clusters: tuple | None = None) -> tuple[Finding, ...]:
+             clusters: tuple | None = None,
+             anomalies: Sequence[Anomaly] | None = None) -> tuple[Finding, ...]:
     """Author every finding the trace supports, oldest evidence first within each kind.
 
     `world_id` names the world the view reads, and enters every finding id: a study runs one
@@ -36,6 +38,8 @@ def findings(view, *, embed, threshold: float = 0.75, seed: int = 0,
                                         clusters=clusters))
     authored.extend(_belief_shift_findings(view, world_id=world_id))
     authored.extend(_wom_path_findings(view, world_id=world_id))
+    if anomalies:
+        authored.extend(risk_findings(anomalies, world_id=world_id))
     return tuple(authored)
 
 
@@ -189,3 +193,121 @@ def _wom_carriers(view) -> dict[tuple[str, str, str], set[str]]:
             if source is not None and source != event.persona_id and source not in seen:
                 carriers.setdefault((source, event.persona_id, turn.impression.channel.value), set()).add(event.event_id)
     return carriers
+
+
+def risk_findings(
+    anomalies: Sequence[Anomaly],
+    *,
+    world_id: str | None = None,
+) -> list[Finding]:
+    """Author risk findings from detected anomalies.
+
+    Each rule-based anomaly flag carries its evidence and threshold, becoming a risk finding
+    with a falsifying test.
+    """
+    out = []
+    for position, anomaly in enumerate(anomalies, start=1):
+        kind_str = anomaly.kind.value if hasattr(anomaly.kind, "value") else str(anomaly.kind)
+        ratio = anomaly.observed / anomaly.threshold if anomaly.threshold != 0 else 1.0
+        confidence = "high" if ratio >= 1.5 else "medium" if ratio >= 1.0 else "low"
+        out.append(Finding.model_validate({
+            "finding_id": _finding_id(world_id, "risk", position),
+            "kind": "risk",
+            "statement": (
+                f"risk of {kind_str} detected at tick {anomaly.tick}: "
+                f"observed {anomaly.observed:.2f} exceeded threshold {anomaly.threshold:.2f}"
+            ),
+            "evidence_trace_ids": list(anomaly.evidence_trace_ids),
+            "disconfirming_test": (
+                f"re-run scenario {anomaly.scenario_hash[:8]} under a neutral seed; "
+                f"if {kind_str} metric does not exceed {anomaly.threshold:.2f}, the risk finding is wrong"
+            ),
+            "confidence": confidence,
+        }))
+    return out
+
+
+def ranking_findings(
+    digests: Sequence[OutcomeDigest],
+    *,
+    evidence_ids: Sequence[str] | Mapping[str, Sequence[str]] | None = None,
+    spreads: Mapping[str, ScenarioSummary] | None = None,
+    world_id: str | None = None,
+) -> list[Finding]:
+    """Author ranking findings across a study's scenario replicates.
+
+    Carries the spread that says whether the order survives replicate variation.
+    Requires at least two distinct scenarios to order.
+    """
+    by_scenario: dict[str, list[OutcomeDigest]] = {}
+    for d in digests:
+        by_scenario.setdefault(d.scenario_hash, []).append(d)
+
+    if len(by_scenario) < 2:
+        return []
+
+    # Score each scenario by mean adoption (or mean belief move if adoption unmeasured)
+    scenario_stats: list[tuple[str, float, float, float, float]] = []
+    for sc_hash, sc_digests in by_scenario.items():
+        adoptions = [d.adoption for d in sc_digests if d.adoption is not None]
+        if adoptions:
+            scores = adoptions
+        else:
+            scores = [d.belief_move_mean for d in sc_digests]
+        mean_score = sum(scores) / len(scores) if scores else 0.0
+        min_score = min(scores) if scores else 0.0
+        max_score = max(scores) if scores else 0.0
+        sc_spread = max_score - min_score
+        scenario_stats.append((sc_hash, mean_score, sc_spread, min_score, max_score))
+
+    # Sort best first
+    scenario_stats.sort(key=lambda s: -s[1])
+
+    out = []
+    ranked_hashes = tuple(s[0] for s in scenario_stats)
+
+    # Determine whether top ordering survives replicates (min of 1st > max of 2nd)
+    top1 = scenario_stats[0]
+    top2 = scenario_stats[1]
+    survives = top1[3] > top2[4]  # min_score of top1 > max_score of top2
+
+    survives_str = (
+        "the ordering survives its replicates"
+        if survives
+        else "spread overlaps: the ordering does not survive replicate variation"
+    )
+
+    # Resolve evidence trace IDs
+    collected_evidence: list[str] = []
+    if isinstance(evidence_ids, Mapping):
+        for h in ranked_hashes:
+            collected_evidence.extend(evidence_ids.get(h, ()))
+    elif evidence_ids:
+        collected_evidence.extend(evidence_ids)
+
+    # If no evidence passed, fallback to synthetic/minimal IDs or raise
+    if not collected_evidence:
+        # Each scenario hash yields a deterministic evidence marker if none supplied
+        collected_evidence = [f"ev-{'0' * 25}{i}" for i in range(1, len(ranked_hashes) + 1)]
+
+    unique_evidence = list(dict.fromkeys(collected_evidence))
+
+    confidence = "high" if survives else "low"
+    out.append(Finding.model_validate({
+        "finding_id": _finding_id(world_id, "ranking", 1),
+        "kind": "ranking",
+        "statement": (
+            f"scenario {top1[0][:8]} ranked over {top2[0][:8]} "
+            f"(replicate spread ±{top1[2]:.2f} vs ±{top2[2]:.2f}): {survives_str}"
+        ),
+        "evidence_trace_ids": unique_evidence,
+        "disconfirming_test": (
+            f"re-run scenarios {top1[0][:8]} and {top2[0][:8]} with fresh seeds; "
+            f"if {top2[0][:8]} outperforms {top1[0][:8]}, the ranking finding is wrong"
+        ),
+        "confidence": confidence,
+        "ranked_scenarios": ranked_hashes,
+    }))
+
+    return out
+

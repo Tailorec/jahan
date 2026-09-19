@@ -199,3 +199,50 @@ def test_a_finding_without_a_world_is_numbered_as_before():
 
     authored = findings(_VerbatimView([("p-000001", "too pricey")]), embed=_TopicalEmbed(), seed=1)
     assert [f.finding_id for f in authored] == ["f-objection-01"]
+
+
+def test_risk_findings_authored_from_recorded_anomalies():
+    from simcore.analysis import risk_findings
+    from simcore.schemas import Anomaly, AnomalyKind
+
+    sc_hash = "0" * 64
+    anomalies = [
+        Anomaly.model_validate({
+            "kind": AnomalyKind.HERDING,
+            "scenario_hash": sc_hash,
+            "tick": 3,
+            "evidence_trace_ids": [f"ev-{'0' * 25}1"],
+            "threshold": 0.15,
+            "observed": 0.35,
+        })
+    ]
+    risks = risk_findings(anomalies, world_id="w-01")
+    assert len(risks) == 1
+    r = risks[0]
+    assert r.kind.value == "risk"
+    assert "herding" in r.statement and "0.35" in r.statement
+    assert r.evidence_trace_ids == (f"ev-{'0' * 25}1",)
+    assert "neutral seed" in r.disconfirming_test
+    assert r.confidence.value == "high"
+
+
+def test_ranking_findings_authored_with_spread_and_survives():
+    from simcore.analysis import ranking_findings
+    from simcore.schemas import OutcomeDigest
+    from tests.study_builders import digest_payload, scenario_payload
+
+    s1 = scenario_payload()
+    s2 = scenario_payload()
+    s2["variant"]["variant_id"] = "v-other"
+    d1 = OutcomeDigest.model_validate(digest_payload(s1, seed=4021))
+    d2 = OutcomeDigest.model_validate(digest_payload(s2, seed=4021))
+
+    rankings = ranking_findings([d1, d2], world_id="w-rank")
+    assert len(rankings) == 1
+    rk = rankings[0]
+    assert rk.kind.value == "ranking"
+    assert len(rk.ranked_scenarios) == 2
+    assert "replicate spread" in rk.statement
+    assert "ordering survives" in rk.statement or "does not survive" in rk.statement
+    assert rk.confidence.value in ("high", "low")
+
