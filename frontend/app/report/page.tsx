@@ -46,6 +46,9 @@ export default function ReportPage() {
           {r.trust.caveats.length > 0 && (
             <Callout icon="alert" style={{ marginBottom: 16 }}><div><b>Trust: {r.trust.level.replace("_", " ")}.</b> {r.trust.caveats.join(" ")}</div></Callout>
           )}
+          {((r.forced_from ?? []).length > 0 || (r.forced_inputs ?? []).length > 0) && (
+            <Callout icon="alert" style={{ marginBottom: 16 }}><div><b>Resumed past moved inputs.</b> This run was forced across {(r.forced_from ?? []).join(", ") || "a changed configuration"} — inputs {(r.forced_inputs ?? []).join(", ")} no longer match what the run started with. Treat ordering claims with extra suspicion.</div></Callout>
+          )}
           <div className="tabs" role="tablist">
             {[["findings", `Findings (${r.findings.length})`], ["objections", `Objections (${r.objection_clusters.length})`], ["digests", `Digests (${r.digests.length})`], ["ledger", "Assumption ledger"], ["method", "Method"]].map(([id, label]) => (
               <button key={id} className={`tab${tab === id ? " active" : ""}`} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>

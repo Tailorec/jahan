@@ -235,6 +235,8 @@ export interface StudyReport {
   assumptions: Assumption[];
   method: MethodDisclosure;
   validation: string;
+  forced_from?: string[];
+  forced_inputs?: string[];
 }
 
 /* ---------- trace view (the fixed question set) ---------- */
