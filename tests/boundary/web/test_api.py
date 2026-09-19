@@ -149,7 +149,12 @@ def test_no_endpoint_returns_a_path_a_cursor_or_a_frame(tmp_path):
 def test_the_package_performs_no_arithmetic_over_what_it_serves():
     """ADR 0045 as an AST test, in the shape `report`'s discipline test uses."""
     package = Path(__file__).resolve().parents[3] / "simcore" / "web"
-    forbidden_calls = {"sum", "mean", "stdev", "variance", "median", "Counter"}
+    # The same calls `report`'s discipline test forbids, plus the statistics helpers.
+    # `len` is cardinality — a page's total, a listing's count — not a derived quantity.
+    forbidden_calls = {
+        "sum", "min", "max", "abs", "round", "pow",
+        "mean", "stdev", "variance", "median", "Counter",
+    }
     forbidden_imports = {"statistics", "numpy", "scipy", "pandas", "pyarrow"}
     for module in sorted(package.glob("*.py")):
         tree = ast.parse(module.read_text())

@@ -10,16 +10,19 @@ calls live, so neither path recomputes what the other computes.
 from __future__ import annotations
 
 import json
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import FastAPI, Query, Request
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
 
-from simcore.analysis import trace_summary
+from simcore.analysis import trace_summary, workspace_summary, world_progress
 from simcore.runner import ENGINE_VERSION
-from simcore.schemas import EventFilter, VerbatimGrouping
+from simcore.schemas import EventFilter, RunId, VerbatimGrouping
 from simcore.trace import TraceStore
 
 from . import _lifecycle as lifecycle
@@ -29,20 +32,101 @@ from . import _lifecycle as lifecycle
 _MAX_TICK = 2147483647
 
 
+# A run id names a directory under the runs root and nothing else: no separators,
+# no dots that climb out of it. Ids the CLI mints and ids people choose both fit.
+_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+
+# The names ontologies and briefs carry — the engine's own `Identifier` shape.
+_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+
+# The directory `validate` writes its scratch brief into is not a run.
+_SCRATCH = "_validate"
+
+
 def _runs_dir(request: Request) -> Path:
     return Path(request.app.state.runs_dir)
 
 
 def _run_dir(request: Request, run_id: str) -> Path:
-    candidate = Path(_runs_dir(request), run_id)
-    if candidate.is_dir():
-        return candidate
+    if _RUN_ID.fullmatch(run_id) and run_id != _SCRATCH:
+        candidate = Path(_runs_dir(request), run_id)
+        if candidate.is_dir():
+            return candidate
     raise _missing(f"no record of run {run_id}")
 
 
-def _missing(detail: str) -> Exception:
-    from fastapi import HTTPException
+class StudyRequest(BaseModel):
+    """What a person configures to start a study — study inputs, never execution config.
 
+    The endpoint, the key and the limits are the server's environment; a request
+    that names one is refused rather than ignored, so nothing here can be mistaken
+    for a way to set them from a browser. Bad numbers are refused before a process
+    is started, not after it dies in its first second.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    brief_yaml: str = Field(min_length=1)
+    evidence_json: dict[str, Any] | None = None
+    run_id: str | None = None
+    fake: bool = True
+    model: str | None = None
+    embed_model: str | None = None
+    n: int = Field(default=24, ge=1)
+    horizon: int = Field(default=2, ge=1)
+    tick_unit: Literal["hour", "day", "week"] = "day"
+    budget: float = Field(default=20.0, gt=0)
+    channel: str = "survey_room"
+    seeds: str | list[int] = "4021"
+    elicits: Literal["reaction", "purchase"] = "reaction"
+    anchor_versions: list[str] | None = None
+
+    @field_validator("brief_yaml")
+    @classmethod
+    def _a_brief_says_something(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("brief_yaml (string) is required")
+        return value
+
+    @field_validator("run_id")
+    @classmethod
+    def _a_run_id_is_one_the_engine_recognises(cls, value: str | None) -> str | None:
+        """A name a person chose must be an id the trace will accept, or the study
+        dies inside its first second on a pattern the browser was never told about."""
+        if value is not None:
+            try:
+                TypeAdapter(RunId).validate_python(value)
+            except ValueError:
+                raise ValueError(f"{value!r} is not a run id: `run-` and 26 characters of a ULID") from None
+        return value
+
+    @field_validator("seeds")
+    @classmethod
+    def _seeds_are_integers(cls, value: str | list[int]) -> str | list[int]:
+        parts = value.split(",") if isinstance(value, str) else value
+        for part in parts:
+            try:
+                int(str(part).strip())
+            except ValueError:
+                raise ValueError(f"replicate seeds are integers, not {part!r}") from None
+        if not [part for part in parts if str(part).strip()]:
+            raise ValueError("at least one replicate seed is required")
+        return value
+
+
+class GateRequest(BaseModel):
+    """A brief to gate: the draw is checked before any model is called."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    brief_yaml: str = Field(min_length=1)
+    evidence_json: dict[str, Any] | None = None
+    n: int = Field(default=200, ge=1)
+    seed: int = 4021
+    fake: bool = True
+
+
+def _missing(detail: str) -> Exception:
     return HTTPException(status_code=404, detail=detail)
 
 
@@ -54,6 +138,14 @@ def _read_json(path: Path) -> Any:
 
 
 def _store(run_dir: Path) -> TraceStore:
+    """The run's trace, opened only if it has one.
+
+    Opening a `TraceStore` creates what is missing, and a read must not write: a gate
+    that refused a population never ran a study, and looking at it must not leave a
+    registry behind that says otherwise.
+    """
+    if not Path(run_dir, "trace", "registry.db").is_file():
+        raise _missing(f"run {run_dir.name} recorded no trace")
     return TraceStore(Path(run_dir, "trace"))
 
 
@@ -156,12 +248,13 @@ def _load_pack(brief_path: Path, ontology_dir: str | None):
     from simcore.schemas.errors import SimError
 
     try:
-        return load_brief(brief_path, Path(ontology_dir) if ontology_dir is not None else Path("ontologies"))
+        return load_brief(brief_path, Path(ontology_dir))
     except SimError as exc:
-        raise ValueError(str(exc))
+        # A refusal names the file that was wrong, never where it lives.
+        raise ValueError(str(exc).replace(str(brief_path), "brief.yaml").replace(str(ontology_dir), "ontologies"))
 
 
-def _study_argv(request: Request, run_id: str, body: dict[str, Any]) -> list[str]:
+def _study_argv(request: Request, run_id: str, body: StudyRequest) -> list[str]:
     """The subprocess command a start runs: the CLI with study inputs as flags.
 
     Model pins travel as flags because they are study inputs, recorded and
@@ -171,33 +264,41 @@ def _study_argv(request: Request, run_id: str, body: dict[str, Any]) -> list[str
     import sys
 
     run_dir = Path(_runs_dir(request), run_id)
-    seeds = body.get("seeds", "4021")
+    seeds = body.seeds
     if isinstance(seeds, list):
         seeds = ",".join(str(seed) for seed in seeds)
     argv = [
         sys.executable, "-m", "simcore.cli", "concepts", "run",
         str(Path(run_dir, "brief.yaml")),
-        "--ontologies", str(request.app.state.ontology_dir or "ontologies"),
-        "--anchors", str(request.app.state.anchors_dir or "anchors"),
+        "--ontologies", _ontologies_root(request),
+        "--anchors", _anchors_root(request),
         "--out", str(_runs_dir(request)),
         "--run-id", run_id,
-        "--n", str(body.get("n", 24)),
-        "--horizon", str(body.get("horizon", 2)),
-        "--tick-unit", str(body.get("tick_unit", "day")),
-        "--budget", str(body.get("budget", 20.0)),
-        "--channel", str(body.get("channel", "survey_room")),
+        "--n", str(body.n),
+        "--horizon", str(body.horizon),
+        "--tick-unit", body.tick_unit,
+        "--budget", str(body.budget),
+        "--channel", body.channel,
         "--seeds", str(seeds),
-        "--elicits", str(body.get("elicits", "reaction")),
+        "--elicits", body.elicits,
     ]
-    if body.get("fake", True):
+    if body.fake:
         argv.append("--fake")
     else:
-        argv.extend(["--model", str(body["model"]), "--embed-model", str(body["embed_model"])])
-    anchors = request.app.state.anchors_dir
-    versions = body.get("anchor_versions") or _default_anchor_versions(anchors)
+        argv.extend(["--model", str(body.model), "--embed-model", str(body.embed_model)])
+    versions = body.anchor_versions or _default_anchor_versions(_anchors_root(request))
     for version in versions:
         argv.extend(["--anchor-version", str(version)])
     return argv
+
+
+def _ontologies_root(request: Request) -> str:
+    """The ontologies a study resolves against: the configured directory, else the checkout's."""
+    return request.app.state.ontology_dir or str(Path(request.app.state.engine_root, "ontologies"))
+
+
+def _anchors_root(request: Request) -> str:
+    return request.app.state.anchors_dir or str(Path(request.app.state.engine_root, "anchors"))
 
 
 def _default_anchor_versions(anchors_dir: str | None) -> list[str]:
@@ -226,6 +327,8 @@ def create_app(
         yield
 
     app = FastAPI(title="ConsumerSim engine API", lifespan=_lifespan)
+    # A first start has no runs yet; the listing is empty, not an error.
+    Path(runs_dir).mkdir(parents=True, exist_ok=True)
     app.state.runs_dir = str(runs_dir)
     app.state.ontology_dir = str(ontology_dir) if ontology_dir is not None else None
     app.state.briefs_dir = str(briefs_dir) if briefs_dir is not None else None
@@ -245,16 +348,41 @@ def create_app(
         screen reports whether an endpoint is configured and never asks for,
         accepts or displays a key in a browser.
         """
-        import os
-
-        configured = bool(
-            os.environ.get("SIMCORE_INFERENCE_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
-        )
         return {
             "engine_version": ENGINE_VERSION,
-            "endpoint_configured": configured,
+            "endpoint_configured": _endpoint_configured(),
             "fake_available": True,
         }
+
+    @app.get("/api/trust")
+    def trust() -> dict[str, Any]:
+        """The ladder a run's calibration sits on, and what a rung above the first requires.
+
+        The levels and the floors are the engine's own constants, served so that the
+        trust page states the same numbers the schema enforces rather than a copy of
+        them. Nothing here can be set: a level above `uncalibrated` is earned by a
+        `CalibrationRef` the engine validates, never chosen.
+        """
+        from simcore.schemas import MIN_DISTRIBUTION_SIMILARITY, MIN_RANK_ATTAINMENT, TrustLevel
+
+        return {
+            "levels": [level.value for level in TrustLevel],
+            "floors": {
+                "distribution_similarity": MIN_DISTRIBUTION_SIMILARITY,
+                "rank_attainment": MIN_RANK_ATTAINMENT,
+            },
+        }
+
+    @app.get("/api/anchors-checks")
+    def anchors_checks(request: Request) -> dict[str, Any]:
+        """Anchor checks a run wrote, oldest first: the mapping claim, never the simulation claim."""
+        checks = []
+        for child in sorted(_runs_dir(request).iterdir()):
+            if child.is_dir() and child.name != _SCRATCH:
+                stored = _read_json_silent(Path(child, "anchors-check.json"))
+                if isinstance(stored, dict):
+                    checks.append(stored)
+        return {"checks": checks}
 
     @app.post("/api/briefs/validate")
     def validate_brief(request: Request, body: dict[str, Any]) -> dict[str, Any]:
@@ -268,10 +396,8 @@ def create_app(
 
         brief_yaml = body.get("brief_yaml")
         if not isinstance(brief_yaml, str) or not brief_yaml.strip():
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=422, detail="brief_yaml (string) is required")
-        tmp = Path(_runs_dir(request), "_validate")
+        tmp = Path(_runs_dir(request), _SCRATCH)
         tmp.mkdir(parents=True, exist_ok=True)
         candidate = Path(tmp, "brief.yaml")
         candidate.write_text(brief_yaml, encoding="utf-8")
@@ -282,10 +408,8 @@ def create_app(
         elif sidecar.exists():
             sidecar.unlink()
         try:
-            pack = _load_pack(candidate, request.app.state.ontology_dir)
+            pack = _load_pack(candidate, _ontologies_root(request))
         except ValueError as exc:
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=422, detail=str(exc))
         ledger = assumptions_of(pack)
         return {
@@ -304,8 +428,8 @@ def create_app(
     def list_runs(request: Request) -> dict[str, Any]:
         runs = []
         for child in sorted(_runs_dir(request).iterdir()):
-            if child.is_dir():
-                entry = _run_entry(child)
+            if child.is_dir() and child.name != _SCRATCH:
+                entry = _run_entry(child, request)
                 if entry is not None:
                     runs.append(entry)
         return {"runs": runs}
@@ -316,86 +440,78 @@ def create_app(
 
         Studies run, spend against budget, personas simulated, reports written —
         read from entries rather than by walking partitions, so the interface
-        displays no number without the shape that produced it.
+        displays no number without the shape that produced it. Which runs have
+        written a report is a fact of the run directory, named to `analysis`
+        rather than counted here.
         """
-        from simcore.analysis import workspace_summary
-
-        from simcore.analysis import workspace_summary
-
         runs_root = _runs_dir(request)
-        entries = [
-            entry
-            for entry in (
-                _registry_model(child)
-                for child in sorted(runs_root.iterdir())
-                if child.is_dir()
-            )
-            if entry is not None
-        ]
-        # Reports written derive in `analysis` from the entries — the web layer
-        # serialises the shape, it does not count.
-        return json.loads(workspace_summary(entries).model_dump_json())
-        runs = []
-        for child in sorted(_runs_dir(request).iterdir()):
-            if child.is_dir():
-                entry = _run_entry(child)
-                if entry is not None:
-                    runs.append(entry)
-        return {"runs": runs}
+        children = [child for child in sorted(runs_root.iterdir()) if child.is_dir() and child.name != _SCRATCH]
+        entries = [entry for entry in (_registry_model(child) for child in children) if entry is not None]
+        wrote_report = {child.name for child in children if Path(child, "report.json").is_file()}
+        return json.loads(workspace_summary(entries, report_run_ids=wrote_report).model_dump_json())
 
     @app.get("/api/runs/{run_id}")
     def run_detail(request: Request, run_id: str) -> dict[str, Any]:
-        entry = _run_entry(_run_dir(request, run_id))
+        entry = _run_entry(_run_dir(request, run_id), request)
         if entry is None:
             raise _missing(f"no record of run {run_id}")
         return entry
 
     @app.post("/api/runs", status_code=202)
-    def start_run(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+    def start_run(request: Request, body: StudyRequest) -> dict[str, Any]:
         """Start a study from the interface, running as a subprocess.
 
         The first study anyone runs is fake: no key, no corpus, no network, a
-        real report in minutes. Execution configuration stays in the server's
-        environment — never hashed, never rendered, never accepted here.
+        real report in minutes. A real study pins its models here — they are
+        study inputs, recorded and hashed — while the endpoint and the key stay
+        in the server's environment: never hashed, never rendered, never accepted.
         """
         from simcore.cli._ids import mint_run_id
 
-        brief_yaml = body.get("brief_yaml")
-        if not isinstance(brief_yaml, str) or not brief_yaml.strip():
-            from fastapi import HTTPException
-
-            raise HTTPException(status_code=422, detail="brief_yaml (string) is required")
-        fake = body.get("fake", True)
-        if not fake and (not body.get("model") or not body.get("embed_model")):
-            from fastapi import HTTPException
-
+        if not body.fake and (not body.model or not body.embed_model):
             raise HTTPException(status_code=422, detail="a real study pins its models: model and embed_model")
-        run_id = body.get("run_id") or mint_run_id()
-        run_dir = Path(_runs_dir(request), run_id)
-        run_dir.mkdir(parents=True, exist_ok=True)
-        Path(run_dir, "brief.yaml").write_text(brief_yaml, encoding="utf-8")
-        evidence = body.get("evidence_json")
-        if isinstance(evidence, dict):
-            Path(run_dir, "brief.yaml.evidence.json").write_text(
-                "\n".join([json.dumps(evidence, indent=2, sort_keys=True), ""]), encoding="utf-8"
+        if not body.fake and not _endpoint_configured():
+            raise HTTPException(
+                status_code=409,
+                detail="no inference endpoint is configured in the server's environment: "
+                "run a fake study, or set SIMCORE_INFERENCE_BASE_URL where the server starts",
             )
+        run_id = body.run_id or mint_run_id()
+        run_dir = Path(_runs_dir(request), run_id)
+        if lifecycle.is_live(run_id):
+            raise HTTPException(status_code=409, detail=f"run {run_id} is already running")
+        run_dir.mkdir(parents=True, exist_ok=True)
         # A brief is validated against the engine's own contracts before a run
-        # can start — not after it fails halfway through its first draw.
+        # can start — not after it fails halfway through its first draw. The
+        # brief only lands in the run's directory once it is known to be sound.
+        candidate = Path(run_dir, "brief.yaml")
+        candidate.write_text(body.brief_yaml, encoding="utf-8")
+        sidecar = Path(run_dir, "brief.yaml.evidence.json")
+        if body.evidence_json is not None:
+            sidecar.write_text(
+                "\n".join([json.dumps(body.evidence_json, indent=2, sort_keys=True), ""]), encoding="utf-8"
+            )
         try:
-            _validate_brief(Path(run_dir, "brief.yaml"), request.app.state.ontology_dir)
+            _validate_brief(candidate, _ontologies_root(request))
         except ValueError as exc:
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=422, detail=str(exc))
         argv = _study_argv(request, run_id, body)
         lifecycle.write_launch_record(run_dir, {"argv": argv, "cwd": request.app.state.engine_root})
         try:
-            lifecycle.launch(run_id, argv, request.app.state.engine_root)
+            lifecycle.launch(run_id, argv, request.app.state.engine_root, run_dir=run_dir)
         except ValueError as exc:
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=409, detail=str(exc))
         return {"run_id": run_id}
+
+    @app.post("/api/gate")
+    def gate_brief(request: Request, body: GateRequest) -> dict[str, Any]:
+        """Draw and gate a population for a brief, before any study is paid for.
+
+        Runs the engine's own `coreset-gate` and serves the artefacts it wrote.
+        A failing draw is the case the population page most needs to explain, so
+        it answers with its gate report rather than with an error.
+        """
+        return _run_gate(request, body)
 
     @app.delete("/api/runs/{run_id}")
     def cancel_run(request: Request, run_id: str) -> dict[str, Any]:
@@ -404,7 +520,7 @@ def create_app(
         stopped = lifecycle.terminate(run_id)
         if stopped:
             lifecycle.mark_interrupted(Path(_runs_dir(request), run_id), run_id)
-        entry = _run_entry(_run_dir(request, run_id))
+        entry = _run_entry(_run_dir(request, run_id), request)
         return {"run_id": run_id, "stopped": stopped, "status": (entry or {}).get("status")}
 
     @app.post("/api/runs/{run_id}/resume", status_code=202)
@@ -413,18 +529,14 @@ def create_app(
         run_dir = _run_dir(request, run_id)
         record = lifecycle.launch_record(run_dir)
         if record is None or not isinstance(record.get("argv"), list):
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=409, detail=f"run {run_id} was not started here and names no relaunch")
         if lifecycle.is_live(run_id):
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=409, detail=f"run {run_id} is already running")
         try:
-            lifecycle.launch(run_id, list(record["argv"]), str(record.get("cwd") or request.app.state.engine_root))
+            lifecycle.launch(
+                run_id, list(record["argv"]), str(record.get("cwd") or request.app.state.engine_root), run_dir=run_dir
+            )
         except ValueError as exc:
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=409, detail=str(exc))
         return {"run_id": run_id}
 
@@ -448,8 +560,8 @@ def create_app(
         persona_id: list[str] | None = Query(default=None),
         tick_from: int | None = None,
         tick_to: int | None = None,
-        offset: int = 0,
-        limit: int = 200,
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=200, ge=1, le=100_000),
     ) -> dict[str, Any]:
         run_dir = _run_dir(request, run_id)
         store = _store(run_dir)
@@ -457,13 +569,26 @@ def create_app(
             asked = _event_filter(kind, persona_id, world_id, tick_from, tick_to)
             events = store.view(run_id).events(asked)
         except ValueError as exc:
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=422, detail=str(exc))
         except Exception:
             raise _missing(f"no record of run {run_id}")
         dumped = [json.loads(event.model_dump_json()) for event in events]
         return {"events": _page(dumped, offset, limit), "total": len(dumped)}
+
+    @app.get("/api/runs/{run_id}/resolve")
+    def run_resolve(request: Request, run_id: str, trace_id: list[str] = Query()) -> dict[str, Any]:
+        """Exactly the events named, wherever in the run they were recorded.
+
+        A finding's evidence is drawn from the replicates of a scenario, so the ids
+        it cites live in different worlds; a world's own `resolve` refuses ids that
+        belong to a sibling. Absent ids still refuse — nothing is guessed.
+        """
+        view = _view(_store(_run_dir(request, run_id)), run_id, None)
+        try:
+            resolved = view.resolve(trace_id)
+        except KeyError as exc:
+            raise _missing(str(exc))
+        return {"events": [json.loads(event.model_dump_json()) for event in resolved]}
 
     @app.get("/api/runs/{run_id}/worlds/{world_id}/beliefs")
     def world_beliefs(request: Request, run_id: str, world_id: str, persona_id: str) -> dict[str, Any]:
@@ -484,8 +609,6 @@ def create_app(
         try:
             asked = VerbatimGrouping(grouping)
         except ValueError:
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=422, detail=f"unknown verbatim grouping {grouping!r}")
         return {
             "grouping": grouping,
@@ -525,14 +648,10 @@ def create_app(
             raise _missing(str(exc))
         event = resolved[0]
         if event.payload.kind != "turn" or event.persona_id is None:
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=422, detail=f"{event_id} is not a turn")
         stored = _read_json_silent(Path(run_dir, "personas.json"))
         persona = _persona_named((stored or {}).get("personas", []), event.persona_id)
         if persona is None:
-            from fastapi import HTTPException
-
             raise HTTPException(
                 status_code=422,
                 detail="the turn's persona has no record in personas.json",
@@ -545,8 +664,6 @@ def create_app(
             persona_events=persona_events, stimulus_texts=texts,
         )
         if isinstance(rebuilt, Unreconstructible):
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=422, detail=rebuilt.reason)
         return {
             "event_id": event_id,
@@ -591,7 +708,12 @@ def create_app(
         return _read_json(Path(_run_dir(request, run_id), "ontology.json"))
 
     @app.get("/api/runs/{run_id}/personas")
-    def run_personas(request: Request, run_id: str, offset: int = 0, limit: int = 6) -> dict[str, Any]:
+    def run_personas(
+        request: Request,
+        run_id: str,
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=6, ge=1, le=1000),
+    ) -> dict[str, Any]:
         stored = _read_json(Path(_run_dir(request, run_id), "personas.json"))
         personas = stored.get("personas", [])
         return {
@@ -620,7 +742,7 @@ def create_app(
     @app.get("/api/ontologies/{category}/{version}")
     def read_ontology(request: Request, category: str, version: str) -> dict[str, Any]:
         root = request.app.state.ontology_dir
-        if root is None:
+        if root is None or not _NAME.fullmatch(category) or not _NAME.fullmatch(version):
             raise _missing(f"no record of ontology {category}@{version}")
         return _read_json(Path(root, category, f"{version}.json"))
 
@@ -656,7 +778,7 @@ def create_app(
     @app.get("/api/briefs/{name}")
     def read_brief(request: Request, name: str) -> dict[str, Any]:
         root = request.app.state.briefs_dir
-        if root is None:
+        if root is None or not _NAME.fullmatch(name):
             raise _missing(f"no record of brief {name}")
         import yaml
 
@@ -669,7 +791,10 @@ def create_app(
 
     @app.get("/api/codebook")
     def read_codebook(
-        request: Request, query: str = "", offset: int = 0, limit: int = 50,
+        request: Request,
+        query: str = "",
+        offset: int = Query(default=0, ge=0),
+        limit: int = Query(default=50, ge=1, le=1000),
     ) -> dict[str, Any]:
         """The corpus's own attributes with their declared value sets.
 
@@ -700,15 +825,11 @@ def create_app(
         try:
             ontology = CategoryOntology.model_validate(draft)
         except ValueError as exc:
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=422, detail=str(exc))
         codebook = _codebook_or_refuse(request)
         try:
             validate_against_codebook(ontology, codebook)
         except ValueError as exc:
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=422, detail=str(exc))
         return {"valid": True, "category": ontology.category, "version": str(ontology.version)}
 
@@ -730,20 +851,14 @@ def create_app(
         try:
             ontology = CategoryOntology.model_validate(draft)
         except ValueError as exc:
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=422, detail=str(exc))
         codebook = _codebook_or_refuse(request)
         try:
             validate_against_codebook(ontology, codebook)
         except ValueError as exc:
-            from fastapi import HTTPException
-
             raise HTTPException(status_code=422, detail=str(exc))
         dest = Path(root, ontology.category, f"{ontology.version}.json")
         if dest.exists():
-            from fastapi import HTTPException
-
             raise HTTPException(
                 status_code=409,
                 detail=f"{ontology.category}@{ontology.version} already exists: save as a new version",
@@ -752,12 +867,19 @@ def create_app(
         dest.write_text("\n".join([ontology.model_dump_json(indent=2), ""]), encoding="utf-8")
         return {"category": ontology.category, "version": str(ontology.version)}
 
-    @app.exception_handler(404)
-    async def _not_found(_request: Request, exc: Exception) -> JSONResponse:
-        from fastapi import HTTPException
+    @app.exception_handler(RequestValidationError)
+    async def _refused(_request: Request, exc: RequestValidationError) -> JSONResponse:
+        """One refusal shape: `detail` is always a sentence a person can read.
 
-        detail = exc.detail if isinstance(exc, HTTPException) else "not found"  # type: ignore[attr-defined]
-        return JSONResponse(status_code=404, content={"error": detail})
+        A request the engine's own contracts turn away says which field and why,
+        in the same key a 404 or a 409 uses, rather than a list a browser must
+        take apart.
+        """
+        lines = []
+        for problem in exc.errors():
+            where = ".".join(str(part) for part in problem["loc"][1:])
+            lines.append(f"{where}: {problem['msg']}" if where else str(problem["msg"]))
+        return JSONResponse(status_code=422, content={"detail": "\n".join(lines)})
 
     return app
 
@@ -778,8 +900,6 @@ def _codebook_or_refuse(request: Request):
     for candidate in candidates:
         if candidate.is_file():
             return Codebook.from_json(candidate)
-    from fastapi import HTTPException
-
     raise HTTPException(
         status_code=409,
         detail="no corpus is cached here, so no draft can be pinned: author freely, "
@@ -787,37 +907,55 @@ def _codebook_or_refuse(request: Request):
     )
 
 
-def _run_entry(run_dir: Path) -> dict[str, Any] | None:
+def _endpoint_configured() -> bool:
+    """Whether the server's environment names an inference endpoint. Never its key."""
+    import os
+
+    return bool(os.environ.get("SIMCORE_INFERENCE_BASE_URL") or os.environ.get("OPENAI_BASE_URL"))
+
+
+def _run_entry(run_dir: Path, request: Request | None = None) -> dict[str, Any] | None:
     """One registry entry's story: status, spend, worlds and what was written.
 
     Reads the run's own `result.json`, `report.json` and `gate-report.json` —
-    the artefacts the CLI wrote — and serialises their fields. While a run is
-    going there is no `result.json` yet, so status, recorded cost and ticks
-    closed come from the registry entry and the live views instead: the entry
-    is the published cache of what the trace already says.
+    the artefacts the CLI wrote — and serialises their fields. `result.json` is
+    written last, so a run that has one is finished and a run that does not is
+    still going or was stopped: its status, recorded cost and ticks closed come
+    from the registry entry and the live views instead — the entry is the
+    published cache of what the trace already says.
     """
     result = _read_json_silent(Path(run_dir, "result.json"))
     gate = _read_json_silent(Path(run_dir, "gate-report.json"))
     report = _read_json_silent(Path(run_dir, "report.json"))
+    hide = _hidden_prefixes(request)
     if result is not None and result.get("status") == "completed":
-        return _finished_entry(run_dir, result, gate, report)
+        return _finished_entry(run_dir, result, gate, report, hide)
     live = _live_entry(run_dir)
     if live is not None:
-        return _running_entry(run_dir, live, gate, report)
-    if result is None and gate is None:
-        return None
+        return _running_entry(run_dir, live, gate, report, hide)
     if result is not None:
-        return _finished_entry(run_dir, result, gate, report)
-    # A gate report with no registry entry: either a study still starting
-    # (its process lives, the registry write comes after the build) or a
-    # gate-only run that never proceeded. The process table tells them apart.
+        return _finished_entry(run_dir, result, gate, report, hide)
+    if gate is None and lifecycle.launch_record(run_dir) is None:
+        return None
+    # A study that was started here but has recorded nothing: either its process
+    # is still building the population, or it died before it could record
+    # anything — and the log says which, rather than the run never existing.
     starting = lifecycle.is_live(run_dir.name)
     return _finished_entry(
         run_dir,
         {"status": "running" if starting else "partial", "registry": {}, "outcomes": []},
         gate,
         report,
+        hide,
     )
+
+
+def _hidden_prefixes(request: Request | None) -> tuple[str, ...]:
+    """Directory prefixes a log line must not carry to a browser."""
+    if request is None:
+        return ()
+    roots = (request.app.state.runs_dir, request.app.state.engine_root)
+    return tuple(sorted({str(Path(root).resolve()) for root in roots} | {str(root) for root in roots}, key=len, reverse=True))
 
 
 def _is_fake(pins: dict[str, Any]) -> bool:
@@ -829,7 +967,16 @@ def _is_fake(pins: dict[str, Any]) -> bool:
     return bool(models) and all(str(model).startswith("fake/") for model in models)
 
 
-def _finished_entry(run_dir: Path, result: dict[str, Any], gate: Any, report: Any) -> dict[str, Any]:
+def _why_it_stopped(run_dir: Path, hide: tuple[str, ...]) -> str | None:
+    """The last thing a stopped study said, when it is not running and has no report."""
+    if lifecycle.is_live(run_dir.name) or Path(run_dir, "report.json").is_file():
+        return None
+    return lifecycle.log_tail(run_dir, hide)
+
+
+def _finished_entry(
+    run_dir: Path, result: dict[str, Any], gate: Any, report: Any, hide: tuple[str, ...] = ()
+) -> dict[str, Any]:
     registry = (result or {}).get("registry", {})
     config = registry.get("config", {})
     outcomes = (result or {}).get("outcomes", [])
@@ -856,16 +1003,14 @@ def _finished_entry(run_dir: Path, result: dict[str, Any], gate: Any, report: An
         "fake": _is_fake(pins),
         "progress": [],
         "live": lifecycle.is_live(run_dir.name),
+        "launch_error": _why_it_stopped(run_dir, hide),
     }
 
 
 def _live_entry(run_dir: Path) -> dict[str, Any] | None:
     """The registry entry of a run with no `result.json` yet, if it was recorded."""
-    if not Path(run_dir, "trace").exists():
-        return None
     try:
-        store = _store(run_dir)
-        entry = store.registry.entry(run_dir.name)
+        entry = _store(run_dir).registry.entry(run_dir.name)
     except Exception:
         return None
     if entry is None:
@@ -873,13 +1018,26 @@ def _live_entry(run_dir: Path) -> dict[str, Any] | None:
     return json.loads(entry.model_dump_json())
 
 
-def _running_entry(run_dir: Path, live: dict[str, Any], gate: Any, report: Any) -> dict[str, Any]:
+def _running_entry(
+    run_dir: Path, live: dict[str, Any], gate: Any, report: Any, hide: tuple[str, ...] = ()
+) -> dict[str, Any]:
     config = live.get("config", {})
     trust = (report or {}).get("trust", {})
     pins = config.get("pins", {})
+    going = lifecycle.is_live(run_dir.name)
+    status = live.get("status", "running")
+    if not going and status == "running" and lifecycle.launch_record(run_dir) is not None:
+        # This server started the study and its process is gone, but the registry
+        # still says running: it crashed or was killed mid-session, and the sweep
+        # that would say so only runs at start. Its trace is valid up to its last
+        # closed tick, which is what partial means and what a resume continues from.
+        status = "partial"
     return {
         "run_id": run_dir.name,
-        "status": live.get("status", "running"),
+        # A study whose process is alive and whose `result.json` is not yet on disk
+        # is still working — building the report, or picking up after a resume —
+        # whatever its registry entry last said: it is not finished until it says so.
+        "status": "running" if going else status,
         "engine_version": live.get("engine_version"),
         "recorded_cost": live.get("recorded_cost", 0.0),
         "discarded_ticks": live.get("discarded_ticks", 0),
@@ -897,12 +1055,16 @@ def _running_entry(run_dir: Path, live: dict[str, Any], gate: Any, report: Any) 
         "pins": pins,
         "fake": _is_fake(pins),
         "progress": _live_progress(run_dir, list(live.get("world_ids", []))),
-        "live": lifecycle.is_live(run_dir.name),
+        "live": going,
+        "launch_error": _why_it_stopped(run_dir, hide),
     }
 
 
 def _live_progress(run_dir: Path, world_ids: list[str]) -> list[dict[str, Any]]:
-    """Ticks closing, turns landing and the rung in force, per world, from live views."""
+    """Ticks closing, turns landing and the rung in force, per world, from live views.
+
+    The counting is `analysis`'s (`world_progress`); this serialises what it derived.
+    """
     try:
         store = _store(run_dir)
     except Exception:
@@ -910,19 +1072,67 @@ def _live_progress(run_dir: Path, world_ids: list[str]) -> list[dict[str, Any]]:
     progress = []
     for world_id in world_ids:
         try:
-            view = store.view(run_dir.name, world_id)
-            closed = view.events(EventFilter.model_validate({"kinds": ("tick_closed",)}))
-            turns = view.events(EventFilter.model_validate({"kinds": ("turn",)}))
-            degraded = view.events(EventFilter.model_validate({"kinds": ("degraded",)}))
+            shape = world_progress(store.view(run_dir.name, world_id), world_id)
         except Exception:
             continue
-        progress.append({
-            "world_id": world_id,
-            "last_closed_tick": max([event.tick for event in closed], default=None),
-            "turns": len(turns),
-            "rungs": sorted({str(event.payload.rung) for event in degraded}),
-        })
+        progress.append(json.loads(shape.model_dump_json()))
     return progress
+
+
+def _run_gate(request: Request, body: GateRequest) -> dict[str, Any]:
+    """Run `coreset-gate` on a brief and serve the artefacts it wrote, never its paths."""
+    import subprocess
+    import sys
+    import tempfile
+
+    from simcore.cli._ids import mint_run_id
+
+    with tempfile.TemporaryDirectory(prefix="consumersim-brief-") as scratch:
+        brief = Path(scratch, "brief.yaml")
+        brief.write_text(body.brief_yaml, encoding="utf-8")
+        if body.evidence_json is not None:
+            Path(scratch, "brief.yaml.evidence.json").write_text(
+                "\n".join([json.dumps(body.evidence_json, indent=2, sort_keys=True), ""]), encoding="utf-8"
+            )
+        try:
+            _validate_brief(brief, _ontologies_root(request))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        run_id = mint_run_id()
+        argv = [
+            sys.executable, "-m", "simcore.cli", "coreset-gate",
+            "--brief", str(brief),
+            "--n", str(body.n),
+            "--seed", str(body.seed),
+            "--ontologies", _ontologies_root(request),
+            "--out", str(_runs_dir(request)),
+            "--run-id", run_id,
+        ]
+        if body.fake:
+            argv.append("--fake")
+        try:
+            done = subprocess.run(
+                argv, cwd=request.app.state.engine_root, capture_output=True, text=True, timeout=240
+            )
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=504, detail="the population gate took longer than four minutes")
+    run_dir = Path(_runs_dir(request), run_id)
+    gate = _read_json_silent(Path(run_dir, "gate-report.json"))
+    manifest = _read_json_silent(Path(run_dir, "manifest.json"))
+    refusal = None
+    if gate is None:
+        hide = _hidden_prefixes(request)
+        lines = [line for line in (done.stderr or done.stdout).splitlines() if line.strip()]
+        refusal = lines[-1] if lines else "the gate wrote no report"
+        for prefix in hide:
+            refusal = refusal.replace(prefix, "…")
+    return {
+        "code": done.returncode,
+        "run_id": run_id if gate is not None else None,
+        "gate": gate,
+        "manifest": manifest,
+        "refusal": refusal,
+    }
 
 
 def _read_json_silent(path: Path) -> Any | None:
