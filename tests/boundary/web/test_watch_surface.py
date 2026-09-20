@@ -29,8 +29,12 @@ def test_the_run_page_watches_a_live_run():
 
 def test_intake_launches_a_fake_study():
     text = (FRONTEND / "app" / "intake" / "page.tsx").read_text()
-    for marker in ('"/api/runs"', "brief_yaml", "Horizon", "fake: mode === \"fake\"", "Watch"):
+    for marker in ('"/api/runs"', "Horizon", "Watch", "studyRequest("):
         assert marker in text, f"intake never offers {marker!r}"
+    # What the request says lives in `lib/study.ts`, where the unit tests pin it.
+    builder = (FRONTEND / "lib" / "study.ts").read_text()
+    for marker in ("brief_yaml", 'fake: form.mode === "fake"'):
+        assert marker in builder, f"the study request never says {marker!r}"
 
 
 def test_fake_studies_are_marked_in_every_view():

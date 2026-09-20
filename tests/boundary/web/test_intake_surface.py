@@ -31,8 +31,12 @@ def test_assumption_ledger_assembled_before_a_run():
 
 def test_study_states_task_and_scale():
     text = (FRONTEND / "app" / "intake" / "page.tsx").read_text()
-    for marker in ("what personas answer", "purchase intent", "Anchor version", "anchor_versions"):
+    for marker in ("what personas answer", "purchase intent", "Anchor version"):
         assert marker in text, f"intake lacks {marker!r}"
+    # The request that carries them is built in one plain module the unit tests exercise, and the page must
+    # go through it: a page that writes its own body can drift from the one that is tested.
+    assert "studyRequest(" in text, "intake builds its own request instead of using lib/study"
+    assert "anchor_versions" in (FRONTEND / "lib" / "study.ts").read_text()
 
 
 def test_endpoint_status_without_keys():
@@ -43,3 +47,15 @@ def test_endpoint_status_without_keys():
         content = page.read_text()
         for marker in ("API_KEY", "api_key", 'type="password"', "secret"):
             assert marker not in content, f"{page.name} handles a key: {marker!r}"
+
+
+def test_no_page_prints_an_icon_as_text():
+    """An icon is an element, not text. Interpolated into a template string it prints `[object Object]`, and
+    the two most important buttons on the intake page — run the gate, run the study — said exactly that."""
+    for page in (FRONTEND / "app").rglob("*.tsx"):
+        assert "${ICONS" not in page.read_text(), f"{page.relative_to(FRONTEND)} interpolates an icon into a string"
+
+
+def test_any_brief_the_engine_holds_can_be_opened_in_the_form():
+    text = (FRONTEND / "app" / "intake" / "page.tsx").read_text()
+    assert "Start from a brief" in text and "loadBrief(" in text

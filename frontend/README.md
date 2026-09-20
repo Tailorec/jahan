@@ -26,7 +26,7 @@ for, accepts or displays a key.
 | UI surface | Engine source |
 |---|---|
 | Overview — runs, ontologies, briefs, totals | `/api/workspace` (derived in `analysis` over registry entries), `/api/runs`, `/api/ontologies`, `/api/briefs` |
-| Intake — brief authoring, brief check, population gate, launch | `/api/briefs/validate` (the assumption ledger), `/api/gate`, `POST /api/runs`, `/api/status` |
+| Intake — brief authoring, brief check, population gate, launch | `/api/briefs/validate` (the assumption ledger), `/api/gate`, `POST /api/runs`, `/api/status`, `/api/corpus` (cached shards, sources), `/api/anchors` (each scale version with its check verdict, and the default) |
 | Ontology builder | `/api/codebook`, `/api/ontologies/validate`, `POST /api/ontologies` (a new version, never an overwrite) |
 | Population — gates, requested vs achieved mix, origins, communities | `/api/runs/{id}` (`gate`, `manifest`, `personas`, `ontology`, `digest`) |
 | Run — watched live, cancel, resume | `/api/runs/{id}` (progress, spend, rung), `DELETE /api/runs/{id}`, `POST /api/runs/{id}/resume` |
