@@ -143,3 +143,36 @@ def test_communities_appear_only_in_outputs_and_are_never_read_from_an_input():
     for model in (schemas.ProductBrief, schemas.BriefPack, schemas.CategoryOntology, schemas.Variant,
                   schemas.Scenario, schemas.SweepGrid, schemas.SweepPlan, schemas.RunConfig):
         assert "Community" not in repr(model.model_fields), f"{model.__name__} references a community"
+
+
+def _small_network():
+    import igraph as ig
+
+    network = ig.Graph(n=8, edges=[(0, 1), (1, 2), (2, 0), (3, 4), (4, 5), (5, 3), (2, 3), (6, 7)], directed=False)
+    network.es["weight"] = [1.0] * network.ecount()
+    return network
+
+
+def test_every_population_seed_can_drive_community_detection():
+    """`spawn` derives each stream's seed as an unsigned 64-bit integer, and `leidenalg` takes a signed
+    C `ssize_t`. A seed at or above 2**63 crashed with `OverflowError: Python int too large to convert to
+    C ssize_t` — after the draw had already passed its gates. Of forty consecutive population seeds,
+    twenty-three did; 4021, the only one ever used, happened to derive a small value."""
+    from simcore.population._streams import spawn
+
+    network = _small_network()
+    for population_seed in range(4000, 4040):
+        _, membership = _communities._partition(network, 1.0, spawn(population_seed)[2])
+        assert len(membership) == 8
+
+
+def test_a_seed_that_already_fits_keeps_exactly_the_partition_it_had():
+    """The fix must not move any existing population: a seed below 2**63 is passed through unchanged, so
+    every recorded population's identity stands."""
+    network = _small_network()
+    fits = 4021
+    assert fits < 2**63
+    assert _communities._partition(network, 1.0, fits) == _communities._partition(network, 1.0, fits)
+    assert _communities._leiden_seed(fits) == fits
+    assert _communities._leiden_seed(2**63 + 5) == 5
+    assert 0 <= _communities._leiden_seed(2**64 - 1) < 2**63

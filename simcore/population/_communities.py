@@ -47,9 +47,22 @@ def _network(personas: Sequence[Persona], graph: SocialGraph) -> ig.Graph:
     return network
 
 
+def _leiden_seed(seed: int) -> int:
+    """A seed `leidenalg` can take: below 2**63.
+
+    `spawn` derives each stream's seed as an unsigned 64-bit integer, and `leidenalg` converts it to a
+    signed C `ssize_t`, so a seed at or above 2**63 crashed with an `OverflowError` after the draw had
+    already passed its gates — for more than half of all population seeds. Dropping the top bit is a
+    no-op for a seed that already fits, so every recorded population keeps the partition it had, and
+    stays a pure function of the seed for one that does not.
+    """
+    return int(seed) & (2**63 - 1)
+
+
 def _partition(network: ig.Graph, gamma: float, seed: int) -> tuple[float, list[int]]:
     partition = leidenalg.find_partition(
-        network, leidenalg.RBConfigurationVertexPartition, weights="weight", resolution_parameter=gamma, seed=seed
+        network, leidenalg.RBConfigurationVertexPartition, weights="weight", resolution_parameter=gamma,
+        seed=_leiden_seed(seed),
     )
     membership = list(partition.membership)
     return float(network.modularity(membership, weights="weight")), membership
