@@ -28,6 +28,23 @@ export interface AnchorCatalogue { anchors: AnchorInfo[]; defaults: string[] }
 export const CHANNELS = ["survey_room", "social_feed", "forum"] as const;
 export type ChannelName = (typeof CHANNELS)[number];
 
+/* Why one would choose each environment. Word of mouth is not a choice here: in a feed or a forum it emerges between
+   personas, when one reacts strongly enough and is close enough to a peer, and the peer meets it on a later tick. */
+export const CHANNEL_GUIDE: Record<ChannelName, { summary: string; use: string }> = {
+  survey_room: {
+    summary: "measure purchase intent, concept alone",
+    use: "Each persona is shown the concept alone and answers. Nothing spreads between personas, so word of mouth is zero by construction. Choose this to measure purchase intent by audience against a clean baseline.",
+  },
+  social_feed: {
+    summary: "a feed: reactions can spread",
+    use: "Personas scroll a feed holding the concept and each other's posts, and can like, comment, follow, buy or ask a peer. A persona who reacts strongly to a peer they are close to passes it on, so reach grows over the ticks. Choose this to see how a reaction spreads and whether social proof moves intent.",
+  },
+  forum: {
+    summary: "threads: discussion and disagreement form",
+    use: "Personas read and reply in threads, and can upvote, downvote, reply or buy. Discussion forms and communities can drift apart, so polarization is measured. Choose this to see how the concept is argued over, not only how each persona feels.",
+  },
+};
+
 export interface StudyForm {
   mode: "fake" | "real";
   n: string;

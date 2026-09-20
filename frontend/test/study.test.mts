@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  cachedShards, defaultAnchor, defaultSources, gateRequest, parseSeeds, problems, studyRequest,
+  CHANNELS, CHANNEL_GUIDE, cachedShards, defaultAnchor, defaultSources, gateRequest, parseSeeds, problems, studyRequest,
   type AnchorCatalogue, type CorpusInfo, type StudyForm,
 } from "../lib/study.ts";
 
@@ -115,4 +115,12 @@ test("a real study's mistakes are named before anything is sent", () => {
 
 test("replicate seeds are read as the numbers they are", () => {
   assert.deepEqual(parseSeeds("4021, 917731,"), [4021, 917731]);
+});
+
+test("every environment a study can run on says why one would choose it, and word of mouth is not offered", () => {
+  assert.deepEqual(Object.keys(CHANNEL_GUIDE).sort(), [...CHANNELS].sort());
+  assert.match(CHANNEL_GUIDE.survey_room.use, /word of mouth is zero/);
+  assert.match(CHANNEL_GUIDE.social_feed.use, /spreads/);
+  assert.match(CHANNEL_GUIDE.forum.use, /polarization/);
+  assert.equal((CHANNELS as readonly string[]).includes("wom"), false);
 });
