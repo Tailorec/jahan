@@ -29,12 +29,6 @@ MemoryId = Annotated[str, StringConstraints(pattern=rf"^me-{ULID_PATTERN}$")]
 MIN_REFERENCE_SETS = 6
 
 
-def _strictly_positive(mass: tuple[float, ...]) -> tuple[float, ...]:
-    if any(value <= 0.0 for value in mass):
-        raise ValueError("a response mass contains a zero, which the SSR softmax cannot emit")
-    return mass
-
-
 def _mass_sums_to_one(mass: tuple[float, ...]) -> tuple[float, ...]:
     total = sum(mass)
     if not 0.999 <= total <= 1.001:
@@ -42,17 +36,19 @@ def _mass_sums_to_one(mass: tuple[float, ...]) -> tuple[float, ...]:
     return mass
 
 
-PMF5 = Annotated[
-    tuple[float, float, float, float, float],
-    AfterValidator(_strictly_positive),
-    AfterValidator(_mass_sums_to_one),
-]
-
-
 def _non_negative(mass: tuple[float, ...]) -> tuple[float, ...]:
     if any(value < 0.0 for value in mass):
-        raise ValueError("a per-set mass contains a negative value")
+        raise ValueError("a mass contains a negative value")
     return mass
+
+
+# A response mass over the five scale points. It may hold an exact zero: the published formula gives the least
+# similar anchor exactly zero within a set, and a group whose members agree averages to zero there (ADR 0026).
+PMF5 = Annotated[
+    tuple[float, float, float, float, float],
+    AfterValidator(_non_negative),
+    AfterValidator(_mass_sums_to_one),
+]
 
 
 def _range_check(mass: tuple[float, ...], low: float, high: float) -> tuple[float, ...]:

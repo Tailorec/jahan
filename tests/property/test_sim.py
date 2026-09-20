@@ -49,10 +49,18 @@ def stimulus(**overrides):
 # --- response masses --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("bad", [(0.0, 0.2, 0.2, 0.3, 0.3), (0.1, 0.2, 0.2, 0.3, 0.19), (float("nan"), 0.2, 0.2, 0.3, 0.3), (float("inf"), 0.2, 0.2, 0.3, 0.3)])
-def test_pmf_refuses_zero_non_finite_and_sums_outside_tolerance(bad):
+@pytest.mark.parametrize("bad", [(-0.1, 0.3, 0.3, 0.3, 0.2), (0.1, 0.2, 0.2, 0.3, 0.19), (float("nan"), 0.2, 0.2, 0.3, 0.3), (float("inf"), 0.2, 0.2, 0.3, 0.3)])
+def test_pmf_refuses_negative_non_finite_and_sums_outside_tolerance(bad):
     with pytest.raises(ValidationError):
         TypeAdapter(PMF5).validate_python(bad)
+
+
+def test_pmf_accepts_a_mass_the_published_formula_gives_exactly_zero():
+    """The published SSR formula subtracts the least similar anchor's similarity, so with the paper's
+    epsilon of zero that anchor receives exactly zero within each set, and a community whose members all
+    place the same anchor last averages to zero there too (ADR 0026). A digest that refused such a mass
+    crashed a whole study's report after its worlds had finished."""
+    assert TypeAdapter(PMF5).validate_python((0.0, 0.2, 0.3, 0.3, 0.2)) == (0.0, 0.2, 0.3, 0.3, 0.2)
 
 
 def test_pmf_accepts_a_strictly_positive_mass_and_refuses_wrong_arity():

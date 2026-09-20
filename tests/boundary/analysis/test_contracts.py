@@ -42,6 +42,18 @@ def test_digest_with_masses_computes_adoption_and_refuses_a_contradiction():
         OutcomeDigest.model_validate({**digest_payload(), "adoption": 0.99})
 
 
+def test_a_community_whose_members_all_score_an_anchor_at_zero_still_digests():
+    """A small community can average to exactly zero on a scale point under the published formula (ADR 0026)."""
+    payload = digest_payload()
+    community = {"community-1": (0.0, 0.2, 0.3, 0.3, 0.2), "community-2": (0.1, 0.2, 0.2, 0.3, 0.2)}
+    payload.update({"community_pmfs": community, "community_sizes": {"community-1": 11, "community-2": 9}})
+    payload.pop("polarization", None)
+    payload.pop("polarization_reason", None)
+    digest = OutcomeDigest.model_validate(payload)
+    assert digest.community_pmfs["community-1"][0] == 0.0
+    assert digest.polarization is not None
+
+
 def test_unmeasured_adoption_without_a_reason_refused_and_measured_with_one_refused():
     bad = _unmeasured()
     del bad["unmeasured_reason"]
