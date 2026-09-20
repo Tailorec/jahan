@@ -24,7 +24,8 @@ export interface AnchorInfo {
 }
 export interface AnchorCatalogue { anchors: AnchorInfo[]; defaults: string[] }
 
-export const CHANNELS = ["survey_room", "social_feed", "forum", "wom"] as const;
+/* The environments a study runs on. `wom` is a channel a message is delivered on, not one a study runs on. */
+export const CHANNELS = ["survey_room", "social_feed", "forum"] as const;
 export type ChannelName = (typeof CHANNELS)[number];
 
 export interface StudyForm {

@@ -154,11 +154,11 @@ class StudyRequest(_CorpusChoices):
     @field_validator("channel")
     @classmethod
     def _a_channel_the_engine_has(cls, value: str) -> str:
-        from simcore.schemas import Channel
+        from simcore.schemas import STUDY_CHANNELS
 
-        known = [channel.value for channel in Channel]
+        known = [channel.value for channel in STUDY_CHANNELS]
         if value not in known:
-            raise ValueError(f"channel is one of {', '.join(known)}, not {value!r}")
+            raise ValueError(f"a study runs on one of {', '.join(known)}, not {value!r}")
         return value
 
     @field_validator("validation")

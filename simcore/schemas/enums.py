@@ -95,6 +95,12 @@ class Channel(StrEnum):
     WOM = "wom"
 
 
+# The environments a study can be run on. `wom` is a channel a message is delivered on, beside another
+# environment's own presentation (a feed or a forum delivers word of mouth); it presents nothing itself, so a study
+# is never run on it.
+STUDY_CHANNELS = (Channel.SURVEY_ROOM, Channel.SOCIAL_FEED, Channel.FORUM)
+
+
 class StimulusKind(StrEnum):
     """What a stimulus is; brand-authored and persona-authored stimuli share the type."""
 

@@ -17,7 +17,7 @@ from pathlib import Path
 
 import yaml
 
-from simcore.schemas import GateFailure, Scenario, SweepGrid, SweepPlan, resolve_audience_weights
+from simcore.schemas import STUDY_CHANNELS, GateFailure, Scenario, SweepGrid, SweepPlan, resolve_audience_weights
 
 from ._concepts import add_backend_arguments
 from ._launch_record import record_launch
@@ -58,7 +58,10 @@ def cmd_sweep_run(argv: list[str] | None = None) -> int:
     add_backend_arguments(parser)
     parser.add_argument("--n", type=int, default=40, help="personas in the population")
     parser.add_argument("--population-seed", type=int, default=4021)
-    parser.add_argument("--channel", default="survey_room")
+    parser.add_argument(
+        "--channel", default="survey_room", choices=[channel.value for channel in STUDY_CHANNELS],
+        help="the environment personas are reached through",
+    )
     parser.add_argument("--force", action="store_true", help="resume despite moved inputs; recorded, never silent")
     args = parser.parse_args(argv)
 

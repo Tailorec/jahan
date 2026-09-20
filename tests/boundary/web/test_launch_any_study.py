@@ -121,13 +121,20 @@ def test_a_wrong_input_is_refused_before_a_process_starts(tmp_path, endpoint, la
     assert [c for c in (tmp_path / "runs").glob("run-*") if (c / "trace").exists()] == []
 
 
-def test_every_channel_the_engine_has_can_be_named(tmp_path, endpoint, launched):
-    from simcore.schemas import Channel
+def test_every_environment_a_study_runs_on_can_be_named(tmp_path, endpoint, launched):
+    from simcore.schemas import STUDY_CHANNELS
 
     client = _client(tmp_path)
-    for channel in Channel:
+    for channel in STUDY_CHANNELS:
         assert client.post("/api/runs", json={**REAL, "channel": channel.value}).status_code == 202
-    assert len(launched) == len(list(Channel))
+    assert len(launched) == len(STUDY_CHANNELS)
+
+
+def test_wom_is_refused_as_an_environment_before_anything_starts(tmp_path, endpoint, launched):
+    response = _client(tmp_path).post("/api/runs", json={**REAL, "channel": "wom"})
+    assert response.status_code == 422
+    assert "survey_room" in response.text and "wom" in response.text
+    assert launched == []
 
 
 # --- the population gate can reach a real corpus ---------------------------------------------------
