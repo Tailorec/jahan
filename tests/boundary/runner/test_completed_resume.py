@@ -21,9 +21,9 @@ def _population():
     return Population.model_validate(population_payload())
 
 
-def _config(population, pack, horizon=3):
+def _config(population, pack, horizon=3, seeds=(4021,)):
     scenario = scenario_payload(horizon_ticks=horizon, interventions=[])
-    payload = run_config_payload(scenarios=[scenario], seeds=[4021])
+    payload = run_config_payload(scenarios=[scenario], seeds=list(seeds))
     payload.update({
         "brief_hash": canonical_hash(pack.brief),
         "ontology_hash": canonical_hash(pack.ontology),
@@ -83,3 +83,33 @@ def test_rerunning_a_completed_world_writes_nothing_and_completes(tmp_path):
     assert second.outcomes == first.outcomes
     after = list(store.view(run_id, first.outcomes[0].world_id).events(EventFilter()))
     assert [event.event_id for event in after] == [event.event_id for event in before]
+
+
+def test_a_run_is_not_completed_while_a_later_world_is_still_running(tmp_path):
+    """Worlds run one after another and each is finalized as it ends. The first world's lasting record
+    must not make the run read as complete: everything that reads the registry while the second world
+    runs (the overview, the run status) would say it had finished."""
+    pack, population = _pack(), _population()
+    config = _config(population, pack, seeds=(4021, 917731))
+    run_id = config.run_id
+    store = _ResumableStore(tmp_path, run_id)
+
+    def factory(header):
+        store.create_world(run_id, header)
+        return FakeWorld(header)
+
+    seen: list[tuple[str, str]] = []
+    first_world: list[str] = []
+
+    def progress(world_id, tick, spent):
+        first_world.append(world_id) if not first_world else None
+        if world_id != first_world[0]:
+            seen.append((world_id, store.registry.entry(run_id).status.value))
+
+    result = run(config, pack=pack, population=population, trace=store, registry=store.registry,
+                 world_factory=factory, agent_fn=_agent, progress=progress)
+
+    assert seen, "the second world reported no progress, so nothing was observed"
+    assert {status for _, status in seen} == {"running"}
+    assert result.status.value == "completed"
+    assert store.registry.entry(run_id).status.value == "completed"

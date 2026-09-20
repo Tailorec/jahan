@@ -257,6 +257,7 @@ def test_progress_is_published_per_tick(tmp_path, monkeypatch):
     code, output = run_command(*fake_args(out, run_id, horizon=2))
     assert code == 0, output
     progress = json.loads((out / run_id / "progress.json").read_text())
-    assert progress["status"] == "running" and progress["tick_closed"] >= 1
+    # Written last by the finished run, not left as the last tick wrote it.
+    assert progress["status"] == "completed" and progress["tick_closed"] >= 1
     store = TraceStore(out / run_id / "trace")
     assert store.registry.entry(run_id).recorded_cost >= 0.0

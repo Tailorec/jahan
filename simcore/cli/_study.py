@@ -481,7 +481,7 @@ def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1, forc
             stimulus_texts=trace.published,
         )
 
-    def publish_progress(world_id: str, tick: int, spent: float | None) -> None:
+    def publish_progress(world_id: str, tick: int, spent: float | None, status: str = "running") -> None:
         """Publish spend while the run is going, not after it.
 
         The registry entry is the published cache of what the trace already
@@ -494,7 +494,7 @@ def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1, forc
                 store.registry.update(entry.model_copy(update={"recorded_cost": float(spent)}))
             (handles.run_dir / "progress.json").write_text(json.dumps({
                 "run_id": handles.run_id,
-                "status": "running",
+                "status": status,
                 "recorded_cost": spent,
                 "world_id": world_id,
                 "tick_closed": tick,
@@ -502,7 +502,7 @@ def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1, forc
         except Exception:
             pass
 
-    return run(
+    result = run(
         handles.config,
         pack=handles.pack,
         population=handles.population,
@@ -514,6 +514,11 @@ def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1, forc
         force=force,
         progress=publish_progress,
     )
+    # The file was last written by a tick, so a finished study would keep saying "running".
+    last = result.outcomes[-1] if result.outcomes else None
+    if last is not None:
+        publish_progress(last.world_id, last.last_closed_tick, float(result.registry.recorded_cost), result.registry.status.value)
+    return result
 
 
 def analyze_study(handles: StudyHandles, result: RunResult) -> dict:

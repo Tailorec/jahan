@@ -46,7 +46,11 @@ def test_the_status_decides_which_backend_answers(tmp_path):
     store.registry.update(entry.model_copy(update={"status": "paused"}))
     assert isinstance(store.view(run_id), SqliteTraceView)
     store.finalize(header.world_id)
-    assert store.registry.entry(run_id).status.value == "completed"
+    # Writing one world's lasting record does not decide the run's status: a study runs its worlds one after
+    # another, so the first world finishing while the next has not begun must not read as a completed run.
+    assert store.registry.entry(run_id).status.value == "paused"
+    assert isinstance(store.view(run_id), SqliteTraceView)
+    store.registry.update(store.registry.entry(run_id).model_copy(update={"status": "completed"}))
     assert isinstance(store.view(run_id), ParquetTraceView)
 
 

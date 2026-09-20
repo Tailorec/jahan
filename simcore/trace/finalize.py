@@ -140,7 +140,6 @@ def read_finalized_events(root: Path, run_id: str, world_id: str) -> tuple[Trace
 
 def finalize_world(store, run_id: str, world_id: str, world_dir: Path) -> Path:
     """Write one world's lasting record. Idempotent: the second call changes nothing."""
-    from simcore.schemas import RunStatus
 
     live_path = world_dir / "live.sqlite"
     events_path = world_dir / "events.parquet"
@@ -171,8 +170,8 @@ def finalize_world(store, run_id: str, world_id: str, world_dir: Path) -> Path:
         connection.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('events_hash', ?)", (digest,))
         connection.commit()
     entry = store.registry.entry(run_id)
-    if entry is not None and entry.status is not RunStatus.COMPLETED:
-        store.registry.update(entry.model_copy(update={"status": RunStatus.COMPLETED, "contract_version": contract_version}))
+    if entry is not None and entry.contract_version != contract_version:
+        store.registry.update(entry.model_copy(update={"contract_version": contract_version}))
     return world_dir
 
 
