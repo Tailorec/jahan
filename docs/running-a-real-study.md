@@ -167,7 +167,10 @@ can be resumed.
 
 * The interface cannot launch a sweep (a grid of scenarios) or set a cache path; use the command line for those.
   It can force a resume past a moved input, once, with a confirmation, when the engine has refused the resume.
-* Non-survey channels (`social_feed`, `forum`, `wom`) are selectable but this guide does not exercise them.
+* Three environments are offered: `survey_room` (the baseline; no communities, no word of mouth), `social_feed` and
+  `forum`. The last two were run with real models on 60 personas (see
+  `docs/evaluations/2026-09-20-non-survey-channels/`). The environment is not part of a run's recorded configuration,
+  so two runs on different environments share a config hash and a world id.
 * Communities often do not form on this corpus; polarization is then unmeasured, and says so.
 * The measured personas are dominated by two survey sources: in this study 66% Stack Overflow developers and 26%
   US General Social Survey respondents. Audiences defined by dense demographic attributes are largely developers
