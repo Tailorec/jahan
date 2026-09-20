@@ -356,3 +356,22 @@ def test_progress_is_published_per_tick(tmp_path, monkeypatch):
     assert progress["status"] == "completed" and progress["tick_closed"] >= 1
     store = TraceStore(out / run_id / "trace")
     assert store.registry.entry(run_id).recorded_cost >= 0.0
+
+
+def test_a_study_whose_report_failed_does_not_say_it_completed(tmp_path, monkeypatch):
+    """progress.json is written when everything the study writes is on disk: a run whose worlds ended but whose
+    analysis crashed has not finished."""
+    from tests.boundary.cli.support import fake_args, run_command
+
+    def broken(handles, result):
+        raise RuntimeError("the digest could not be made")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr("simcore.cli._concepts.analyze_study", broken)
+    out = tmp_path / "runs"
+    run_id = "run-" + "0" * 24 + "76"
+    code, _ = run_command(*fake_args(out, run_id, horizon=2))
+    assert code != 0
+    progress = json.loads((out / run_id / "progress.json").read_text())
+    assert progress["status"] == "running", "the study never finished, and its progress file said it had"
+    assert not (out / run_id / "result.json").exists()

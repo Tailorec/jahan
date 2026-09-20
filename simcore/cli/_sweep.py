@@ -25,6 +25,7 @@ from ._study import (
     DEFAULT_VALIDATION,
     analyze_study,
     check_budget,
+    finish_progress,
     prepare_study,
     run_study,
     write_report,
@@ -134,6 +135,7 @@ def cmd_sweep_run(argv: list[str] | None = None) -> int:
     # The completion marker goes last: a run reporting completed has its report,
     # its digest and its trace summary on disk, never a promise of them.
     (handles.run_dir / "result.json").write_text(result.model_dump_json(indent=2) + "\n")
+    finish_progress(handles, result)
 
     print(f"run_id: {handles.run_id}")
     print(f"artefacts: {handles.run_dir}")

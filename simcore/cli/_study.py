@@ -481,7 +481,7 @@ def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1, forc
             stimulus_texts=trace.published,
         )
 
-    def publish_progress(world_id: str, tick: int, spent: float | None, status: str = "running") -> None:
+    def publish_progress(world_id: str, tick: int, spent: float | None) -> None:
         """Publish spend while the run is going, not after it.
 
         The registry entry is the published cache of what the trace already
@@ -494,7 +494,7 @@ def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1, forc
                 store.registry.update(entry.model_copy(update={"recorded_cost": float(spent)}))
             (handles.run_dir / "progress.json").write_text(json.dumps({
                 "run_id": handles.run_id,
-                "status": status,
+                "status": "running",
                 "recorded_cost": spent,
                 "world_id": world_id,
                 "tick_closed": tick,
@@ -514,11 +514,29 @@ def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1, forc
         force=force,
         progress=publish_progress,
     )
-    # The file was last written by a tick, so a finished study would keep saying "running".
-    last = result.outcomes[-1] if result.outcomes else None
-    if last is not None:
-        publish_progress(last.world_id, last.last_closed_tick, float(result.registry.recorded_cost), result.registry.status.value)
     return result
+
+
+def finish_progress(handles: "StudyHandles", result: RunResult) -> None:
+    """Say in `progress.json` how the study ended, once everything it writes is on disk.
+
+    The file was last written by a tick, so a finished study would otherwise keep saying "running". It is
+    written after the report and `result.json`, not when the worlds end: a study whose analysis then failed
+    has not finished, and must not read as if it had.
+    """
+    last = result.outcomes[-1] if result.outcomes else None
+    if last is None:
+        return
+    try:
+        (handles.run_dir / "progress.json").write_text(json.dumps({
+            "run_id": handles.run_id,
+            "status": result.registry.status.value,
+            "recorded_cost": float(result.registry.recorded_cost),
+            "world_id": last.world_id,
+            "tick_closed": last.last_closed_tick,
+        }) + "\n")
+    except OSError:
+        pass
 
 
 def analyze_study(handles: StudyHandles, result: RunResult) -> dict:
