@@ -18,7 +18,7 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
 
 from simcore.analysis import trace_summary, workspace_summary, world_progress
 from simcore.runner import ENGINE_VERSION
@@ -55,7 +55,49 @@ def _run_dir(request: Request, run_id: str) -> Path:
     raise _missing(f"no record of run {run_id}")
 
 
-class StudyRequest(BaseModel):
+class _CorpusChoices(BaseModel):
+    """Which corpus a draw reads from, shared by a study and by its gate so they refuse the same things.
+
+    Both are study inputs: they decide who can be drawn, so they are recorded and hashed, and naming them
+    explicitly keeps a draw reproducible where "whatever is cached" would depend on the machine it ran on.
+    Neither is a path — a shard is four digits and a source is one the release documents — so nothing a
+    browser sends can name a file.
+    """
+
+    shards: list[str] | None = None
+    sources: list[str] | None = None
+
+    @field_validator("shards")
+    @classmethod
+    def _shards_are_shard_numbers(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        if not value:
+            raise ValueError("name at least one shard, like ['0000', '0004'], or none to read every shard")
+        for shard in value:
+            if not re.fullmatch(r"\d{4}", str(shard)):
+                raise ValueError(f"a shard is four digits, like 0004, not {shard!r}")
+        return [str(shard) for shard in value]
+
+    @field_validator("sources")
+    @classmethod
+    def _sources_are_ones_the_release_documents(cls, value: list[str] | None) -> list[str] | None:
+        from simcore.schemas.persona import KNOWN_PERSONA_SOURCES
+
+        if value is None:
+            return None
+        if not value:
+            raise ValueError("name at least one persona source, or none to admit every source")
+        unknown = sorted({name for name in value if name not in KNOWN_PERSONA_SOURCES})
+        if unknown:
+            raise ValueError(
+                f"unknown persona source {', '.join(unknown)}; the release documents "
+                f"{', '.join(sorted(KNOWN_PERSONA_SOURCES))}"
+            )
+        return list(value)
+
+
+class StudyRequest(_CorpusChoices):
     """What a person configures to start a study — study inputs, never execution config.
 
     The endpoint, the key and the limits are the server's environment; a request
@@ -80,6 +122,14 @@ class StudyRequest(BaseModel):
     seeds: str | list[int] = "4021"
     elicits: Literal["reaction", "purchase"] = "reaction"
     anchor_versions: list[str] | None = None
+    # The draw's own seed, and what a real model costs — study inputs, recorded and hashed. Prices are
+    # what lets the budget ladder measure spend; a chat price needs both its input and output rate.
+    population_seed: int | None = Field(default=None, ge=0)
+    price_chat_in: float | None = Field(default=None, ge=0)
+    price_chat_out: float | None = Field(default=None, ge=0)
+    price_embed_in: float | None = Field(default=None, ge=0)
+    # What the report recommends a reader do to check the result against real people.
+    validation: str | None = Field(default=None, max_length=2000)
 
     @field_validator("brief_yaml")
     @classmethod
@@ -100,6 +150,29 @@ class StudyRequest(BaseModel):
                 raise ValueError(f"{value!r} is not a run id: `run-` and 26 characters of a ULID") from None
         return value
 
+    @field_validator("channel")
+    @classmethod
+    def _a_channel_the_engine_has(cls, value: str) -> str:
+        from simcore.schemas import Channel
+
+        known = [channel.value for channel in Channel]
+        if value not in known:
+            raise ValueError(f"channel is one of {', '.join(known)}, not {value!r}")
+        return value
+
+    @field_validator("validation")
+    @classmethod
+    def _a_blank_validation_is_none(cls, value: str | None) -> str | None:
+        return value.strip() or None if value is not None else None
+
+    @model_validator(mode="after")
+    def _a_chat_price_names_both_its_rates(self) -> "StudyRequest":
+        if (self.price_chat_in is None) != (self.price_chat_out is None):
+            raise ValueError(
+                "a chat price needs both rates: price_chat_in and price_chat_out are given together or not at all"
+            )
+        return self
+
     @field_validator("seeds")
     @classmethod
     def _seeds_are_integers(cls, value: str | list[int]) -> str | list[int]:
@@ -114,16 +187,22 @@ class StudyRequest(BaseModel):
         return value
 
 
-class GateRequest(BaseModel):
-    """A brief to gate: the draw is checked before any model is called."""
+class GateRequest(_CorpusChoices):
+    """A brief to gate: the draw is checked before any model is called.
+
+    A real gate reads the real corpus, so it names the same pins and the same corpus choices the study
+    it previews will — a preview drawn from anything else says nothing about the study it belongs to.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     brief_yaml: str = Field(min_length=1)
     evidence_json: dict[str, Any] | None = None
     n: int = Field(default=200, ge=1)
-    seed: int = 4021
+    seed: int = Field(default=4021, ge=0)
     fake: bool = True
+    model: str | None = None
+    embed_model: str | None = None
 
 
 def _missing(detail: str) -> Exception:
@@ -289,7 +368,28 @@ def _study_argv(request: Request, run_id: str, body: StudyRequest) -> list[str]:
     versions = body.anchor_versions or _default_anchor_versions(_anchors_root(request))
     for version in versions:
         argv.extend(["--anchor-version", str(version)])
+    argv.extend(_corpus_flags(body))
+    # Only what was named travels: a study that names none of these runs exactly as it always did.
+    for flag, value in (
+        ("--population-seed", body.population_seed),
+        ("--price-chat-in", body.price_chat_in),
+        ("--price-chat-out", body.price_chat_out),
+        ("--price-embed-in", body.price_embed_in),
+        ("--validation", body.validation),
+    ):
+        if value is not None:
+            argv.extend([flag, str(value)])
     return argv
+
+
+def _corpus_flags(body: _CorpusChoices) -> list[str]:
+    """`--shards` and `--sources`, when the study names them — the same flags the command line takes."""
+    flags: list[str] = []
+    if body.shards is not None:
+        flags.extend(["--shards", ",".join(body.shards)])
+    if body.sources is not None:
+        flags.extend(["--sources", ",".join(body.sources)])
+    return flags
 
 
 def _ontologies_root(request: Request) -> str:
@@ -301,13 +401,64 @@ def _anchors_root(request: Request) -> str:
     return request.app.state.anchors_dir or str(Path(request.app.state.engine_root, "anchors"))
 
 
+def _anchor_catalogue(anchors_dir: str | None) -> tuple[list[dict[str, Any]], list[str]]:
+    """Every frozen anchor version with its verdict, and the scale a study should default to.
+
+    A version is a default only if its check passed and its file still hashes to what was checked: a
+    changed statement is a new version, never an edit (ADR 0027). It used to default to `purchase_intent`
+    `v1` outright, which fails its own check, so a study that named no version silently scored nothing.
+    Verdicts are read from the check records beside the files; nothing here scores anything or names a path.
+    """
+    from simcore.elicitation import anchor_hash, load_anchor_version, read_check_record
+
+    if anchors_dir is None or not Path(anchors_dir).is_dir():
+        return [], []
+
+    def order(version: str) -> tuple[int, str]:
+        digits = re.sub(r"\D", "", version)
+        return (int(digits) if digits else -1, version)
+
+    listed: list[dict[str, Any]] = []
+    defaults: list[str] = []
+    for construct_dir in sorted(child for child in Path(anchors_dir).iterdir() if child.is_dir()):
+        construct = construct_dir.name
+        versions = sorted(
+            (path.stem for path in construct_dir.glob("*.json") if not path.name.endswith(".check.json")),
+            key=order,
+        )
+        usable: list[str] = []
+        for version in versions:
+            try:
+                record = read_check_record(anchors_dir, construct, version)
+            except Exception:
+                record = None
+            unchanged = None
+            if record is not None:
+                try:
+                    unchanged = anchor_hash(load_anchor_version(Path(construct_dir, f"{version}.json"))) == record.anchor_hash
+                except Exception:
+                    unchanged = False
+            passed = bool(record is not None and record.passed)
+            listed.append({
+                "construct": construct,
+                "version": version,
+                "anchor_set_id": record.anchor_set_id if record is not None else None,
+                "embed_model_id": record.embed_model_id if record is not None else None,
+                "checked": record is not None,
+                "passed": passed,
+                "unchanged_since_check": unchanged,
+                "detail": record.detail if record is not None else "no check has been run on this version",
+            })
+            if passed and unchanged:
+                usable.append(version)
+        if usable:
+            defaults.append(f"{construct}={usable[-1]}")
+    return listed, defaults
+
+
 def _default_anchor_versions(anchors_dir: str | None) -> list[str]:
-    """The scale a study runs on when it names none: the shipped default, if any."""
-    if anchors_dir is not None:
-        candidate = Path(anchors_dir, "purchase_intent", "v1.json")
-        if candidate.is_file():
-            return ["purchase_intent=v1"]
-    return []
+    """The scale a study runs on when it names none: the newest version that passed its check."""
+    return _anchor_catalogue(anchors_dir)[1]
 
 
 def create_app(
@@ -811,6 +962,48 @@ def create_app(
         ]
         return {"attributes": _page(matched, offset, limit), "total": len(matched)}
 
+    @app.get("/api/corpus")
+    def read_corpus(request: Request) -> dict[str, Any]:
+        """What the corpus offers a study: which shards are cached, which sources exist.
+
+        A study names the shards it draws from and the sources it admits, so the interface offers exactly
+        what is there. A shard is its four-digit number and a source is its name; nothing here is a path.
+        No corpus is a statement, not an error: the fake study needs none.
+        """
+        corpus = _corpus_root(request)
+        if corpus is None:
+            return {"available": False, "shards": [], "sources": {}, "measured_sources": []}
+        manifest = _read_json_silent(Path(corpus, "manifest.json")) or {}
+        cached = {path.name for path in Path(corpus, "data").glob("persona-1m-*.parquet")} if Path(corpus, "data").is_dir() else set()
+        shards = []
+        for entry in manifest.get("files", []):
+            name = Path(str(entry.get("path", ""))).name
+            match = re.fullmatch(r"persona-1m-(\d{4})\.parquet", name)
+            if match:
+                shards.append({
+                    "id": match.group(1), "rows": entry.get("rows"), "bytes": entry.get("bytes"),
+                    "cached": name in cached,
+                })
+        sources = {str(name): count for name, count in (manifest.get("sources") or {}).items()}
+        return {
+            "available": True,
+            "shards": sorted(shards, key=lambda shard: shard["id"]),
+            "sources": sources,
+            # A persona may not have synthesized demographics, so a draw that reaches synthetic rows is
+            # refused after it is built: the measured sources are the ones a study can actually admit.
+            "measured_sources": sorted(name for name in sources if name != "synthetic"),
+        }
+
+    @app.get("/api/anchors")
+    def read_anchors(request: Request) -> dict[str, Any]:
+        """Every frozen anchor version with its verdict, and the scale a study defaults to.
+
+        A version that failed its check is listed and marked, never hidden: which scale a study runs on
+        is a study input, and a person choosing one should see what its check found.
+        """
+        listed, defaults = _anchor_catalogue(_anchors_root(request))
+        return {"anchors": listed, "defaults": defaults}
+
     @app.post("/api/ontologies/validate")
     def validate_ontology(request: Request, body: dict[str, Any]) -> dict[str, Any]:
         """Check a draft against the corpus before it can become a version.
@@ -884,22 +1077,31 @@ def create_app(
     return app
 
 
+def _corpus_root(request: Request) -> Path | None:
+    """The cached corpus directory: the one configured, else the user's default cache. Never served."""
+    candidates = []
+    if request.app.state.corpus_dir is not None:
+        candidates.append(Path(request.app.state.corpus_dir))
+    try:
+        from simcore.ports.hf import default_cache_dir
+
+        candidates.append(Path(default_cache_dir()))
+    except Exception:
+        pass
+    for candidate in candidates:
+        if Path(candidate, "manifest.json").is_file() or Path(candidate, "persona_codes.schema.json").is_file():
+            return candidate
+    return None
+
+
 def _codebook_or_refuse(request: Request):
     """The corpus's own codebook, or an honest refusal when no corpus is cached."""
     from simcore.ports.decoder import Codebook
 
-    candidates = []
-    if request.app.state.corpus_dir is not None:
-        candidates.append(Path(request.app.state.corpus_dir, "persona_codes.schema.json"))
-    try:
-        from simcore.ports.hf import default_cache_dir
-
-        candidates.append(Path(default_cache_dir(), "persona_codes.schema.json"))
-    except Exception:
-        pass
-    for candidate in candidates:
-        if candidate.is_file():
-            return Codebook.from_json(candidate)
+    corpus = _corpus_root(request)
+    candidate = Path(corpus, "persona_codes.schema.json") if corpus is not None else None
+    if candidate is not None and candidate.is_file():
+        return Codebook.from_json(candidate)
     raise HTTPException(
         status_code=409,
         detail="no corpus is cached here, so no draft can be pinned: author freely, "
@@ -1087,6 +1289,18 @@ def _run_gate(request: Request, body: GateRequest) -> dict[str, Any]:
 
     from simcore.cli._ids import mint_run_id
 
+    if not body.fake:
+        if not body.model or not body.embed_model:
+            raise HTTPException(
+                status_code=422,
+                detail="a real gate pins its models: model and embed_model, the same ones the study will run on",
+            )
+        if not _endpoint_configured():
+            raise HTTPException(
+                status_code=409,
+                detail="no inference endpoint is configured in the server's environment: "
+                "run a fake gate, or set SIMCORE_INFERENCE_BASE_URL where the server starts",
+            )
     with tempfile.TemporaryDirectory(prefix="consumersim-brief-") as scratch:
         brief = Path(scratch, "brief.yaml")
         brief.write_text(body.brief_yaml, encoding="utf-8")
@@ -1110,6 +1324,9 @@ def _run_gate(request: Request, body: GateRequest) -> dict[str, Any]:
         ]
         if body.fake:
             argv.append("--fake")
+        else:
+            argv.extend(["--model", str(body.model), "--embed-model", str(body.embed_model)])
+        argv.extend(_corpus_flags(body))
         try:
             done = subprocess.run(
                 argv, cwd=request.app.state.engine_root, capture_output=True, text=True, timeout=240
