@@ -5,6 +5,8 @@ import React from "react";
 import Shell from "@/components/shell";
 import { PageHead, Chip, Callout, PmfBar, PmfLegend, ICONS, TrustLine } from "@/components/ui";
 import { useApi, useRunId, api, whyNot } from "@/lib/api";
+import { worldForCell } from "@/lib/worlds";
+import { FORCE_WARNING, movedInputRefusal } from "@/lib/resume";
 import { pmfMean, top2box, type OutcomeDigest, type RunSummary, type ScenarioSummary } from "@/lib/engine";
 
 interface Detail {
@@ -61,15 +63,16 @@ export default function RunPage() {
     }
   }
 
-  async function resume() {
+  async function resume(force = false) {
     if (!runId || busy) return;
+    if (force && !window.confirm(FORCE_WARNING)) return;
     setBusy("resume");
     setRefusal(null);
     try {
       await api(`/api/runs/${runId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action: "resume" }),
+        body: JSON.stringify(force ? { action: "resume", force: true } : { action: "resume" }),
       });
       setPoll((p) => p + 1);
     } catch (e) {
@@ -101,7 +104,8 @@ export default function RunPage() {
           <div className="panel-head"><h2>{watching ? "Running" : "Stopped"} — live progress</h2><span className="hint">status, recorded cost and ticks closed, published as the run works</span>
             <div className="tools" style={{ display: "flex", gap: 8 }}>
               {watching && <button className="btn sm" onClick={cancel} disabled={busy !== null}>{busy === "cancel" ? "Cancelling…" : "Cancel run"}</button>}
-              {!watching && s.status !== "completed" && <button className="btn sm" onClick={resume} disabled={busy !== null}>{busy === "resume" ? "Resuming…" : "Resume run"}</button>}
+              {!watching && s.status !== "completed" && <button className="btn sm" onClick={() => resume()} disabled={busy !== null}>{busy === "resume" ? "Resuming…" : "Resume run"}</button>}
+              {!watching && s.status !== "completed" && movedInputRefusal(s.launch_error) && <button className="btn sm" onClick={() => resume(true)} disabled={busy !== null}>Force resume…</button>}
             </div></div>
           <div className="panel-body tight"><table className="tbl">
             <thead><tr><th>World</th><th className="num">Last closed tick</th><th className="num">Turns landed</th><th>Rung in force</th></tr></thead>
@@ -133,8 +137,7 @@ export default function RunPage() {
               <thead><tr><th>Scenario</th><th>Variant · price</th><th className="num">Horizon</th><th>Tick unit</th><th>Seed</th><th>World</th><th>Status</th><th className="num">Last tick</th><th>Rungs</th></tr></thead>
               <tbody>
                 {s.scenarios.flatMap((sc, si) => s.seeds.map((seed) => {
-                  const digest = digests.find((d) => d.seed === seed);
-                  const worldId = digest?.world_id ?? s.world_ids[0];
+                  const worldId = worldForCell(digests, seed, { worldIds: s.world_ids, scenarios: s.scenarios.length, seeds: s.seeds.length });
                   const oc = s.outcomes.find((o) => o.world_id === worldId);
                   return (
                     <tr key={`${si}-${seed}`} onClick={() => worldId && setWorld(worldId)} style={{ cursor: "pointer" }}>

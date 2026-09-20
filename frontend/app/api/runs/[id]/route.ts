@@ -21,15 +21,16 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
   }
 }
 
-/* Resume a cancelled run: a re-run with the same id, skipping finished worlds. */
+/* Resume a cancelled run: a re-run with the same id, skipping finished worlds. `force` goes past a refusal for
+   a moved input, once, and the engine records what it was forced past. */
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const { id } = await ctx.params;
-  const { action } = (await req.json().catch(() => ({}))) as { action?: string };
+  const { action, force } = (await req.json().catch(() => ({}))) as { action?: string; force?: boolean };
   if (action !== "resume") return NextResponse.json({ error: "unknown action" }, { status: 422 });
   try {
     return NextResponse.json(
       await engineFetch(`/api/runs/${encodeURIComponent(id)}/resume`, {
-        method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(force === true ? { force: true } : {}),
       }),
       { status: 202 },
     );

@@ -274,3 +274,41 @@ def test_a_launch_that_names_no_scale_uses_the_default_that_passed(tmp_path, end
     _client(tmp_path).post("/api/runs", json={**REAL, "elicits": "purchase"})
     (argv,) = launched
     assert "purchase_intent=v2" in argv and "purchase_intent=v1" not in argv
+
+
+# --- a resume that the engine refused can be forced, once, on purpose -----------------------------------
+
+
+def _stopped_run(tmp_path, run_id="run-" + "0" * 24 + "81"):
+    from simcore.web._lifecycle import write_launch_record
+
+    run_dir = tmp_path / "runs" / run_id
+    run_dir.mkdir(parents=True)
+    write_launch_record(run_dir, {"argv": ["python", "-m", "simcore.cli", "concepts", "run", "b.yaml", "--run-id", run_id], "cwd": str(tmp_path)})
+    return run_id
+
+
+def test_a_resume_is_not_forced_unless_asked(tmp_path, launched):
+    run_id = _stopped_run(tmp_path)
+    assert _client(tmp_path).post(f"/api/runs/{run_id}/resume").status_code == 202
+    (argv,) = launched
+    assert "--force" not in argv
+
+
+def test_a_forced_resume_carries_the_flag_and_only_for_that_launch(tmp_path, launched):
+    from simcore.web._lifecycle import launch_record
+
+    run_id = _stopped_run(tmp_path)
+    response = _client(tmp_path).post(f"/api/runs/{run_id}/resume", json={"force": True})
+    assert response.status_code == 202, response.text
+    (argv,) = launched
+    assert argv.count("--force") == 1
+    # The record a later resume reruns is untouched: forcing is never a habit the run acquires.
+    assert "--force" not in launch_record(tmp_path / "runs" / run_id)["argv"]
+
+
+def test_a_resume_body_is_a_closed_shape(tmp_path, launched):
+    run_id = _stopped_run(tmp_path)
+    assert _client(tmp_path).post(f"/api/runs/{run_id}/resume", json={"force": "yes please"}).status_code == 422
+    assert _client(tmp_path).post(f"/api/runs/{run_id}/resume", json={"forse": True}).status_code == 422
+    assert launched == []

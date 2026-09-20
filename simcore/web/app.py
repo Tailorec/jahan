@@ -18,7 +18,7 @@ from typing import Any, Literal
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, TypeAdapter, field_validator, model_validator
 
 from simcore.analysis import trace_summary, workspace_summary, world_progress
 from simcore.runner import ENGINE_VERSION
@@ -185,6 +185,12 @@ class StudyRequest(_CorpusChoices):
         if not [part for part in parts if str(part).strip()]:
             raise ValueError("at least one replicate seed is required")
         return value
+
+
+class ResumeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    force: StrictBool = False
 
 
 class GateRequest(_CorpusChoices):
@@ -677,8 +683,13 @@ def create_app(
         return {"run_id": run_id, "stopped": stopped, "status": (entry or {}).get("status")}
 
     @app.post("/api/runs/{run_id}/resume", status_code=202)
-    def resume_run(request: Request, run_id: str) -> dict[str, Any]:
-        """Resume a cancelled run: a re-run with the same id, skipping finished worlds."""
+    def resume_run(request: Request, run_id: str, body: ResumeRequest | None = None) -> dict[str, Any]:
+        """Resume a cancelled run: a re-run with the same id, skipping finished worlds.
+
+        The engine refuses a resume whose inputs moved since the run began. `force` goes past that once, on
+        purpose: the run records what it was forced past, and the recorded launch is left as it was, so the
+        next resume is not forced by habit.
+        """
         run_dir = _run_dir(request, run_id)
         record = lifecycle.launch_record(run_dir)
         if record is None or not isinstance(record.get("argv"), list):
@@ -687,9 +698,10 @@ def create_app(
         if lifecycle.is_live(run_id):
             raise HTTPException(status_code=409, detail=f"run {run_id} is already running")
         try:
-            lifecycle.launch(
-                run_id, list(record["argv"]), str(record.get("cwd") or request.app.state.engine_root), run_dir=run_dir
-            )
+            argv = list(record["argv"])
+            if body is not None and body.force and "--force" not in argv:
+                argv.append("--force")
+            lifecycle.launch(run_id, argv, str(record.get("cwd") or request.app.state.engine_root), run_dir=run_dir)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         return {"run_id": run_id}
