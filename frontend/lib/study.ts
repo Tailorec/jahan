@@ -28,8 +28,13 @@ export interface AnchorCatalogue { anchors: AnchorInfo[]; defaults: string[] }
 export const CHANNELS = ["survey_room", "social_feed", "forum"] as const;
 export type ChannelName = (typeof CHANNELS)[number];
 
-/* Why one would choose each environment. Word of mouth is not a choice here: in a feed or a forum it emerges between
-   personas, when one reacts strongly enough and is close enough to a peer, and the peer meets it on a later tick. */
+/* Why one would choose each environment. The architecture has a world run these together — a persona reacting once per
+   channel per tick — but this build runs one platform per world, so a study picks one. Word of mouth is not a
+   choice: in a feed or a forum it rides beside the platform, when a persona reacts strongly enough and is close enough
+   to a peer, and the peer meets it on a later tick. */
+export const ONE_ENVIRONMENT_NOTE =
+  "This version runs one environment per study; running them together is designed but not built.";
+
 export const CHANNEL_GUIDE: Record<ChannelName, { summary: string; use: string }> = {
   survey_room: {
     summary: "measure purchase intent, concept alone",

@@ -8,7 +8,7 @@ import { api, useApi, whyNot } from "@/lib/api";
 import { briefToYaml, formFromBrief, splitList, type BriefForm, type FilterSpec } from "@/lib/briefYaml";
 import type { BriefRef, CategoryOntology, ClaimSource } from "@/lib/engine";
 import {
-  CHANNELS, CHANNEL_GUIDE, cachedShards, defaultAnchor, defaultSources, gateRequest, problems, studyRequest,
+  CHANNELS, CHANNEL_GUIDE, ONE_ENVIRONMENT_NOTE, cachedShards, defaultAnchor, defaultSources, gateRequest, problems, studyRequest,
   type AnchorCatalogue, type ChannelName, type CorpusInfo, type StudyForm,
 } from "@/lib/study";
 
@@ -500,7 +500,7 @@ export default function IntakePage() {
                       <select className="input" value={channel} onChange={(e) => setChannel(e.target.value as ChannelName)}>
                         {CHANNELS.map((c) => <option key={c} value={c}>{c} — {CHANNEL_GUIDE[c].summary}</option>)}
                       </select>
-                      <div className="help">{CHANNEL_GUIDE[channel].use}</div></div>
+                      <div className="help">{CHANNEL_GUIDE[channel].use} <i>{ONE_ENVIRONMENT_NOTE}</i></div></div>
                   </div>
                   <div className="field" style={{ margin: 0 }}>
                     <label>What the models cost (USD per million tokens) — optional</label>
@@ -518,7 +518,7 @@ export default function IntakePage() {
                   <select className="input" value={channel} onChange={(e) => setChannel(e.target.value as ChannelName)}>
                     {CHANNELS.map((c) => <option key={c} value={c}>{c} — {CHANNEL_GUIDE[c].summary}</option>)}
                   </select>
-                  <div className="help">{CHANNEL_GUIDE[channel].use}</div></div>
+                  <div className="help">{CHANNEL_GUIDE[channel].use} <i>{ONE_ENVIRONMENT_NOTE}</i></div></div>
               )}
               <div className="grid g2">
                 <div className="field" style={{ margin: 0 }}><label>Horizon (ticks)</label><input className="input mono" value={horizon} onChange={(e) => setHorizon(e.target.value)} /></div>
