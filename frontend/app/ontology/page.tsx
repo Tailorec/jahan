@@ -6,6 +6,7 @@ import Shell from "@/components/shell";
 import { PageHead, Callout } from "@/components/ui";
 import { api, ApiError, useApi, whyNot } from "@/lib/api";
 import type { CategoryOntology, PersonaFieldDomain } from "@/lib/engine";
+import { coverageLabel, density, DENSITY_NOTE, shouldPoll, type CoverageInfo } from "@/lib/coverage";
 
 interface CodebookHit { id: string; values: string[] }
 interface DraftAttr { id: string; domain: PersonaFieldDomain }
@@ -34,6 +35,7 @@ export default function OntologyPage() {
   const [check, setCheck] = React.useState<{ valid?: boolean; error?: string } | null>(null);
   const [checking, setChecking] = React.useState(false);
   const [saved, setSaved] = React.useState<{ category: string; version: string } | null>(null);
+  const [coverage, setCoverage] = React.useState<CoverageInfo | null>(null);
 
   const search = React.useCallback(async (q: string) => {
     if (!q.trim()) { setHits(null); return; }
@@ -54,6 +56,40 @@ export default function OntologyPage() {
     const t = setTimeout(() => search(query), 250);
     return () => clearTimeout(t);
   }, [query, search]);
+
+  const askCoverage = React.useCallback(async (retry = false) => {
+    try {
+      setCoverage(await api<CoverageInfo>("/api/corpus/coverage" + (retry ? "?retry=true" : "")));
+    } catch (e) {
+      setCoverage({ available: false, state: "failed", detail: whyNot(e) });
+    }
+  }, []);
+
+  React.useEffect(() => { askCoverage(); }, [askCoverage]);
+  React.useEffect(() => {
+    if (!shouldPoll(coverage) || coverage === null) return;
+    const t = setTimeout(() => askCoverage(), 3000);
+    return () => clearTimeout(t);
+  }, [coverage, askCoverage]);
+
+  /* What the engine counted for one attribute, or nothing where it has not counted yet. */
+  const coverageOf = (id: string) => coverage?.state === "ready" ? coverage.attributes?.[id] : undefined;
+  const coverageLine = (id: string) => {
+    const found = coverageOf(id);
+    if (!found) return null;
+    const tier = density(found.recorded);
+    return (
+      <div style={{ marginTop: 6 }}>
+        <span className={`chip ${tier === "dense" ? "ok" : tier === "sparse" ? "risk" : "plain"}`} data-coverage={tier}>
+          <span className="dot" />{coverageLabel(found.recorded)}
+        </span>
+        {DENSITY_NOTE[tier] && <div className="sub" style={{ fontSize: 11.5, marginTop: 4 }}>{DENSITY_NOTE[tier]}</div>}
+        <div className="mono sub" style={{ fontSize: 11, marginTop: 4 }}>
+          {Object.entries(found.by_source).map(([name, c]) => `${name} ${c.share === null ? "—" : `${(c.share * 100).toFixed(0)}%`}`).join(" · ")}
+        </div>
+      </div>
+    );
+  };
 
   const vocabOf = (id: string): string[] => hits?.find((h) => h.id === id)?.values ?? [];
 
@@ -143,6 +179,11 @@ export default function OntologyPage() {
             <div className="panel-head"><h2>Codebook search</h2><span className="hint">1,290 attributes with declared value sets</span></div>
             <div className="panel-body" style={{ display: "grid", gap: 8 }}>
               <input className="input mono" placeholder="search attributes — e.g. exercise, diet, age" value={query} onChange={(e) => setQuery(e.target.value)} />
+              {coverage?.state === "building" && <div className="help">Counting how populated each attribute is, once, across the cached shards…</div>}
+              {coverage?.state === "failed" && (
+                <Callout icon="alert"><div><b>Coverage could not be counted.</b> {coverage.detail}
+                  <div><button className="btn sm" style={{ marginTop: 6 }} onClick={() => askCoverage(true)}>Count again</button></div></div></Callout>
+              )}
               {(hits ?? []).map((h) => (
                 <div key={h.id} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>
                   <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -152,6 +193,7 @@ export default function OntologyPage() {
                       : <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => addAttr(h.id)}>+ Add</button>}
                   </div>
                   <div className="mono sub" style={{ fontSize: 11, marginTop: 4 }}>{h.values.join(" · ")}</div>
+                  {coverageLine(h.id)}
                 </div>
               ))}
               {query && hits?.length === 0 && <div className="empty"><b>Nothing resembles that.</b>An attribute the corpus does not carry is refused — try a shorter search.</div>}
@@ -182,6 +224,7 @@ export default function OntologyPage() {
                     </label>
                     <button className="btn quiet sm" style={{ marginLeft: "auto" }} onClick={() => { setAttrs((xs) => xs.filter((x) => x.id !== a.id)); setConditioning((c) => c.filter((x) => x !== a.id)); }}>✕</button>
                   </div>
+                  {coverageLine(a.id)}
                   {vocabOf(a.id).length > 0 && (
                     <div style={{ marginTop: 6 }}>
                       <div className="sub" style={{ fontSize: 11.5, marginBottom: 4 }}>ordinal scale — codebook labels in codebook order:</div>

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
@@ -492,6 +493,8 @@ def create_app(
     app.state.anchors_dir = str(anchors_dir) if anchors_dir is not None else None
     app.state.engine_root = str(engine_root) if engine_root is not None else str(Path.cwd())
     app.state.corpus_dir = str(corpus_dir) if corpus_dir is not None else None
+    app.state.coverage_lock = threading.Lock()
+    app.state.coverage_job = {"thread": None, "error": None}
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -1009,6 +1012,19 @@ def create_app(
             "measured_sources": sorted(name for name in sources if name != "synthetic"),
         }
 
+    @app.get("/api/corpus/coverage")
+    def read_corpus_coverage(request: Request, retry: bool = False) -> dict[str, Any]:
+        """How populated each attribute is, per source, in the shards this machine holds.
+
+        The count is made once, in the background, and saved beside the release; until it exists the
+        answer is `building`, and the ontology builder shows it as it lands. Which attribute an audience
+        is defined by decides whether a study can be drawn at all, and the codebook alone cannot say.
+        """
+        corpus = _corpus_root(request)
+        if corpus is None:
+            return {"available": False, "state": "no_corpus"}
+        return _coverage(request.app.state, corpus, retry)
+
     @app.get("/api/anchors")
     def read_anchors(request: Request) -> dict[str, Any]:
         """Every frozen anchor version with its verdict, and the scale a study defaults to.
@@ -1090,6 +1106,52 @@ def create_app(
         return JSONResponse(status_code=422, content={"detail": "\n".join(lines)})
 
     return app
+
+
+def _coverage(state: Any, corpus: Path, retry: bool) -> dict[str, Any]:
+    """The saved coverage count for the cached shards, or the state of the job making it."""
+    from simcore.ports.coverage import coverage_table, count_coverage, load_coverage
+    from simcore.ports.hf import HfCoresetSource
+
+    data = Path(corpus, "data")
+    paths = [f"data/{path.name}" for path in sorted(data.glob("persona-1m-*.parquet"))] if data.is_dir() else []
+    if not paths:
+        return {"available": False, "state": "no_shards"}
+    try:
+        source = HfCoresetSource(cache_dir=corpus, shards=paths)
+        saved = load_coverage(source)
+    except Exception as failure:
+        return {"available": False, "state": "failed", "detail": _coverage_failure(failure)}
+    if saved is not None:
+        return {"available": True, "state": "ready", "totals": saved["totals"], "attributes": coverage_table(saved)}
+    with state.coverage_lock:
+        job = state.coverage_job
+        if job["thread"] is not None and job["thread"].is_alive():
+            return {"available": False, "state": "building"}
+        if job["error"] is not None and not retry:
+            return {"available": False, "state": "failed", "detail": job["error"]}
+
+        def count() -> None:
+            try:
+                count_coverage(source)
+            except Exception as failure:
+                job["error"] = _coverage_failure(failure)
+
+        job["error"] = None
+        job["thread"] = threading.Thread(target=count, name="corpus-coverage", daemon=True)
+        job["thread"].start()
+    return {"available": False, "state": "building"}
+
+
+def _coverage_failure(failure: Exception) -> str:
+    """Why a count failed, in words that name no path on the server."""
+    from simcore.ports.hf import MissingShard, ShardMismatch
+
+    if isinstance(failure, ShardMismatch):
+        return "a cached shard does not match the release's manifest; fetch it again"
+    if isinstance(failure, MissingShard):
+        return "a shard the release names is not cached"
+    return f"the count failed ({type(failure).__name__})"
 
 
 def _corpus_root(request: Request) -> Path | None:

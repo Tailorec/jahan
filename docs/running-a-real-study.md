@@ -68,10 +68,14 @@ SIMCORE_WEB_URL=http://127.0.0.1:8000 npm run dev      # http://localhost:3000
 **Ontology builder** — choose which corpus attributes describe your audience.
 
 1. Search the codebook. Each attribute shows its real value set.
-2. **Check coverage before you choose.** Only 20 of the corpus's 1,290 attributes are populated for more than half
-   of its measured personas; 659 sit between 10% and 50% and about 600 below 10%. An attribute that sounds right
-   can be nearly empty (`habit_budget_tracking` is populated for 0.04%). The builder does not show coverage yet, so
-   this is the one step that needs care: a study can pass every check and still be undrawable.
+2. **Check coverage before you choose.** Each attribute the search returns carries how populated it is: the share
+   of the recorded (non-synthetic) personas that have it, the count behind it, and the share per source. Only about
+   20 of the corpus's 1,290 attributes are populated for more than half of them; most sit between 10% and 50% or
+   below 10%. An attribute that sounds right can be nearly empty (`habit_budget_tracking` is populated for 0.15% of
+   the personas in the cached shards, `skill_budgeting` for 11%, nearly all of it Wikipedia rows). Nearly empty
+   attributes are flagged, because an audience defined on one is unlikely to be drawn and the study will be refused at
+   its gate. The count is made once, in the background, the first time the builder is opened on a machine (seconds
+   per shard), and saved beside the corpus; the builder says so while it counts.
 3. Save. The draft is validated against the codebook and stored as a new immutable version (ADR 0044); saving the
    same version twice is refused.
 
@@ -143,6 +147,11 @@ Open `http://localhost:3000`. Pages that work on a run in flight:
 | **Trace explorer** | one persona's events, beliefs and verbatims |
 | **Scenario atlas**, **Report**, **Calibration** | results and trust, once a world has finished |
 
+A study started from the command line writes the same `launch.json` the interface does (its argv, where it ran, and
+which process it is), so restarting the engine API while it runs does not mark it `partial`, **Cancel run** stops it
+(and only it, never the terminal it was started from), and **Resume run** reruns it under the same id. A study
+started before that record existed has none, and a restart of the API will mark it `partial`.
+
 A 500-persona world took about 45–50 minutes at Titan's quota (2026-09-20 run: 3 ticks, two scored ticks of 500 answers each). Cancelling loses at most the tick in flight and the run
 can be resumed.
 
@@ -156,13 +165,9 @@ can be resumed.
 
 ## Known limits today
 
-* The interface cannot launch a sweep (a grid of scenarios), force a resume past moved inputs, or set a cache path;
-  use the command line for those.
-* A study launched from the command line has no launch record, so restarting the engine API while it runs marks it
-  `partial`. Resume it from the command line with the same arguments and `--run-id`.
+* The interface cannot launch a sweep (a grid of scenarios) or set a cache path; use the command line for those.
+  It can force a resume past a moved input, once, with a confirmation, when the engine has refused the resume.
 * Non-survey channels (`social_feed`, `forum`, `wom`) are selectable but this guide does not exercise them.
-* The ontology builder does not show attribute coverage (step 4).
-* The run page shows the first world's id for any seed whose world has not finished.
 * Communities often do not form on this corpus; polarization is then unmeasured, and says so.
 * The measured personas are dominated by two survey sources: in this study 66% Stack Overflow developers and 26%
   US General Social Survey respondents. Audiences defined by dense demographic attributes are largely developers
