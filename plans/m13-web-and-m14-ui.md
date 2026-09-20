@@ -239,3 +239,18 @@ Every box above was ticked and 1,798 tests passed. A review that exercised the r
 - **The suite's "surface" tests asserted that strings exist in the TSX** and so could not fail. They stay for the markers they check; the checks that matter now start the stack and render the pages.
 
 Not changed, and worth a decision: the recorded study `run-5t329fy3ct04k2tht5714ahms8` reports `$0.00` recorded cost across 1,804 priced calls (607,080 in / 173,881 out tokens at $0.035 / $0.14 per million pin prices, roughly $0.05) — the interface shows what the record says; whether cost accounting recorded a price-table cost there is an engine question, not an interface one.
+
+## Amendment, 2026-09-20: the real study from the interface
+
+The Phase 7 box "a real study runs from the interface end to end" was ticked while it was untrue on any machine that does not hold all ten corpus shards. The launch route passed the model pins but not `--shards`, `--sources` or the prices, so a real launch demanded every shard and died on the first missing one; the gate route could only draw the fake corpus; the intake page hard-coded the gate's seed and defaulted to a scale (`purchase_intent` v1) that fails its own check. Found by trying to run a real study through the interface.
+
+Fixed: `StudyRequest` and `GateRequest` carry the corpus choices (shards, sources, population seed), the prices and the pins; `/api/corpus` and `/api/anchors` tell the form what is cached and which scale versions passed; the request is built by `frontend/lib/study.ts` and unit-tested (`frontend/test/study.test.mts`); server side in `tests/boundary/web/test_launch_any_study.py`. A community-detection defect the new seeds exposed (`OverflowError` for a `spawn` seed above 2^63) is fixed in `simcore/population/_communities.py` without changing any partition a fitting seed already produced.
+
+Still not expressible from the interface: sweeps, `--force` resume, cache path, corpus coverage in the ontology builder. The run page shows the first world's id for a seed whose world has not finished (`frontend/app/run/page.tsx`).
+
+Two engine defects surfaced while the study ran, both of the kind "a status that says something untrue":
+
+* `finalize_world` marked the whole run `completed` as soon as *one* world was written to parquet. A study with replicate seeds reads `completed` from the end of its first world until the runner writes the true status; the Overview and `/api/runs/{id}` said so while the second world was running. Finalizing a world no longer decides the run's status; the runner's closing update does (`tests/boundary/trace/test_registry.py`).
+* `progress.json` was last written by a tick, so a finished CLI study kept saying `running`. The CLI now writes the closing status (`tests/boundary/web/test_lifecycle.py`).
+
+Verified end to end through the interface (headless Chrome, the real corpus, the real gateway): the Intake page picked the education brief, pinned Nova Micro and Titan v2, chose shards 0004/0005 and only the stackoverflow/gss sources, and launched; the engine ran the argv the form built, the gate passed, and the run completed with all artefacts (`runs/run-0dvscy7mf2b2ft3s2edx6c7ady`, `runs/run-1j2kbd0g9ypvvwnvp9r8e8tsxt`). Both are 30-persona runs, and most of their calls were served from the response cache (cost recorded as `cache`, $0.00 and $0.00016), so they prove the launch path and not the models' behaviour.

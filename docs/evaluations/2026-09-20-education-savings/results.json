@@ -1,0 +1,194 @@
+{
+  "expectation_1_parents_highest": {
+    "per_world": {
+      "283f4b8e53e7": false,
+      "7991c44fc908": false
+    },
+    "pooled": false
+  },
+  "per_world": {
+    "283f4b8e53e7": {
+      "early_career": {
+        "ci95": [
+          0.319,
+          0.3633
+        ],
+        "mean_expected_rating": 3.1282,
+        "mean_top_two_box": 0.3409,
+        "of_population": 150,
+        "personas_answering": 150,
+        "turns": 300
+      },
+      "parents_minus_early_career": {
+        "ci95": [
+          -0.0269,
+          0.0297
+        ],
+        "difference": 0.0015
+      },
+      "parents_minus_retirees": {
+        "ci95": [
+          -0.0551,
+          -0.0099
+        ],
+        "difference": -0.0334
+      },
+      "parents_of_young_kids": {
+        "ci95": [
+          0.3246,
+          0.3613
+        ],
+        "mean_expected_rating": 3.1384,
+        "mean_top_two_box": 0.3424,
+        "of_population": 200,
+        "personas_answering": 200,
+        "turns": 400
+      },
+      "retirees": {
+        "ci95": [
+          0.3632,
+          0.3886
+        ],
+        "mean_expected_rating": 3.1994,
+        "mean_top_two_box": 0.3758,
+        "of_population": 150,
+        "personas_answering": 150,
+        "turns": 300
+      }
+    },
+    "7991c44fc908": {
+      "early_career": {
+        "ci95": [
+          0.3424,
+          0.3856
+        ],
+        "mean_expected_rating": 3.1799,
+        "mean_top_two_box": 0.3637,
+        "of_population": 150,
+        "personas_answering": 150,
+        "turns": 300
+      },
+      "parents_minus_early_career": {
+        "ci95": [
+          -0.1158,
+          -0.0643
+        ],
+        "difference": -0.0902
+      },
+      "parents_minus_retirees": {
+        "ci95": [
+          -0.1055,
+          -0.0705
+        ],
+        "difference": -0.0877
+      },
+      "parents_of_young_kids": {
+        "ci95": [
+          0.2602,
+          0.2873
+        ],
+        "mean_expected_rating": 2.9779,
+        "mean_top_two_box": 0.2736,
+        "of_population": 200,
+        "personas_answering": 200,
+        "turns": 400
+      },
+      "retirees": {
+        "ci95": [
+          0.3505,
+          0.3726
+        ],
+        "mean_expected_rating": 3.135,
+        "mean_top_two_box": 0.3613,
+        "of_population": 150,
+        "personas_answering": 150,
+        "turns": 300
+      }
+    }
+  },
+  "pooled": {
+    "early_career": {
+      "ci95": [
+        0.3386,
+        0.3665
+      ],
+      "distinct_verbatims": 155,
+      "mean_top_two_box": 0.3523,
+      "personas_answering": 150,
+      "respondent_sources": {
+        "stackoverflow": 145,
+        "wiki": 5
+      },
+      "verbatim_sample": [
+        "I'm curious but not sure yet. It sounds useful but I need to think more about it.",
+        "I'm still on the fence about buying it, but it's starting to look more appealing as I think more about it.",
+        "I'm curious about the app but not sure if it fits my current financial situation."
+      ],
+      "verbatims": 600
+    },
+    "parents_minus_early_career": {
+      "ci95": [
+        -0.0634,
+        -0.0249
+      ],
+      "difference": -0.0443
+    },
+    "parents_minus_retirees": {
+      "ci95": [
+        -0.0756,
+        -0.0458
+      ],
+      "difference": -0.0606
+    },
+    "parents_of_young_kids": {
+      "ci95": [
+        0.2956,
+        0.3201
+      ],
+      "distinct_verbatims": 200,
+      "mean_top_two_box": 0.308,
+      "personas_answering": 200,
+      "respondent_sources": {
+        "stackoverflow": 185,
+        "wiki": 15
+      },
+      "verbatim_sample": [
+        "I'm open to it but need more details on how it works and its benefits.",
+        "I'm very likely to purchase the product now that I understand how it works and its benefits.",
+        "I'm interested but need more details on how it works and its costs."
+      ],
+      "verbatims": 800
+    },
+    "retirees": {
+      "ci95": [
+        0.3604,
+        0.3768
+      ],
+      "distinct_verbatims": 135,
+      "mean_top_two_box": 0.3686,
+      "personas_answering": 150,
+      "respondent_sources": {
+        "gss": 130,
+        "stackoverflow": 1,
+        "wiki": 19
+      },
+      "verbatim_sample": [
+        "I might consider it if it's easy to use and helps save for my grandkids' education.",
+        "I'm likely to buy it because it's easy to use and helps me save for my grandkids' education.",
+        "I'm somewhat interested but need more details on how it works and its benefits."
+      ],
+      "verbatims": 600
+    }
+  },
+  "population_by_audience": {
+    "early_career": 150,
+    "parents_of_young_kids": 200,
+    "retirees": 150
+  },
+  "run_id": "run-71j7wta9hzpxy80dzmk91a65r2",
+  "unscored_turns": {},
+  "worlds": [
+    "283f4b8e53e7",
+    "7991c44fc908"
+  ]
+}

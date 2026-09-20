@@ -1,0 +1,113 @@
+{
+  "category": "education_savings_app",
+  "version": "1.0.0",
+  "attribute_domains": {
+    "life_stage": "demographic",
+    "age_bracket": "demographic",
+    "highest_education": "demographic",
+    "region": "demographic",
+    "demo_employment_status": "economic"
+  },
+  "conditioning_set": [
+    "demo_employment_status",
+    "highest_education",
+    "life_stage",
+    "age_bracket",
+    "region"
+  ],
+  "completion_policy": {
+    "completable_domains": [
+      "economic",
+      "media",
+      "decision_rule"
+    ]
+  },
+  "ordinal_scales": [
+    {
+      "attribute": "age_bracket",
+      "bands": [
+        {
+          "label": "18-24",
+          "midpoint": 21.0
+        },
+        {
+          "label": "25-34",
+          "midpoint": 29.5
+        },
+        {
+          "label": "35-44",
+          "midpoint": 39.5
+        },
+        {
+          "label": "45-54",
+          "midpoint": 49.5
+        },
+        {
+          "label": "55-64",
+          "midpoint": 59.5
+        },
+        {
+          "label": "65-74",
+          "midpoint": 69.5
+        },
+        {
+          "label": "75-84",
+          "midpoint": 79.5
+        },
+        {
+          "label": "85+",
+          "midpoint": 88.0
+        }
+      ]
+    },
+    {
+      "attribute": "highest_education",
+      "bands": [
+        {
+          "label": "Secondary",
+          "midpoint": 1.0
+        },
+        {
+          "label": "Vocational / cert",
+          "midpoint": 2.0
+        },
+        {
+          "label": "Some college",
+          "midpoint": 3.0
+        },
+        {
+          "label": "Associate's",
+          "midpoint": 4.0
+        },
+        {
+          "label": "Bachelor's",
+          "midpoint": 5.0
+        },
+        {
+          "label": "Master's",
+          "midpoint": 6.0
+        },
+        {
+          "label": "Doctorate",
+          "midpoint": 7.0
+        },
+        {
+          "label": "Postdoc",
+          "midpoint": 8.0
+        }
+      ]
+    }
+  ],
+  "relevance_order": [
+    "life_stage",
+    "demo_employment_status",
+    "age_bracket",
+    "highest_education",
+    "region"
+  ],
+  "anchor_sets": {
+    "purchase_intent": "purchase-intent-v1"
+  },
+  "targets": null,
+  "drafting": null
+}
