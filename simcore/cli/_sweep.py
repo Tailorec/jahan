@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import yaml
@@ -19,6 +20,7 @@ import yaml
 from simcore.schemas import GateFailure, Scenario, SweepGrid, SweepPlan, resolve_audience_weights
 
 from ._concepts import add_backend_arguments
+from ._launch_record import record_launch
 from ._study import (
     DEFAULT_VALIDATION,
     analyze_study,
@@ -98,6 +100,7 @@ def cmd_sweep_run(argv: list[str] | None = None) -> int:
         budget=args.budget,
         args=args,
     )
+    record_launch(handles.run_dir, handles.run_id, ["sweep", "run", *(argv if argv is not None else sys.argv[3:])])
     result = run_study(handles, channel=args.channel, force=args.force)
 
     if any(outcome.status.value == "completed" for outcome in result.outcomes):

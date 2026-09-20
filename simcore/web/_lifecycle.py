@@ -34,18 +34,20 @@ _POLL_STEP = 0.05
 
 
 class _Survivor:
-    """A study started by an earlier server and still running: known by its pid alone.
+    """A study this server did not start and that is still running: known by its pid and when it began.
 
     It answers the three questions the lifecycle asks of a process — has it
-    exited, wait for it, and which process is it — the way a `Popen` does.
+    exited, wait for it, and which process is it — the way a `Popen` does. It is
+    a study an earlier server started, or one started from the command line.
     """
 
-    def __init__(self, pid: int, run_id: str) -> None:
+    def __init__(self, pid: int, run_id: str, started: str | None = None) -> None:
         self.pid = pid
         self._run_id = run_id
+        self._started = started
 
     def poll(self) -> int | None:
-        return None if _is_the_run(self.pid, self._run_id) else 0
+        return None if _is_the_run(self.pid, self._run_id, self._started) else 0
 
     def wait(self, timeout: float | None = None) -> int:
         waited = 0.0
@@ -57,22 +59,42 @@ class _Survivor:
         return 0
 
     def kill(self) -> None:
-        try:
-            os.killpg(os.getpgid(self.pid), signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
+        _signal(self.pid, signal.SIGKILL)
 
 
 _processes: dict[str, subprocess.Popen | _Survivor] = {}
 _lock = threading.Lock()
 
 
-def _is_the_run(pid: int, run_id: str) -> bool:
+def process_start(pid: int) -> str | None:
+    """When the process began, in the kernel's own ticks; `None` where `/proc` is not there to say."""
+    try:
+        return Path("/proc", str(pid), "stat").read_text().rsplit(")", 1)[1].split()[19]
+    except (OSError, IndexError):
+        return None
+
+
+def _signal(pid: int, sig: int) -> None:
+    """Signal a study. Its whole group only when it leads one: a study this server started is its own
+    session, but a study run from a terminal shares the shell's group, and signalling that would take the
+    shell and everything piped beside it."""
+    try:
+        if os.getpgid(pid) == pid:
+            os.killpg(pid, sig)
+        else:
+            os.kill(pid, sig)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def _is_the_run(pid: int, run_id: str, started: str | None = None) -> bool:
     """True when `pid` is alive and is this run's study, not whatever inherited the number.
 
-    A pid alone proves nothing after a reboot or a long uptime: the study's argv
-    carries its run id, so the process must name it. Where `/proc` is absent the
-    signal probe is all the platform offers.
+    A pid alone proves nothing after a reboot or a long uptime. The study's argv
+    carries its run id, so a process that names it is the study; a study run from
+    the command line may have minted its id and not carry it, and is known instead
+    by the start time its launch record kept. Where `/proc` is absent the signal
+    probe is all the platform offers.
     """
     try:
         os.kill(pid, 0)
@@ -87,7 +109,9 @@ def _is_the_run(pid: int, run_id: str) -> bool:
         argv = Path("/proc", str(pid), "cmdline").read_bytes().split(b"\0")
     except (OSError, IndexError):
         return True
-    return run_id.encode("utf-8") in argv
+    if run_id.encode("utf-8") in argv:
+        return True
+    return started is not None and process_start(pid) == started
 
 
 def _prune() -> None:
@@ -166,17 +190,11 @@ def terminate(run_id: str, timeout: float = 10.0) -> bool:
     proc = live_process(run_id)
     if proc is None:
         return False
-    try:
-        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        pass
+    _signal(proc.pid, signal.SIGTERM)
     try:
         proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            pass
+        _signal(proc.pid, signal.SIGKILL)
         proc.wait(timeout=timeout)
     _prune()
     return True
@@ -235,21 +253,28 @@ def sweep_orphans(runs_dir: str | Path) -> list[str]:
     if root.is_dir():
         for child in sorted(root.iterdir()):
             if child.is_dir() and not is_live(child.name):
-                if _adopt(child):
+                if adopt(child):
                     continue
                 if mark_interrupted(child, child.name):
                     swept.append(child.name)
     return swept
 
 
-def _adopt(run_dir: Path) -> bool:
-    """Take over a study an earlier server started, if its process is still running."""
+def adopt(run_dir: Path) -> bool:
+    """Take over a study this server did not start, if its process is still running.
+
+    Its launch record names the process: an earlier server wrote it, or the command line did.
+    """
+    if live_process(run_dir.name) is not None:
+        return True
     record = launch_record(run_dir)
     pid = (record or {}).get("pid")
-    if not isinstance(pid, int) or not _is_the_run(pid, run_dir.name):
+    started = (record or {}).get("started")
+    started = started if isinstance(started, str) else None
+    if not isinstance(pid, int) or not _is_the_run(pid, run_dir.name, started):
         return False
     with _lock:
-        _processes.setdefault(run_dir.name, _Survivor(pid, run_dir.name))
+        _processes.setdefault(run_dir.name, _Survivor(pid, run_dir.name, started))
     return True
 
 
@@ -267,12 +292,14 @@ def wait_for_exit(run_id: str, timeout: float) -> bool:
 
 
 __all__ = [
+    "adopt",
     "is_live",
     "launch",
     "launch_record",
     "live_process",
     "log_tail",
     "mark_interrupted",
+    "process_start",
     "sweep_orphans",
     "terminate",
     "wait_for_exit",

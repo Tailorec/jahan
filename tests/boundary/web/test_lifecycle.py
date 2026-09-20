@@ -219,18 +219,113 @@ def test_a_completed_run_resumes_by_skipping_finished_worlds(tmp_path):
     assert (runs / run_id / "trace-summary.json").read_bytes() == before
 
 
-def test_a_run_started_elsewhere_resumes_truthfully(tmp_path, monkeypatch):
-    from tests.boundary.cli.support import fake_args, run_command
+def test_a_run_started_from_the_command_line_leaves_a_record_a_server_can_resume_from(tmp_path):
+    import subprocess
+    import sys
 
-    monkeypatch.chdir(tmp_path)
+    from tests.boundary.cli.support import fake_args
+
     out = tmp_path / "runs"
     run_id = "run-" + "0" * 24 + "74"
-    code, output = run_command(*fake_args(out, run_id, horizon=1))
-    assert code == 0, output
+    # A real process, as a person's terminal would start it: one that has exited by the time a server looks.
+    done = subprocess.run(
+        [sys.executable, "-m", "simcore.cli", *fake_args(out, run_id, horizon=1)],
+        cwd=tmp_path, capture_output=True, text=True, timeout=300,
+    )
+    assert done.returncode == 0, done.stderr[-2000:]
+
+    record = json.loads((out / run_id / "launch.json").read_text())
+    assert record["argv"][1:4] == ["-m", "simcore.cli", "concepts"]
+    assert record["argv"][record["argv"].index("--run-id") + 1] == run_id
+    assert record["cwd"] == str(tmp_path)
+    assert isinstance(record["pid"], int) and record["started"]
 
     client = _client(out)
+    assert not is_live(run_id)
     response = client.post(f"/api/runs/{run_id}/resume")
-    assert response.status_code == 409  # no launch record: nothing to re-run
+    assert response.status_code == 202, response.text
+    detail, _ = _poll(client, run_id)
+    assert detail["status"] == "completed"
+
+
+def test_a_minted_run_id_is_written_into_the_argv_a_resume_reruns(tmp_path):
+    from simcore.cli._launch_record import record_launch
+
+    run_id = "run-00000000000000000000000004"
+    record_launch(tmp_path, run_id, ["concepts", "run", "brief.yaml", "--n", "10"], cwd=tmp_path)
+    argv = json.loads((tmp_path / "launch.json").read_text())["argv"]
+    assert argv[-2:] == ["--run-id", run_id]
+    # An argv a server already recorded is the one a resume reruns: the record only adds the process.
+    record_launch(tmp_path, run_id, ["something", "else"], cwd=tmp_path)
+    assert json.loads((tmp_path / "launch.json").read_text())["argv"] == argv
+
+
+def _outsider(tmp_path):
+    """A process nothing in its argv ties to the run, as a command-line study minted its own id."""
+    import subprocess
+    import sys
+
+    return subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"], start_new_session=False)
+
+
+def _record_of(proc, run_dir):
+    from simcore.web._lifecycle import process_start, write_launch_record
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    write_launch_record(run_dir, {"argv": ["x"], "cwd": str(run_dir), "pid": proc.pid, "started": process_start(proc.pid)})
+
+
+def test_a_command_line_study_still_running_is_not_swept_when_a_server_starts(tmp_path):
+    from simcore.web._lifecycle import adopt
+    from tests.boundary.trace.support import seed_header_and_entry
+
+    run_id = "run-00000000000000000000000001"
+    run_dir = tmp_path / "runs" / run_id
+    seed_header_and_entry(TraceStore(run_dir / "trace"))
+    proc = _outsider(tmp_path)
+    try:
+        _record_of(proc, run_dir)
+        assert run_id not in sweep_orphans(tmp_path / "runs")
+        assert TraceStore(run_dir / "trace").registry.entry(run_id).status.value == "running"
+        assert is_live(run_id)
+    finally:
+        proc.kill()
+        proc.wait()
+    assert not is_live(run_id)
+    assert adopt(run_dir) is False
+
+
+def test_a_recycled_pid_is_not_taken_for_the_study(tmp_path):
+    from simcore.web._lifecycle import adopt, write_launch_record
+
+    run_id = "run-00000000000000000000000002"
+    run_dir = tmp_path / "runs" / run_id
+    run_dir.mkdir(parents=True)
+    proc = _outsider(tmp_path)
+    try:
+        write_launch_record(run_dir, {"argv": ["x"], "cwd": str(run_dir), "pid": proc.pid, "started": "1"})
+        assert adopt(run_dir) is False
+        assert not is_live(run_id)
+    finally:
+        proc.kill()
+        proc.wait()
+
+
+def test_cancelling_a_command_line_study_stops_it_and_not_the_shell_that_ran_it(tmp_path):
+    from simcore.web._lifecycle import adopt, terminate
+
+    run_id = "run-00000000000000000000000003"
+    run_dir = tmp_path / "runs" / run_id
+    proc = _outsider(tmp_path)  # shares this test's process group, as a command in a terminal does
+    try:
+        _record_of(proc, run_dir)
+        assert adopt(run_dir)
+        assert terminate(run_id, timeout=10.0)
+        assert proc.wait(timeout=10) is not None
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    # Reaching here means the group was not signalled: this process is the group's other member.
 
 
 def test_orphans_are_swept_into_a_truthful_status_on_start(tmp_path):

@@ -629,6 +629,8 @@ def create_app(
             )
         run_id = body.run_id or mint_run_id()
         run_dir = Path(_runs_dir(request), run_id)
+        if run_dir.is_dir():
+            lifecycle.adopt(run_dir)
         if lifecycle.is_live(run_id):
             raise HTTPException(status_code=409, detail=f"run {run_id} is already running")
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -667,7 +669,7 @@ def create_app(
     @app.delete("/api/runs/{run_id}")
     def cancel_run(request: Request, run_id: str) -> dict[str, Any]:
         """Stop a run, losing at most the tick in flight; the trace stays valid."""
-        _run_dir(request, run_id)
+        lifecycle.adopt(_run_dir(request, run_id))
         stopped = lifecycle.terminate(run_id)
         if stopped:
             lifecycle.mark_interrupted(Path(_runs_dir(request), run_id), run_id)
@@ -681,6 +683,7 @@ def create_app(
         record = lifecycle.launch_record(run_dir)
         if record is None or not isinstance(record.get("argv"), list):
             raise HTTPException(status_code=409, detail=f"run {run_id} was not started here and names no relaunch")
+        lifecycle.adopt(run_dir)
         if lifecycle.is_live(run_id):
             raise HTTPException(status_code=409, detail=f"run {run_id} is already running")
         try:
@@ -1126,6 +1129,7 @@ def _run_entry(run_dir: Path, request: Request | None = None) -> dict[str, Any] 
     from the registry entry and the live views instead — the entry is the
     published cache of what the trace already says.
     """
+    lifecycle.adopt(run_dir)
     result = _read_json_silent(Path(run_dir, "result.json"))
     gate = _read_json_silent(Path(run_dir, "gate-report.json"))
     report = _read_json_silent(Path(run_dir, "report.json"))
