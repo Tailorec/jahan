@@ -48,7 +48,7 @@ _MONEY_WORDS = frozenset({
 
 _DECIDE_WORDS = frozenset({"decision", "risk", "choice", "style", "closure", "impuls"})
 
-_MEDIA_WORDS = frozenset({"media", "read", "watch", "news", "social", "linguistic", "language", "learn"})
+_MEDIA_WORDS = frozenset({"media", "read", "watch", "news", "social", "linguistic", "language"})
 
 
 def _haystack(attribute: str, label: str, category: str) -> str:
@@ -123,7 +123,7 @@ def kind_of(attribute: str, label: str = "", category: str = "") -> str:
         return "Money & work"
     if _has_any(hay, _DECIDE_WORDS) or family.startswith("risk"):
         return "How they decide"
-    if _has_any(hay, _MEDIA_WORDS) or family in {"linguistic", "learning"}:
+    if _has_any(hay, _MEDIA_WORDS) or family == "linguistic":
         return "What they read & watch"
     if family in {"personality", "values & motivation", "worldview", "state"}:
         return "How they think"

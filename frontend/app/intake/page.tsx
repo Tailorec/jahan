@@ -110,6 +110,7 @@ export default function IntakePage() {
   const loadedFirst = React.useRef(false);
   React.useEffect(() => {
     if (!briefs?.length || loadedFirst.current) return;
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("from") === "who") return;
     loadedFirst.current = true;
     loadBrief(briefs.find((x) => x.name === "protein_water") ?? briefs[0]);
   }, [briefs, loadBrief]);

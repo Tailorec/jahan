@@ -55,6 +55,7 @@ def test_measures_marks_feelings_not_doings():
 def test_kind_in_plain_words():
     assert kind_of("age_bracket", "Age bracket", "Demographic: Core") == "Who they are"
     assert kind_of("demo_household_income", "Household income", "Demographic: Money") == "Money & work"
+    assert kind_of("highest_education", "Highest education", "Learning: Academic") == "Who they are"
 
 
 def test_interface_uses_glossary_words():

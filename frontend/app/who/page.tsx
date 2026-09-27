@@ -53,6 +53,7 @@ export default function WhoPage() {
   const [query, setQuery] = React.useState("");
   const [hits, setHits] = React.useState<CodebookHit[] | null>(null);
   const [meaningNote, setMeaningNote] = React.useState<string | null>(null);
+  const [searchMode, setSearchMode] = React.useState("words");
   const [corpusMissing, setCorpusMissing] = React.useState(false);
   const [rows, setRows] = React.useState<DraftRow[]>([]);
   const [coverage, setCoverage] = React.useState<CoverageInfo | null>(null);
@@ -81,6 +82,7 @@ export default function WhoPage() {
       const r = JSON.parse(requiredKey).join(",");
       const d = await api<CodebookReply>(`/api/codebook?query=${encodeURIComponent(q)}&limit=12&mode=meaning&sources=${encodeURIComponent(s)}&required=${encodeURIComponent(r)}`);
       setHits(d.attributes);
+      setSearchMode(d.mode === "meaning" ? "meaning" : "words");
       setMeaningNote(d.meaning_available ? null : d.meaning_note);
       setCorpusMissing(false);
     } catch (e) {
@@ -750,7 +752,7 @@ export default function WhoPage() {
             </div>
           </div>
           <div className="panel" style={{ marginTop: 16 }}>
-            <div className="panel-head"><h2>Find more attributes</h2><span className="hint">search by words</span></div>
+            <div className="panel-head"><h2>Find more attributes</h2><span className="hint">search by {searchMode}</span></div>
             <div className="panel-body" style={{ display: "grid", gap: 8 }}>
               <input className="input mono" placeholder="search attributes — e.g. kids, money, wealthy" value={query} onChange={(e) => setQuery(e.target.value)} />
               {coverage?.state === "failed" && (
