@@ -69,3 +69,24 @@ def test_a_fitting_audience_blocks_nothing():
 
 def test_no_audience_blocks_continue():
     assert any("audience" in blocker for blocker in continue_blockers({"id": "x"}, [], [], [], []))
+
+
+def test_the_preview_route_counts_and_writes_the_ledger(tmp_path):
+    # Every head count on the page arrives through this route; it once failed on every request.
+    from fastapi.testclient import TestClient
+
+    from simcore.ports.hf import HfCoresetSource
+    from simcore.ports.matrix import build_matrix
+    from simcore.web import create_app
+    from tests.boundary.ports.test_index_catalog import COLUMNS, fake_cache
+
+    cache = fake_cache(tmp_path)
+    build_matrix(HfCoresetSource(cache_dir=cache))
+    client = TestClient(create_app(runs_dir=tmp_path / "runs", ontology_dir=tmp_path / "ontologies", corpus_dir=cache))
+    column = COLUMNS[0]
+    body = client.post("/api/audiences/preview", json={
+        "sources": ["gss", "stackoverflow"], "required": [], "study_size": 10,
+        "audiences": [{"name": "a", "share": 1.0, "filters": {column["id"]: column["values"][:1]}}],
+    })
+    assert body.status_code == 200, body.text
+    assert body.json()["audiences"][0]["quota"] == 10 and isinstance(body.json()["assumptions"], list)

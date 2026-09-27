@@ -1468,7 +1468,7 @@ def create_app(
         """Each audience's head count against its quota at the study size, its
         source mix, and what each filter costs. Counted by the engine over the
         persona value matrix; this serialises it."""
-        from simcore.population import preview_audiences
+        from simcore.population import assumption_entries, preview_audiences
         from simcore.ports.hf import HfCoresetSource
         from simcore.ports.matrix import load_matrix
 
