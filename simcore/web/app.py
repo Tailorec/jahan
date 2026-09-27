@@ -1355,6 +1355,50 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(exc))
         return {"state": "ready", "audiences": fitted}
 
+    @app.post("/api/draft/followup")
+    def followup_route(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """A follow-up in the same box: naming a group adds it, naming none
+        refines every existing audience. Never changes the category."""
+        from simcore.population import apply_followup
+        from simcore.ports.embeddings import codebook_digest, embed_model, load_embeddings
+        from simcore.ports.hf import HfCoresetSource
+        from simcore.ports.matrix import load_matrix
+
+        text = body.get("text") or ""
+        if not isinstance(text, str) or not text.strip():
+            raise HTTPException(status_code=422, detail="say what to add or change")
+        codebook = _codebook_or_refuse(request)
+        corpus = _corpus_root(request)
+        try:
+            matrix = load_matrix(HfCoresetSource(cache_dir=corpus))
+        except Exception as failure:
+            raise HTTPException(status_code=409, detail=_pool_failure(failure))
+        if matrix is None:
+            return {"state": "building"}
+        embeddings = load_embeddings(corpus, codebook_digest(corpus), embed_model())
+        if embeddings is None:
+            raise HTTPException(
+                status_code=409,
+                detail="follow-ups are unavailable until search by meaning lands — it is building",
+            )
+        audiences = body.get("audiences") or []
+        wanted = body.get("sources")
+        try:
+            out = apply_followup(
+                _chat_json, text.strip(), audiences,
+                tuple(wanted) if wanted is not None else matrix.sources,
+                matrix, codebook, embeddings,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except Exception as failure:
+            raise HTTPException(
+                status_code=409,
+                detail=f"the language model could not be reached ({type(failure).__name__})",
+            )
+        out["state"] = "ready"
+        return out
+
     @app.post("/api/who/blockers")
     def blockers_route(request: Request, body: dict[str, Any]) -> dict[str, Any]:
         """Exactly what still stands in the way of Continue, derived by the engine."""

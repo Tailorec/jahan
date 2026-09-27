@@ -8,11 +8,11 @@ from ._assess import assess
 from ._audiences import TEXT_LABEL, TEXT_SOURCES, AudienceHeadCount, assumption_entries, preview_audiences
 from ._build import BuiltPopulation, build
 from ._describe import Group, Reading, describe, list_categories, match_category, read_description, sanitise
-from ._draft import Draft, DraftQuestion, cross_survey_core, draft, resolve, settle
+from ._draft import Draft, DraftQuestion, apply_followup, cross_survey_core, draft, resolve, settle
 from ._fit import continue_blockers, fit_to_quotas
 from ._search import search_attributes
 from ._interpret import interpret_audience
 from ._pool import CandidatePool, RequirementCost, alternatives, describe_pool, value_counts
 from ._preview import PreviewRequest, preview
 
-__all__ = ["AudienceHeadCount", "BuiltPopulation", "CandidatePool", "Draft", "DraftQuestion", "Group", "PreviewRequest", "Reading", "RequirementCost", "TEXT_LABEL", "TEXT_SOURCES", "alternatives", "assess", "assumption_entries", "build", "continue_blockers", "cross_survey_core", "describe", "describe_pool", "draft", "fit_to_quotas", "interpret_audience", "list_categories", "match_category", "preview", "preview_audiences", "read_description", "resolve", "sanitise", "search_attributes", "settle", "value_counts"]
+__all__ = ["AudienceHeadCount", "BuiltPopulation", "CandidatePool", "Draft", "DraftQuestion", "Group", "PreviewRequest", "Reading", "RequirementCost", "TEXT_LABEL", "TEXT_SOURCES", "alternatives", "assess", "assumption_entries", "apply_followup", "build", "continue_blockers", "cross_survey_core", "describe", "describe_pool", "draft", "fit_to_quotas", "interpret_audience", "list_categories", "match_category", "preview", "preview_audiences", "read_description", "resolve", "sanitise", "search_attributes", "settle", "value_counts"]

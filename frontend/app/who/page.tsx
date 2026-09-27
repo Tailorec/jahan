@@ -141,6 +141,39 @@ export default function WhoPage() {
   const [questions, setQuestions] = React.useState<DraftQuestion[]>([]);
   const [blockers, setBlockers] = React.useState<string[] | null>(null);
 
+  interface Turn { text: string; matched: string[]; missing: { phrase: string; missing: string }[] }
+  const [turns, setTurns] = React.useState<Turn[]>([]);
+  const [followup, setFollowup] = React.useState("");
+  const [followingUp, setFollowingUp] = React.useState(false);
+
+  async function sendFollowup() {
+    if (!followup.trim() || followingUp) return;
+    setFollowingUp(true);
+    try {
+      const d = await api<{ state: string; audiences: Audience[]; added: string[]; questions: DraftQuestion[]; unmatched: { phrase: string; missing: string }[]; fits: Record<string, unknown> }>("/api/draft/followup", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: followup, audiences, sources: JSON.parse(sourcesKey) }),
+      });
+      if (d.state === "ready") {
+        const added = new Set(d.added ?? []);
+        setAudiences(d.audiences.map((a) => ({
+          name: a.name, share: added.has(a.name) ? null : a.share,
+          filters: a.filters, descriptions: a.descriptions ?? [], changes: (a as Audience).changes ?? [],
+        })));
+        setQuestions((qs) => [...qs, ...(d.questions ?? [])]);
+        setTurns((ts) => [...ts, {
+          text: followup,
+          matched: Object.entries(d.fits ?? {}).map(([phrase]) => phrase),
+          missing: d.unmatched ?? [],
+        }]);
+        setFollowup("");
+      }
+    } catch {
+      setTurns((ts) => [...ts, { text: followup, matched: [], missing: [{ phrase: followup, missing: "the follow-up could not be read" }] }]);
+    }
+    setFollowingUp(false);
+  }
+
   async function fitIt(audiences: Audience[]) {
     try {
       const parsed = JSON.parse(draftKey);
@@ -169,6 +202,11 @@ export default function WhoPage() {
       setQuestions(d.questions ?? []);
       const fresh = (d.audiences ?? []).map((a) => ({ name: a.name, share: a.share, filters: a.filters, descriptions: a.descriptions ?? [] }));
       setAudiences(fresh);
+      setTurns((ts) => [...ts, {
+        text: description,
+        matched: fresh.flatMap((a, i) => Object.entries((d.audiences ?? [])[i]?.phrases ?? {}).map(([attr, phrase]) => `"${phrase}" → ${attr}`)),
+        missing: d.unmatched ?? [],
+      }]);
       fitIt(fresh);
       setRows((rs) => {
         const next = [...rs];
@@ -461,19 +499,19 @@ export default function WhoPage() {
               </div>
             </div>
           )}
-          {drafted && (
+          {turns.length > 0 && (
             <div className="panel" style={{ marginTop: 16 }}>
-              <div className="panel-head"><h2>Conversation</h2><span className="hint">how each phrase was matched</span></div>
-              <div className="panel-body" style={{ display: "grid", gap: 6 }}>
-                {(drafted.audiences ?? []).map((a, i) => (
+              <div className="panel-head"><h2>Conversation</h2><span className="hint">how each message was matched</span></div>
+              <div className="panel-body" style={{ display: "grid", gap: 8 }}>
+                {turns.map((t, i) => (
                   <div key={i} style={{ fontSize: 12.5 }}>
-                    <b>{a.name}</b>: {Object.entries(a.phrases ?? {}).map(([attr, phrase]) => `"${phrase}" → ${attr} (${(a.filters[attr] ?? []).join(" / ")})`).join("; ") || "—"}
+                    <div><b>You:</b> {t.text}</div>
+                    {t.matched.length > 0 && <div className="sub" style={{ marginTop: 2 }}>Matched: {t.matched.join("; ")}</div>}
+                    {t.missing.map((u, j) => (
+                      <div key={j} className="sub" style={{ marginTop: 2 }}>Could not find <b>&quot;{u.phrase}&quot;</b> — {u.missing}</div>
+                    ))}
                   </div>
                 ))}
-                {(drafted.unmatched ?? []).map((u, i) => (
-                  <div key={`u${i}`} className="sub" style={{ fontSize: 12.5 }}>Could not find <b>&quot;{u.phrase}&quot;</b> — {u.missing}</div>
-                ))}
-                {(drafted.unmatched ?? []).length === 0 && <div className="sub" style={{ fontSize: 12.5 }}>Everything was matched.</div>}
               </div>
             </div>
           )}
@@ -678,6 +716,21 @@ export default function WhoPage() {
           </div>
         </div>
       </div>
+      {category && (
+        <div style={{ position: "sticky", bottom: 0, padding: "10px 0 4px", background: "var(--bg)" }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              className="input"
+              placeholder="Add a group, or tell me more — e.g. “add students”, “all of them in North America”"
+              value={followup}
+              onChange={(e) => setFollowup(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") sendFollowup(); }}
+              style={{ flex: 1 }}
+            />
+            <button className="btn primary sm" disabled={followingUp || !followup.trim()} onClick={sendFollowup}>{followingUp ? "…" : "Send"}</button>
+          </div>
+        </div>
+      )}
     </Shell>
   );
 }

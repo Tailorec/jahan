@@ -192,6 +192,73 @@ def settle(chat_json, phrase: str, sources, matrix, codebook, embeddings, contex
     return {"phrase": phrase, "agreed": False, "choices": good}
 
 
+def apply_followup(chat_json, text: str, audiences: list[dict], sources, matrix, codebook, embeddings) -> dict:
+    """A follow-up in the same box: naming a group adds it under the same
+    category with its own share; naming none refines every existing audience.
+    Each phrase is matched and checked as the first description was — the
+    category and its conditioning set never change here."""
+    from simcore.population._describe import read_description
+
+    reading = read_description(chat_json, text)
+    everyone = [trait for trait in reading.everyone]
+    matters = [topic for topic in reading.topics]
+    traits = sorted({trait for group in reading.groups for trait in group.traits} | set(everyone))
+    with ThreadPoolExecutor(max_workers=6) as workers:
+        settled = dict(zip(traits, workers.map(lambda t: settle(chat_json, t, sources, matrix, codebook, embeddings, text), traits)))
+        topics = list(workers.map(lambda t: resolve(chat_json, t, sources, False, matrix, codebook, embeddings), matters))
+
+    refined = [dict(audience) | {"filters": dict(audience.get("filters") or {}),
+                                 "descriptions": list(audience.get("descriptions") or [])} for audience in audiences]
+    names = [audience.get("name") or "audience" for audience in refined]
+    added = []
+    for group in reading.groups:
+        filters: dict[str, list[str]] = {}
+        unsure: list[dict] = []
+        for trait in group.traits:
+            result = settled.get(trait, {})
+            if result.get("agreed"):
+                attribute = result["attribute"]
+                vocabulary = list(codebook.vocabulary(attribute) or ())
+                filters[attribute] = sorted({*filters.get(attribute, []), *result["values"]}, key=vocabulary.index)
+            elif result.get("agreed") is False:
+                unsure.append({"phrase": trait, "choices": result["choices"]})
+        name = group.name
+        while name in names:
+            name = f"{name}_2"
+        names.append(name)
+        added.append({"name": name, "share": group.share, "filters": filters,
+                      "unsure": unsure, "descriptions": []})
+    # No new group: shared traits refine every existing audience.
+    questions: list[dict] = []
+    if not added:
+        for trait in everyone:
+            result = settled.get(trait, {})
+            if result.get("agreed"):
+                for audience in refined:
+                    attribute = result["attribute"]
+                    vocabulary = list(codebook.vocabulary(attribute) or ())
+                    current = audience["filters"].get(attribute, [])
+                    audience["filters"][attribute] = sorted({*current, *result["values"]}, key=vocabulary.index)
+            elif result.get("agreed") is False:
+                questions.append({"phrase": trait, "choices": result["choices"], "applies_to": list(names)})
+    for item in [settled[trait] for group in reading.groups for trait in group.traits
+                 if settled.get(trait, {}).get("agreed") is False]:
+        questions.append({"phrase": item["phrase"], "choices": item["choices"],
+                          "applies_to": [audience["name"] for audience in added
+                                         if any(u["phrase"] == item["phrase"] for u in audience["unsure"])]})
+    for topic in topics:
+        if "attribute" in topic:
+            for audience in refined + added:
+                if topic["attribute"] not in audience["filters"] and topic["attribute"] not in audience["descriptions"]:
+                    audience["descriptions"].append(topic["attribute"])
+    fits = {trait: ({"attribute": result["attribute"]} if result.get("agreed")
+                    else {"unsure": True}) for trait, result in settled.items() if "missing" not in result}
+    unmatched = [{"phrase": result["phrase"], "missing": result["missing"]}
+                 for result in [*settled.values(), *topics] if "missing" in result]
+    return {"audiences": refined + added, "added": [audience["name"] for audience in added],
+            "questions": questions, "unmatched": unmatched, "fits": fits}
+
+
 def draft(chat_json, text: str, reading, category: dict, sources, matrix, codebook, embeddings, ontology_lookup) -> Draft:
     """A confirmed category and a reading become audiences and an ontology draft."""
     attributes: list[dict] = []
