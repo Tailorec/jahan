@@ -15,6 +15,7 @@ import json
 import os
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -522,6 +523,21 @@ def _stream(path: Path, chunk: int = 1 << 20) -> Iterator[bytes]:
     with path.open("rb") as handle:
         while block := handle.read(chunk):
             yield block
+
+
+def shard_sources(path: str | Path) -> dict[str, int]:
+    """How many rows of each source one shard holds, largest first: a shard is a slice of rows, not of sources."""
+    shard = Path(path)
+    return dict(_source_counts(str(shard), shard.stat().st_mtime_ns))
+
+
+@lru_cache(maxsize=64)
+def _source_counts(path: str, _mtime_ns: int) -> tuple[tuple[str, int], ...]:
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    counts = pc.value_counts(pq.ParquetFile(path).read(columns=["source"])["source"]).to_pylist()
+    return tuple(sorted(((str(item["values"]), int(item["counts"])) for item in counts), key=lambda pair: -pair[1]))
 
 
 def fetch_command(repo: str, relative: str | Path, cache_dir: Path) -> str:

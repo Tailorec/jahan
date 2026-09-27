@@ -1027,6 +1027,8 @@ def create_app(
         what is there. A shard is its four-digit number and a source is its name; nothing here is a path.
         No corpus is a statement, not an error: the fake study needs none.
         """
+        from simcore.ports.hf import shard_sources
+
         corpus = _corpus_root(request)
         if corpus is None:
             return {"available": False, "shards": [], "sources": {}, "measured_sources": []}
@@ -1040,6 +1042,8 @@ def create_app(
                 shards.append({
                     "id": match.group(1), "rows": entry.get("rows"), "bytes": entry.get("bytes"),
                     "cached": name in cached,
+                    # What a shard holds, so choosing one is choosing people, not a file number.
+                    "sources": shard_sources(Path(corpus, "data", name)) if name in cached else {},
                 })
         sources = {str(name): count for name, count in (manifest.get("sources") or {}).items()}
         return {

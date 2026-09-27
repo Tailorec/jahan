@@ -140,3 +140,21 @@ def test_each_source_counts_the_attributes_its_people_answered(tmp_path):
         rows = matrix.row_source == position
         expected = sum(bool((matrix.codes[a][rows] != MISSING).any()) for a in range(len(matrix.attributes)))
         assert matrix.answered_by_source[name] == expected
+
+
+def test_each_cached_shard_says_which_sources_it_holds(tmp_path):
+    # A shard is a slice of rows, not of sources: the launch form names people, not file numbers.
+    from fastapi.testclient import TestClient
+
+    from simcore.web import create_app
+
+    cache = fake_cache(tmp_path)
+    body = TestClient(create_app(runs_dir=tmp_path / "runs", corpus_dir=cache)).get("/api/corpus").json()
+    cached = [shard for shard in body["shards"] if shard["cached"]]
+    assert cached, "the fixture caches its shards"
+    total = {}
+    for shard in cached:
+        assert sum(shard["sources"].values()) == shard["rows"]
+        for name, count in shard["sources"].items():
+            total[name] = total.get(name, 0) + count
+    assert total == {"wiki": 1, "stackoverflow": 2, "gss": 1, "synthetic": 1}  # what the fixture wrote
