@@ -984,6 +984,7 @@ def create_app(
         from simcore.ports.embeddings import (
             codebook_digest,
             embed_model,
+            endpoint_base,
             load_embeddings,
         )
 
@@ -1038,16 +1039,17 @@ def create_app(
                     )
                     job["thread"].start()
         found = search_attributes(codebook, matrix, query, chosen, needed, mode, embeddings, offset=offset, limit=limit)
-        meaning_note = "search by meaning is unavailable without an endpoint and embeddings — searching by words"
-        if embeddings is not None:
-            meaning_note = ""
-        if embeddings is None and request.app.state.embeddings_job["error"] is None:
-            meaning_note = "search by meaning is building — searching by words until it lands"
+        # The note follows the search that ran: stored embeddings are no use without an endpoint to embed the query.
+        meaning_note = ""
+        if mode == "meaning" and query.strip() and found["mode"] != "meaning":
+            meaning_note = "search by meaning is unavailable without an endpoint and embeddings — searching by words"
+            if embeddings is None and request.app.state.embeddings_job["error"] is None and endpoint_base() is not None:
+                meaning_note = "search by meaning is building — searching by words until it lands"
         return {
             "attributes": found["results"],
             "total": found["total"],
             "mode": found["mode"],
-            "meaning_available": embeddings is not None,
+            "meaning_available": embeddings is not None and endpoint_base() is not None,
             "meaning_note": meaning_note,
         }
 

@@ -120,3 +120,27 @@ def test_retrieval_gate(monkeypatch):
         if rank < 5:
             top5 += 1
     assert (first, top5) >= (11, 13), f"retrieval gate failed: {first} first, {top5} in top five"
+
+
+def test_without_an_endpoint_search_says_it_is_by_words(tmp_path, monkeypatch):
+    # Stored embeddings cannot rank a query nobody can embed: the answer says words, and why.
+    import json
+
+    from fastapi.testclient import TestClient
+
+    import simcore.ports.embeddings as embeddings_port
+    from simcore.ports.hf import HfCoresetSource
+    from simcore.ports.matrix import build_matrix
+    from simcore.web import create_app
+    from tests.boundary.ports.test_index_catalog import COLUMNS, fake_cache
+
+    for name in ("SIMCORE_INFERENCE_BASE_URL", "OPENAI_BASE_URL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(embeddings_port, "load_embeddings", lambda *_: object())
+    cache = fake_cache(tmp_path)
+    build_matrix(HfCoresetSource(cache_dir=cache))
+    (cache / "persona_codes.schema.json").write_text(json.dumps({"columns": COLUMNS}))
+    client = TestClient(create_app(runs_dir=tmp_path / "runs", ontology_dir=tmp_path / "ontologies", corpus_dir=cache))
+    body = client.get("/api/codebook", params={"query": COLUMNS[0]["id"], "mode": "meaning"}).json()
+    assert body["mode"].startswith("words") and "unavailable" in body["meaning_note"]
+    assert body["meaning_available"] is False
