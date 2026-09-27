@@ -140,7 +140,7 @@ def assumption_entries(matrix, sources, required, audiences, previews) -> list[d
             contributed = widened.pool_by_source.get(text_source, 0)
             entries.append({
                 "text": (
-                    f"{text_source} reviewers are admitted: {contributed} of "
+                    f"{text_source} is admitted: {contributed} of "
                     f"{widened.pool} candidate-pool personas come from {text_source}, "
                     f"whose answers were {TEXT_LABEL}"
                 ),

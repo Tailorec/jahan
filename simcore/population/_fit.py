@@ -74,6 +74,8 @@ def continue_blockers(category, questions, changes, audiences, previews) -> list
     blockers = []
     if not isinstance(category, dict) or not category.get("id"):
         blockers.append("confirm the category — reuse an ontology or start a new one")
+    if not audiences:
+        blockers.append("describe at least one audience")
     unanswered = [question["phrase"] for question in questions or []]
     if unanswered:
         by_audience: dict[str, list[str]] = {}

@@ -131,3 +131,12 @@ def test_a_saved_matrix_is_memory_mapped_and_opened_once_per_process(tmp_path):
     first = load_matrix(HfCoresetSource(cache_dir=cache))
     assert isinstance(first.codes, np.memmap)
     assert load_matrix(HfCoresetSource(cache_dir=cache)) is first
+
+
+def test_each_source_counts_the_attributes_its_people_answered(tmp_path):
+    # The sidebar's "answered N of M questions": an attribute counts once any of the source's people answered it.
+    matrix = build_matrix(HfCoresetSource(cache_dir=fake_cache(tmp_path)))
+    for position, name in enumerate(matrix.sources):
+        rows = matrix.row_source == position
+        expected = sum(bool((matrix.codes[a][rows] != MISSING).any()) for a in range(len(matrix.attributes)))
+        assert matrix.answered_by_source[name] == expected

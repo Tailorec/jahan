@@ -1173,6 +1173,7 @@ def create_app(
         answers `building` until it exists.
         """
         from simcore.population import describe_pool
+        from simcore.population._audiences import TEXT_SOURCES
         from simcore.ports.hf import HfCoresetSource
         from simcore.ports.matrix import build_matrix, load_matrix
 
@@ -1214,6 +1215,8 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         outcome = pool.to_json()
+        outcome["corpus"] = {"people": dict(matrix.totals), "answered": matrix.answered_by_source,
+                             "attributes": len(matrix.attributes), "text_sources": list(TEXT_SOURCES)}
         outcome["state"] = "ready"
         return outcome
 

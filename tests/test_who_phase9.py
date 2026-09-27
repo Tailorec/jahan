@@ -65,3 +65,7 @@ def test_a_fitting_audience_blocks_nothing():
         [{"name": "a", "share": 1.0}],
         [{"quota": 200, "head_count": 200}],
     ) == []
+
+
+def test_no_audience_blocks_continue():
+    assert any("audience" in blocker for blocker in continue_blockers({"id": "x"}, [], [], [], []))

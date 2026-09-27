@@ -14,7 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cached_property, lru_cache
 from pathlib import Path
 
 import numpy as np
@@ -51,6 +51,14 @@ class PersonaMatrix:
         for attribute in required:
             mask = mask & (self.codes[positions[attribute]] != MISSING)
         return mask
+
+    @cached_property
+    def answered_by_source(self) -> dict[str, int]:
+        """How many attributes each source's people answered at all — one pass, once per opened matrix."""
+        answered = np.zeros(len(self.sources), dtype=np.int64)
+        for column in self.codes:
+            answered += np.bincount(self.row_source[column != MISSING], minlength=len(self.sources)) > 0
+        return {name: int(count) for name, count in zip(self.sources, answered)}
 
     def by_source(self, mask: np.ndarray) -> dict[str, int]:
         counts = np.bincount(self.row_source[mask], minlength=len(self.sources))
