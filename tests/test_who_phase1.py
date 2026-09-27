@@ -54,7 +54,9 @@ def test_measures_marks_feelings_not_doings():
 
 def test_kind_in_plain_words():
     assert kind_of("age_bracket", "Age bracket", "Demographic: Core") == "Who they are"
-    assert kind_of("demo_household_income", "Household income", "Demographic: Money") == "Money & work"
+    # The kind is the saved domain in plain words: a demographic fact is never filled in by a model.
+    assert kind_of("demo_household_income", "Household income", "Demographic: Money") == "Who they are"
+    assert kind_of("att_four_day_work_week", "Attitude: Four-day work week", "Worldview: Beliefs") == "How they think"
     assert kind_of("highest_education", "Highest education", "Learning: Academic") == "Who they are"
 
 

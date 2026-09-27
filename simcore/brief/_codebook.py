@@ -115,21 +115,15 @@ def measures_of(attribute: str, label: str = "", category: str = "") -> str:
     return "a fact about the person"
 
 
+KIND_WORDS = {
+    "demographic": "Who they are", "psychographic": "How they think", "category_behaviour": "What they do",
+    "economic": "Money & work", "decision_rule": "How they decide", "media": "What they read & watch",
+}
+
+
 def kind_of(attribute: str, label: str = "", category: str = "") -> str:
-    """The ontology table's kind column, in plain words."""
-    family = (category.split(":")[0] if ":" in category else category).strip().lower()
-    hay = _haystack(attribute, label, category)
-    if _has_any(hay, _MONEY_WORDS):
-        return "Money & work"
-    if _has_any(hay, _DECIDE_WORDS) or family.startswith("risk"):
-        return "How they decide"
-    if _has_any(hay, _MEDIA_WORDS) or family == "linguistic":
-        return "What they read & watch"
-    if family in {"personality", "values & motivation", "worldview", "state"}:
-        return "How they think"
-    if family in {"behavior", "health", "skills", "developer", "professional", "expertise", "interests"}:
-        return "What they do"
-    return "Who they are"
+    """The ontology table's kind column: the domain the ontology saves, in plain words."""
+    return KIND_WORDS[domain_of(attribute, label, category)]
 
 
 def _words(name: str) -> list[str]:
