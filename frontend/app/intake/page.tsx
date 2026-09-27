@@ -34,13 +34,12 @@ const BLANK: BriefForm = {
   claims: [{ text: "", source: "assumed", evidence_url: "" }],
   competitors: [],
   target: "",
-  audiences: [{ name: "audience_1", share: "1", filters: {} }],
+  audiences: [],
   assumptions: [],
-  ontologyVersion: "1.0.0",
+  ontologyVersion: "",
 };
 
 export default function IntakePage() {
-  const [ontoList, setOntoList] = React.useState<{ category: string; version: string }[]>([]);
   const [onto, setOnto] = React.useState<CategoryOntology | null>(null);
 
   // The brief, as the form holds it. Nothing about it lives anywhere else: the YAML below is
@@ -92,9 +91,6 @@ export default function IntakePage() {
   const [checkingBrief, setCheckingBrief] = React.useState(false);
   const { data: endpoint } = useApi<{ endpoint_configured: boolean; fake_available: boolean }>("/api/status");
 
-  React.useEffect(() => {
-    api<{ category: string; version: string }[]>("/api/ontologies").then(setOntoList).catch(() => {});
-  }, []);
   // Arriving from Who you study: audiences, assumptions, sources and study size, with the ontology version it saved.
   const appliedWho = React.useRef(false);
   React.useEffect(() => {
@@ -126,19 +122,15 @@ export default function IntakePage() {
     if (handoff.sources) setSources(handoff.sources);
     if (handoff.studySize) setN(String(handoff.studySize));
   }, []);
-  // A brief names one exact ontology version, and the form says which: the version the brief
-  // was loaded with, or the one picked here — never a silent substitution of the newest.
+  // A brief names one exact ontology version: the one Who you study drafted its audiences against.
   React.useEffect(() => {
-    if (!form.product.category) {
-      if (ontoList.length) setForm((f) => ({ ...f, product: { ...f.product, category: ontoList[0].category }, ontologyVersion: ontoList[0].version }));
-      return;
-    }
+    if (!form.product.category) return;
     let live = true;
     api<CategoryOntology>(
       `/api/ontologies?category=${encodeURIComponent(form.product.category)}&version=${encodeURIComponent(form.ontologyVersion)}`,
     ).then((o) => { if (live) setOnto(o); }).catch(() => { if (live) setOnto(null); });
     return () => { live = false; };
-  }, [form.product.category, form.ontologyVersion, ontoList]);
+  }, [form.product.category, form.ontologyVersion]);
 
   const briefYaml = React.useMemo(() => briefToYaml(form), [form]);
   const realNeedsEndpoint = mode === "real" && endpoint?.endpoint_configured === false;
@@ -146,7 +138,11 @@ export default function IntakePage() {
     mode, n, horizon, tickUnit, seeds, budget, channel, elicits, anchorVersion, model, embedModel,
     populationSeed, shards, sources, priceChatIn, priceChatOut, priceEmbedIn, validation,
   };
-  const mistakes = problems(studyForm);
+  // Who is studied comes only from Who you study: without its audiences there is nothing to draw.
+  const mistakes = [
+    ...(form.audiences.length ? [] : ["Describe who you study first — its audiences and category arrive here."]),
+    ...problems(studyForm),
+  ];
   const chosenAnchor = anchors?.anchors.find((a) => `${a.construct}=${a.version}` === anchorVersion);
   const anchorMismatch = mode === "real" && !!chosenAnchor?.embed_model_id && !!embedModel.trim() && chosenAnchor.embed_model_id !== embedModel.trim();
   const toggle = (list: string[], set: (v: string[]) => void, value: string) =>
@@ -215,20 +211,11 @@ export default function IntakePage() {
               <div className="grid g2">
                 <div className="field"><label>Product name</label><input className="input" value={form.product.name} onChange={(e) => setProduct({ name: e.target.value })} /></div>
                 <div className="field"><label>Category (ontology)</label>
-                  <select
-                    className="input"
-                    value={`${form.product.category}@${form.ontologyVersion}`}
-                    onChange={(e) => {
-                      const [category, version] = e.target.value.split("@");
-                      setForm((f) => ({ ...f, product: { ...f.product, category }, ontologyVersion: version }));
-                    }}
-                  >
-                    {!ontoList.some((o) => o.category === form.product.category && o.version === form.ontologyVersion) && form.product.category && (
-                      <option value={`${form.product.category}@${form.ontologyVersion}`}>{form.product.category} @ {form.ontologyVersion} (not held here)</option>
-                    )}
-                    {ontoList.map((o) => <option key={`${o.category}@${o.version}`} value={`${o.category}@${o.version}`}>{o.category} @ {o.version}</option>)}
-                  </select>
-                  <div className="help"><Link href="/who">Describe who you study →</Link> what can be studied is bounded by the corpus, not by which files exist.</div></div>
+                  {/* Audiences are drafted against one ontology; a different category would need different audiences. */}
+                  <div className="input mono" aria-label="Category (ontology)" style={{ background: "var(--surface)" }}>
+                    {form.product.category ? `${form.product.category} @ ${form.ontologyVersion}` : "none yet"}
+                  </div>
+                  <div className="help">{form.product.category ? "Set by Who you study, with the audiences drafted against it. " : ""}<Link href="/who">{form.product.category ? "Change it there →" : "Describe who you study →"}</Link></div></div>
               </div>
               <div className="field"><label>Concept statement</label>
                 <textarea className="input" rows={2} value={form.product.description} onChange={(e) => setProduct({ description: e.target.value })} />
@@ -296,6 +283,9 @@ export default function IntakePage() {
           <div className="panel">
             <div className="panel-head"><h2>2 · Audiences</h2><span className="hint">named slices of the target market — authored in Who you study</span></div>
             <div className="panel-body" style={{ display: "grid", gap: 10 }}>
+              {form.audiences.length === 0 && (
+                <div className="empty"><b>No audiences yet.</b><Link href="/who">Describe who you study →</Link> — its audiences and category arrive here, and the study cannot start without them.</div>
+              )}
               {form.audiences.map((a, i) => (
                 <div key={i} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>
                   <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>

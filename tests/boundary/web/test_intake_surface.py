@@ -56,6 +56,8 @@ def test_no_page_prints_an_icon_as_text():
         assert "${ICONS" not in page.read_text(), f"{page.relative_to(FRONTEND)} interpolates an icon into a string"
 
 
-def test_any_brief_the_engine_holds_can_be_opened_in_the_form():
+def test_audiences_and_their_category_come_only_from_who_you_study():
     text = (FRONTEND / "app" / "intake" / "page.tsx").read_text()
-    assert "Start from a brief" in text and "loadBrief(" in text
+    assert 'audience_1' not in text, "no placeholder audience a study could launch with"
+    assert "form.audiences.length ? [] :" in text, "no audiences blocks the gate and the launch"
+    assert "<select" not in text[text.index("Category (ontology)"):text.index("Concept statement")], "the category is not re-picked here"
