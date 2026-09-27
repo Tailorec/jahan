@@ -19,7 +19,6 @@ interface Overview {
   };
   runs: RunSummary[];
   ontologies: { category: string; version: string; attributes: string[]; conditioning_set: string[] }[];
-  briefs: { name: string; product: string; category: string; claims: number; audiences: string[] }[];
 }
 
 function trustChip(level?: string | null) {
@@ -39,7 +38,7 @@ export default function OverviewPage() {
         actions={<Link className="btn primary" href="/intake">New study {ICONS.arrow}</Link>}
       />
       {error && <Callout icon="alert"><div>Could not reach the engine: {error}</div></Callout>}
-      {!data && !error && <div className="empty"><b>Loading engine state…</b>reading runs/, ontologies/, examples/</div>}
+      {!data && !error && <div className="empty"><b>Loading engine state…</b>reading runs/ and ontologies/</div>}
       {data && (
         <>
           <div className="stat-strip" style={{ marginBottom: 20 }}>
@@ -80,8 +79,7 @@ export default function OverviewPage() {
             </table>
           </div></div>
 
-          <div className="grid g2" style={{ marginTop: 24 }}>
-            <div>
+          <div style={{ marginTop: 24 }}>
               <div className="sect-title">Category ontologies</div>
               <div className="panel"><div className="panel-body tight">
                 <table className="tbl">
@@ -94,31 +92,15 @@ export default function OverviewPage() {
                         <td className="mono sub">{o.conditioning_set.join(", ")}</td>
                       </tr>
                     ))}
-                  </tbody>
-                </table>
-              </div></div>
-            </div>
-            <div>
-              <div className="sect-title">Briefs</div>
-              <div className="panel"><div className="panel-body tight">
-                <table className="tbl">
-                  <thead><tr><th>Brief</th><th>Product</th><th className="num">Claims</th><th>Audiences</th></tr></thead>
-                  <tbody>
-                    {data.briefs.map((b) => (
-                      <tr key={b.name}>
-                        <td className="mono strong">{b.name}</td>
-                        <td>{b.product} <span className="sub mono">· {b.category}</span></td>
-                        <td className="num">{b.claims}</td>
-                        <td className="mono sub">{b.audiences.join(", ")}</td>
-                      </tr>
-                    ))}
+                    {data.ontologies.length === 0 && (
+                      <tr><td colSpan={3} className="sub">No ontology yet. <Link href="/who">Who you study</Link> saves one when you continue to a study.</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div></div>
               <Callout icon="info" style={{ marginTop: 16 }}>
                 <div>Gate-only runs (e.g. <span className="mono">run-gate500</span>) stopped after the population gate — no worlds, no spend. That is the engine refusing a doomed study, not a failure.</div>
               </Callout>
-            </div>
           </div>
         </>
       )}

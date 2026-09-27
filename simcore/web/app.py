@@ -475,7 +475,6 @@ def create_app(
     *,
     runs_dir: str | Path,
     ontology_dir: str | Path | None = None,
-    briefs_dir: str | Path | None = None,
     anchors_dir: str | Path | None = None,
     engine_root: str | Path | None = None,
     corpus_dir: str | Path | None = None,
@@ -492,7 +491,6 @@ def create_app(
     Path(runs_dir).mkdir(parents=True, exist_ok=True)
     app.state.runs_dir = str(runs_dir)
     app.state.ontology_dir = str(ontology_dir) if ontology_dir is not None else None
-    app.state.briefs_dir = str(briefs_dir) if briefs_dir is not None else None
     app.state.anchors_dir = str(anchors_dir) if anchors_dir is not None else None
     app.state.engine_root = str(engine_root) if engine_root is not None else str(Path.cwd())
     app.state.corpus_dir = str(corpus_dir) if corpus_dir is not None else None
@@ -923,49 +921,6 @@ def create_app(
             raise _missing(f"no record of ontology {category}@{version}")
         return _read_json(Path(root, category, f"{version}.json"))
 
-    @app.get("/api/briefs")
-    def list_briefs(request: Request) -> dict[str, Any]:
-        found = []
-        root = request.app.state.briefs_dir
-        if root is not None:
-            import yaml
-
-            for brief_file in sorted(Path(root).glob("*.yaml")):
-                if brief_file.name.endswith(".evidence.json"):
-                    continue
-                try:
-                    raw = yaml.safe_load(brief_file.read_text(encoding="utf-8"))
-                except (OSError, ValueError):
-                    continue
-                if isinstance(raw, dict) and "product" in raw:
-                    product = raw.get("product") or {}
-                    found.append({
-                        "name": brief_file.stem,
-                        "product": product.get("name"),
-                        "category": product.get("category"),
-                        "claims": len(raw.get("claims") or []),
-                        "audiences": [
-                            audience.get("name")
-                            for audience in (raw.get("audiences") or [])
-                            if isinstance(audience, dict)
-                        ],
-                    })
-        return {"briefs": found}
-
-    @app.get("/api/briefs/{name}")
-    def read_brief(request: Request, name: str) -> dict[str, Any]:
-        root = request.app.state.briefs_dir
-        if root is None or not _NAME.fullmatch(name):
-            raise _missing(f"no record of brief {name}")
-        import yaml
-
-        try:
-            raw = yaml.safe_load(Path(root, f"{name}.yaml").read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            raise _missing(f"no record of brief {name}")
-        evidence = _read_json_silent(Path(root, f"{name}.yaml.evidence.json"))
-        return {"name": name, "brief": raw, "evidence": evidence}
-
     @app.get("/api/codebook")
     def read_codebook(
         request: Request,
@@ -1268,7 +1223,7 @@ def create_app(
         from simcore.population import list_categories
 
         codebook = _codebook_or_refuse(request)
-        return {"categories": list_categories(_ontologies_root(request), request.app.state.briefs_dir, codebook)}
+        return {"categories": list_categories(_ontologies_root(request), _runs_dir(request), codebook)}
 
     @app.post("/api/describe")
     def describe_route(request: Request, body: dict[str, Any]) -> dict[str, Any]:
@@ -1282,7 +1237,7 @@ def create_app(
             raise HTTPException(status_code=422, detail="describe who you want to study")
         codebook = _codebook_or_refuse(request)
         try:
-            return describe(_chat_json, text.strip(), _ontologies_root(request), request.app.state.briefs_dir, codebook)
+            return describe(_chat_json, text.strip(), _ontologies_root(request), _runs_dir(request), codebook)
         except Exception as failure:
             raise HTTPException(
                 status_code=409,

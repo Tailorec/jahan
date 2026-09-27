@@ -225,7 +225,6 @@ def test_ontologies_and_briefs_come_from_the_engine_checkout(tmp_path):
     client = TestClient(create_app(
         runs_dir=tmp_path / "runs",
         ontology_dir=repo / "ontologies",
-        briefs_dir=repo / "examples",
     ))
     ontologies = client.get("/api/ontologies").json()["ontologies"]
     assert ontologies

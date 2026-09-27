@@ -297,7 +297,6 @@ export interface UITrace {
 
 /* ---------- misc ---------- */
 export interface OntologyRef { category: string; version: string; path: string }
-export interface BriefRef { name: string; path: string; brief: Brief }
 
 export const EVIDENCE_ORDER: FieldOrigin[] = ["measured", "calibrated", "extracted", "synthesized"];
 

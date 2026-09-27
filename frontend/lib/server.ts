@@ -7,7 +7,7 @@
 
 import { NextResponse } from "next/server";
 import type {
-  Brief, CategoryOntology, GateReport, OutcomeDigest, PopulationManifest, PersonaRecord,
+  CategoryOntology, GateReport, OutcomeDigest, PopulationManifest, PersonaRecord,
   RunSummary, StudyReport, UITrace, ScenarioSummary,
 } from "./engine";
 import { refusalText } from "./refusal";
@@ -49,37 +49,6 @@ export async function engineFetch<T>(apiPath: string, init?: RequestInit): Promi
 export function refused(e: unknown): NextResponse {
   if (e instanceof EngineError) return NextResponse.json({ error: e.message }, { status: e.status });
   return NextResponse.json({ error: String(e) }, { status: 500 });
-}
-
-export function toBrief(raw: Record<string, unknown>, name: string): Brief {
-  const claims = ((raw.claims ?? []) as Record<string, unknown>[]).map((c, i) => ({
-    id: `C${i + 1}`,
-    text: String(c.text ?? ""),
-    source: (c.source ?? "assumed") as Brief["claims"][number]["source"],
-    evidence_url: (c.evidence_url as string | undefined) ?? null,
-  }));
-  const price = raw.price as { amount: number; currency: string };
-  return {
-    product: raw.product as Brief["product"],
-    price: { amount: price.amount, currency: price.currency },
-    claims,
-    competitors: ((raw.competitors ?? []) as Record<string, unknown>[]).map((c) => ({
-      name: String(c.name),
-      price: (c.price ?? null) as Brief["competitors"][number]["price"],
-      claims: ((c.claims ?? []) as unknown[]).map(String),
-    })),
-    target_market: String(raw.target_market ?? ""),
-    audiences: ((raw.audiences ?? []) as Record<string, unknown>[]).map((a) => ({
-      name: String(a.name),
-      share: (a.share as number | undefined) ?? null,
-      attribute_filters: ((a.attribute_filters ?? {}) as Record<string, unknown>) as Record<string, string>,
-    })),
-    assumptions: ((raw.assumptions ?? []) as Record<string, unknown>[]).map((a) => ({
-      text: String(a.text ?? ""),
-      source: (a.source ?? "assumed") as Brief["assumptions"][number]["source"],
-    })),
-    ontology_version: String(raw.ontology_version ?? ""),
-  };
 }
 
 /* ---------- trace summary ---------- */

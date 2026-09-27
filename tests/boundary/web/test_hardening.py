@@ -45,7 +45,6 @@ def _client(runs_dir: Path):
     return TestClient(create_app(
         runs_dir=runs_dir,
         ontology_dir=REPO / "ontologies",
-        briefs_dir=REPO / "examples",
         anchors_dir=REPO / "anchors",
         engine_root=REPO,
     ))

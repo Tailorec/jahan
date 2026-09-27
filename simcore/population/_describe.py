@@ -121,21 +121,24 @@ def ontology_versions(folder: Path) -> list[Path]:
     return sorted(Path(folder).glob("*.json"), key=lambda path: tuple(int(part) if part.isdigit() else -1 for part in path.stem.split(".")))
 
 
-def list_categories(ontology_root: Path | None, briefs_root: Path | None, codebook) -> list[dict]:
+def list_categories(ontology_root: Path | None, runs_root: Path | None, codebook) -> list[dict]:
     """Existing categories a description may reuse: each one's latest ontology,
-    offered only when the codebook carries every attribute it names."""
+    offered only when the codebook carries every attribute it names. Each names
+    the products studied in it, read from the briefs its studies ran on."""
     import yaml
 
     products: dict[str, list[str]] = {}
-    if briefs_root is not None and Path(briefs_root).is_dir():
-        for path in sorted(Path(briefs_root).glob("*.yaml")):
+    if runs_root is not None and Path(runs_root).is_dir():
+        for path in sorted(Path(runs_root).glob("*/brief.yaml")):
             try:
                 brief = yaml.safe_load(path.read_text(encoding="utf-8"))
             except Exception:
                 continue
             product = brief.get("product") if isinstance(brief, dict) else None
             if isinstance(product, dict) and product.get("category"):
-                products.setdefault(str(product["category"]), []).append(str(product.get("name") or ""))
+                named = products.setdefault(str(product["category"]), [])
+                if str(product.get("name") or "") not in named:
+                    named.append(str(product.get("name") or ""))
     carried = set(codebook.attributes)
     found = []
     root = Path(ontology_root) if ontology_root is not None else None
@@ -182,10 +185,10 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(text).lower()).strip("_")[:48] or "my_category"
 
 
-def describe(chat_json, text: str, ontology_root, briefs_root, codebook) -> dict:
+def describe(chat_json, text: str, ontology_root, runs_root, codebook) -> dict:
     """Read the description and say which category it seems to belong to."""
     reading = read_description(chat_json, text)
-    categories = list_categories(ontology_root, briefs_root, codebook)
+    categories = list_categories(ontology_root, runs_root, codebook)
     match, new_id = match_category(chat_json, reading.product, categories)
     return {
         "reading": reading.to_json(),

@@ -23,7 +23,6 @@ def _client(tmp_path: Path, **kwargs):
     return TestClient(create_app(
         runs_dir=tmp_path / "runs",
         ontology_dir=REPO / "ontologies",
-        briefs_dir=REPO / "examples",
         anchors_dir=REPO / "anchors",
         engine_root=REPO,
         **kwargs,

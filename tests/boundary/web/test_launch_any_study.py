@@ -32,7 +32,7 @@ def _client(tmp_path: Path, **kwargs):
     from fastapi.testclient import TestClient
 
     settings = dict(
-        runs_dir=tmp_path / "runs", ontology_dir=REPO / "ontologies", briefs_dir=REPO / "examples",
+        runs_dir=tmp_path / "runs", ontology_dir=REPO / "ontologies",
         anchors_dir=REPO / "anchors", engine_root=REPO,
     )
     settings.update(kwargs)

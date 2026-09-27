@@ -114,7 +114,7 @@ def stack(tmp_path_factory):
 
     api_port = _free_port()
     app = create_app(
-        runs_dir=runs, ontology_dir=ontologies, briefs_dir=REPO / "examples",
+        runs_dir=runs, ontology_dir=ontologies,
         anchors_dir=REPO / "anchors", engine_root=REPO, corpus_dir=corpus,
     )
     server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=api_port, log_level="warning"))

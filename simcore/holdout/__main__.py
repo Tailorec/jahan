@@ -18,13 +18,10 @@ from simcore.ports.fixture import FixtureCoresetSource
 
 from ._evaluate import evaluate
 
-DEFAULT_PACK = Path("examples/code_review_ai.yaml")
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m simcore.holdout", description=__doc__)
     parser.add_argument("--hidden", default="att_ai", help="comma-separated measured attitudes to hide")
-    parser.add_argument("--pack", type=Path, default=DEFAULT_PACK, help="brief (with its ontology version) to evaluate against")
+    parser.add_argument("--pack", type=Path, required=True, help="brief (with its ontology version) to evaluate against")
     parser.add_argument("--ontologies", type=Path, default=Path("ontologies"))
     parser.add_argument("--pool", type=int, default=600, help="rows carrying every hidden attitude to consider")
     parser.add_argument("--holdout-share", type=float, default=0.25)
@@ -89,7 +86,7 @@ def _rows(pack, hidden, args):
         raise MissingShard(f"no coreset cached at {cache}; fetch it with hf download, or pass --coreset-fixture")
     shards = _stackoverflow_shards(cache)
     if not shards:
-        raise MissingShard(f"no cached shard carries {args.source!r}; fetch the release with the command in examples/README.md")
+        raise MissingShard(f"no cached shard carries {args.source!r}; fetch the release with `hf download MatrAIx2026/MatrAIx_Persona_1M_Public_Release --repo-type dataset`")
     source = HfCoresetSource(cache_dir=cache, shards=shards, sources=(args.source,))
     found = source.matching({}, present=[*pack.ontology.conditioning_set, *hidden], sources=[args.source])
     return source, list(source.rows(found[: args.pool]))

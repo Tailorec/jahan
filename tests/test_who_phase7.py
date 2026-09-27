@@ -105,3 +105,18 @@ def test_describe_returns_reading_before_any_draft(tmp_path):
     assert out["reading"]["topics"] == ["trust"]
     assert out["match"] is None
     assert "draft" not in out and "audiences" not in out
+
+
+def test_a_category_names_the_products_its_studies_ran_on(tmp_path):
+    root = tmp_path / "ontologies"
+    (root / "good").mkdir(parents=True)
+    (root / "good" / "1.0.0.json").write_text(json.dumps({
+        "category": "good", "version": "1.0.0", "attribute_domains": {"age_bracket": "demographic"},
+        "conditioning_set": ["age_bracket"], "relevance_order": ["age_bracket"],
+    }))
+    runs = tmp_path / "runs"
+    for run, name in (("run-a", "Savings app"), ("run-b", "Savings app"), ("run-c", "Kids fund")):
+        (runs / run).mkdir(parents=True)
+        (runs / run / "brief.yaml").write_text(f"product:\n  name: {name}\n  category: good\n")
+    offered = list_categories(root, runs, _Codebook(["age_bracket"]))
+    assert offered[0]["products"] == ["Savings app", "Kids fund"]

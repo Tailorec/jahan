@@ -5,8 +5,8 @@ import React from "react";
 import Shell from "@/components/shell";
 import { PageHead, Callout, ICONS } from "@/components/ui";
 import { api, useApi, whyNot } from "@/lib/api";
-import { briefToYaml, formFromBrief, type BriefForm } from "@/lib/briefYaml";
-import type { BriefRef, CategoryOntology, ClaimSource } from "@/lib/engine";
+import { briefToYaml, type BriefForm } from "@/lib/briefYaml";
+import type { CategoryOntology, ClaimSource } from "@/lib/engine";
 import {
   CHANNELS, CHANNEL_GUIDE, ONE_ENVIRONMENT_NOTE, cachedShards, defaultAnchor, defaultSources, gateRequest, problems, studyRequest,
   type AnchorCatalogue, type ChannelName, type CorpusInfo, type StudyForm,
@@ -40,7 +40,6 @@ const BLANK: BriefForm = {
 };
 
 export default function IntakePage() {
-  const { data: briefs } = useApi<BriefRef[]>("/api/briefs");
   const [ontoList, setOntoList] = React.useState<{ category: string; version: string }[]>([]);
   const [onto, setOnto] = React.useState<CategoryOntology | null>(null);
 
@@ -96,24 +95,6 @@ export default function IntakePage() {
   React.useEffect(() => {
     api<{ category: string; version: string }[]>("/api/ontologies").then(setOntoList).catch(() => {});
   }, []);
-  // A brief the engine already holds is where authoring usually starts; the first one loaded
-  // fills the form once, and after that the form is the person's.
-  const loadBrief = React.useCallback((b: BriefRef) => {
-    setForm(formFromBrief(b.brief));
-    setEvidence({});
-    setGate(null);
-    setLedger(null);
-    api<{ evidence: Record<string, { content_hash: string; fetched_at: string }> | null }>(`/api/briefs/${b.name}`)
-      .then((d) => { if (d.evidence) setEvidence(d.evidence); })
-      .catch(() => {});
-  }, []);
-  const loadedFirst = React.useRef(false);
-  React.useEffect(() => {
-    if (!briefs?.length || loadedFirst.current) return;
-    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("from") === "who") return;
-    loadedFirst.current = true;
-    loadBrief(briefs.find((x) => x.name === "protein_water") ?? briefs[0]);
-  }, [briefs, loadBrief]);
   // Arriving from Who you study: audiences, assumptions, sources and study size, with the ontology version it saved.
   const appliedWho = React.useRef(false);
   React.useEffect(() => {
@@ -231,19 +212,6 @@ export default function IntakePage() {
           <div className="panel">
             <div className="panel-head"><h2>1 · Product brief</h2><span className="hint">what the population will see</span></div>
             <div className="panel-body">
-              {briefs && briefs.length > 0 && (
-                <div className="field" style={{ marginBottom: 12 }}>
-                  <label>Start from a brief the engine already holds</label>
-                  <select className="input mono" aria-label="Start from a brief" defaultValue="" onChange={(e) => {
-                    const chosen = briefs.find((b) => b.name === e.target.value);
-                    if (chosen) loadBrief(chosen);
-                  }}>
-                    <option value="">— author one below, or choose —</option>
-                    {briefs.map((b) => <option key={b.name} value={b.name}>{b.name} — {b.brief.product.name}</option>)}
-                  </select>
-                  <div className="help">Loading replaces the form. Nothing is written until you launch: the brief you see below is what the study is run on.</div>
-                </div>
-              )}
               <div className="grid g2">
                 <div className="field"><label>Product name</label><input className="input" value={form.product.name} onChange={(e) => setProduct({ name: e.target.value })} /></div>
                 <div className="field"><label>Category (ontology)</label>
