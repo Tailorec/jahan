@@ -1168,6 +1168,43 @@ def create_app(
         outcome["state"] = "ready"
         return outcome
 
+    @app.post("/api/audiences/preview")
+    def preview_audiences_route(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """Each audience's head count against its quota at the study size, its
+        source mix, and what each filter costs. Counted by the engine over the
+        persona value matrix; this serialises it."""
+        from simcore.population import preview_audiences
+        from simcore.ports.hf import HfCoresetSource
+        from simcore.ports.matrix import load_matrix
+
+        corpus = _corpus_root(request)
+        if corpus is None:
+            raise HTTPException(status_code=409, detail="no corpus is cached here, so there is nobody to count")
+        try:
+            source = HfCoresetSource(cache_dir=corpus)
+            matrix = load_matrix(source)
+        except Exception as failure:
+            raise HTTPException(status_code=409, detail=_pool_failure(failure))
+        if matrix is None:
+            return {"state": "building"}
+        wanted = body.get("sources")
+        required = body.get("required") or []
+        audiences = body.get("audiences") or []
+        study_size = body.get("study_size") or 200
+        if not isinstance(study_size, int) or isinstance(study_size, bool):
+            raise HTTPException(status_code=422, detail="study_size counts personas, like 200")
+        try:
+            counts = preview_audiences(
+                matrix,
+                tuple(wanted) if wanted is not None else matrix.sources,
+                tuple(str(name) for name in required),
+                audiences,
+                study_size,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return {"state": "ready", "audiences": [count.to_json() for count in counts]}
+
     @app.exception_handler(RequestValidationError)
     async def _refused(_request: Request, exc: RequestValidationError) -> JSONResponse:
         """One refusal shape: `detail` is always a sentence a person can read.

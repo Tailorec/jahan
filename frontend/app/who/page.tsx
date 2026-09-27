@@ -33,9 +33,12 @@ const PRESETS: { label: string; sources: string[] }[] = [
 const TEXT_SOURCES = ["amazon", "wiki"];
 const TEXT_LABEL = "read by a model from text, not surveyed";
 
-interface DraftRow { id: string; label: string; category: string; measures: string; kind: string; role: string; required: boolean }
+interface DraftRow { id: string; label: string; category: string; measures: string; kind: string; role: string; required: boolean; values: string[] }
 interface PoolCost { attribute: string; pool_without: number; removes: number; removes_by_source: Record<string, number>; emptied_sources: string[] }
 interface PoolReply { state: string; sources_total?: number; sources_by_source?: Record<string, number>; pool?: number; pool_by_source?: Record<string, number>; costs?: PoolCost[] }
+interface HeadCount { name: string; quota: number; head_count: number; by_source: Record<string, number>; dominant_source: string | null; filter_costs: Record<string, number>; empty_note: string | null }
+interface PreviewReply { state: string; audiences?: HeadCount[] }
+interface Audience { name: string; share: number | null; filters: Record<string, string[]>; descriptions: string[] }
 
 export default function WhoPage() {
   const [sources, setSources] = React.useState<string[]>(PRESETS[0].sources);
@@ -103,7 +106,40 @@ export default function WhoPage() {
 
   function addAttr(h: CodebookHit) {
     if (rows.some((r) => r.id === h.id)) return;
-    setRows((rs) => [...rs, { id: h.id, label: h.label, category: h.category, measures: h.measures, kind: h.kind, role: "Describes everyone", required: false }]);
+    setRows((rs) => [...rs, { id: h.id, label: h.label, category: h.category, measures: h.measures, kind: h.kind, role: "Describes everyone", required: false, values: h.values }]);
+  }
+
+  const [audiences, setAudiences] = React.useState<Audience[]>([]);
+  const [preview, setPreview] = React.useState<PreviewReply | null>(null);
+
+  const draftKey = JSON.stringify({ s: JSON.parse(sourcesKey), r: JSON.parse(requiredKey), n: studySize, a: audiences });
+  const askPreview = React.useCallback(async () => {
+    if (audiences.length === 0) { setPreview(null); return; }
+    try {
+      const parsed = JSON.parse(draftKey);
+      setPreview(await api<PreviewReply>("/api/audiences/preview", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sources: parsed.s, required: parsed.r, study_size: parsed.n, audiences: parsed.a }),
+      }));
+    } catch {
+      setPreview(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+  React.useEffect(() => { askPreview(); }, [askPreview]);
+
+  const shareTotal = audiences.reduce((t, a) => t + (a.share ?? 0), 0);
+
+  function addAudience() {
+    setAudiences((as) => [...as, { name: `Group ${as.length + 1}`, share: null, filters: {}, descriptions: [] }]);
+  }
+  function moveToDescription(ai: number, attr: string) {
+    setAudiences((as) => as.map((a, i) => {
+      if (i !== ai) return a;
+      const filters = { ...a.filters };
+      delete filters[attr];
+      return { ...a, filters, descriptions: a.descriptions.includes(attr) ? a.descriptions : [...a.descriptions, attr] };
+    }));
   }
 
   return (
@@ -187,8 +223,67 @@ export default function WhoPage() {
             </div>
           </div>
           <div className="panel" style={{ marginTop: 16 }}>
-            <div className="panel-head"><h2>Audiences</h2><span className="hint">authored by hand until drafting lands</span></div>
-            <div className="panel-body"><div className="empty"><b>No audiences yet.</b>Find attributes below and describe who belongs.</div></div>
+            <div className="panel-head"><h2>Audiences</h2><span className="hint">{shareTotal > 0 ? `${Math.round(shareTotal * 100)}% of 100%` : "authored by hand until drafting lands"}</span></div>
+            <div className="panel-body" style={{ display: "grid", gap: 10 }}>
+              {audiences.length === 0 && <div className="empty"><b>No audiences yet.</b>Find attributes below and describe who belongs.</div>}
+              {audiences.map((a, ai) => {
+                const head = preview?.audiences?.[ai];
+                return (
+                  <div key={ai} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input className="input" style={{ width: 160 }} value={a.name} onChange={(e) => setAudiences((as) => as.map((x, i) => (i === ai ? { ...x, name: e.target.value } : x)))} />
+                      <label style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center" }}>
+                        <input className="input mono" style={{ width: 60 }} value={a.share === null ? "" : Math.round(a.share * 100)} placeholder="%" onChange={(e) => setAudiences((as) => as.map((x, i) => (i === ai ? { ...x, share: e.target.value === "" ? null : Number(e.target.value) / 100 } : x)))} /> share %
+                      </label>
+                      <button className="btn quiet sm" style={{ marginLeft: "auto" }} onClick={() => setAudiences((as) => as.filter((_, i) => i !== ai))}>✕</button>
+                    </div>
+                    {head && (
+                      <div className="sub" style={{ fontSize: 12.5, marginTop: 6 }}>
+                        {head.head_count.toLocaleString("en-US")} people — needs {head.quota.toLocaleString("en-US")}
+                        <span className="mono" style={{ fontSize: 11, marginLeft: 8 }}>
+                          {Object.entries(head.by_source).map(([s, n]) => `${s} ${n.toLocaleString("en-US")}`).join(" · ")}
+                        </span>
+                      </div>
+                    )}
+                    {preview?.state === "building" && <div className="help">Counting…</div>}
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                      {Object.entries(a.filters).map(([attr, values]) => {
+                        const row = rows.find((r) => r.id === attr);
+                        return (
+                          <span key={attr} className="tag">
+                            <span className="mono">{attr}</span> = {values.join(" / ")}
+                            <span className="sub" style={{ fontSize: 11 }}> · measures: {row?.measures ?? "—"}</span>
+                            <button className="btn quiet sm" style={{ marginLeft: 4 }} onClick={() => setAudiences((as) => as.map((x, i) => (i === ai ? { ...x, filters: Object.fromEntries(Object.entries(x.filters).filter(([k]) => k !== attr)) } : x)))}>✕</button>
+                          </span>
+                        );
+                      })}
+                      {rows.filter((r) => !a.filters[r.id]).length > 0 && (
+                        <select className="input" style={{ width: 200 }} defaultValue="" onChange={(e) => {
+                          const row = rows.find((r) => r.id === e.target.value);
+                          if (row && row.values.length) setAudiences((as) => as.map((x, i) => (i === ai ? { ...x, filters: { ...x.filters, [row.id]: [row.values[0]] } } : x)));
+                          e.target.value = "";
+                        }}>
+                          <option value="" disabled>+ filter</option>
+                          {rows.filter((r) => !a.filters[r.id]).map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+                        </select>
+                      )}
+                    </div>
+                    {a.descriptions.length > 0 && <div className="sub" style={{ fontSize: 12, marginTop: 4 }}>Describes (excludes nobody): {a.descriptions.join(", ")}</div>}
+                    {head?.dominant_source && <div className="sub" style={{ fontSize: 12, marginTop: 4 }}>Drawn mostly from {head.dominant_source} — a difference from other audiences may be a difference between surveys.</div>}
+                    {head && Object.entries(head.filter_costs).map(([attr, without]) => (
+                      head.head_count > 0 && without >= head.head_count * 2 && (
+                        <div key={attr} className="sub" style={{ fontSize: 12, marginTop: 4 }}>
+                          Removing {attr} would grow {head.head_count.toLocaleString("en-US")} → {without.toLocaleString("en-US")}.
+                          <button className="btn sm" style={{ marginLeft: 6 }} onClick={() => moveToDescription(ai, attr)}>Use as a description instead</button>
+                        </div>
+                      )
+                    ))}
+                    {head?.empty_note && <div className="sub" style={{ fontSize: 12, marginTop: 4 }}>{head.empty_note}</div>}
+                  </div>
+                );
+              })}
+              <div><button className="btn sm" onClick={addAudience}>+ Add audience</button></div>
+            </div>
           </div>
           <div className="panel" style={{ marginTop: 16 }}>
             <div className="panel-head"><h2>Ontology</h2><span className="hint">req · attribute · role · kind · ordered</span></div>
