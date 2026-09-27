@@ -6,7 +6,7 @@ import Shell from "@/components/shell";
 import { PageHead, Callout, ICONS } from "@/components/ui";
 import { api, useApi, whyNot } from "@/lib/api";
 import { briefToYaml, type BriefForm } from "@/lib/briefYaml";
-import type { CategoryOntology, ClaimSource } from "@/lib/engine";
+import type { AudienceSet, CategoryOntology, ClaimSource } from "@/lib/engine";
 import {
   CHANNELS, CHANNEL_GUIDE, ONE_ENVIRONMENT_NOTE, cachedShards, defaultAnchor, defaultSources, gateRequest, problems, studyRequest,
   type AnchorCatalogue, type ChannelName, type CorpusInfo, type StudyForm,
@@ -65,6 +65,7 @@ export default function IntakePage() {
   const [populationSeed, setPopulationSeed] = React.useState("4021");
   const [shards, setShards] = React.useState<string[]>([]);
   const [sources, setSources] = React.useState<string[]>([]);
+  const sourcesFromSet = React.useRef(false);
   const [priceChatIn, setPriceChatIn] = React.useState("");
   const [priceChatOut, setPriceChatOut] = React.useState("");
   const [priceEmbedIn, setPriceEmbedIn] = React.useState("");
@@ -72,7 +73,8 @@ export default function IntakePage() {
   const { data: corpus } = useApi<CorpusInfo>("/api/corpus");
   const { data: anchors } = useApi<AnchorCatalogue>("/api/anchors");
   React.useEffect(() => {
-    if (corpus) { setShards(cachedShards(corpus)); setSources(defaultSources(corpus)); }
+    // An audience set's sources are what its audiences were counted over; the defaults never replace them.
+    if (corpus) { setShards(cachedShards(corpus)); setSources((s) => (sourcesFromSet.current ? s : defaultSources(corpus))); }
   }, [corpus]);
   React.useEffect(() => {
     if (anchors && !anchorVersion) setAnchorVersion(defaultAnchor(anchors));
@@ -91,37 +93,35 @@ export default function IntakePage() {
   const [checkingBrief, setCheckingBrief] = React.useState(false);
   const { data: endpoint } = useApi<{ endpoint_configured: boolean; fake_available: boolean }>("/api/status");
 
-  // Arriving from Who you study: audiences, assumptions, sources and study size, with the ontology version it saved.
-  const appliedWho = React.useRef(false);
-  React.useEffect(() => {
-    if (appliedWho.current || typeof window === "undefined") return;
-    if (!new URLSearchParams(window.location.search).get("from")) return;
-    let handoff: {
-      audiences?: { name: string; share: number | null; attribute_filters: Record<string, string | string[]> }[];
-      assumptions?: { text: string; source: string }[];
-      sources?: string[]; studySize?: number; category?: string; ontologyVersion?: string;
-    } | null = null;
-    try {
-      handoff = JSON.parse(localStorage.getItem("who-launch") ?? "null");
-    } catch { handoff = null; }
-    if (!handoff) return;
-    appliedWho.current = true;
+  // Who is studied comes from an audience set Who you study saved: its audiences, assumptions, sources and
+  // study size, together with the one ontology version they were drafted against — never the ontology alone.
+  const { data: sets } = useApi<{ audience_sets: AudienceSet[] }>("/api/audience-sets");
+  const [chosenSet, setChosenSet] = React.useState("");
+  const applySet = React.useCallback((set: AudienceSet) => {
+    setChosenSet(`${set.category}/${set.id}`);
     setForm((f) => ({
       ...f,
-      product: { ...f.product, category: handoff.category ?? f.product.category },
-      ontologyVersion: handoff.ontologyVersion ?? f.ontologyVersion,
-      audiences: (handoff.audiences ?? []).map((a) => ({
+      product: { ...f.product, category: set.category },
+      ontologyVersion: set.ontology_version,
+      audiences: set.audiences.map((a) => ({
         name: a.name,
         share: a.share === null || a.share === undefined ? "" : String(a.share),
         filters: Object.fromEntries(Object.entries(a.attribute_filters ?? {}).map(([k, v]) => [
           k, Array.isArray(v) ? { kind: "one_of" as const, values: v.map(String) } : { kind: "exactly" as const, value: String(v) },
         ])),
       })),
-      assumptions: (handoff.assumptions ?? []).map((a) => ({ text: a.text, source: "assumed" as const })),
+      assumptions: set.assumptions.map((a) => ({ text: a.text, source: "assumed" as const })),
     }));
-    if (handoff.sources) setSources(handoff.sources);
-    if (handoff.studySize) setN(String(handoff.studySize));
+    sourcesFromSet.current = true;
+    setSources(set.sources);
+    setN(String(set.study_size));
   }, []);
+  React.useEffect(() => {
+    if (chosenSet || !sets) return;
+    const ref = new URLSearchParams(window.location.search).get("set");
+    const named = sets.audience_sets.find((x) => `${x.category}/${x.id}` === ref);
+    if (named) applySet(named);
+  }, [sets, chosenSet, applySet]);
   // A brief names one exact ontology version: the one Who you study drafted its audiences against.
   React.useEffect(() => {
     if (!form.product.category) return;
@@ -140,7 +140,7 @@ export default function IntakePage() {
   };
   // Who is studied comes only from Who you study: without its audiences there is nothing to draw.
   const mistakes = [
-    ...(form.audiences.length ? [] : ["Describe who you study first — its audiences and category arrive here."]),
+    ...(form.audiences.length ? [] : ["Choose an audience set — Who you study saves them."]),
     ...problems(studyForm),
   ];
   const chosenAnchor = anchors?.anchors.find((a) => `${a.construct}=${a.version}` === anchorVersion);
@@ -210,12 +210,20 @@ export default function IntakePage() {
             <div className="panel-body">
               <div className="grid g2">
                 <div className="field"><label>Product name</label><input className="input" value={form.product.name} onChange={(e) => setProduct({ name: e.target.value })} /></div>
-                <div className="field"><label>Category (ontology)</label>
-                  {/* Audiences are drafted against one ontology; a different category would need different audiences. */}
-                  <div className="input mono" aria-label="Category (ontology)" style={{ background: "var(--surface)" }}>
-                    {form.product.category ? `${form.product.category} @ ${form.ontologyVersion}` : "none yet"}
-                  </div>
-                  <div className="help">{form.product.category ? "Set by Who you study, with the audiences drafted against it. " : ""}<Link href="/who">{form.product.category ? "Change it there →" : "Describe who you study →"}</Link></div></div>
+                <div className="field"><label>Audience set</label>
+                  <select className="input" aria-label="Audience set" value={chosenSet} onChange={(e) => {
+                    const picked = sets?.audience_sets.find((x) => `${x.category}/${x.id}` === e.target.value);
+                    if (picked) applySet(picked);
+                  }}>
+                    <option value="" disabled>{sets?.audience_sets.length ? "choose one…" : "none saved yet"}</option>
+                    {(sets?.audience_sets ?? []).map((x) => (
+                      <option key={`${x.category}/${x.id}`} value={`${x.category}/${x.id}`}>{x.name} — {x.category} {x.ontology_version} · {x.created_at.slice(0, 10)}</option>
+                    ))}
+                  </select>
+                  <div className="help">
+                    {form.product.category && <>Category (ontology) <span className="mono">{form.product.category} @ {form.ontologyVersion}</span>, chosen with its audiences. </>}
+                    <Link href={chosenSet ? `/who?set=${chosenSet}` : "/who"}>{chosenSet ? "Change them in Who you study →" : "Make one in Who you study →"}</Link>
+                  </div></div>
               </div>
               <div className="field"><label>Concept statement</label>
                 <textarea className="input" rows={2} value={form.product.description} onChange={(e) => setProduct({ description: e.target.value })} />
@@ -284,7 +292,7 @@ export default function IntakePage() {
             <div className="panel-head"><h2>2 · Audiences</h2><span className="hint">named slices of the target market — authored in Who you study</span></div>
             <div className="panel-body" style={{ display: "grid", gap: 10 }}>
               {form.audiences.length === 0 && (
-                <div className="empty"><b>No audiences yet.</b><Link href="/who">Describe who you study →</Link> — its audiences and category arrive here, and the study cannot start without them.</div>
+                <div className="empty"><b>No audience set chosen.</b>Choose one above, or <Link href="/who">make one in Who you study →</Link> The study cannot start without one.</div>
               )}
               {form.audiences.map((a, i) => (
                 <div key={i} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>

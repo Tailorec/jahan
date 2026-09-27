@@ -306,3 +306,10 @@ export function top2box(pmf: number[]): number {
 export function pmfMean(pmf: number[]): number {
   return pmf.reduce((s, v, i) => s + v * (i + 1), 0);
 }
+
+/* What Who you study saves and a study starts from: audiences with the one ontology version they were drafted against. */
+export interface AudienceSet {
+  id: string; name: string; category: string; ontology_version: string; created_at: string; description: string;
+  audiences: { name: string; share: number | null; attribute_filters: Record<string, string | string[]> }[];
+  assumptions: { text: string; source: string }[]; sources: string[]; study_size: number;
+}

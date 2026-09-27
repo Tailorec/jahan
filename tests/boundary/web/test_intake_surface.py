@@ -56,8 +56,9 @@ def test_no_page_prints_an_icon_as_text():
         assert "${ICONS" not in page.read_text(), f"{page.relative_to(FRONTEND)} interpolates an icon into a string"
 
 
-def test_audiences_and_their_category_come_only_from_who_you_study():
+def test_a_study_starts_from_a_saved_audience_set_never_an_ontology_alone():
     text = (FRONTEND / "app" / "intake" / "page.tsx").read_text()
     assert 'audience_1' not in text, "no placeholder audience a study could launch with"
-    assert "form.audiences.length ? [] :" in text, "no audiences blocks the gate and the launch"
-    assert "<select" not in text[text.index("Category (ontology)"):text.index("Concept statement")], "the category is not re-picked here"
+    assert "form.audiences.length ? [] :" in text, "no audience set blocks the gate and the launch"
+    assert '"/api/audience-sets"' in text and "applySet(" in text, "choosing a set brings its audiences and ontology together"
+    assert "localStorage" not in text, "who is studied is saved by the engine, not held in one browser"

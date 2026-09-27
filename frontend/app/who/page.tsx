@@ -5,6 +5,7 @@ import React from "react";
 import { dump } from "js-yaml";
 import Shell from "@/components/shell";
 import { api, ApiError, useApi, whyNot } from "@/lib/api";
+import type { AudienceSet } from "@/lib/engine";
 import "./who.css";
 
 /* Who you study — the mockup's page (mockups/ontology/index.html) on the engine's own routes. Every count
@@ -98,7 +99,10 @@ export default function WhoPage() {
   const [searchNote, setSearchNote] = React.useState<string | null>(null);
 
   const [ready, setReady] = React.useState<Ready | null>(null);
-  const [saved, setSaved] = React.useState(false);
+  const [setName, setSetName] = React.useState("");
+  const [ontologySaved, setOntologySaved] = React.useState(false);
+  const [savedSet, setSavedSet] = React.useState<AudienceSet | null>(null);
+  const { data: savedSets } = useApi<{ audience_sets: AudienceSet[] }>("/api/audience-sets");
   const [continueError, setContinueError] = React.useState<string | null>(null);
 
   const reused = category?.mode === "reuse";
@@ -198,7 +202,7 @@ export default function WhoPage() {
     setBusy(false);
   }
 
-  async function chooseCategory(chosen: Chosen, fromText: boolean) {
+  async function chooseCategory(chosen: Chosen, fromText: boolean, loaded?: AudienceSet) {
     const first = turns[0];
     setCategory(chosen);
     setBusy(true);
@@ -213,7 +217,12 @@ export default function WhoPage() {
       const drafted = d.attributes.map(rowOf);
       const ordered = [...drafted.filter((r) => r.required), ...drafted.filter((r) => !r.required)];
       setRows(ordered);
-      const list: Audience[] = d.audiences.map((a) => ({ name: a.name, share: a.share, filters: a.filters, descriptions: a.descriptions ?? [], changes: [], options: a.options ?? {} }));
+      const list: Audience[] = loaded
+        ? loaded.audiences.map((a) => ({
+          name: a.name, share: a.share, descriptions: [], changes: [], options: {},
+          filters: Object.fromEntries(Object.entries(a.attribute_filters).map(([k, v]) => [k, Array.isArray(v) ? v : [String(v)]])),
+        }))
+        : d.audiences.map((a) => ({ name: a.name, share: a.share, filters: a.filters, descriptions: a.descriptions ?? [], changes: [], options: a.options ?? {} }));
       setAudiences(list);
       setQuestions(d.questions);
       if (fromText) {
@@ -225,7 +234,7 @@ export default function WhoPage() {
         for (const e of d.attributes) if (e.role === "matters" && e.phrase) matched.push({ phrase: e.phrase, attribute: e.id, describes: true });
         patchTurn(0, { phase: "done", added: list.length, matched, missing: d.unmatched, ms: Date.now() - started });
       }
-      if (list.length) await fit(list, ordered.filter((r) => r.required).map((r) => r.id));
+      if (list.length && !loaded) await fit(list, ordered.filter((r) => r.required).map((r) => r.id));
     } catch (e) {
       setCategory(null);
       if (fromText) patchTurn(0, { phase: "confirm", error: whyNot(e) });
@@ -273,7 +282,7 @@ export default function WhoPage() {
   function startOver() {
     if (!window.confirm("Start over? This clears the category, audiences and ontology.")) return;
     setTurns([]); setCategory(null); setRows([]); setAudiences([]); setQuestions([]); setPicker(null);
-    setReady(null); setSaved(false); setByHand(null); setSearchOpen(false); setQuery(""); setContinueError(null);
+    setReady(null); setSavedSet(null); setOntologySaved(false); setByHand(null); setSearchOpen(false); setQuery(""); setContinueError(null);
   }
 
   // ---------------------------------------------------------------- editing audiences
@@ -398,32 +407,54 @@ export default function WhoPage() {
         audiences: audiences.map((a) => ({ name: a.name, share: a.share, filters: a.filters })),
         assumptions: preview?.assumptions ?? [],
       }));
-      setSaved(false);
+      setSavedSet(null);
+      setOntologySaved(false);
+      setSetName(audiences.map((a) => a.name).join(" · "));
     } catch (e) {
       setContinueError(whyNot(e));
     }
   }
 
-  async function saveOntology() {
+  // One save for what this page finishes with: the ontology version when it is new, then the audience set drafted against it.
+  async function saveSet() {
     if (!ready) return;
+    setContinueError(null);
     try {
-      await post("/api/ontologies", { ontology: ready.ontology });
-      setSaved(true);
+      if (ready.action !== "reused" && !ontologySaved) {
+        await post("/api/ontologies", { ontology: ready.ontology });
+        setOntologySaved(true);
+      }
+      setSavedSet(await post<AudienceSet>("/api/audience-sets", {
+        category: ready.ontology.category, ontology_version: ready.ontology.version,
+        name: setName.trim() || ready.audiences.map((a) => a.name).join(" · "),
+        description: turns[0]?.text ?? "", audiences: ready.audiences, assumptions: ready.assumptions,
+        sources, study_size: studySize,
+      }));
     } catch (e) {
       setContinueError(whyNot(e));
     }
   }
 
   function openLaunch() {
-    if (!ready) return;
-    try {
-      localStorage.setItem("who-launch", JSON.stringify({
-        audiences: ready.audiences, assumptions: ready.assumptions, sources, studySize,
-        category: ready.ontology.category, ontologyVersion: ready.ontology.version,
-      }));
-    } catch { /* a full store is not a failed study */ }
-    window.location.href = "/intake?from=who";
+    if (savedSet) window.location.href = `/intake?set=${encodeURIComponent(savedSet.category)}/${encodeURIComponent(savedSet.id)}`;
   }
+
+  // A saved set opens for editing against its category's ontology; saving the edit saves another set.
+  async function openSet(ref: string) {
+    try {
+      const saved = await api<AudienceSet>(`/api/audience-sets/${ref.split("/").map(encodeURIComponent).join("/")}`);
+      setSources(saved.sources);
+      setStudySize(saved.study_size);
+      await chooseCategory({ mode: "reuse", id: saved.category, version: saved.ontology_version }, false, saved);
+    } catch (e) {
+      setContinueError(whyNot(e));
+    }
+  }
+  React.useEffect(() => {
+    const ref = new URLSearchParams(window.location.search).get("set");
+    if (ref) openSet(ref);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ---------------------------------------------------------------- sidebar
   const corpus = pool?.corpus;
@@ -569,6 +600,18 @@ export default function WhoPage() {
         {noEndpoint
           ? <div className="note plain" style={{ marginTop: 14 }}>Reading a description needs a language-model endpoint, and none is configured — search is by words and nothing is drafted. <button className="btn sm" onClick={startByHand}>Author audiences by hand</button></div>
           : <div className="examples">{EXAMPLES.map((e) => <button key={e} onClick={() => setText(e)}>{e}</button>)}</div>}
+        {(savedSets?.audience_sets ?? []).length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            <div className="muted" style={{ marginBottom: 6 }}>Or open a saved audience set to change it:</div>
+            <div className="examples" style={{ marginTop: 0 }}>
+              {(savedSets?.audience_sets ?? []).slice(0, 5).map((set) => (
+                <button key={set.id} disabled={busy} onClick={() => openSet(`${set.category}/${set.id}`)}>
+                  <b>{set.name}</b> <span className="muted">· {set.category} {set.ontology_version} · {set.created_at.slice(0, 10)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {corpusMissing && <div className="note risk" style={{ marginTop: 14 }}>No corpus cached here, so there is nobody to count: author freely, then continue where the corpus is present.</div>}
         <div className="fineprint">{corpus && people !== null ? <>Matched against {fmt(corpus.attributes)} attributes answered by {fmt(people)} people. </> : null}Every count you see is real; nothing is guessed.</div>
       </div>
@@ -793,7 +836,7 @@ export default function WhoPage() {
     return (
       <>
         <div className="head"><h1>Ready for a study</h1></div>
-        <div className="note ok">The engine accepts all of it: the ontology passes its schema and codebook checks, every audience is one a brief can carry, and every assumption is one the ledger records. The launch form opens with these audiences, your sources and a study of {fmt(studySize)}.</div>
+        <div className="note ok">The engine accepts all of it: the ontology passes its schema and codebook checks, every audience is one a brief can carry, and every assumption is one the ledger records. Save it as an audience set — these audiences, their assumptions, your sources and a study of {fmt(studySize)}, with the ontology they were drafted against — and New study starts from it.</div>
         <div className="note plain">
           {d.action === "reused" && <>Reuses <b className="catchip">{d.ontology.category} {d.ontology.version}</b> exactly as it is — no new version.</>}
           {d.action === "new_version" && <>A new version of <b className="catchip">{d.ontology.category}</b>: {d.from_version} → <b>{d.ontology.version}</b>, adding the attributes this study declares. Its required set is unchanged.</>}
@@ -807,14 +850,18 @@ export default function WhoPage() {
           <div><div className="sect"><h2>Ontology</h2><div className="tools">{d.action !== "reused" && <a className="btn sm" href={download(`${onto}\n`, "application/json")} download={`${d.ontology.category}-${d.ontology.version}.json`}>Download</a>}</div></div><pre className="out">{onto}</pre></div>
           <div><div className="sect"><h2>For the brief</h2><div className="tools"><a className="btn sm" href={download(brief, "text/yaml")} download="brief-audiences.yaml">Download</a></div></div><pre className="out">{brief}</pre></div>
         </div>
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 14 }}>
-          {d.action !== "reused" && (saved
-            ? <span className="chip ok"><span className="dot" />saved {d.ontology.category} {d.ontology.version}</span>
-            : <button className="btn primary" onClick={saveOntology}>Save ontology {d.ontology.version}</button>)}
-          <button className="btn primary" disabled={d.action !== "reused" && !saved} onClick={openLaunch}>Open launch form →</button>
+        <div className="field" style={{ marginTop: 14, maxWidth: 520 }}>
+          <label>Name this audience set</label>
+          <input className="input" value={setName} disabled={!!savedSet} onChange={(e) => setSetName(e.target.value)} />
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+          {savedSet
+            ? <span className="chip ok"><span className="dot" />saved “{savedSet.name}” · {savedSet.category} {savedSet.ontology_version}</span>
+            : <button className="btn primary" onClick={saveSet}>Save audience set{d.action !== "reused" ? ` and ontology ${d.ontology.version}` : ""}</button>}
+          <button className="btn primary" disabled={!savedSet} onClick={openLaunch}>Open launch form →</button>
           <button className="btn" onClick={() => { setReady(null); setContinueError(null); }}>← Back to editing</button>
         </div>
-        {d.action !== "reused" && !saved && <div className="muted" style={{ marginTop: 6 }}>Save the new version first — a saved version is never overwritten, so past studies keep resolving to what they ran on.</div>}
+        {!savedSet && <div className="muted" style={{ marginTop: 6 }}>New study starts from a saved audience set. Saved sets and ontology versions are never overwritten: editing saves another, so past studies keep resolving to what they ran on.</div>}
       </>
     );
   }

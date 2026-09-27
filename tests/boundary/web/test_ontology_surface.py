@@ -38,7 +38,7 @@ def test_scales_come_from_codebook_labels_in_codebook_order():
 
 def test_saving_makes_a_new_version():
     text = (FRONTEND / "app" / "who" / "page.tsx").read_text()
-    for marker in ("Save ontology", "never overwritten", "Ready for a study"):
+    for marker in ("Save audience set", "and ontology", "never overwritten", "Ready for a study"):
         assert marker in text, f"page lacks {marker!r}"
     # That a saved version never overwrites one is the engine's rule, asserted in test_ontology.py
     # and, through the interface's own route, in test_interface.py.
