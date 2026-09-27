@@ -116,6 +116,11 @@ def read_description(chat_json, text: str) -> Reading:
     )
 
 
+def ontology_versions(folder: Path) -> list[Path]:
+    """A category's saved versions, oldest first, ordered as numbers: text order puts 1.0.10 before 1.0.2."""
+    return sorted(Path(folder).glob("*.json"), key=lambda path: tuple(int(part) if part.isdigit() else -1 for part in path.stem.split(".")))
+
+
 def list_categories(ontology_root: Path | None, briefs_root: Path | None, codebook) -> list[dict]:
     """Existing categories a description may reuse: each one's latest ontology,
     offered only when the codebook carries every attribute it names."""
@@ -136,7 +141,7 @@ def list_categories(ontology_root: Path | None, briefs_root: Path | None, codebo
     root = Path(ontology_root) if ontology_root is not None else None
     if root is not None and root.is_dir():
         for folder in sorted(child for child in root.iterdir() if child.is_dir()):
-            versions = sorted(folder.glob("*.json"))
+            versions = ontology_versions(folder)
             if not versions:
                 continue
             data = json.loads(versions[-1].read_text(encoding="utf-8"))

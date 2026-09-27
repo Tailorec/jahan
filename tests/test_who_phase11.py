@@ -84,3 +84,12 @@ def test_audience_filters_outside_the_ontology_are_refused():
             [],
             lambda category_id: None, _Codebook(),
         )
+
+
+def test_the_latest_version_is_the_highest_number_not_the_last_in_text_order(tmp_path):
+    """Text order puts 1.0.10 before 1.0.2, so reuse would pick an old version from the tenth patch on."""
+    from simcore.population._describe import ontology_versions
+
+    for version in ("1.0.2", "1.0.10", "1.0.0"):
+        (tmp_path / f"{version}.json").write_text("{}")
+    assert [path.stem for path in ontology_versions(tmp_path)] == ["1.0.0", "1.0.2", "1.0.10"]
