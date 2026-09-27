@@ -227,3 +227,23 @@ def test_three_example_briefs_draft_only_codebook_names(tmp_path):
             for attribute, values in audience["filters"].items():
                 assert attribute in codebook.attributes
                 assert set(values) <= set(codebook.vocabulary(attribute))
+
+
+def test_by_hand_needs_no_model_and_keeps_the_categorys_scales(tmp_path):
+    # Without an endpoint the page authors by hand: an empty reading drafts only the category's own attributes.
+    def no_model(*_):
+        raise AssertionError("nothing to read, so no model is asked")
+
+    matrix = build_matrix(HfCoresetSource(cache_dir=fake_cache(tmp_path)))
+    ontology = {
+        "category": "study", "version": "1.0.0",
+        "attribute_domains": {"sex": "demographic", "region": "demographic"},
+        "conditioning_set": ["sex"], "relevance_order": ["sex", "region"],
+        "ordinal_scales": [{"attribute": "region", "bands": []}],
+    }
+    drafted = draft(
+        no_model, "", Reading(product=None, groups=(), everyone=(), topics=()),
+        {"mode": "reuse", "id": "study"}, ("gss",), matrix, _Codebook(COLUMNS), None, lambda _: ontology,
+    )
+    assert drafted.audiences == () and drafted.questions == ()
+    assert {entry["id"]: entry["ordered"] for entry in drafted.attributes} == {"sex": False, "region": True}

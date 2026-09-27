@@ -276,6 +276,7 @@ def draft(chat_json, text: str, reading, category: dict, sources, matrix, codebo
             entry = _attribute_entry(matrix, codebook, attribute, "category", None,
                                      required=attribute in (ontology.get("conditioning_set") or []), locked=True)
             entry["domain"] = ontology["attribute_domains"][attribute]
+            entry["ordered"] = attribute in {scale["attribute"] for scale in ontology.get("ordinal_scales") or []}
             attributes.append(entry)
     else:
         for attribute in cross_survey_core(matrix):

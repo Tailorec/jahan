@@ -1296,10 +1296,18 @@ def create_app(
         text = body.get("text") or ""
         reading_raw = body.get("reading") or {}
         category = body.get("category") or {}
-        if not isinstance(text, str) or not text.strip():
+        if not isinstance(text, str):
             raise HTTPException(status_code=422, detail="describe who you want to study first")
         if not isinstance(category, dict) or category.get("id") is None:
             raise HTTPException(status_code=422, detail="confirm the category before anything is drafted")
+        try:
+            reading = _reading_of(reading_raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        # Nothing to read means nothing for a model to do: the category's own attributes, for authoring by hand.
+        by_hand = not (reading.groups or reading.everyone or reading.topics)
+        if not by_hand and not text.strip():
+            raise HTTPException(status_code=422, detail="describe who you want to study first")
         codebook = _codebook_or_refuse(request)
         corpus = _corpus_root(request)
         try:
@@ -1309,15 +1317,11 @@ def create_app(
         if matrix is None:
             return {"state": "building"}
         embeddings = load_embeddings(corpus, codebook_digest(corpus), embed_model())
-        if embeddings is None:
+        if embeddings is None and not by_hand:
             raise HTTPException(
                 status_code=409,
                 detail="drafting is unavailable until search by meaning lands — it is building",
             )
-        try:
-            reading = _reading_of(reading_raw)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc))
 
         def lookup(category_id: str):
             return _latest_ontology(_ontologies_root(request), category_id)
