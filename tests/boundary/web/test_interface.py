@@ -306,7 +306,8 @@ def test_the_builders_refusals_and_saves_reach_the_browser_intact(stack):
 
 def test_the_codebook_search_is_the_corpus_own(stack):
     status, body = _get(f"{stack['base']}/api/codebook?query=age")
-    assert status == 200 and body["attributes"] == [{"id": "age_bracket", "values": ["18-24", "25-34", "35-44"]}]
+    assert status == 200 and body["attributes"][0]["id"] == "age_bracket"
+    assert body["attributes"][0]["values"] == ["18-24", "25-34", "35-44"]
 
 
 def _through_the_form(brief: dict) -> str:

@@ -753,6 +753,9 @@ export default function WhoPage() {
             <div className="panel-head"><h2>Find more attributes</h2><span className="hint">search by words</span></div>
             <div className="panel-body" style={{ display: "grid", gap: 8 }}>
               <input className="input mono" placeholder="search attributes — e.g. kids, money, wealthy" value={query} onChange={(e) => setQuery(e.target.value)} />
+              {coverage?.state === "failed" && (
+                <div className="help">Coverage could not be counted — {coverage.detail} <button className="btn sm" onClick={() => askCoverage(true)}>Count again</button></div>
+              )}
               {status && !status.endpoint_configured && (
                 <div className="help">Search by meaning is unavailable without an endpoint — searching by words.</div>
               )}

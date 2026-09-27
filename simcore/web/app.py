@@ -982,30 +982,46 @@ def create_app(
         """
         from simcore.population import search_attributes
         from simcore.ports.embeddings import (
-            build_embeddings as _build_embeddings,
-        )
-        from simcore.ports.embeddings import (
             codebook_digest,
             embed_model,
             load_embeddings,
         )
-        from simcore.ports.hf import HfCoresetSource
-        from simcore.ports.matrix import load_matrix
 
         codebook = _codebook_or_refuse(request)
         corpus = _corpus_root(request)
-        source = HfCoresetSource(cache_dir=corpus)
-        matrix = load_matrix(source)
+        matrix = _try_matrix(corpus)
+        chosen = tuple(name for name in sources.split(",") if name)
+        needed = tuple(name for name in required.split(",") if name)
         if matrix is None:
+            from simcore.brief._codebook import kind_of, measures_of, word_search
+
+            if query.strip():
+                ordered = word_search(query, codebook, limit=len(codebook.attributes))
+            else:
+                ordered = tuple(codebook.attributes)
+            entries = [
+                {
+                    "id": attribute,
+                    "label": codebook.label(attribute),
+                    "category": codebook.category(attribute),
+                    "measures": measures_of(attribute, codebook.label(attribute), codebook.category(attribute)),
+                    "kind": kind_of(attribute, codebook.label(attribute), codebook.category(attribute)),
+                    "values": list(codebook.vocabulary(attribute) or ()),
+                    "relevance": None,
+                    "present": None,
+                    "total": None,
+                }
+                for attribute in ordered
+            ]
             return {
-                "attributes": [],
-                "total": 0,
+                "attributes": _page(entries, offset, limit),
+                "total": len(entries),
                 "mode": "words",
                 "meaning_available": False,
                 "meaning_note": "counting who can be drawn — search returns once the matrix exists",
             }
-        chosen = tuple(name for name in sources.split(",") if name) or matrix.sources
-        needed = tuple(name for name in required.split(",") if name)
+        if not chosen:
+            chosen = matrix.sources
         model = embed_model()
         digest = codebook_digest(corpus)
         embeddings = load_embeddings(corpus, digest, model)
@@ -1607,6 +1623,18 @@ def _latest_ontology(root: str, category_id: str):
     try:
         return _json.loads(versions[-1].read_text(encoding="utf-8"))
     except ValueError:
+        return None
+
+
+def _try_matrix(corpus):
+    """The persona value matrix for this corpus, or nothing when no countable
+    shards are cached — search then reads the codebook alone."""
+    from simcore.ports.hf import HfCoresetSource
+    from simcore.ports.matrix import load_matrix
+
+    try:
+        return load_matrix(HfCoresetSource(cache_dir=corpus))
+    except Exception:
         return None
 
 

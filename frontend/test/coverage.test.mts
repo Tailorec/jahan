@@ -1,17 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { coverageLabel, density, percent, shouldPoll, type CoverageCell } from "../lib/coverage.ts";
+import { coverageLabel, coverageBand, percent, shouldPoll, type CoverageCell } from "../lib/coverage.ts";
 
 const cell = (share: number | null, present = 0, total = 0): CoverageCell => ({ present, total, share });
 
-test("an attribute is dense above half, thin down to a tenth and sparse below", () => {
-  assert.equal(density(cell(0.894)), "dense");
-  assert.equal(density(cell(0.5)), "dense");
-  assert.equal(density(cell(0.37)), "thin");
-  assert.equal(density(cell(0.1)), "thin");
-  assert.equal(density(cell(0.0004)), "sparse");
-  assert.equal(density(cell(null)), "unknown");
-  assert.equal(density(undefined), "unknown");
+test("an attribute is answered by most above half, by some down to a tenth, by few below", () => {
+  assert.equal(coverageBand(cell(0.894)), "most");
+  assert.equal(coverageBand(cell(0.5)), "most");
+  assert.equal(coverageBand(cell(0.37)), "some");
+  assert.equal(coverageBand(cell(0.1)), "some");
+  assert.equal(coverageBand(cell(0.0004)), "few");
+  assert.equal(coverageBand(cell(null)), "unknown");
+  assert.equal(coverageBand(undefined), "unknown");
 });
 
 test("a share is named the way it is read, and a tiny one is not rounded to nothing", () => {
@@ -22,7 +22,7 @@ test("a share is named the way it is read, and a tiny one is not rounded to noth
 });
 
 test("the label carries the count it came from", () => {
-  assert.equal(coverageLabel(cell(0.894359, 178735, 199847)), "89% populated · 178,735 of 199,847 recorded personas");
+  assert.equal(coverageLabel(cell(0.894359, 178735, 199847)), "answered by most · 89% populated · 178,735 of 199,847 recorded personas");
   assert.equal(coverageLabel(undefined), "coverage unknown");
 });
 

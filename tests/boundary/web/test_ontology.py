@@ -119,8 +119,10 @@ def test_codebook_search_serves_declared_value_sets(tmp_path):
     client = _client(tmp_path, _fixture_corpus(tmp_path))
     body = client.get("/api/codebook", params={"query": "age"}).json()
     assert body["total"] == 1
-    assert body["attributes"][0] == {"id": "age_bracket", "values": ["18-24", "25-34", "35-44"]}
-    assert client.get("/api/codebook", params={"query": "nope"}).json() == {"attributes": [], "total": 0}
+    assert body["attributes"][0]["id"] == "age_bracket"
+    assert body["attributes"][0]["values"] == ["18-24", "25-34", "35-44"]
+    assert "label" in body["attributes"][0] and "measures" in body["attributes"][0]
+    assert client.get("/api/codebook", params={"query": "nope"}).json()["attributes"] == []
 
 
 def test_nothing_pins_without_the_corpus_present(tmp_path, monkeypatch):

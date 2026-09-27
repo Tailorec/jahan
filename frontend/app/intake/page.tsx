@@ -325,7 +325,7 @@ export default function IntakePage() {
           </div>
 
           <div className="panel">
-            <div className="panel-head"><h2>2 · Audiences</h2><span className="hint">authored in Who you study — shown here, never typed here</span></div>
+            <div className="panel-head"><h2>2 · Audiences</h2><span className="hint">named slices of the target market — authored in Who you study</span></div>
             <div className="panel-body" style={{ display: "grid", gap: 10 }}>
               {form.audiences.map((a, i) => (
                 <div key={i} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>

@@ -1,4 +1,4 @@
-"""The ontology builder shows how populated an attribute is; the run page names a world only when it can;
+"""Who you study shows how populated an attribute is; the run page names a world only when it can;
 a refused resume can be forced on purpose. Markers only — the checks that render these pages are in
 `test_interface.py` and the unit tests under `frontend/test/`."""
 
@@ -8,9 +8,9 @@ FRONTEND = Path(__file__).resolve().parents[3] / "frontend"
 
 
 def test_the_builder_shows_coverage_from_the_engine_and_polls_only_while_it_counts():
-    page = (FRONTEND / "app" / "ontology" / "page.tsx").read_text()
+    page = (FRONTEND / "app" / "who" / "page.tsx").read_text()
     for marker in ("/api/corpus/coverage", "data-coverage", "coverageLabel", "shouldPoll", "Count again"):
-        assert marker in page, f"the builder lacks {marker!r}"
+        assert marker in page, f"the page lacks {marker!r}"
     route = (FRONTEND / "app" / "api" / "corpus" / "coverage" / "route.ts").read_text()
     assert '"/api/corpus/coverage' in route or "/api/corpus/coverage" in route
 
