@@ -60,9 +60,15 @@ def test_kind_in_plain_words():
 def test_interface_uses_glossary_words():
     source = (REPO / "frontend" / "lib" / "coverage.ts").read_text()
     assert "dense" not in source and "sparse" not in source
-    for page in ["frontend/app/ontology/page.tsx", "frontend/app/who/page.tsx"]:
+    for page in ["frontend/app/who/page.tsx", "frontend/app/intake/page.tsx"]:
         text = (REPO / page).read_text()
         assert "dense" not in text and "sparse" not in text
+
+
+def test_old_builder_is_gone():
+    assert not (REPO / "frontend" / "app" / "ontology" / "page.tsx").exists()
+    shell = (REPO / "frontend" / "components" / "shell.tsx").read_text()
+    assert "/ontology" not in shell
 
 
 def test_who_page_is_step_zero():

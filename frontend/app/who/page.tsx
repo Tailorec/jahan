@@ -11,6 +11,7 @@ interface CodebookHit {
   id: string;
   label: string;
   category: string;
+  domain?: string;
   measures: string;
   kind: string;
   values: string[];
@@ -39,7 +40,7 @@ const PRESETS: { label: string; sources: string[] }[] = [
 const TEXT_SOURCES = ["amazon", "wiki"];
 const TEXT_LABEL = "read by a model from text, not surveyed";
 
-interface DraftRow { id: string; label: string; category: string; measures: string; kind: string; role: string; required: boolean; locked?: boolean; values: string[] }
+interface DraftRow { id: string; label: string; category: string; domain: string; measures: string; kind: string; role: string; required: boolean; locked?: boolean; values: string[] }
 interface PoolCost { attribute: string; pool_without: number; removes: number; removes_by_source: Record<string, number>; emptied_sources: string[] }
 interface PoolReply { state: string; sources_total?: number; sources_by_source?: Record<string, number>; pool?: number; pool_by_source?: Record<string, number>; costs?: PoolCost[] }
 interface HeadCount { name: string; quota: number; head_count: number; by_source: Record<string, number>; dominant_source: string | null; filter_costs: Record<string, number>; empty_note: string | null; text_would_add: Record<string, number> }
@@ -115,7 +116,7 @@ export default function WhoPage() {
 
   function addAttr(h: CodebookHit, required: boolean) {
     if (rows.some((r) => r.id === h.id)) return;
-    setRows((rs) => [...rs, { id: h.id, label: h.label, category: h.category, measures: h.measures, kind: h.kind, role: required ? "Required for everyone" : "Describes everyone", required, values: h.values }]);
+    setRows((rs) => [...rs, { id: h.id, label: h.label, category: h.category, domain: h.domain ?? "category_behaviour", measures: h.measures, kind: h.kind, role: required ? "Required for everyone" : "Describes everyone", required, values: h.values }]);
   }
 
   const [audiences, setAudiences] = React.useState<Audience[]>([]);
@@ -132,7 +133,7 @@ export default function WhoPage() {
 
   interface DraftUnsure { phrase: string; choices: { attribute: string; label: string; values: string[]; n_alone: number }[] }
   interface DraftAudience { name: string; share: number | null; filters: Record<string, string[]>; phrases: Record<string, string>; unsure: DraftUnsure[]; descriptions: string[] }
-  interface DraftAttr { id: string; label: string; category: string; measures: string; kind: string; values: string[]; required: boolean; locked: boolean; role: string; phrase: string | null }
+  interface DraftAttr { id: string; label: string; category: string; domain: string; measures: string; kind: string; values: string[]; required: boolean; locked: boolean; role: string; phrase: string | null }
   interface DraftQuestion { phrase: string; choices: { attribute: string; label: string; values: string[]; n_alone: number }[]; applies_to: string[] }
   interface DraftReply { state: string; audiences: DraftAudience[]; attributes: DraftAttr[]; questions: DraftQuestion[]; unmatched: { phrase: string; missing: string }[] }
   const [drafted, setDrafted] = React.useState<DraftReply | null>(null);
@@ -140,6 +141,58 @@ export default function WhoPage() {
   const [draftError, setDraftError] = React.useState<string | null>(null);
   const [questions, setQuestions] = React.useState<DraftQuestion[]>([]);
   const [blockers, setBlockers] = React.useState<string[] | null>(null);
+
+  interface ReadyReply { state: string; ontology: { category: string; version: string }; audiences: { name: string; share: number | null; attribute_filters: Record<string, string | string[]> }[]; assumptions: { text: string; source: string }[]; action: string; from_version: string | null }
+  const [ready, setReady] = React.useState<ReadyReply | null>(null);
+  const [continuing, setContinuing] = React.useState(false);
+  const [continueError, setContinueError] = React.useState<string | null>(null);
+  const [saved, setSaved] = React.useState(false);
+
+  async function continueIt() {
+    if (!category || continuing) return;
+    setContinuing(true);
+    setContinueError(null);
+    try {
+      setReady(await api<ReadyReply>("/api/who/launch", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          category,
+          attributes: rows.map((r) => ({ id: r.id, domain: r.domain, required: r.required })),
+          audiences,
+          assumptions: preview?.assumptions ?? [],
+        }),
+      }));
+      setSaved(false);
+    } catch (e) {
+      setContinueError(whyNot(e));
+    }
+    setContinuing(false);
+  }
+
+  async function saveOntology() {
+    if (!ready) return;
+    try {
+      await api("/api/ontologies", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ontology: ready.ontology }),
+      });
+      setSaved(true);
+    } catch (e) {
+      setContinueError(whyNot(e));
+    }
+  }
+
+  function openLaunch() {
+    if (!ready) return;
+    try {
+      localStorage.setItem("who-launch", JSON.stringify({
+        audiences: ready.audiences, assumptions: ready.assumptions,
+        sources: JSON.parse(sourcesKey), studySize,
+        category: ready.ontology.category, ontologyVersion: ready.ontology.version,
+      }));
+    } catch { /* a full store is not a failed study */ }
+    window.location.href = "/intake?from=who";
+  }
 
   interface Turn { text: string; matched: string[]; missing: { phrase: string; missing: string }[] }
   const [turns, setTurns] = React.useState<Turn[]>([]);
@@ -212,7 +265,7 @@ export default function WhoPage() {
         const next = [...rs];
         for (const entry of d.attributes ?? []) {
           const at = next.findIndex((r) => r.id === entry.id);
-          const row = { id: entry.id, label: entry.label, category: entry.category, measures: entry.measures, kind: entry.kind, role: entry.required ? "Required for everyone" : entry.role === "matters" ? "Describes everyone" : `Defines audiences`, required: entry.required, locked: entry.locked, values: entry.values };
+          const row = { id: entry.id, label: entry.label, category: entry.category, domain: entry.domain ?? "category_behaviour", measures: entry.measures, kind: entry.kind, role: entry.required ? "Required for everyone" : entry.role === "matters" ? "Describes everyone" : `Defines audiences`, required: entry.required, locked: entry.locked, values: entry.values };
           if (at >= 0) next[at] = { ...next[at], ...row };
           else next.push(row);
         }
@@ -348,7 +401,7 @@ export default function WhoPage() {
       const filters = { ...a.filters };
       delete filters[from];
       filters[to.id] = kept.length ? kept : vocab.slice(0, 1);
-      const declared = rows.some((r) => r.id === to.id) ? rows : [...rows, { id: to.id, label: to.id, category: "", measures: "", kind: "", role: "Defines audiences", required: false, values: vocab }];
+      const declared = rows.some((r) => r.id === to.id) ? rows : [...rows, { id: to.id, label: to.id, category: "", domain: "category_behaviour", measures: "", kind: "", role: "Defines audiences", required: false, values: vocab }];
       setRows(declared);
       return { ...a, filters };
     }));
@@ -446,7 +499,8 @@ export default function WhoPage() {
               {(blockers ?? []).length === 0 && audiences.length > 0 && (
                 <div className="sub" style={{ fontSize: 12.5 }}>Nothing stands in the way.</div>
               )}
-              <button className="btn primary" disabled={(blockers ?? ["loading"]).length > 0}>Continue to study →</button>
+              <button className="btn primary" disabled={(blockers ?? ["loading"]).length > 0 || continuing} onClick={continueIt}>{continuing ? "Checking…" : "Continue to study →"}</button>
+              {continueError && <Callout icon="alert"><div><b>Cannot continue.</b> {continueError}</div></Callout>}
             </div>
           </div>
         </div>
@@ -496,6 +550,35 @@ export default function WhoPage() {
               <div className="panel-body" style={{ display: "grid", gap: 8 }}>
                 <div><button className="btn primary sm" disabled={drafting} onClick={draftIt}>{drafting ? "Drafting…" : "Draft audiences"}</button></div>
                 {draftError && <Callout icon="alert"><div><b>Could not draft.</b> {draftError}</div></Callout>}
+              </div>
+            </div>
+          )}
+          {ready && (
+            <div className="panel" style={{ marginTop: 16 }}>
+              <div className="panel-head"><h2>Ready for a study</h2><span className="hint">checked by the engine&apos;s own types</span></div>
+              <div className="panel-body" style={{ display: "grid", gap: 8 }}>
+                <div style={{ fontSize: 12.5 }}>
+                  {ready.action === "reused" && <>Reuses <b className="mono">{ready.ontology.category}@{ready.ontology.version}</b> as it is.</>}
+                  {ready.action === "new_version" && <>Publishes <b className="mono">{ready.ontology.category}@{ready.ontology.version}</b> — a new patch version adding what you declared, conditioning set unchanged (from {ready.from_version}).</>}
+                  {ready.action === "new_category" && <>Starts <b className="mono">{ready.ontology.category}@1.0.0</b> as a new category.</>}
+                </div>
+                {(ready.assumptions ?? []).length > 0 && (
+                  <div style={{ display: "grid", gap: 4 }}>
+                    <div className="sub" style={{ fontSize: 12 }}>Assumptions written to the brief:</div>
+                    {ready.assumptions.map((a, i) => <div key={i} className="sub" style={{ fontSize: 12.5 }}>assumed — {a.text}</div>)}
+                  </div>
+                )}
+                <div className="sub" style={{ fontSize: 12 }}>Audiences: {(ready.audiences ?? []).map((a) => a.name).join(", ")}</div>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <a className="btn sm" href={`data:application/json,${encodeURIComponent(JSON.stringify(ready.ontology, null, 2))}`} download={`${ready.ontology.category}-${ready.ontology.version}.json`}>Ontology ↓</a>
+                  <a className="btn sm" href={`data:application/json,${encodeURIComponent(JSON.stringify(ready.audiences, null, 2))}`} download="audiences.json">Audiences ↓</a>
+                  {!saved
+                    ? <button className="btn primary sm" onClick={saveOntology}>Save ontology</button>
+                    : <span className="chip ok"><span className="dot" />saved {ready.ontology.category}@{ready.ontology.version}</span>}
+                  <button className="btn primary sm" disabled={!saved && ready.action !== "reused"} onClick={openLaunch}>Open launch form →</button>
+                  <button className="btn quiet sm" onClick={() => setReady(null)}>Back to editing</button>
+                </div>
+                {!saved && ready.action !== "reused" && <div className="help">Save the new version first — past studies keep resolving to what they ran on, so versions are never overwritten.</div>}
               </div>
             </div>
           )}

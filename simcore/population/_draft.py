@@ -105,12 +105,13 @@ def _candidates(phrase: str, sources, matrix, codebook, embeddings, limit: int =
 
 
 def _attribute_entry(matrix, codebook, attribute: str, role: str, phrase, required: bool = False, locked: bool = False) -> dict:
-    from simcore.brief._codebook import kind_of, measures_of
+    from simcore.brief._codebook import domain_of, kind_of, measures_of
 
     return {
         "id": attribute,
         "label": codebook.label(attribute),
         "category": codebook.category(attribute),
+        "domain": domain_of(attribute, codebook.label(attribute), codebook.category(attribute)),
         "measures": measures_of(attribute, codebook.label(attribute), codebook.category(attribute)),
         "kind": kind_of(attribute, codebook.label(attribute), codebook.category(attribute)),
         "values": list(codebook.vocabulary(attribute) or ()),

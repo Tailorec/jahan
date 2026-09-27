@@ -1399,6 +1399,32 @@ def create_app(
         out["state"] = "ready"
         return out
 
+    @app.post("/api/who/launch")
+    def launch_route(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """Continue to study: validate the ontology and audiences with the
+        engine's own types and say what saving will do. Saving itself stays on
+        `POST /api/ontologies`, which never overwrites a pinned version."""
+        from simcore.population import prepare_launch
+
+        codebook = _codebook_or_refuse(request)
+
+        def lookup(category_id: str):
+            return _latest_ontology(_ontologies_root(request), category_id)
+
+        try:
+            outcome = prepare_launch(
+                body.get("category") or {},
+                body.get("attributes") or [],
+                body.get("audiences") or [],
+                body.get("assumptions") or [],
+                lookup,
+                codebook,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        outcome["state"] = "ready"
+        return outcome
+
     @app.post("/api/who/blockers")
     def blockers_route(request: Request, body: dict[str, Any]) -> dict[str, Any]:
         """Exactly what still stands in the way of Continue, derived by the engine."""

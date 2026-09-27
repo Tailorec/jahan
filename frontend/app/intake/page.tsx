@@ -5,7 +5,7 @@ import React from "react";
 import Shell from "@/components/shell";
 import { PageHead, Callout, ICONS } from "@/components/ui";
 import { api, useApi, whyNot } from "@/lib/api";
-import { briefToYaml, formFromBrief, splitList, type BriefForm, type FilterSpec } from "@/lib/briefYaml";
+import { briefToYaml, formFromBrief, type BriefForm } from "@/lib/briefYaml";
 import type { BriefRef, CategoryOntology, ClaimSource } from "@/lib/engine";
 import {
   CHANNELS, CHANNEL_GUIDE, ONE_ENVIRONMENT_NOTE, cachedShards, defaultAnchor, defaultSources, gateRequest, problems, studyRequest,
@@ -113,6 +113,37 @@ export default function IntakePage() {
     loadedFirst.current = true;
     loadBrief(briefs.find((x) => x.name === "protein_water") ?? briefs[0]);
   }, [briefs, loadBrief]);
+  // Arriving from Who you study: audiences, assumptions, sources and study size, with the ontology version it saved.
+  const appliedWho = React.useRef(false);
+  React.useEffect(() => {
+    if (appliedWho.current || typeof window === "undefined") return;
+    if (!new URLSearchParams(window.location.search).get("from")) return;
+    let handoff: {
+      audiences?: { name: string; share: number | null; attribute_filters: Record<string, string | string[]> }[];
+      assumptions?: { text: string; source: string }[];
+      sources?: string[]; studySize?: number; category?: string; ontologyVersion?: string;
+    } | null = null;
+    try {
+      handoff = JSON.parse(localStorage.getItem("who-launch") ?? "null");
+    } catch { handoff = null; }
+    if (!handoff) return;
+    appliedWho.current = true;
+    setForm((f) => ({
+      ...f,
+      product: { ...f.product, category: handoff.category ?? f.product.category },
+      ontologyVersion: handoff.ontologyVersion ?? f.ontologyVersion,
+      audiences: (handoff.audiences ?? []).map((a) => ({
+        name: a.name,
+        share: a.share === null || a.share === undefined ? "" : String(a.share),
+        filters: Object.fromEntries(Object.entries(a.attribute_filters ?? {}).map(([k, v]) => [
+          k, Array.isArray(v) ? { kind: "one_of" as const, values: v.map(String) } : { kind: "exactly" as const, value: String(v) },
+        ])),
+      })),
+      assumptions: (handoff.assumptions ?? []).map((a) => ({ text: a.text, source: "assumed" as const })),
+    }));
+    if (handoff.sources) setSources(handoff.sources);
+    if (handoff.studySize) setN(String(handoff.studySize));
+  }, []);
   // A brief names one exact ontology version, and the form says which: the version the brief
   // was loaded with, or the one picked here — never a silent substitution of the newest.
   React.useEffect(() => {
@@ -180,24 +211,8 @@ export default function IntakePage() {
     setCheckingBrief(false);
   };
 
-  const attrs = onto ? Object.keys(onto.attribute_domains) : [];
   const setClaim = (i: number, patch: Partial<BriefForm["claims"][number]>) =>
     setForm((f) => ({ ...f, claims: f.claims.map((x, j) => (j === i ? { ...x, ...patch } : x)) }));
-  const setAudience = (i: number, patch: Partial<BriefForm["audiences"][number]>) =>
-    setForm((f) => ({ ...f, audiences: f.audiences.map((x, j) => (j === i ? { ...x, ...patch } : x)) }));
-  const setFilter = (i: number, attribute: string, spec: FilterSpec) =>
-    setForm((f) => ({
-      ...f,
-      audiences: f.audiences.map((x, j) => (j === i ? { ...x, filters: { ...x.filters, [attribute]: spec } } : x)),
-    }));
-  // Changing how an attribute is matched keeps what was already said about it.
-  const retype = (spec: FilterSpec, kind: FilterSpec["kind"]): FilterSpec => {
-    const first = spec.kind === "exactly" ? String(spec.value) : spec.kind === "one_of" ? String(spec.values[0] ?? "") : spec.first;
-    const last = spec.kind === "range" ? spec.last : spec.kind === "one_of" ? String(spec.values[spec.values.length - 1] ?? "") : first;
-    if (kind === "exactly") return { kind, value: first };
-    if (kind === "one_of") return { kind, values: spec.kind === "one_of" ? spec.values : first ? [first] : [] };
-    return { kind, first, last };
-  };
   const setCompetitor = (i: number, patch: Partial<BriefForm["competitors"][number]>) =>
     setForm((f) => ({ ...f, competitors: f.competitors.map((x, j) => (j === i ? { ...x, ...patch } : x)) }));
   const setAssumption = (i: number, patch: Partial<BriefForm["assumptions"][number]>) =>
@@ -244,7 +259,7 @@ export default function IntakePage() {
                     )}
                     {ontoList.map((o) => <option key={`${o.category}@${o.version}`} value={`${o.category}@${o.version}`}>{o.category} @ {o.version}</option>)}
                   </select>
-                  <div className="help"><Link href="/ontology">Build or extend an ontology →</Link> what can be studied is bounded by the corpus, not by which files exist.</div></div>
+                  <div className="help"><Link href="/who">Describe who you study →</Link> what can be studied is bounded by the corpus, not by which files exist.</div></div>
               </div>
               <div className="field"><label>Concept statement</label>
                 <textarea className="input" rows={2} value={form.product.description} onChange={(e) => setProduct({ description: e.target.value })} />
@@ -310,61 +325,20 @@ export default function IntakePage() {
           </div>
 
           <div className="panel">
-            <div className="panel-head"><h2>2 · Audiences</h2><span className="hint">named slices of the target market; filters must use ontology attributes</span></div>
+            <div className="panel-head"><h2>2 · Audiences</h2><span className="hint">authored in Who you study — shown here, never typed here</span></div>
             <div className="panel-body" style={{ display: "grid", gap: 10 }}>
               {form.audiences.map((a, i) => (
                 <div key={i} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <input className="input mono" style={{ maxWidth: 200 }} value={a.name} onChange={(e) => setAudience(i, { name: e.target.value })} />
-                    <input className="input mono" style={{ maxWidth: 100 }} placeholder="share" value={a.share} onChange={(e) => setAudience(i, { share: e.target.value })} />
-                    <button className="btn quiet sm" style={{ marginLeft: "auto" }} onClick={() => setForm((f) => ({ ...f, audiences: f.audiences.filter((_, j) => j !== i) }))}>✕</button>
+                  <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                    <b className="mono">{a.name}</b>
+                    <span className="mono sub" style={{ fontSize: 11 }}>share {a.share === "" ? "—" : a.share}</span>
                   </div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap", alignItems: "center" }}>
-                    {Object.entries(a.filters).map(([k, f]) => (
-                      <span key={k} className="tag" style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
-                        <b className="mono">{k}</b>
-                        <select className="input" aria-label={`${k} matches`} style={{ width: 96, padding: "1px 4px" }} value={f.kind}
-                          onChange={(e) => setFilter(i, k, retype(f, e.target.value as FilterSpec["kind"]))}>
-                          <option value="exactly">is</option>
-                          <option value="one_of">any of</option>
-                          <option value="range">from … to</option>
-                        </select>
-                        {f.kind === "exactly" && (
-                          <input className="input mono" aria-label={`${k} value`} style={{ width: 130, padding: "1px 6px" }} value={String(f.value)}
-                            onChange={(e) => setFilter(i, k, { kind: "exactly", value: e.target.value })} />
-                        )}
-                        {f.kind === "one_of" && (
-                          <input key={`${k}-list`} className="input mono" aria-label={`${k} alternatives`} style={{ width: 170, padding: "1px 6px" }} placeholder="a, b, c"
-                            defaultValue={f.values.join(", ")} onBlur={(e) => setFilter(i, k, { kind: "one_of", values: splitList(e.target.value) })} />
-                        )}
-                        {f.kind === "range" && (
-                          <>
-                            <input className="input mono" aria-label={`${k} first band`} style={{ width: 80, padding: "1px 6px" }} value={f.first}
-                              onChange={(e) => setFilter(i, k, { kind: "range", first: e.target.value, last: f.last })} />
-                            …
-                            <input className="input mono" aria-label={`${k} last band`} style={{ width: 80, padding: "1px 6px" }} value={f.last}
-                              onChange={(e) => setFilter(i, k, { kind: "range", first: f.first, last: e.target.value })} />
-                          </>
-                        )}
-                        <button aria-label="remove filter" style={{ border: "none", background: "none", cursor: "pointer" }} onClick={() => setAudience(i, { filters: Object.fromEntries(Object.entries(a.filters).filter(([kk]) => kk !== k)) })}>✕</button></span>
-                    ))}
-                    <select className="input" style={{ width: 220 }} value="" onChange={(e) => {
-                      if (!e.target.value) return;
-                      const [attr, band] = e.target.value.split("=");
-                      setFilter(i, attr, { kind: "exactly", value: band });
-                    }}>
-                      <option value="">+ filter…</option>
-                      {onto?.ordinal_scales.flatMap((s) => s.bands.map((b) => (
-                        <option key={`${s.attribute}=${b.label}`} value={`${s.attribute}=${b.label}`}>{s.attribute} = {b.label}</option>
-                      )))}
-                      {attrs.filter((at) => !onto?.ordinal_scales.some((s) => s.attribute === at) && !(at in a.filters)).map((at) => (
-                        <option key={at} value={`${at}=`}>{at} = (type a value)</option>
-                      ))}
-                    </select>
+                  <div className="mono sub" style={{ fontSize: 11, marginTop: 4 }}>
+                    {Object.entries(a.filters).map(([k, f]) => `${k} ${f.kind === "exactly" ? `= ${f.value}` : f.kind === "one_of" ? `in (${f.values.join(", ")})` : `from ${f.first} to ${f.last}`}`).join(" · ") || "no filters"}
                   </div>
                 </div>
               ))}
-              <button className="btn sm" style={{ justifySelf: "start" }} onClick={() => setForm((f) => ({ ...f, audiences: [...f.audiences, { name: `audience_${f.audiences.length + 1}`, share: "", filters: {} }] }))}>+ Add audience</button>
+              <div className="help"><Link href="/who">Author audiences in Who you study →</Link> filters are picked from value lists with live counts, never typed.</div>
               <div className="field"><label>Assumptions</label>
                 <div className="help">An <b>assumption</b> is taken as true without evidence — recorded and surfaced in every report, never resolved away. Each keeps the source it was stated with.</div>
                 <div style={{ display: "grid", gap: 6 }}>

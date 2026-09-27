@@ -59,6 +59,32 @@ def _has_any(haystack: str, words: frozenset[str]) -> bool:
     return any(word in haystack for word in words)
 
 
+_FAMILY_DOMAIN = {
+    "demographic": "demographic", "personality": "psychographic", "values & motivation": "psychographic",
+    "worldview": "psychographic", "state": "psychographic", "linguistic": "psychographic",
+    "risk & decision": "decision_rule", "behavior": "category_behaviour", "health": "category_behaviour",
+    "learning": "demographic", "professional": "category_behaviour", "skills": "category_behaviour",
+    "expertise": "category_behaviour", "developer": "category_behaviour", "interests": "category_behaviour",
+}
+
+
+def domain_of(attribute: str, label: str = "", category: str = "") -> str:
+    """The engine field domain for an attribute, from its codebook family."""
+    family = (category.split(":")[0] if ":" in category else category).strip().lower()
+    if family in _FAMILY_DOMAIN:
+        return _FAMILY_DOMAIN[family]
+    hay = _haystack(attribute, label, category)
+    if _has_any(hay, _MONEY_WORDS):
+        return "economic"
+    if _has_any(hay, _DECIDE_WORDS):
+        return "decision_rule"
+    if _has_any(hay, _MEDIA_WORDS):
+        return "media"
+    if _has_any(hay, _ATTITUDE_WORDS):
+        return "psychographic"
+    return "category_behaviour"
+
+
 def measures_of(attribute: str, label: str = "", category: str = "") -> str:
     """What an attribute measures, in the builder's words — taken from its id
     and category, never from a model. An attitude, value or interest is how
@@ -223,4 +249,4 @@ def validate_against_codebook(ontology: CategoryOntology, codebook: CodebookLike
                 )
 
 
-__all__ = ["expand_terms", "kind_of", "measures_of", "suggest_attributes", "validate_against_codebook", "word_search"]
+__all__ = ["domain_of", "expand_terms", "kind_of", "measures_of", "suggest_attributes", "validate_against_codebook", "word_search"]
