@@ -91,6 +91,26 @@ def test_each_cost_is_per_source_and_emptied_surveys_are_named(tmp_path):
     assert by_name["b"].emptied_sources == ("stackoverflow",)
 
 
+@real_corpus
+def test_reference_candidate_pool_counts():
+    from simcore.ports.matrix import load_matrix
+
+    matrix = load_matrix(HfCoresetSource(cache_dir=REAL_CACHE))
+    assert matrix is not None, "the persona value matrix was never built on this machine"
+    pool = describe_pool(
+        matrix, ("stackoverflow", "gss"),
+        ("age_bracket", "region", "highest_education", "demo_employment_status", "life_stage"),
+    )
+    assert pool.pool_by_source.get("stackoverflow") == 52530
+    assert pool.pool_by_source.get("gss") == 11754
+    collapse = describe_pool(
+        matrix, ("stackoverflow", "gss"),
+        ("age_bracket", "region", "highest_education", "demo_employment_status", "life_stage",
+         "demo_marital_status", "demo_children_count"),
+    )
+    assert collapse.pool_by_source.get("stackoverflow", 0) == 0
+
+
 def test_unknown_attributes_and_sources_are_refused(tmp_path):
     import pytest
 
