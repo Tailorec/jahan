@@ -497,6 +497,8 @@ def create_app(
     app.state.coverage_job = {"thread": None, "error": None}
     app.state.matrix_lock = threading.Lock()
     app.state.matrix_job = {"thread": None, "error": None}
+    app.state.embeddings_lock = threading.Lock()
+    app.state.embeddings_job = {"thread": None, "error": None}
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -968,38 +970,70 @@ def create_app(
         limit: int = Query(default=50, ge=1, le=1000),
         mode: str = "words",
         sources: str = "",
+        required: str = "",
     ) -> dict[str, Any]:
         """The corpus's own attributes in words people use: label, category,
-        what each measures, and its declared value set.
+        what each measures, how well each matches, how many people answered it
+        and from which sources, and what requiring it would do to the pool.
 
-        Word search covers ids, labels and categories, so "kids" finds
-        children; search by meaning arrives in a later phase and until then
-        the answer says words is what there is. Nothing here is a path.
+        `mode=meaning` ranks by meaning with near-empty attributes sunk; until
+        embeddings exist — and without an endpoint — search is by words, and
+        the answer says so. Nothing here is a path.
         """
-        from simcore.brief._codebook import kind_of, measures_of, word_search
+        from simcore.population import search_attributes
+        from simcore.ports.embeddings import (
+            build_embeddings as _build_embeddings,
+        )
+        from simcore.ports.embeddings import (
+            codebook_digest,
+            embed_model,
+            load_embeddings,
+        )
+        from simcore.ports.hf import HfCoresetSource
+        from simcore.ports.matrix import load_matrix
 
         codebook = _codebook_or_refuse(request)
-        if query.strip():
-            ordered = word_search(query, codebook, limit=len(codebook.attributes))
-        else:
-            ordered = tuple(codebook.attributes)
-        entries = [
-            {
-                "id": attribute,
-                "label": codebook.label(attribute),
-                "category": codebook.category(attribute),
-                "measures": measures_of(attribute, codebook.label(attribute), codebook.category(attribute)),
-                "kind": kind_of(attribute, codebook.label(attribute), codebook.category(attribute)),
-                "values": list(codebook.vocabulary(attribute) or ()),
+        corpus = _corpus_root(request)
+        source = HfCoresetSource(cache_dir=corpus)
+        matrix = load_matrix(source)
+        if matrix is None:
+            return {
+                "attributes": [],
+                "total": 0,
+                "mode": "words",
+                "meaning_available": False,
+                "meaning_note": "counting who can be drawn — search returns once the matrix exists",
             }
-            for attribute in ordered
-        ]
+        chosen = tuple(name for name in sources.split(",") if name) or matrix.sources
+        needed = tuple(name for name in required.split(",") if name)
+        model = embed_model()
+        digest = codebook_digest(corpus)
+        embeddings = load_embeddings(corpus, digest, model)
+        if embeddings is None:
+            with request.app.state.embeddings_lock:
+                job = request.app.state.embeddings_job
+                alive = job["thread"] is not None and job["thread"].is_alive()
+                if not alive and job["error"] is None:
+                    job["thread"] = threading.Thread(
+                        target=_build_embeddings_job,
+                        args=(request.app.state, str(corpus)),
+                        name="attribute-embeddings",
+                        daemon=True,
+                    )
+                    job["thread"].start()
+        found = search_attributes(codebook, matrix, query, chosen, needed, mode, embeddings)
+        entries = found["results"]
+        meaning_note = "search by meaning is unavailable without an endpoint and embeddings — searching by words"
+        if embeddings is not None:
+            meaning_note = ""
+        if embeddings is None and request.app.state.embeddings_job["error"] is None:
+            meaning_note = "search by meaning is building — searching by words until it lands"
         return {
             "attributes": _page(entries, offset, limit),
             "total": len(entries),
-            "mode": "words",
-            "meaning_available": False,
-            "meaning_note": "search by meaning is unavailable without an endpoint and embeddings — searching by words",
+            "mode": found["mode"],
+            "meaning_available": embeddings is not None,
+            "meaning_note": meaning_note,
         }
 
     @app.get("/api/corpus")
@@ -1294,6 +1328,17 @@ def _coverage(state: Any, corpus: Path, retry: bool) -> dict[str, Any]:
         job["thread"] = threading.Thread(target=count, name="corpus-coverage", daemon=True)
         job["thread"].start()
     return {"available": False, "state": "building"}
+
+
+def _build_embeddings_job(state: Any, corpus: str) -> None:
+    """Embed every codebook attribute once, in the background, recording why it failed."""
+    from simcore.ports.embeddings import build_embeddings, codebook_digest, embed_model
+
+    try:
+        path = Path(corpus)
+        build_embeddings(path, codebook_digest(path), embed_model())
+    except Exception as failure:
+        state.embeddings_job["error"] = f"embeddings could not be built ({type(failure).__name__})"
 
 
 def _pool_failure(failure: Exception) -> str:

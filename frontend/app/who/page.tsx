@@ -14,6 +14,12 @@ interface CodebookHit {
   measures: string;
   kind: string;
   values: string[];
+  relevance?: number | null;
+  present?: number;
+  total?: number;
+  share?: number;
+  carry_by_source?: Record<string, number>;
+  if_required?: { pool: number; by_source: Record<string, number>; lost: number; wiped_sources: string[] };
 }
 interface CodebookReply {
   attributes: CodebookHit[];
@@ -70,7 +76,9 @@ export default function WhoPage() {
   const search = React.useCallback(async (q: string) => {
     if (!q.trim()) { setHits(null); return; }
     try {
-      const d = await api<CodebookReply>("/api/codebook?query=" + encodeURIComponent(q) + "&limit=12");
+      const s = JSON.parse(sourcesKey).join(",");
+      const r = JSON.parse(requiredKey).join(",");
+      const d = await api<CodebookReply>(`/api/codebook?query=${encodeURIComponent(q)}&limit=12&mode=meaning&sources=${encodeURIComponent(s)}&required=${encodeURIComponent(r)}`);
       setHits(d.attributes);
       setMeaningNote(d.meaning_available ? null : d.meaning_note);
       setCorpusMissing(false);
@@ -78,7 +86,8 @@ export default function WhoPage() {
       setHits(null);
       setCorpusMissing(e instanceof ApiError && e.status === 409);
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourcesKey, requiredKey]);
 
   React.useEffect(() => {
     const t = setTimeout(() => search(query), 250);
@@ -104,9 +113,9 @@ export default function WhoPage() {
 
   const coverageOf = (id: string) => (coverage?.state === "ready" ? coverage.attributes?.[id] : undefined);
 
-  function addAttr(h: CodebookHit) {
+  function addAttr(h: CodebookHit, required: boolean) {
     if (rows.some((r) => r.id === h.id)) return;
-    setRows((rs) => [...rs, { id: h.id, label: h.label, category: h.category, measures: h.measures, kind: h.kind, role: "Describes everyone", required: false, values: h.values }]);
+    setRows((rs) => [...rs, { id: h.id, label: h.label, category: h.category, measures: h.measures, kind: h.kind, role: required ? "Required for everyone" : "Describes everyone", required, values: h.values }]);
   }
 
   const [audiences, setAudiences] = React.useState<Audience[]>([]);
@@ -418,9 +427,21 @@ export default function WhoPage() {
                       <span className="mono sub" style={{ fontSize: 11 }}>{h.id}</span>
                       {rows.some((r) => r.id === h.id)
                         ? <span className="tag">declared</span>
-                        : <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => addAttr(h)}>+ Add</button>}
+                        : <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                          <button className="btn sm" onClick={() => addAttr(h, false)}>+ Describe</button>
+                          <button className="btn sm" onClick={() => addAttr(h, true)}>+ Require</button>
+                        </span>}
                     </div>
                     <div className="sub" style={{ fontSize: 11.5, marginTop: 4 }}>{h.category} · measures: {h.measures} · {h.kind}</div>
+                    {(h.relevance !== undefined && h.relevance !== null) && <div className="sub" style={{ fontSize: 11.5 }}>match {h.relevance.toFixed(2)}</div>}
+                    {(h.present !== undefined && h.total !== undefined) && (
+                      <div className="mono sub" style={{ fontSize: 11, marginTop: 2 }}>
+                        answered by {h.present.toLocaleString("en-US")} of {h.total.toLocaleString("en-US")} · {Object.entries(h.carry_by_source ?? {}).map(([s, n]) => `${s} ${n.toLocaleString("en-US")}`).join(" · ")}
+                      </div>
+                    )}
+                    {h.if_required && (
+                      <div className="sub" style={{ fontSize: 11.5 }}>requiring keeps {(h.if_required.pool ?? 0).toLocaleString("en-US")} in the pool{(h.if_required.wiped_sources ?? []).length > 0 && <> — empties {(h.if_required.wiped_sources ?? []).join(", ")}</>}</div>
+                    )}
                     <div className="mono sub" style={{ fontSize: 11, marginTop: 4 }}>{h.values.join(" · ")}</div>
                     {found && (
                       <div style={{ marginTop: 6 }}>
