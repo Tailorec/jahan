@@ -34,6 +34,8 @@ const TEXT_SOURCES = ["amazon", "wiki"];
 const TEXT_LABEL = "read by a model from text, not surveyed";
 
 interface DraftRow { id: string; label: string; category: string; measures: string; kind: string; role: string; required: boolean }
+interface PoolCost { attribute: string; pool_without: number; removes: number; removes_by_source: Record<string, number>; emptied_sources: string[] }
+interface PoolReply { state: string; sources_total?: number; sources_by_source?: Record<string, number>; pool?: number; pool_by_source?: Record<string, number>; costs?: PoolCost[] }
 
 export default function WhoPage() {
   const [sources, setSources] = React.useState<string[]>(PRESETS[0].sources);
@@ -44,7 +46,23 @@ export default function WhoPage() {
   const [corpusMissing, setCorpusMissing] = React.useState(false);
   const [rows, setRows] = React.useState<DraftRow[]>([]);
   const [coverage, setCoverage] = React.useState<CoverageInfo | null>(null);
+  const [pool, setPool] = React.useState<PoolReply | null>(null);
   const { data: status } = useApi<Status>("/api/status");
+
+  const requiredKey = JSON.stringify(rows.filter((r) => r.required).map((r) => r.id));
+  const sourcesKey = JSON.stringify(sources);
+  const askPool = React.useCallback(async () => {
+    try {
+      setPool(await api<PoolReply>("/api/pool", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sources: JSON.parse(sourcesKey), required: JSON.parse(requiredKey) }),
+      }));
+    } catch {
+      setPool(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourcesKey, requiredKey]);
+  React.useEffect(() => { askPool(); }, [askPool]);
 
   const search = React.useCallback(async (q: string) => {
     if (!q.trim()) { setHits(null); return; }
@@ -132,7 +150,23 @@ export default function WhoPage() {
           <div className="panel" style={{ marginTop: 16 }}>
             <div className="panel-head"><h2>Candidate pool</h2></div>
             <div className="panel-body">
-              <div className="sub" style={{ fontSize: 12.5 }}>Counting starts in the next phase — the pool, and what each requirement costs, will appear here.</div>
+              {pool?.state === "ready" && (
+                <div style={{ display: "grid", gap: 6 }}>
+                  <div style={{ fontSize: 22, fontWeight: 650 }}>{(pool.pool ?? 0).toLocaleString("en-US")}</div>
+                  <div className="sub" style={{ fontSize: 12 }}>of {(pool.sources_total ?? 0).toLocaleString("en-US")} in your sources have every required answer</div>
+                  <div className="mono sub" style={{ fontSize: 11 }}>
+                    {Object.entries(pool.pool_by_source ?? {}).map(([name, n]) => `${name} ${n.toLocaleString("en-US")}`).join(" · ")}
+                  </div>
+                  {(pool.costs ?? []).map((c) => (
+                    <div key={c.attribute} className="sub" style={{ fontSize: 12 }}>
+                      Requiring <span className="mono">{c.attribute}</span> removes {c.removes.toLocaleString("en-US")}
+                      {c.emptied_sources.length > 0 && <> — empties {c.emptied_sources.join(", ")}</>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {pool?.state === "building" && <div className="help">Counting who can be drawn — the matrix is building once, in the background…</div>}
+              {pool === null && <div className="sub" style={{ fontSize: 12.5 }}>No corpus cached here, so there is nobody to count yet.</div>}
             </div>
           </div>
           <div className="panel" style={{ marginTop: 16 }}>
@@ -169,6 +203,9 @@ export default function WhoPage() {
                     <button className="btn quiet sm" style={{ marginLeft: "auto" }} onClick={() => setRows((xs) => xs.filter((x) => x.id !== r.id))}>✕</button>
                   </div>
                   <div className="sub" style={{ fontSize: 11.5 }}>{r.role} · {r.kind}</div>
+                  <label style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center", marginTop: 4 }}>
+                    <input type="checkbox" checked={r.required} onChange={() => setRows((xs) => xs.map((x) => (x.id === r.id ? { ...x, required: !x.required } : x)))} /> required for everyone
+                  </label>
                 </div>
               ))}
             </div>

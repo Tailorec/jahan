@@ -495,6 +495,8 @@ def create_app(
     app.state.corpus_dir = str(corpus_dir) if corpus_dir is not None else None
     app.state.coverage_lock = threading.Lock()
     app.state.coverage_job = {"thread": None, "error": None}
+    app.state.matrix_lock = threading.Lock()
+    app.state.matrix_job = {"thread": None, "error": None}
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
@@ -1111,6 +1113,61 @@ def create_app(
         dest.write_text("\n".join([ontology.model_dump_json(indent=2), ""]), encoding="utf-8")
         return {"category": ontology.category, "version": str(ontology.version)}
 
+    @app.post("/api/pool")
+    def read_pool(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """The candidate pool: everyone in the chosen sources who carries every
+        required attribute, and what each requirement removes — including when
+        it removes a whole survey, named.
+
+        Counting lives in the engine over the persona value matrix; this
+        serialises it. A cold start builds the matrix in the background and
+        answers `building` until it exists.
+        """
+        from simcore.population import describe_pool
+        from simcore.ports.hf import HfCoresetSource
+        from simcore.ports.matrix import build_matrix, load_matrix
+
+        corpus = _corpus_root(request)
+        if corpus is None:
+            raise HTTPException(status_code=409, detail="no corpus is cached here, so there is nobody to count")
+        wanted = body.get("sources")
+        required = body.get("required") or []
+        if wanted is not None and not isinstance(wanted, list):
+            raise HTTPException(status_code=422, detail="sources names persona sources, like [\"gss\"]")
+        if not isinstance(required, list):
+            raise HTTPException(status_code=422, detail="required names attributes, like [\"age_bracket\"]")
+        try:
+            source = HfCoresetSource(cache_dir=corpus)
+            matrix = load_matrix(source)
+        except Exception as failure:
+            raise HTTPException(status_code=409, detail=_pool_failure(failure))
+        if matrix is None:
+            with request.app.state.matrix_lock:
+                job = request.app.state.matrix_job
+                alive = job["thread"] is not None and job["thread"].is_alive()
+                if not alive:
+                    if job["error"] is not None and body.get("retry"):
+                        job["error"] = None
+                    if job["error"] is None:
+                        job["thread"] = threading.Thread(
+                            target=_build_matrix_job,
+                            args=(request.app.state, str(corpus)),
+                            name="persona-matrix",
+                            daemon=True,
+                        )
+                        job["thread"].start()
+                error = job["error"]
+            if error is not None and not body.get("retry"):
+                raise HTTPException(status_code=409, detail=error)
+            return {"state": "building"}
+        try:
+            pool = describe_pool(matrix, tuple(wanted) if wanted is not None else matrix.sources, tuple(str(name) for name in required))
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        outcome = pool.to_json()
+        outcome["state"] = "ready"
+        return outcome
+
     @app.exception_handler(RequestValidationError)
     async def _refused(_request: Request, exc: RequestValidationError) -> JSONResponse:
         """One refusal shape: `detail` is always a sentence a person can read.
@@ -1161,6 +1218,28 @@ def _coverage(state: Any, corpus: Path, retry: bool) -> dict[str, Any]:
         job["thread"] = threading.Thread(target=count, name="corpus-coverage", daemon=True)
         job["thread"].start()
     return {"available": False, "state": "building"}
+
+
+def _pool_failure(failure: Exception) -> str:
+    """Why a pool count failed, in words that name no path on the server."""
+    from simcore.ports.hf import MissingShard, ShardMismatch
+
+    if isinstance(failure, ShardMismatch):
+        return "a cached shard does not match the release's manifest; fetch it again"
+    if isinstance(failure, MissingShard):
+        return "a shard the release names is not cached"
+    return f"the count failed ({type(failure).__name__})"
+
+
+def _build_matrix_job(state: Any, corpus: str) -> None:
+    """Build the persona value matrix once, in the background, recording why it failed."""
+    from simcore.ports.hf import HfCoresetSource
+    from simcore.ports.matrix import build_matrix
+
+    try:
+        build_matrix(HfCoresetSource(cache_dir=Path(corpus)))
+    except Exception as failure:
+        state.matrix_job["error"] = _pool_failure(failure)
 
 
 def _coverage_failure(failure: Exception) -> str:
