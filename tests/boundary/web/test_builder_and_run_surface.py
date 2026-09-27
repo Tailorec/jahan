@@ -9,7 +9,9 @@ FRONTEND = Path(__file__).resolve().parents[3] / "frontend"
 
 def test_the_builder_shows_coverage_from_the_engine_and_polls_only_while_it_counts():
     page = (FRONTEND / "app" / "who" / "page.tsx").read_text()
-    for marker in ("/api/corpus/coverage", "data-coverage", "coverageLabel", "shouldPoll", "Count again"):
+    # Coverage now comes from the persona matrix: each search result says how many answered it, per source,
+    # and the pool is asked again only while the matrix is still building.
+    for marker in ("have answered it", "carry_by_source", "/api/pool", 'p.state === "building"'):
         assert marker in page, f"the page lacks {marker!r}"
     route = (FRONTEND / "app" / "api" / "corpus" / "coverage" / "route.ts").read_text()
     assert '"/api/corpus/coverage' in route or "/api/corpus/coverage" in route
