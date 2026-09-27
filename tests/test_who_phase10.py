@@ -75,3 +75,14 @@ def test_conversation_shows_matching_and_what_could_not_be_found(tmp_path):
         ("gss",), matrix, _Codebook(COLUMNS), None,
     )
     assert "fits" in out and "unmatched" in out
+
+
+def test_followup_declares_every_attribute_it_uses(tmp_path):
+    # Continue refuses audiences that filter on undeclared attributes; the follow-up must hand over entries.
+    matrix = build_matrix(HfCoresetSource(cache_dir=fake_cache(tmp_path)))
+    out = apply_followup(
+        _followup_chat(), "all of them in North America",
+        [{"name": "a", "share": 1.0, "filters": {}, "descriptions": []}],
+        ("gss", "stackoverflow"), matrix, _Codebook(COLUMNS), None,
+    )
+    assert "region" in {entry["id"] for entry in out["attributes"]}

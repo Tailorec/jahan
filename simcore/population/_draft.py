@@ -258,8 +258,11 @@ def apply_followup(chat_json, text: str, audiences: list[dict], sources, matrix,
                     else {"unsure": True}) for trait, result in settled.items() if "missing" not in result}
     unmatched = [{"phrase": result["phrase"], "missing": result["missing"]}
                  for result in [*settled.values(), *topics] if "missing" in result]
+    # Whatever a follow-up filters on or describes must be declared, or Continue refuses the audiences.
+    used = dict.fromkeys(a for audience in refined + added for a in [*audience["filters"], *audience["descriptions"]])
+    attributes = [_attribute_entry(matrix, codebook, attribute, "filter", None) for attribute in used]
     return {"audiences": refined + added, "added": [audience["name"] for audience in added],
-            "questions": questions, "unmatched": unmatched, "fits": fits}
+            "questions": questions, "unmatched": unmatched, "fits": fits, "attributes": attributes}
 
 
 def draft(chat_json, text: str, reading, category: dict, sources, matrix, codebook, embeddings, ontology_lookup) -> Draft:
@@ -304,7 +307,7 @@ def draft(chat_json, text: str, reading, category: dict, sources, matrix, codebo
             elif result.get("agreed") is False and all(item["phrase"] != trait for item in unsure):
                 unsure.append({"phrase": trait, "choices": [
                     {"attribute": choice["attribute"], "label": choice["label"], "values": choice["values"],
-                     "n_alone": choice["n_alone"], "options": choice.get("options", [])}
+                     "n_alone": choice["n_alone"], "options": choice.get("options", []), "entry": choice.get("entry")}
                     for choice in result["choices"]
                 ]})
         built.append({"name": group.name, "share": group.share, "filters": filters,
