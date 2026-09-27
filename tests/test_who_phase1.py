@@ -89,4 +89,4 @@ def test_real_codebook_word_search_top_five():
 
 def test_a_habit_filed_under_interests_is_still_a_habit():
     assert measures_of("lstyle_cooking_freq", "Cooking frequency", "Interests: Culture") == "what people do regularly"
-    assert measures_of("topic_travel", "Travel", "Interests: Culture").startswith("how people feel")
+    assert measures_of("topic_travel", "Interest: Travel", "Interests: Topics").startswith("how people feel")

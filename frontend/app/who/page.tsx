@@ -600,7 +600,7 @@ export default function WhoPage() {
     const max = Math.max(1, ...p.data.values.map((v) => v.n));
     return (
       <div className="picker">
-        <div className="muted" style={{ marginBottom: 6 }}>{p.data.label} — who holds each answer, among the candidate pool</div>
+        <div className="muted" style={{ marginBottom: 6 }}>{p.data.label} — who holds each answer, among the candidate pool. Tick values; nothing here is typed.</div>
         <table className="vt"><tbody>{p.data.values.map((v) => (
           <tr key={v.value}>
             <td style={{ width: 24 }}><input type="checkbox" checked={current.has(v.value)} onChange={() => toggleValue(v.value)} /></td>
