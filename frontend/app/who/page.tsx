@@ -44,7 +44,7 @@ interface PoolCost { attribute: string; pool_without: number; removes: number; r
 interface PoolReply { state: string; sources_total?: number; sources_by_source?: Record<string, number>; pool?: number; pool_by_source?: Record<string, number>; costs?: PoolCost[] }
 interface HeadCount { name: string; quota: number; head_count: number; by_source: Record<string, number>; dominant_source: string | null; filter_costs: Record<string, number>; empty_note: string | null; text_would_add: Record<string, number> }
 interface PreviewReply { state: string; audiences?: HeadCount[]; assumptions?: { text: string; source: string }[] }
-interface Audience { name: string; share: number | null; filters: Record<string, string[]>; descriptions: string[] }
+interface Audience { name: string; share: number | null; filters: Record<string, string[]>; descriptions: string[]; changes?: { attribute: string; values: string[]; before: number; after: number; accepted: boolean }[] }
 
 export default function WhoPage() {
   const [sources, setSources] = React.useState<string[]>(PRESETS[0].sources);
@@ -139,6 +139,22 @@ export default function WhoPage() {
   const [drafting, setDrafting] = React.useState(false);
   const [draftError, setDraftError] = React.useState<string | null>(null);
   const [questions, setQuestions] = React.useState<DraftQuestion[]>([]);
+  const [blockers, setBlockers] = React.useState<string[] | null>(null);
+
+  async function fitIt(audiences: Audience[]) {
+    try {
+      const parsed = JSON.parse(draftKey);
+      const d = await api<{ state: string; audiences: { name: string; share: number | null; filters: Record<string, string[]>; descriptions: string[]; changes: { attribute: string; values: string[]; before: number; after: number; accepted: boolean }[]; quota: number; head_count: number; below_quota: boolean }[] }>("/api/draft/fit", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sources: parsed.s, required: parsed.r, study_size: parsed.n, audiences }),
+      });
+      if (d.state === "ready") {
+        setAudiences(d.audiences.map((a) => ({ name: a.name, share: a.share, filters: a.filters, descriptions: a.descriptions, changes: a.changes })));
+      }
+    } catch {
+      /* fitting is best-effort in the interface: the blockers still name what is short */
+    }
+  }
 
   async function draftIt() {
     if (!described || !category || drafting) return;
@@ -151,7 +167,9 @@ export default function WhoPage() {
       });
       setDrafted(d);
       setQuestions(d.questions ?? []);
-      setAudiences((d.audiences ?? []).map((a) => ({ name: a.name, share: a.share, filters: a.filters, descriptions: a.descriptions ?? [] })));
+      const fresh = (d.audiences ?? []).map((a) => ({ name: a.name, share: a.share, filters: a.filters, descriptions: a.descriptions ?? [] }));
+      setAudiences(fresh);
+      fitIt(fresh);
       setRows((rs) => {
         const next = [...rs];
         for (const entry of d.attributes ?? []) {
@@ -177,6 +195,45 @@ export default function WhoPage() {
     }
     setQuestions((qs) => qs.filter((_, i) => i !== qi));
   }
+
+  function acceptChange(ai: number, ci: number) {
+    setAudiences((as) => as.map((a, i) => (i === ai
+      ? { ...a, changes: (a.changes ?? []).map((c, j) => (j === ci ? { ...c, accepted: true } : c)) }
+      : a)));
+  }
+  function undoChange(ai: number, ci: number) {
+    setAudiences((as) => as.map((a, i) => {
+      if (i !== ai) return a;
+      const change = (a.changes ?? [])[ci];
+      if (!change) return a;
+      return {
+        ...a,
+        filters: { ...a.filters, [change.attribute]: change.values },
+        descriptions: a.descriptions.filter((d) => d !== change.attribute),
+        changes: (a.changes ?? []).filter((_, j) => j !== ci),
+      };
+    }));
+  }
+
+  const blockersKey = JSON.stringify({
+    category,
+    questions: questions.map((q) => ({ phrase: q.phrase, applies_to: q.applies_to })),
+    changes: audiences.flatMap((a) => a.changes ?? []),
+    audiences: audiences.map((a) => ({ name: a.name, share: a.share })),
+    previews: (preview?.audiences ?? []).map((h) => ({ quota: h.quota, head_count: h.head_count })),
+  });
+  const askBlockers = React.useCallback(async () => {
+    try {
+      const d = await api<{ blockers: string[] }>("/api/who/blockers", {
+        method: "POST", headers: { "content-type": "application/json" }, body: blockersKey,
+      });
+      setBlockers(d.blockers);
+    } catch {
+      setBlockers(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blockersKey]);
+  React.useEffect(() => { askBlockers(); }, [askBlockers]);
 
   async function readIt() {
     if (!description.trim() || describing) return;
@@ -343,8 +400,15 @@ export default function WhoPage() {
           </div>
           <div className="panel" style={{ marginTop: 16 }}>
             <div className="panel-body" style={{ display: "grid", gap: 8 }}>
-              <button className="btn primary" disabled>Continue to study →</button>
-              <div className="sub" style={{ fontSize: 12 }}>Confirm a category to continue.</div>
+              {(blockers ?? []).length > 0 && (
+                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5 }}>
+                  {(blockers ?? []).map((b, i) => <li key={i}>{b}</li>)}
+                </ul>
+              )}
+              {(blockers ?? []).length === 0 && audiences.length > 0 && (
+                <div className="sub" style={{ fontSize: 12.5 }}>Nothing stands in the way.</div>
+              )}
+              <button className="btn primary" disabled={(blockers ?? ["loading"]).length > 0}>Continue to study →</button>
             </div>
           </div>
         </div>
@@ -428,6 +492,14 @@ export default function WhoPage() {
                       </label>
                       <button className="btn quiet sm" style={{ marginLeft: "auto" }} onClick={() => setAudiences((as) => as.filter((_, i) => i !== ai))}>✕</button>
                     </div>
+                    {a.share === null && <div className="sub" style={{ fontSize: 12, marginTop: 4 }}>This group still needs its share.</div>}
+                    {(a.changes ?? []).length > 0 && <div><span className="tag">changed from what you asked</span></div>}
+                    {(a.changes ?? []).map((c, ci) => (
+                      <div key={ci} className="sub" style={{ fontSize: 12, marginTop: 4 }}>
+                        {c.attribute} moved to a description: {c.before.toLocaleString("en-US")} → {c.after.toLocaleString("en-US")} people.
+                        {!c.accepted && <><button className="btn sm" style={{ marginLeft: 6 }} onClick={() => acceptChange(ai, ci)}>Accept</button><button className="btn quiet sm" style={{ marginLeft: 4 }} onClick={() => undoChange(ai, ci)}>Undo</button></>}
+                      </div>
+                    ))}
                     {head && (
                       <div className="sub" style={{ fontSize: 12.5, marginTop: 6 }}>
                         {head.head_count.toLocaleString("en-US")} people — needs {head.quota.toLocaleString("en-US")}
