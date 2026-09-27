@@ -3,6 +3,7 @@
 import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
+import { useSessionState } from "@/lib/session";
 import { PageHead, Chip, Callout, PmfBar, PmfLegend } from "@/components/ui";
 import { useApi, useRunId } from "@/lib/api";
 import { pmfMean, type StudyReport } from "@/lib/engine";
@@ -20,8 +21,8 @@ const KIND_LABEL: Record<string, string> = {
 export default function ReportPage() {
   const runId = useRunId();
   const { data, error } = useApi<Detail>(runId ? `/api/runs/${runId}` : null);
-  const [tab, setTab] = React.useState("findings");
-  const [query, setQuery] = React.useState("");
+  const [tab, setTab] = useSessionState("report:tab", "findings");
+  const [query, setQuery] = useSessionState("report:query", "");
   const r = data?.report ?? null;
   const findings = (r?.findings ?? []).filter((f) =>
     !query || f.statement.toLowerCase().includes(query.toLowerCase()) || f.finding_id.includes(query),

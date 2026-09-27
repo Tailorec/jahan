@@ -3,6 +3,7 @@
 import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
+import { useSessionState } from "@/lib/session";
 import { PageHead, Chip, Callout, TrustLine } from "@/components/ui";
 import { useApi, useRunId, whyNot } from "@/lib/api";
 import type { BeliefPoint, TraceEdge, TraceEvent, UITrace } from "@/lib/engine";
@@ -69,9 +70,9 @@ function summarize(ev: TraceEvent): string {
 export default function TracePage() {
   const runId = useRunId();
   const { data, error } = useApi<Detail>(runId ? `/api/runs/${runId}` : null);
-  const [q, setQ] = React.useState<"persona" | "events" | "beliefs" | "edges" | "verbatims" | "resolve">("persona");
+  const [q, setQ] = useSessionState<"persona" | "events" | "beliefs" | "edges" | "verbatims" | "resolve">("trace:q", "persona");
   const [world, setWorld] = React.useState<string | null>(null);
-  const [kind, setKind] = React.useState<string>("turn");
+  const [kind, setKind] = useSessionState<string>("trace:kind", "turn");
   const [persona, setPersona] = React.useState<string | null>(null);
   const [resolveId, setResolveId] = React.useState<string | null>(null);
 

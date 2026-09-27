@@ -4,6 +4,7 @@ import Link from "next/link";
 import React from "react";
 import { dump } from "js-yaml";
 import Shell from "@/components/shell";
+import { useSessionState } from "@/lib/session";
 import { api, ApiError, useApi, whyNot } from "@/lib/api";
 import type { AudienceSet } from "@/lib/engine";
 import "./who.css";
@@ -74,34 +75,36 @@ function Measures({ measures }: { measures?: string }) {
 
 export default function WhoPage() {
   const { data: status } = useApi<Status>("/api/status");
-  const [sources, setSources] = React.useState<string[]>(SURVEYS);
-  const [studySize, setStudySize] = React.useState(200);
+  const [sources, setSources] = useSessionState<string[]>("who:sources", SURVEYS);
+  const [studySize, setStudySize] = useSessionState("who:studySize", 200);
   const [pool, setPool] = React.useState<Pool | null>(null);
   const [corpusMissing, setCorpusMissing] = React.useState(false);
 
-  const [text, setText] = React.useState("");
-  const [turns, setTurns] = React.useState<Turn[]>([]);
-  const [category, setCategory] = React.useState<Chosen | null>(null);
-  const [rows, setRows] = React.useState<Row[]>([]);
-  const [audiences, setAudiences] = React.useState<Audience[]>([]);
-  const [questions, setQuestions] = React.useState<Question[]>([]);
+  const [text, setText] = useSessionState("who:text", "");
+  const [turns, setTurns] = useSessionState<Turn[]>("who:turns", [], (saved) => saved.map((t) => (
+    // A reload ends a request in flight: say so, rather than spin for ever.
+    t.phase === "reading" || t.phase === "drafting" ? { ...t, phase: "error" as const, error: "Interrupted by a reload — send it again." } : t)));
+  const [category, setCategory] = useSessionState<Chosen | null>("who:category", null);
+  const [rows, setRows] = useSessionState<Row[]>("who:rows", []);
+  const [audiences, setAudiences] = useSessionState<Audience[]>("who:audiences", []);
+  const [questions, setQuestions] = useSessionState<Question[]>("who:questions", []);
   const [preview, setPreview] = React.useState<Preview | null>(null);
   const [blockers, setBlockers] = React.useState<string[] | null>(null);
   const [busy, setBusy] = React.useState(false);
-  const [followup, setFollowup] = React.useState("");
-  const [byHand, setByHand] = React.useState<{ categories: Category[]; newId: string } | null>(null);
+  const [followup, setFollowup] = useSessionState("who:followup", "");
+  const [byHand, setByHand] = useSessionState<{ categories: Category[]; newId: string } | null>("who:byHand", null);
 
   const [picker, setPicker] = React.useState<Picker | null>(null);
   const [addingTo, setAddingTo] = React.useState<number | null>(null);
-  const [searchOpen, setSearchOpen] = React.useState(false);
-  const [query, setQuery] = React.useState("");
+  const [searchOpen, setSearchOpen] = useSessionState("who:searchOpen", false);
+  const [query, setQuery] = useSessionState("who:query", "");
   const [hits, setHits] = React.useState<Hit[] | null>(null);
   const [searchNote, setSearchNote] = React.useState<string | null>(null);
 
-  const [ready, setReady] = React.useState<Ready | null>(null);
-  const [setName, setSetName] = React.useState("");
-  const [ontologySaved, setOntologySaved] = React.useState(false);
-  const [savedSet, setSavedSet] = React.useState<AudienceSet | null>(null);
+  const [ready, setReady] = useSessionState<Ready | null>("who:ready", null);
+  const [setName, setSetName] = useSessionState("who:setName", "");
+  const [ontologySaved, setOntologySaved] = useSessionState("who:ontologySaved", false);
+  const [savedSet, setSavedSet] = useSessionState<AudienceSet | null>("who:savedSet", null);
   const { data: savedSets } = useApi<{ audience_sets: AudienceSet[] }>("/api/audience-sets");
   const [continueError, setContinueError] = React.useState<string | null>(null);
 
@@ -452,7 +455,10 @@ export default function WhoPage() {
   }
   React.useEffect(() => {
     const ref = new URLSearchParams(window.location.search).get("set");
-    if (ref) openSet(ref);
+    if (!ref) return;
+    // Opened once: a reload keeps the edits made since, rather than opening the saved set again.
+    window.history.replaceState(null, "", "/who");
+    openSet(ref);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

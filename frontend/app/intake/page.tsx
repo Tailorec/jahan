@@ -3,6 +3,7 @@
 import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
+import { useSessionState } from "@/lib/session";
 import { PageHead, Callout, ICONS } from "@/components/ui";
 import { api, useApi, whyNot } from "@/lib/api";
 import { briefToYaml, type BriefForm } from "@/lib/briefYaml";
@@ -44,43 +45,42 @@ export default function IntakePage() {
 
   // The brief, as the form holds it. Nothing about it lives anywhere else: the YAML below is
   // this state written out, and it is what the engine's intake reads.
-  const [form, setForm] = React.useState<BriefForm>(BLANK);
+  const [form, setForm] = useSessionState<BriefForm>("intake:form", BLANK);
   const setProduct = (patch: Partial<BriefForm["product"]>) => setForm((f) => ({ ...f, product: { ...f.product, ...patch } }));
-  const [evidence, setEvidence] = React.useState<Record<string, { content_hash: string; fetched_at: string }>>({});
+  const [evidence, setEvidence] = useSessionState<Record<string, { content_hash: string; fetched_at: string }>>("intake:evidence", {});
 
   // The study: what is run, not what is said about the product.
-  const [n, setN] = React.useState("200");
-  const [horizon, setHorizon] = React.useState("4");
-  const [tickUnit, setTickUnit] = React.useState("day");
-  const [seeds, setSeeds] = React.useState("4021");
-  const [budget, setBudget] = React.useState("20");
-  const [elicits, setElicits] = React.useState("reaction");
-  const [anchorVersion, setAnchorVersion] = React.useState("");
-  const [mode, setMode] = React.useState<"fake" | "real">("fake");
-  const [model, setModel] = React.useState("");
-  const [embedModel, setEmbedModel] = React.useState("");
+  const [n, setN] = useSessionState("intake:n", "200");
+  const [horizon, setHorizon] = useSessionState("intake:horizon", "4");
+  const [tickUnit, setTickUnit] = useSessionState("intake:tickUnit", "day");
+  const [seeds, setSeeds] = useSessionState("intake:seeds", "4021");
+  const [budget, setBudget] = useSessionState("intake:budget", "20");
+  const [elicits, setElicits] = useSessionState("intake:elicits", "reaction");
+  const [anchorVersion, setAnchorVersion] = useSessionState("intake:anchorVersion", "");
+  const [mode, setMode] = useSessionState<"fake" | "real">("intake:mode", "fake");
+  const [model, setModel] = useSessionState("intake:model", "");
+  const [embedModel, setEmbedModel] = useSessionState("intake:embedModel", "");
   // What a real study also decides: where the population is drawn from, which draw, and what the models cost.
   // Defaults come from what is actually there — the cached shards, the measured sources, a scale that passed.
-  const [channel, setChannel] = React.useState<ChannelName>("survey_room");
-  const [populationSeed, setPopulationSeed] = React.useState("4021");
-  const [shards, setShards] = React.useState<string[]>([]);
-  const [sources, setSources] = React.useState<string[]>([]);
-  const sourcesFromSet = React.useRef(false);
-  const [priceChatIn, setPriceChatIn] = React.useState("");
-  const [priceChatOut, setPriceChatOut] = React.useState("");
-  const [priceEmbedIn, setPriceEmbedIn] = React.useState("");
-  const [validation, setValidation] = React.useState("");
+  const [channel, setChannel] = useSessionState<ChannelName>("intake:channel", "survey_room");
+  const [populationSeed, setPopulationSeed] = useSessionState("intake:populationSeed", "4021");
+  const [shards, setShards] = useSessionState<string[]>("intake:shards", []);
+  const [sources, setSources] = useSessionState<string[]>("intake:sources", []);
+  const [priceChatIn, setPriceChatIn] = useSessionState("intake:priceChatIn", "");
+  const [priceChatOut, setPriceChatOut] = useSessionState("intake:priceChatOut", "");
+  const [priceEmbedIn, setPriceEmbedIn] = useSessionState("intake:priceEmbedIn", "");
+  const [validation, setValidation] = useSessionState("intake:validation", "");
   const { data: corpus } = useApi<CorpusInfo>("/api/corpus");
   const { data: anchors } = useApi<AnchorCatalogue>("/api/anchors");
   React.useEffect(() => {
-    // An audience set's sources are what its audiences were counted over; the defaults never replace them.
-    if (corpus) setSources((s) => (sourcesFromSet.current ? s : defaultSources(corpus)));
+    // Defaults only fill an empty choice: an audience set's sources, or ones kept from earlier in this tab, stay.
+    if (corpus) setSources((s) => (s.length ? s : defaultSources(corpus)));
   }, [corpus]);
   // The shards are the ones the chosen sources' people are in, until the person picks them by hand.
-  const shardsByHand = React.useRef(false);
+  const [shardsByHand, setShardsByHand] = useSessionState("intake:shardsByHand", false);
   React.useEffect(() => {
-    if (corpus && !shardsByHand.current) setShards(shardsFor(corpus, sources));
-  }, [corpus, sources]);
+    if (corpus && !shardsByHand) setShards(shardsFor(corpus, sources));
+  }, [corpus, sources, shardsByHand, setShards]);
   React.useEffect(() => {
     if (anchors && !anchorVersion) setAnchorVersion(defaultAnchor(anchors));
   }, [anchors, anchorVersion]);
@@ -101,7 +101,7 @@ export default function IntakePage() {
   // Who is studied comes from an audience set Who you study saved: its audiences, assumptions, sources and
   // study size, together with the one ontology version they were drafted against — never the ontology alone.
   const { data: sets } = useApi<{ audience_sets: AudienceSet[] }>("/api/audience-sets");
-  const [chosenSet, setChosenSet] = React.useState("");
+  const [chosenSet, setChosenSet] = useSessionState("intake:chosenSet", "");
   const applySet = React.useCallback((set: AudienceSet) => {
     setChosenSet(`${set.category}/${set.id}`);
     setForm((f) => ({
@@ -117,7 +117,6 @@ export default function IntakePage() {
       })),
       assumptions: set.assumptions.map((a) => ({ text: a.text, source: "assumed" as const })),
     }));
-    sourcesFromSet.current = true;
     setSources(set.sources);
     setN(String(set.study_size));
   }, []);
@@ -420,8 +419,8 @@ export default function IntakePage() {
                     {!corpus?.available
                       ? <div className="help"><b>No corpus is cached where the server runs.</b> A real study draws real personas; fetch the release first, or run a fake study.</div>
                       : <ShardPicker corpus={corpus} shards={shards} sources={sources}
-                          onToggle={(id) => { shardsByHand.current = true; toggle(shards, setShards, id); }}
-                          onFollowSources={() => { shardsByHand.current = false; setShards(shardsFor(corpus, sources)); }} />}
+                          onToggle={(id) => { setShardsByHand(true); toggle(shards, setShards, id); }}
+                          onFollowSources={() => { setShardsByHand(false); setShards(shardsFor(corpus, sources)); }} />}
                   </div>
                   <div className="field" style={{ margin: 0 }}>
                     <label>Admit these persona sources</label>
