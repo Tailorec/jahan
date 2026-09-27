@@ -113,3 +113,22 @@ def test_an_attribute_marked_ordered_is_saved_with_its_scale():
     )
     assert [scale["attribute"] for scale in reused["ontology"]["ordinal_scales"]] == ["region"]
     assert reused["action"] == "new_version"
+
+
+def test_a_machine_with_no_ontologies_folder_lists_none_and_the_first_save_makes_it(tmp_path):
+    from fastapi.testclient import TestClient
+
+    from simcore.web import create_app
+    from tests.boundary.web.test_ontology import _fixture_corpus
+
+    folder = tmp_path / "ontologies"
+    client = TestClient(create_app(runs_dir=tmp_path / "runs", ontology_dir=folder, corpus_dir=_fixture_corpus(tmp_path)))
+    assert client.get("/api/ontologies").json() == {"ontologies": []}
+    assert client.get("/api/categories").json() == {"categories": []}
+    saved = client.post("/api/ontologies", json={"ontology": {
+        "category": "fresh", "version": "1.0.0", "attribute_domains": {"age_bracket": "demographic"},
+        "conditioning_set": ["age_bracket"], "completion_policy": {"completable_domains": ["economic"]},
+        "ordinal_scales": [], "relevance_order": ["age_bracket"], "anchor_sets": {"purchase_intent": "purchase-intent-v1"},
+    }})
+    assert saved.status_code == 201 and (folder / "fresh" / "1.0.0.json").is_file()
+    assert [o["category"] for o in client.get("/api/ontologies").json()["ontologies"]] == ["fresh"]

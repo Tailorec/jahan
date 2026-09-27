@@ -899,7 +899,8 @@ def create_app(
     def list_ontologies(request: Request) -> dict[str, Any]:
         found = []
         root = request.app.state.ontology_dir
-        if root is not None:
+        # No folder yet is no ontologies yet: the first save on the page creates it.
+        if root is not None and Path(root).is_dir():
             for category_dir in sorted(Path(root).iterdir()):
                 if category_dir.is_dir():
                     for version_file in sorted(category_dir.glob("*.json")):
