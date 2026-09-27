@@ -36,8 +36,8 @@ const TEXT_LABEL = "read by a model from text, not surveyed";
 interface DraftRow { id: string; label: string; category: string; measures: string; kind: string; role: string; required: boolean; values: string[] }
 interface PoolCost { attribute: string; pool_without: number; removes: number; removes_by_source: Record<string, number>; emptied_sources: string[] }
 interface PoolReply { state: string; sources_total?: number; sources_by_source?: Record<string, number>; pool?: number; pool_by_source?: Record<string, number>; costs?: PoolCost[] }
-interface HeadCount { name: string; quota: number; head_count: number; by_source: Record<string, number>; dominant_source: string | null; filter_costs: Record<string, number>; empty_note: string | null }
-interface PreviewReply { state: string; audiences?: HeadCount[] }
+interface HeadCount { name: string; quota: number; head_count: number; by_source: Record<string, number>; dominant_source: string | null; filter_costs: Record<string, number>; empty_note: string | null; text_would_add: Record<string, number> }
+interface PreviewReply { state: string; audiences?: HeadCount[]; assumptions?: { text: string; source: string }[] }
 interface Audience { name: string; share: number | null; filters: Record<string, string[]>; descriptions: string[] }
 
 export default function WhoPage() {
@@ -241,6 +241,9 @@ export default function WhoPage() {
                   <div className="mono sub" style={{ fontSize: 11 }}>
                     {Object.entries(pool.pool_by_source ?? {}).map(([name, n]) => `${name} ${n.toLocaleString("en-US")}`).join(" · ")}
                   </div>
+                  {(JSON.parse(sourcesKey).includes("amazon") || JSON.parse(sourcesKey).includes("wiki")) && (
+                    <div className="sub" style={{ fontSize: 11 }}>Includes people read by a model from text, not surveyed.</div>
+                  )}
                   {(pool.costs ?? []).map((c) => (
                     <div key={c.attribute} className="sub" style={{ fontSize: 12 }}>
                       Requiring <span className="mono">{c.attribute}</span> removes {c.removes.toLocaleString("en-US")}
@@ -355,6 +358,11 @@ export default function WhoPage() {
                         </div>
                       )
                     ))}
+                    {head && head.head_count < head.quota && Object.keys(head.text_would_add ?? {}).length > 0 && (
+                      <div className="sub" style={{ fontSize: 12, marginTop: 4 }}>
+                        Surveyed people can&apos;t fill this. {Object.entries(head.text_would_add).map(([s, n]) => `${s} would add ${n.toLocaleString("en-US")}`).join(" and ")} — their answers were read by a model from text, not given by them. Tick them under <i>Draw from</i> to use them; that is recorded in the brief&apos;s assumptions.
+                      </div>
+                    )}
                     {head?.empty_note && <div className="sub" style={{ fontSize: 12, marginTop: 4 }}>{head.empty_note}</div>}
                   </div>
                 );
@@ -362,6 +370,16 @@ export default function WhoPage() {
               <div><button className="btn sm" onClick={addAudience}>+ Add audience</button></div>
             </div>
           </div>
+          {(preview?.assumptions ?? []).length > 0 && (
+            <div className="panel" style={{ marginTop: 16 }}>
+              <div className="panel-head"><h2>Assumptions written to the brief</h2></div>
+              <div className="panel-body" style={{ display: "grid", gap: 6 }}>
+                {(preview?.assumptions ?? []).map((a, i) => (
+                  <div key={i} className="sub" style={{ fontSize: 12.5 }}>assumed — {a.text}</div>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="panel" style={{ marginTop: 16 }}>
             <div className="panel-head"><h2>Ontology</h2><span className="hint">req · attribute · role · kind · ordered</span></div>
             <div className="panel-body">

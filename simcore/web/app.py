@@ -1233,9 +1233,16 @@ def create_app(
                 audiences,
                 study_size,
             )
+            ledger = assumption_entries(
+                matrix,
+                tuple(wanted) if wanted is not None else matrix.sources,
+                tuple(str(name) for name in required),
+                audiences,
+                counts,
+            )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
-        return {"state": "ready", "audiences": [count.to_json() for count in counts]}
+        return {"state": "ready", "audiences": [count.to_json() for count in counts], "assumptions": ledger}
 
     @app.exception_handler(RequestValidationError)
     async def _refused(_request: Request, exc: RequestValidationError) -> JSONResponse:

@@ -27,6 +27,7 @@ class AudienceHeadCount:
     dominant_source: str | None
     filter_costs: dict[str, int]
     empty_note: str | None
+    text_would_add: dict[str, int]
 
     def to_json(self) -> dict:
         return {
@@ -37,7 +38,14 @@ class AudienceHeadCount:
             "dominant_source": self.dominant_source,
             "filter_costs": dict(self.filter_costs),
             "empty_note": self.empty_note,
+            "text_would_add": dict(self.text_would_add),
         }
+
+
+# Sources whose rows were read from text rather than answered, so every field
+# they carry is extracted. Off by default, labelled wherever they are counted.
+TEXT_SOURCES = ("amazon", "wiki")
+TEXT_LABEL = "read by a model from text, not surveyed"
 
 
 def _codes_of(matrix, attribute: str, values: tuple[str, ...]) -> set[int]:
@@ -93,6 +101,11 @@ def preview_audiences(matrix, sources, required, audiences, study_size: int) -> 
                 codes = _codes_of(matrix, other, tuple(values))
                 remaining = remaining & np.isin(matrix.codes[positions[other]], list(codes))
             filter_costs[attribute] = int(remaining.sum())
+        would_add = {}
+        for text_source in TEXT_SOURCES:
+            if text_source in matrix.sources and text_source not in sources:
+                wider = _apply_filters(matrix, positions, matrix.pool_mask(tuple([*sources, text_source]), tuple(required)), filters)
+                would_add[text_source] = int(wider.sum()) - head_count
         out.append(AudienceHeadCount(
             name=name,
             quota=quota,
@@ -101,8 +114,52 @@ def preview_audiences(matrix, sources, required, audiences, study_size: int) -> 
             dominant_source=dominant,
             filter_costs=filter_costs,
             empty_note=_empty_note(matrix, positions, base, filters) if not head_count and filters else None,
+            text_would_add=would_add,
         ))
     return out
+
+
+def _apply_filters(matrix, positions, base, filters):
+    mask = base
+    for attribute, values in filters.items():
+        codes = _codes_of(matrix, attribute, tuple(values))
+        mask = mask & np.isin(matrix.codes[positions[attribute]], list(codes))
+    return mask
+
+
+def assumption_entries(matrix, sources, required, audiences, previews) -> list[dict]:
+    """The brief's assumption-ledger entries this draft writes: admitting a
+    text source, and audiences drawn mostly from different surveys. Each
+    validates as the engine's `Assumption` with source `assumed`."""
+    from simcore.population._pool import describe_pool
+
+    entries = []
+    widened = describe_pool(matrix, tuple(sources), tuple(required))
+    for text_source in TEXT_SOURCES:
+        if text_source in sources and text_source in matrix.sources:
+            contributed = widened.pool_by_source.get(text_source, 0)
+            entries.append({
+                "text": (
+                    f"{text_source} reviewers are admitted: {contributed} of "
+                    f"{widened.pool} candidate-pool personas come from {text_source}, "
+                    f"whose answers were {TEXT_LABEL}"
+                ),
+                "source": "assumed",
+            })
+    dominant = [(audience.get("name") or "audience", preview.dominant_source) for audience, preview in zip(audiences, previews)]
+    dominant = [(name, source) for name, source in dominant if source is not None]
+    for first in range(len(dominant)):
+        for second in range(first + 1, len(dominant)):
+            (name_a, source_a), (name_b, source_b) = dominant[first], dominant[second]
+            if source_a != source_b:
+                entries.append({
+                    "text": (
+                        f"differences between {name_a} and {name_b} are treated as differences "
+                        f"between people, not between the {source_a} and {source_b} surveys"
+                    ),
+                    "source": "assumed",
+                })
+    return entries
 
 
 def _empty_note(matrix, positions, base, filters) -> str | None:
