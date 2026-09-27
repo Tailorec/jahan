@@ -8,7 +8,7 @@ import { api, useApi, whyNot } from "@/lib/api";
 import { briefToYaml, type BriefForm } from "@/lib/briefYaml";
 import type { AudienceSet, CategoryOntology, ClaimSource } from "@/lib/engine";
 import {
-  CHANNELS, CHANNEL_GUIDE, ONE_ENVIRONMENT_NOTE, cachedShards, defaultAnchor, defaultSources, gateRequest, problems, studyRequest,
+  CHANNELS, CHANNEL_GUIDE, ONE_ENVIRONMENT_NOTE, defaultAnchor, defaultSources, gateRequest, leftOut, problems, shardsFor, studyRequest,
   type AnchorCatalogue, type ChannelName, type CorpusInfo, type StudyForm,
 } from "@/lib/study";
 
@@ -74,8 +74,13 @@ export default function IntakePage() {
   const { data: anchors } = useApi<AnchorCatalogue>("/api/anchors");
   React.useEffect(() => {
     // An audience set's sources are what its audiences were counted over; the defaults never replace them.
-    if (corpus) { setShards(cachedShards(corpus)); setSources((s) => (sourcesFromSet.current ? s : defaultSources(corpus))); }
+    if (corpus) setSources((s) => (sourcesFromSet.current ? s : defaultSources(corpus)));
   }, [corpus]);
+  // The shards are the ones the chosen sources' people are in, until the person picks them by hand.
+  const shardsByHand = React.useRef(false);
+  React.useEffect(() => {
+    if (corpus && !shardsByHand.current) setShards(shardsFor(corpus, sources));
+  }, [corpus, sources]);
   React.useEffect(() => {
     if (anchors && !anchorVersion) setAnchorVersion(defaultAnchor(anchors));
   }, [anchors, anchorVersion]);
@@ -414,14 +419,9 @@ export default function IntakePage() {
                     <label>Draw from these shards</label>
                     {!corpus?.available
                       ? <div className="help"><b>No corpus is cached where the server runs.</b> A real study draws real personas; fetch the release first, or run a fake study.</div>
-                      : <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                          {corpus.shards.map((sh) => (
-                            <label key={sh.id} className="mono" style={{ fontSize: 12, opacity: sh.cached ? 1 : 0.45 }} title={sh.cached ? "" : "not cached on this machine"}>
-                              <input type="checkbox" disabled={!sh.cached} checked={shards.includes(sh.id)} onChange={() => toggle(shards, setShards, sh.id)} /> {sh.id}{sh.rows ? ` · ${sh.rows.toLocaleString()}` : ""}{sh.cached ? "" : " · not cached"}
-                            </label>
-                          ))}
-                        </div>}
-                    <div className="help">Named explicitly, so the draw does not depend on which machine it ran on.</div>
+                      : <ShardPicker corpus={corpus} shards={shards} sources={sources}
+                          onToggle={(id) => { shardsByHand.current = true; toggle(shards, setShards, id); }}
+                          onFollowSources={() => { shardsByHand.current = false; setShards(shardsFor(corpus, sources)); }} />}
                   </div>
                   <div className="field" style={{ margin: 0 }}>
                     <label>Admit these persona sources</label>
@@ -509,3 +509,54 @@ export default function IntakePage() {
     </Shell>
   );
 }
+
+const TEXT_SOURCES = ["amazon", "wiki"];
+
+/* Each shard as the people in it, not a file number: which sources it holds and how many, whether they were
+   surveyed, read from text by a model, or synthetic and never drawn. */
+function ShardPicker({ corpus, shards, sources, onToggle, onFollowSources }: {
+  corpus: CorpusInfo; shards: string[]; sources: string[]; onToggle: (id: string) => void; onFollowSources: () => void;
+}) {
+  const needed = shardsFor(corpus, sources);
+  const following = needed.length === shards.length && needed.every((id) => shards.includes(id));
+  const missing = Object.entries(leftOut(corpus, shards, sources));
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <div className="help" style={{ marginTop: 0 }}>
+        {sources.length === 0 ? "Choose the sources to admit below; the shards follow them."
+          : needed.length ? <>Your sources&apos; people are in <b className="mono">{needed.join(", ")}</b>.{!following && <> <button className="btn sm" onClick={onFollowSources}>Use exactly those</button></>}</>
+          : "None of your sources is in a cached shard."}
+      </div>
+      {missing.length > 0 && (
+        <div className="help" style={{ color: "var(--risk)", marginTop: 0 }}>
+          Unticked shards leave out {missing.map(([src, n]) => `${n.toLocaleString()} ${src}`).join(" and ")} — they can never be drawn.
+        </div>
+      )}
+      <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)" }}>
+        {corpus.shards.map((sh, i) => {
+          const held = Object.entries(sh.sources ?? {});
+          const synthetic = held.length > 0 && held.every(([src]) => src === "synthetic");
+          const text = held.length > 0 && held.every(([src]) => TEXT_SOURCES.includes(src));
+          const usable = sh.cached && !synthetic;
+          return (
+            <label key={sh.id} style={{ display: "grid", gridTemplateColumns: "20px 44px 1fr auto", gap: 8, alignItems: "center", padding: "6px 10px", borderTop: i ? "1px solid var(--line)" : 0, fontSize: 12.5, opacity: usable ? 1 : 0.55, cursor: usable ? "pointer" : "default" }}>
+              <input type="checkbox" disabled={!usable} checked={usable && shards.includes(sh.id)} onChange={() => onToggle(sh.id)} />
+              <span className="mono">{sh.id}</span>
+              <span>
+                {!sh.cached ? <span className="sub">not downloaded on this machine</span>
+                  : held.map(([src, n], k) => (
+                    <React.Fragment key={src}>{k ? " · " : ""}<span style={{ fontWeight: sources.includes(src) ? 600 : 400, color: sources.includes(src) ? "var(--ink)" : "var(--ink-3)" }}>{src} {n.toLocaleString()}</span></React.Fragment>
+                  ))}
+              </span>
+              <span className="sub" style={{ fontSize: 11 }}>
+                {!sh.cached ? "" : synthetic ? "synthetic — never drawn" : text ? "read from text by a model"
+                  : held.some(([src]) => TEXT_SOURCES.includes(src)) ? "surveyed, and read from text" : "surveyed people"}
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  CHANNELS, CHANNEL_GUIDE, cachedShards, defaultAnchor, defaultSources, gateRequest, parseSeeds, problems, studyRequest,
+  CHANNELS, CHANNEL_GUIDE, cachedShards, defaultAnchor, defaultSources, gateRequest, leftOut, shardsFor, parseSeeds, problems, studyRequest,
   type AnchorCatalogue, type CorpusInfo, type StudyForm,
 } from "../lib/study.ts";
 
@@ -92,6 +92,23 @@ test("the corpus is offered from what is cached, and defaults to the sources a s
   assert.equal(defaultSources(corpus).includes("synthetic"), false);
   assert.deepEqual(cachedShards(null), []);
   assert.deepEqual(defaultSources(null), []);
+});
+
+test("shards follow the sources: a study reads the shards its people are in, and says who unticked ones leave out", () => {
+  const release: CorpusInfo = {
+    available: true, measured_sources: ["gss", "stackoverflow", "wiki"], sources: {},
+    shards: [
+      { id: "0000", rows: 3, bytes: 1, cached: true, sources: { wiki: 3 } },
+      { id: "0004", rows: 3, bytes: 1, cached: true, sources: { stackoverflow: 2, amazon: 1 } },
+      { id: "0005", rows: 3, bytes: 1, cached: true, sources: { gss: 2, stackoverflow: 1 } },
+      { id: "0006", rows: 3, bytes: 1, cached: true, sources: { synthetic: 3 } },
+      { id: "0007", rows: 3, bytes: 1, cached: false },
+    ],
+  };
+  assert.deepEqual(shardsFor(release, ["gss", "stackoverflow"]), ["0004", "0005"]);
+  assert.deepEqual(shardsFor(release, []), []);
+  assert.deepEqual(leftOut(release, ["0005"], ["gss", "stackoverflow"]), { stackoverflow: 2 });
+  assert.deepEqual(leftOut(release, ["0004", "0005"], ["gss", "stackoverflow"]), {});
 });
 
 test("the scale defaults to one that passed its check, never to whatever was first", () => {

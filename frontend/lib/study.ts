@@ -5,7 +5,7 @@
    (shards, sources, the draw's seed), which models answer and what they cost, and what is asked. The endpoint
    and its key are the server's environment and are never a field here. */
 
-export interface CorpusShard { id: string; rows: number | null; bytes: number | null; cached: boolean }
+export interface CorpusShard { id: string; rows: number | null; bytes: number | null; cached: boolean; sources?: Record<string, number> }
 export interface CorpusInfo {
   available: boolean;
   shards: CorpusShard[];
@@ -75,6 +75,22 @@ export interface StudyForm {
    draw does not depend on which machine it ran on. */
 export function cachedShards(corpus: CorpusInfo | null): string[] {
   return (corpus?.shards ?? []).filter((s) => s.cached).map((s) => s.id);
+}
+
+/* The cached shards holding any of the chosen sources: a shard is a slice of rows, so a study's people are
+   wherever its sources' rows happen to be. */
+export function shardsFor(corpus: CorpusInfo | null, sources: string[]): string[] {
+  return (corpus?.shards ?? []).filter((s) => s.cached && sources.some((src) => (s.sources?.[src] ?? 0) > 0)).map((s) => s.id);
+}
+
+/* People of the chosen sources in cached shards left unticked: who the draw will never reach. */
+export function leftOut(corpus: CorpusInfo | null, shards: string[], sources: string[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const s of corpus?.shards ?? []) {
+    if (!s.cached || shards.includes(s.id)) continue;
+    for (const src of sources) if ((s.sources?.[src] ?? 0) > 0) out[src] = (out[src] ?? 0) + (s.sources?.[src] ?? 0);
+  }
+  return out;
 }
 
 /* The sources a study can admit. A persona may not have synthesized demographics, so a draw that reaches
