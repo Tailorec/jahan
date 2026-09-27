@@ -160,6 +160,10 @@ _Avoid_: field type, section, attribute group
 The attributes a persona must have populated to be usable in a given category — the demographic and category-behaviour fields the elicitation method depends on. Declared per category; personas lacking any of them are excluded from the candidate pool before sampling, never dropped afterwards.
 _Avoid_: required fields, minimum profile, completeness threshold
 
+**Candidate Pool**:
+The personas a study can be drawn from: rows from its admitted sources that carry every attribute of the category's conditioning set, before any audience filter is applied. An audience is always a slice of the candidate pool, so an attribute the conditioning set requires shrinks every audience at once.
+_Avoid_: eligible population (the population is what was drawn), universe, sampling frame
+
 **Conditioning**:
 Presenting a persona's own attributes to the model as the frame for its response. Unconditioned responses collapse: measured over 150 personas, every one returned the same answer, where conditioned personas gave fifty-seven different ones. Conditioning is what makes a population a population rather than one respondent repeated, which is why it is an invariant rather than a quality setting.
 _Avoid_: persona prompting, priming, context injection
@@ -167,6 +171,10 @@ _Avoid_: persona prompting, priming, context injection
 **Source**:
 Which upstream corpus a persona's dataset row came from. Sources differ enormously in richness, so the source mix of a population is reported alongside its distributions.
 _Avoid_: origin (that word describes a field, not a row), provenance
+
+**Text Source**:
+A source whose rows were read from text — encyclopedia entries, product reviews — rather than answered, so every field it carries is extracted. Wikipedia figures and Amazon reviewers are text sources; the four surveys are not, although a survey can still hold an extracted field where no question asked it.
+_Avoid_: model-read source, inferred source, unsurveyed source, extracted source (extracted grades a field, not a source)
 
 ### Time
 
