@@ -45,7 +45,10 @@ _SCRATCH = "_validate"
 
 
 def _runs_dir(request: Request) -> Path:
-    return Path(request.app.state.runs_dir)
+    # Made at start-up, and again if someone deleted it while the server ran: no folder is no studies yet.
+    runs = Path(request.app.state.runs_dir)
+    runs.mkdir(parents=True, exist_ok=True)
+    return runs
 
 
 def _run_dir(request: Request, run_id: str) -> Path:

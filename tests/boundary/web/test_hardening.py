@@ -411,3 +411,16 @@ def test_a_run_started_elsewhere_keeps_the_status_its_registry_states(tmp_path):
     _, entry, _ = _seed_run(runs)
     body = _client(runs).get(f"/api/runs/{entry.config.run_id}").json()
     assert body["status"] == "running" and body["live"] is False
+
+
+def test_a_runs_folder_deleted_while_serving_means_no_studies(tmp_path):
+    import shutil
+
+    from fastapi.testclient import TestClient
+
+    from simcore.web import create_app
+
+    client = TestClient(create_app(runs_dir=tmp_path / "runs"))
+    shutil.rmtree(tmp_path / "runs")
+    assert client.get("/api/runs").json() == {"runs": []}
+    assert client.get("/api/workspace").status_code == 200
