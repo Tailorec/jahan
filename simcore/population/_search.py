@@ -67,7 +67,7 @@ def search_attributes(codebook, matrix, query: str, sources, required, mode: str
 
 
 def _card(matrix, codebook, sources, required, base, base_counts, attribute: str, relevance) -> dict:
-    from simcore.brief._codebook import domain_of, kind_of, measures_of
+    from simcore.brief._codebook import domain_of, kind_of, looks_ordered, measures_of
 
     position = matrix.attributes.index(attribute)
     everyone = matrix.pool_mask(sources, ())
@@ -87,6 +87,7 @@ def _card(matrix, codebook, sources, required, base, base_counts, attribute: str
         "measures": measures_of(attribute, codebook.label(attribute), codebook.category(attribute)),
         "kind": kind_of(attribute, codebook.label(attribute), codebook.category(attribute)),
         "values": list(codebook.vocabulary(attribute) or ()),
+        "ordered": looks_ordered(codebook.vocabulary(attribute) or ()),
         "relevance": relevance,
         "present": present,
         "total": total,

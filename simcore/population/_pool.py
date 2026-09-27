@@ -129,7 +129,7 @@ def alternatives(matrix, codebook, sources: tuple[str, ...], attribute: str, lim
 
     import numpy as np
 
-    from simcore.brief._codebook import kind_of, measures_of
+    from simcore.brief._codebook import domain_of, kind_of, looks_ordered, measures_of
 
     if attribute not in matrix.attributes:
         raise ValueError(f"the corpus carries no such attribute: {attribute}")
@@ -160,6 +160,9 @@ def alternatives(matrix, codebook, sources: tuple[str, ...], attribute: str, lim
             "category": codebook.category(other),
             "measures": measures_of(other, codebook.label(other), codebook.category(other)),
             "kind": kind_of(other, codebook.label(other), codebook.category(other)),
+            "domain": domain_of(other, codebook.label(other), codebook.category(other)),
+            "values": list(codebook.vocabulary(other) or ()),
+            "ordered": looks_ordered(codebook.vocabulary(other) or ()),
             "n": int(hit.sum()),
             "by_source": matrix.by_source(hit),
         })
