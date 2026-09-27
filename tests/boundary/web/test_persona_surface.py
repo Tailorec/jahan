@@ -80,10 +80,14 @@ def test_unreconstructible_prompt_states_why_without_approximation():
 
 def test_nothing_in_the_interface_stores_or_persists_a_prompt():
     pages = list((FRONTEND / "app").rglob("*.tsx")) + list((FRONTEND / "app").rglob("*.ts"))
-    forbidden = ("localStorage.setItem", "sessionStorage.setItem", "prompt_cache", "savePrompt", "storePrompt")
+    # What is never persisted is a turn prompt: reconstruction is verified from
+    # records, never cached. The Who-you-study handoff ("who-launch") carries
+    # study inputs — audiences, assumptions, sources — never a prompt.
     for page in pages:
         content = page.read_text()
-        for marker in forbidden:
+        for marker in ("prompt_cache", "savePrompt", "storePrompt"):
             assert marker not in content, f"{page.name} stores a prompt: {marker!r}"
+        if "localStorage.setItem" in content or "sessionStorage.setItem" in content:
+            assert '"who-launch"' in content, f"{page.name} persists something other than the study handoff"
         if "prompt" in page.name.lower():
             assert "localStorage" not in content and "sessionStorage" not in content

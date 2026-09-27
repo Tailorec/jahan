@@ -245,7 +245,7 @@ def test_the_engine_being_away_is_said_plainly(stack):
 
 def test_the_pages_render_against_the_engine(stack):
     for path in (
-        "/", "/intake", "/ontology", "/calibration", f"/population?run={stack['gated']}",
+        "/", "/intake", "/who", "/calibration", f"/population?run={stack['gated']}",
         f"/population?run={stack['finished']}", f"/run?run={stack['finished']}",
         f"/trace?run={stack['finished']}", f"/report?run={stack['finished']}",
         f"/atlas?run={stack['finished']}", f"/calibration?run={stack['finished']}",
@@ -397,11 +397,11 @@ def _visible(html: str) -> str:
 @needs_a_browser
 @pytest.mark.parametrize(
     "page",
-    ["/", "/intake", "/ontology", "/calibration", "/run", "/report", "/atlas", "/trace", "/population"],
+    ["/", "/intake", "/who", "/calibration", "/run", "/report", "/atlas", "/trace", "/population"],
 )
 def test_no_page_throws_while_it_renders(stack, page):
     for run in (stack["finished"], stack["gated"]):
-        path = f"{page}?run={run}" if page not in ("/", "/intake", "/ontology") else page
+        path = f"{page}?run={run}" if page not in ("/", "/intake", "/who") else page
         html, log = _render(stack["base"], path)
         thrown = [line for line in log.splitlines() if "Uncaught" in line]
         assert "Application error" not in html and not thrown, (path, thrown[:2])

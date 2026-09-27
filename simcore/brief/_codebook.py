@@ -68,6 +68,24 @@ _FAMILY_DOMAIN = {
 }
 
 
+_ORDERED_SCALES = (
+    ("never", "rarely", "monthly", "weekly", "daily"), ("low", "middle", "high"),
+    ("beginner", "intermediate", "advanced", "expert"), ("absent", "slight", "moderate", "strong"),
+    ("disagree", "neutral", "agree"), ("none", "some", "very"),
+)
+
+
+def looks_ordered(values) -> bool:
+    """A guess, shown as one: bands with numbers, or values drawn from a familiar ordered scale."""
+    lowered = [str(value).lower() for value in values]
+    if sum(any(char.isdigit() for char in value) for value in lowered) >= max(2, len(values) - 1):
+        return True
+    return any(
+        sum(any(word in value for word in scale) for value in lowered) >= min(3, len(values))
+        for scale in _ORDERED_SCALES
+    )
+
+
 def domain_of(attribute: str, label: str = "", category: str = "") -> str:
     """The engine field domain for an attribute, from its codebook family."""
     family = (category.split(":")[0] if ":" in category else category).strip().lower()
@@ -249,4 +267,4 @@ def validate_against_codebook(ontology: CategoryOntology, codebook: CodebookLike
                 )
 
 
-__all__ = ["domain_of", "expand_terms", "kind_of", "measures_of", "suggest_attributes", "validate_against_codebook", "word_search"]
+__all__ = ["domain_of", "expand_terms", "kind_of", "looks_ordered", "measures_of", "suggest_attributes", "validate_against_codebook", "word_search"]

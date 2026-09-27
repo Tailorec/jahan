@@ -40,7 +40,7 @@ const PRESETS: { label: string; sources: string[] }[] = [
 const TEXT_SOURCES = ["amazon", "wiki"];
 const TEXT_LABEL = "read by a model from text, not surveyed";
 
-interface DraftRow { id: string; label: string; category: string; domain: string; measures: string; kind: string; role: string; required: boolean; locked?: boolean; values: string[] }
+interface DraftRow { id: string; label: string; category: string; domain: string; ordered?: boolean; measures: string; kind: string; role: string; required: boolean; locked?: boolean; values: string[] }
 interface PoolCost { attribute: string; pool_without: number; removes: number; removes_by_source: Record<string, number>; emptied_sources: string[] }
 interface PoolReply { state: string; sources_total?: number; sources_by_source?: Record<string, number>; pool?: number; pool_by_source?: Record<string, number>; costs?: PoolCost[] }
 interface HeadCount { name: string; quota: number; head_count: number; by_source: Record<string, number>; dominant_source: string | null; filter_costs: Record<string, number>; empty_note: string | null; text_would_add: Record<string, number> }
@@ -133,7 +133,7 @@ export default function WhoPage() {
 
   interface DraftUnsure { phrase: string; choices: { attribute: string; label: string; values: string[]; n_alone: number }[] }
   interface DraftAudience { name: string; share: number | null; filters: Record<string, string[]>; phrases: Record<string, string>; unsure: DraftUnsure[]; descriptions: string[] }
-  interface DraftAttr { id: string; label: string; category: string; domain: string; measures: string; kind: string; values: string[]; required: boolean; locked: boolean; role: string; phrase: string | null }
+  interface DraftAttr { id: string; label: string; category: string; ordered?: boolean; domain: string; measures: string; kind: string; values: string[]; required: boolean; locked: boolean; role: string; phrase: string | null }
   interface DraftQuestion { phrase: string; choices: { attribute: string; label: string; values: string[]; n_alone: number }[]; applies_to: string[] }
   interface DraftReply { state: string; audiences: DraftAudience[]; attributes: DraftAttr[]; questions: DraftQuestion[]; unmatched: { phrase: string; missing: string }[] }
   const [drafted, setDrafted] = React.useState<DraftReply | null>(null);
@@ -265,7 +265,7 @@ export default function WhoPage() {
         const next = [...rs];
         for (const entry of d.attributes ?? []) {
           const at = next.findIndex((r) => r.id === entry.id);
-          const row = { id: entry.id, label: entry.label, category: entry.category, domain: entry.domain ?? "category_behaviour", measures: entry.measures, kind: entry.kind, role: entry.required ? "Required for everyone" : entry.role === "matters" ? "Describes everyone" : `Defines audiences`, required: entry.required, locked: entry.locked, values: entry.values };
+          const row = { id: entry.id, label: entry.label, category: entry.category, domain: entry.domain ?? "category_behaviour", ordered: entry.ordered, measures: entry.measures, kind: entry.kind, role: entry.required ? "Required for everyone" : entry.role === "matters" ? "Describes everyone" : `Defines audiences`, required: entry.required, locked: entry.locked, values: entry.values };
           if (at >= 0) next[at] = { ...next[at], ...row };
           else next.push(row);
         }
@@ -739,7 +739,7 @@ export default function WhoPage() {
                     {r.locked && <span className="tag">category — locked</span>}
                     {!r.locked && <button className="btn quiet sm" style={{ marginLeft: "auto" }} onClick={() => setRows((xs) => xs.filter((x) => x.id !== r.id))}>✕</button>}
                   </div>
-                  <div className="sub" style={{ fontSize: 11.5 }}>{r.role} · {r.kind}</div>
+                  <div className="sub" style={{ fontSize: 11.5 }}>{r.role} · {r.kind} · ordered: {r.ordered ? "yes?" : "—"}</div>
                   {!r.locked && (
                     <label style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center", marginTop: 4 }}>
                       <input type="checkbox" checked={r.required} onChange={() => setRows((xs) => xs.map((x) => (x.id === r.id ? { ...x, required: !x.required } : x)))} /> required for everyone
