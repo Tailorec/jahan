@@ -6,7 +6,7 @@ import Shell from "@/components/shell";
 import { PageHead, Callout } from "@/components/ui";
 import { api, ApiError, useApi, whyNot } from "@/lib/api";
 import type { CategoryOntology, PersonaFieldDomain } from "@/lib/engine";
-import { coverageLabel, density, DENSITY_NOTE, shouldPoll, type CoverageInfo } from "@/lib/coverage";
+import { coverageLabel, coverageBand, COVERAGE_NOTE, shouldPoll, type CoverageInfo } from "@/lib/coverage";
 
 interface CodebookHit { id: string; values: string[] }
 interface DraftAttr { id: string; domain: PersonaFieldDomain }
@@ -77,13 +77,13 @@ export default function OntologyPage() {
   const coverageLine = (id: string) => {
     const found = coverageOf(id);
     if (!found) return null;
-    const tier = density(found.recorded);
+    const band = coverageBand(found.recorded);
     return (
       <div style={{ marginTop: 6 }}>
-        <span className={`chip ${tier === "dense" ? "ok" : tier === "sparse" ? "risk" : "plain"}`} data-coverage={tier}>
+        <span className={`chip ${band === "most" ? "ok" : band === "few" ? "risk" : "plain"}`} data-coverage={band}>
           <span className="dot" />{coverageLabel(found.recorded)}
         </span>
-        {DENSITY_NOTE[tier] && <div className="sub" style={{ fontSize: 11.5, marginTop: 4 }}>{DENSITY_NOTE[tier]}</div>}
+        {COVERAGE_NOTE[band] && <div className="sub" style={{ fontSize: 11.5, marginTop: 4 }}>{COVERAGE_NOTE[band]}</div>}
         <div className="mono sub" style={{ fontSize: 11, marginTop: 4 }}>
           {Object.entries(found.by_source).map(([name, c]) => `${name} ${c.share === null ? "—" : `${(c.share * 100).toFixed(0)}%`}`).join(" · ")}
         </div>

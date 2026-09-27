@@ -107,7 +107,7 @@ export default function PopulationPage() {
                   {gate.relaxations.map((r, i) => <div key={i} className="mono" style={{ fontSize: 12 }}>{r.audience} · {r.rung} · rows {r.rows_before} → {r.rows_after}</div>)}</div></Callout>
               )}
               <div className="panel">
-                <div className="panel-head"><h2>Completion</h2><span className="hint">sparse fields only — demographics and psychographics are never synthesized</span></div>
+                <div className="panel-head"><h2>Completion</h2><span className="hint">rarely answered fields only — demographics and psychographics are never synthesized</span></div>
                 <div className="panel-body tight"><table className="tbl"><tbody>
                   <tr><td>May be completed</td><td className="mono sub">{completable.length ? completable.join(", ") : "—"}</td></tr>
                   <tr><td>Never synthesized</td><td className="mono sub">demographic, psychographic</td></tr>

@@ -964,21 +964,41 @@ def create_app(
         query: str = "",
         offset: int = Query(default=0, ge=0),
         limit: int = Query(default=50, ge=1, le=1000),
+        mode: str = "words",
+        sources: str = "",
     ) -> dict[str, Any]:
-        """The corpus's own attributes with their declared value sets.
+        """The corpus's own attributes in words people use: label, category,
+        what each measures, and its declared value set.
 
-        Read from the cached corpus, never from a copy: what can be studied
-        is bounded by the data. Without a corpus present there is nothing to
-        bound it by, and the builder says so.
+        Word search covers ids, labels and categories, so "kids" finds
+        children; search by meaning arrives in a later phase and until then
+        the answer says words is what there is. Nothing here is a path.
         """
+        from simcore.brief._codebook import kind_of, measures_of, word_search
+
         codebook = _codebook_or_refuse(request)
-        lowered = query.lower()
-        matched = [
-            {"id": attribute, "values": list(codebook.vocabulary(attribute) or ())}
-            for attribute in codebook.attributes
-            if lowered in attribute.lower()
+        if query.strip():
+            ordered = word_search(query, codebook, limit=len(codebook.attributes))
+        else:
+            ordered = tuple(codebook.attributes)
+        entries = [
+            {
+                "id": attribute,
+                "label": codebook.label(attribute),
+                "category": codebook.category(attribute),
+                "measures": measures_of(attribute, codebook.label(attribute), codebook.category(attribute)),
+                "kind": kind_of(attribute, codebook.label(attribute), codebook.category(attribute)),
+                "values": list(codebook.vocabulary(attribute) or ()),
+            }
+            for attribute in ordered
         ]
-        return {"attributes": _page(matched, offset, limit), "total": len(matched)}
+        return {
+            "attributes": _page(entries, offset, limit),
+            "total": len(entries),
+            "mode": "words",
+            "meaning_available": False,
+            "meaning_note": "search by meaning is unavailable without an endpoint and embeddings — searching by words",
+        }
 
     @app.get("/api/corpus")
     def read_corpus(request: Request) -> dict[str, Any]:
