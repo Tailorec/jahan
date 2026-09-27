@@ -1234,6 +1234,34 @@ def create_app(
             raise HTTPException(status_code=422, detail=str(exc))
         return {"state": "ready", "id": attribute, "label": codebook.label(attribute), "values": counts, "also_asks": other}
 
+    @app.get("/api/categories")
+    def list_categories_route(request: Request) -> dict[str, Any]:
+        """The existing categories a description may reuse — offered only when
+        the codebook carries every attribute the category's latest ontology names."""
+        from simcore.population import list_categories
+
+        codebook = _codebook_or_refuse(request)
+        return {"categories": list_categories(_ontologies_root(request), request.app.state.briefs_dir, codebook)}
+
+    @app.post("/api/describe")
+    def describe_route(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """Read the description into groups, shared traits and topics, and say
+        which category it seems to belong to. The reading is shown before any
+        draft; nothing is drafted here."""
+        from simcore.population import describe
+
+        text = body.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise HTTPException(status_code=422, detail="describe who you want to study")
+        codebook = _codebook_or_refuse(request)
+        try:
+            return describe(_chat_json, text.strip(), _ontologies_root(request), request.app.state.briefs_dir, codebook)
+        except Exception as failure:
+            raise HTTPException(
+                status_code=409,
+                detail=f"the language model could not be reached ({type(failure).__name__}); drafting is unavailable",
+            )
+
     @app.post("/api/audiences/preview")
     def preview_audiences_route(request: Request, body: dict[str, Any]) -> dict[str, Any]:
         """Each audience's head count against its quota at the study size, its
@@ -1339,6 +1367,31 @@ def _build_embeddings_job(state: Any, corpus: str) -> None:
         build_embeddings(path, codebook_digest(path), embed_model())
     except Exception as failure:
         state.embeddings_job["error"] = f"embeddings could not be built ({type(failure).__name__})"
+
+
+def _chat_json(system: str, user: str, max_tokens: int) -> dict:
+    """One JSON answer from the language model through the one OpenAI-compatible endpoint."""
+    import json as _json
+    import os
+    import urllib.request
+
+    configured = os.environ.get("SIMCORE_INFERENCE_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
+    base = configured.rstrip("/") if configured else "http://127.0.0.1:4000/v1"
+    model = os.environ.get("SIMCORE_CHAT_MODEL") or "amazon.nova-micro-v1:0"
+    body = _json.dumps({
+        "model": model,
+        "temperature": 0,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        f"{base}/chat/completions", data=body, headers={"content-type": "application/json"}
+    )
+    with urllib.request.urlopen(request, timeout=120) as response:
+        reply = _json.load(response)
+    content = reply["choices"][0]["message"]["content"]
+    found = re.search(r"\{.*\}", content, re.S)
+    return _json.loads(found.group(0)) if found else {}
 
 
 def _pool_failure(failure: Exception) -> str:

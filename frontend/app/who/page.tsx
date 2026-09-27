@@ -121,6 +121,30 @@ export default function WhoPage() {
   const [audiences, setAudiences] = React.useState<Audience[]>([]);
   const [preview, setPreview] = React.useState<PreviewReply | null>(null);
 
+  interface ReadingGroup { name: string; share: number | null; traits: string[] }
+  interface DescribeReply { reading: { product: string | null; groups: ReadingGroup[]; everyone: string[]; topics: string[] }; product: string | null; match: { id: string; version: string; products: string[] } | null; new_id: string; categories: { id: string; version: string; products: string[] }[] }
+  const [description, setDescription] = React.useState("");
+  const [described, setDescribed] = React.useState<DescribeReply | null>(null);
+  const [describing, setDescribing] = React.useState(false);
+  const [describeError, setDescribeError] = React.useState<string | null>(null);
+  const [category, setCategory] = React.useState<{ mode: "reuse" | "new"; id: string } | null>(null);
+  const [sameAs, setSameAs] = React.useState("");
+
+  async function readIt() {
+    if (!description.trim() || describing) return;
+    setDescribing(true);
+    setDescribeError(null);
+    try {
+      setDescribed(await api<DescribeReply>("/api/describe", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: description }),
+      }));
+    } catch (e) {
+      setDescribeError(whyNot(e));
+    }
+    setDescribing(false);
+  }
+
   const draftKey = JSON.stringify({ s: JSON.parse(sourcesKey), r: JSON.parse(requiredKey), n: studySize, a: audiences });
   const askPreview = React.useCallback(async () => {
     if (audiences.length === 0) { setPreview(null); return; }
@@ -212,7 +236,11 @@ export default function WhoPage() {
         <div>
           <div className="panel">
             <div className="panel-head"><h2>Category</h2><span className="hint">reused or new — confirmed from your description</span></div>
-            <div className="panel-body"><div className="sub" style={{ fontSize: 12.5 }}>No category confirmed yet. Describe who you want to study first.</div></div>
+            <div className="panel-body">
+              {category
+                ? <div style={{ fontSize: 12.5 }}><span className="mono">{category.id}</span> · {category.mode === "reuse" ? "reused ontology" : "new category"}</div>
+                : <div className="sub" style={{ fontSize: 12.5 }}>No category confirmed yet. Describe who you want to study first.</div>}
+            </div>
           </div>
           <div className="panel" style={{ marginTop: 16 }}>
             <div className="panel-head"><h2>Draw from</h2></div>
@@ -277,11 +305,41 @@ export default function WhoPage() {
             <div className="panel-head"><h2>Who do you want to study?</h2></div>
             <div className="panel-body" style={{ display: "grid", gap: 8 }}>
               <div className="sub" style={{ fontSize: 12.5 }}>Say who you are testing, the groups, what makes someone belong, and what you want to know.</div>
-              <input className="input" placeholder="e.g. parents of young kids and retirees in North America…" disabled />
-              <div><button className="btn sm" disabled>Read it</button></div>
-              <div className="sub" style={{ fontSize: 12 }}>Describing starts in a later phase — for now, author audiences by hand below. Every count on this page is real.</div>
+              <input className="input" placeholder="e.g. parents of young kids and retirees in North America…" value={description} onChange={(e) => setDescription(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") readIt(); }} />
+              <div><button className="btn sm" disabled={describing || !description.trim()} onClick={readIt}>{describing ? "Reading…" : "Read it"}</button></div>
+              {describeError && <Callout icon="alert"><div><b>Could not read that.</b> {describeError}</div></Callout>}
+              {status && !status.endpoint_configured && <div className="help">Without an endpoint, describing and drafting are unavailable — author audiences by hand below.</div>}
+              <div className="sub" style={{ fontSize: 12 }}>Every count on this page is real.</div>
             </div>
           </div>
+          {described && (
+            <div className="panel" style={{ marginTop: 16 }}>
+              <div className="panel-head"><h2>I read this as a study of {described.product ?? "your product"}</h2></div>
+              <div className="panel-body" style={{ display: "grid", gap: 8 }}>
+                {described.reading.groups.map((g, i) => (
+                  <div key={i} style={{ fontSize: 12.5 }}><b>{g.name}</b>{g.share !== null && <> ({Math.round(g.share * 100)}%)</>}: {g.traits.join("; ") || "—"}</div>
+                ))}
+                {described.reading.everyone.length > 0 && <div style={{ fontSize: 12.5 }}><b>Everyone</b>: {described.reading.everyone.join("; ")}</div>}
+                {described.reading.topics.length > 0 && <div style={{ fontSize: 12.5 }}><b>You want to know</b>: {described.reading.topics.join("; ")}</div>}
+                <div className="sub" style={{ fontSize: 12 }}>Something missing? Rephrase and read again — nothing is drafted before you confirm the category.</div>
+                {described.match
+                  ? <div style={{ fontSize: 12.5 }}>Same kind of product as <b className="mono">{described.match.id}</b>? <span className="sub">{(described.match.products ?? []).join(", ")}</span></div>
+                  : <div style={{ fontSize: 12.5 }}>No existing category looks like the same kind of product. Start <b className="mono">{described.new_id}</b> as a new category?</div>}
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {described.match && <button className="btn primary sm" onClick={() => setCategory({ mode: "reuse", id: described.match!.id })}>Yes — use its ontology</button>}
+                  <button className="btn sm" onClick={() => setCategory({ mode: "new", id: described.new_id })}>Start a new category</button>
+                  {described.categories.length > 0 && (
+                    <select className="input" style={{ width: 220 }} value={sameAs} onChange={(e) => setSameAs(e.target.value)}>
+                      <option value="">It&apos;s the same as…</option>
+                      {described.categories.map((c) => <option key={c.id} value={c.id}>{c.id} @{c.version}</option>)}
+                    </select>
+                  )}
+                  {sameAs && <button className="btn sm" onClick={() => { setCategory({ mode: "reuse", id: sameAs }); setSameAs(""); }}>Use {sameAs}</button>}
+                  <button className="btn quiet sm" onClick={() => setDescribed(null)}>Rephrase</button>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="panel" style={{ marginTop: 16 }}>
             <div className="panel-head"><h2>Audiences</h2><span className="hint">{shareTotal > 0 ? `${Math.round(shareTotal * 100)}% of 100%` : "authored by hand until drafting lands"}</span></div>
             <div className="panel-body" style={{ display: "grid", gap: 10 }}>
