@@ -7,6 +7,7 @@
 from ._assess import assess
 from ._build import BuiltPopulation, build
 from ._interpret import interpret_audience
+from ._pool import CandidatePool, RequirementCost, describe_pool
 from ._preview import PreviewRequest, preview
 
-__all__ = ["BuiltPopulation", "PreviewRequest", "assess", "build", "interpret_audience", "preview"]
+__all__ = ["BuiltPopulation", "CandidatePool", "PreviewRequest", "RequirementCost", "assess", "build", "describe_pool", "interpret_audience", "preview"]
