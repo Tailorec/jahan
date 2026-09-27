@@ -14,12 +14,13 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import numpy as np
 
 MATRIX_DIRECTORY = "consumersim-index"
-MATRIX_FORMAT = "matrix/1"
+MATRIX_FORMAT = "matrix/2"
 
 # No value: the field is absent (or the row is synthetic and was left out).
 MISSING = -1
@@ -66,22 +67,28 @@ def _path(cache_dir: Path, fingerprint: dict[str, str]) -> Path:
 
 
 def load_matrix(hf_source) -> PersonaMatrix | None:
-    """The saved matrix for exactly these shards, memory-mapped — or nothing."""
-    fingerprint = _fingerprint(hf_source)
-    base = _path(hf_source.cache_dir, fingerprint)
+    """The saved matrix for exactly these shards, memory-mapped — or nothing.
+
+    Opened once per process and shared: the codes stay on disk and in the page
+    cache, so a request costs no copy of the 774 MB matrix."""
+    base = _path(hf_source.cache_dir, _fingerprint(hf_source))
     sidecar_path = base.with_suffix(".json")
-    archive = base.with_suffix(".npz")
-    if not (sidecar_path.is_file() and archive.is_file()):
+    if not sidecar_path.is_file():
         return None
+    return _open(str(base), sidecar_path.stat().st_mtime_ns, json.dumps(_fingerprint(hf_source), sort_keys=True))
+
+
+@lru_cache(maxsize=2)
+def _open(base_name: str, _mtime: int, fingerprint: str) -> PersonaMatrix | None:
+    base = Path(base_name)
     try:
-        sidecar = json.loads(sidecar_path.read_text(encoding="utf-8"))
-    except ValueError:
+        sidecar = json.loads(base.with_suffix(".json").read_text(encoding="utf-8"))
+        if sidecar.get("format") != MATRIX_FORMAT or sidecar.get("shards") != json.loads(fingerprint):
+            return None
+        codes = np.load(f"{base}.codes.npy", mmap_mode="r")
+        row_source = np.load(f"{base}.rows.npy", mmap_mode="r")
+    except (OSError, ValueError):
         return None
-    if sidecar.get("format") != MATRIX_FORMAT or sidecar.get("shards") != fingerprint:
-        return None
-    with np.load(archive, mmap_mode="r") as stored:
-        codes = np.array(stored["codes"])
-        row_source = np.array(stored["row_source"])
     return PersonaMatrix(
         attributes=tuple(sidecar["attributes"]),
         vocabulary={attribute: tuple(values) for attribute, values in sidecar["vocabulary"].items()},
@@ -119,6 +126,8 @@ def build_matrix(hf_source) -> PersonaMatrix:
             for value, code in index_of.items():
                 column[labels == value] = code
             table[order[attribute]] = column
+            arrays.labels.pop(attribute, None)  # a shard's labels for every attribute would hold ~1 GB
+            arrays.unexpressible.pop(attribute, None)
         codes_parts.append(table)
         source_parts.append(np.asarray([names.index(name) for name in kept_sources], dtype=np.int64))
         hf_source._cache.pop(Path(str(entry["path"])).stem, None)
@@ -139,16 +148,13 @@ def build_matrix(hf_source) -> PersonaMatrix:
 
 
 def _save(cache_dir: Path, fingerprint: dict[str, str], matrix: PersonaMatrix) -> None:
+    """Uncompressed, so it can be memory-mapped; the sidecar goes last, so a half-written matrix is never read."""
     base = _path(cache_dir, fingerprint)
     base.parent.mkdir(parents=True, exist_ok=True)
-    archive = base.with_suffix(".npz")
-    partial = base.with_suffix(".partial.npz")
-    np.savez_compressed(
-        partial,
-        codes=np.asarray(matrix.codes, dtype=np.int8),
-        row_source=np.asarray(matrix.row_source, dtype=np.int64),
-    )
-    partial.replace(archive)
+    for suffix, array, dtype in (("codes", matrix.codes, np.int8), ("rows", matrix.row_source, np.int64)):
+        partial = Path(f"{base}.{suffix}.partial.npy")
+        np.save(partial, np.asarray(array, dtype=dtype))
+        partial.replace(f"{base}.{suffix}.npy")
     sidecar = {
         "format": MATRIX_FORMAT,
         "shards": fingerprint,
@@ -157,7 +163,6 @@ def _save(cache_dir: Path, fingerprint: dict[str, str], matrix: PersonaMatrix) -
         "sources": list(matrix.sources),
         "totals": dict(matrix.totals),
     }
-    sidecar_path = base.with_suffix(".json")
     sidecar_partial = base.with_suffix(".partial.json")
     sidecar_partial.write_text(json.dumps(sidecar, sort_keys=True), encoding="utf-8")
-    sidecar_partial.replace(sidecar_path)
+    sidecar_partial.replace(base.with_suffix(".json"))

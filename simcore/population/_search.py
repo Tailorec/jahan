@@ -26,8 +26,9 @@ def _shares(matrix, sources: tuple[str, ...]) -> np.ndarray:
     return present / total
 
 
-def search_attributes(codebook, matrix, query: str, sources, required, mode: str, embeddings) -> dict:
-    """Ranked attribute cards for `query` over the codebook."""
+def search_attributes(codebook, matrix, query: str, sources, required, mode: str, embeddings, offset: int = 0, limit: int | None = None) -> dict:
+    """Ranked attribute cards for `query` over the codebook — cards only for the page asked for,
+    since each card counts over the whole matrix."""
     from simcore.brief._codebook import kind_of, measures_of, word_search
     from simcore.ports.embeddings import endpoint_base, rank_meaning
 
@@ -46,6 +47,7 @@ def search_attributes(codebook, matrix, query: str, sources, required, mode: str
             vector = (np.asarray(vector, dtype=np.float32) / norm).tolist()
             relevance, score = rank_meaning(vector, embeddings, _shares(matrix, sources))
             order = [int(i) for i in np.argsort(-score) if matrix.attributes[int(i)] not in required]
+            ordered = [matrix.attributes[position] for position in order]
             for position in order:
                 relevance_of[matrix.attributes[position]] = round(float(relevance[position]), 4)
             used = "meaning"
@@ -58,9 +60,10 @@ def search_attributes(codebook, matrix, query: str, sources, required, mode: str
     elif used.startswith("words"):
         shares = _shares(matrix, sources)
         ordered = [matrix.attributes[int(i)] for i in np.argsort(-shares) if matrix.attributes[int(i)] not in required]
+    page = ordered[offset:] if limit is None else ordered[offset:offset + limit]
     cards = [_card(matrix, codebook, sources, required, base, base_counts, attribute, relevance_of.get(attribute))
-             for attribute in ordered]
-    return {"results": cards, "mode": used}
+             for attribute in page]
+    return {"results": cards, "total": len(ordered), "mode": used}
 
 
 def _card(matrix, codebook, sources, required, base, base_counts, attribute: str, relevance) -> dict:

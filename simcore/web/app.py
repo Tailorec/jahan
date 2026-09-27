@@ -1037,16 +1037,15 @@ def create_app(
                         daemon=True,
                     )
                     job["thread"].start()
-        found = search_attributes(codebook, matrix, query, chosen, needed, mode, embeddings)
-        entries = found["results"]
+        found = search_attributes(codebook, matrix, query, chosen, needed, mode, embeddings, offset=offset, limit=limit)
         meaning_note = "search by meaning is unavailable without an endpoint and embeddings — searching by words"
         if embeddings is not None:
             meaning_note = ""
         if embeddings is None and request.app.state.embeddings_job["error"] is None:
             meaning_note = "search by meaning is building — searching by words until it lands"
         return {
-            "attributes": _page(entries, offset, limit),
-            "total": len(entries),
+            "attributes": found["results"],
+            "total": found["total"],
             "mode": found["mode"],
             "meaning_available": embeddings is not None,
             "meaning_note": meaning_note,
@@ -1562,28 +1561,25 @@ def _build_embeddings_job(state: Any, corpus: str) -> None:
 
 
 def _chat_json(system: str, user: str, max_tokens: int) -> dict:
-    """One JSON answer from the language model through the one OpenAI-compatible endpoint."""
+    """One JSON answer from the language model through the one configured endpoint; a reply that is
+    not JSON is no answer, not a server error."""
     import json as _json
     import os
-    import urllib.request
 
-    configured = os.environ.get("SIMCORE_INFERENCE_BASE_URL") or os.environ.get("OPENAI_BASE_URL")
-    base = configured.rstrip("/") if configured else "http://127.0.0.1:4000/v1"
-    model = os.environ.get("SIMCORE_CHAT_MODEL") or "amazon.nova-micro-v1:0"
-    body = _json.dumps({
-        "model": model,
+    from simcore.ports.embeddings import post_json
+
+    reply = post_json("/chat/completions", {
+        "model": os.environ.get("SIMCORE_CHAT_MODEL") or "amazon.nova-micro-v1:0",
         "temperature": 0,
         "max_tokens": max_tokens,
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-    }).encode("utf-8")
-    request = urllib.request.Request(
-        f"{base}/chat/completions", data=body, headers={"content-type": "application/json"}
-    )
-    with urllib.request.urlopen(request, timeout=120) as response:
-        reply = _json.load(response)
+    })
     content = reply["choices"][0]["message"]["content"]
     found = re.search(r"\{.*\}", content, re.S)
-    return _json.loads(found.group(0)) if found else {}
+    try:
+        return _json.loads(found.group(0)) if found else {}
+    except ValueError:
+        return {}
 
 
 def _reading_of(raw: Any):
@@ -1617,7 +1613,9 @@ def _latest_ontology(root: str, category_id: str):
     folder = Path(root, category_id)
     if not _NAME.fullmatch(category_id) or not folder.is_dir():
         return None
-    versions = sorted(folder.glob("*.json"))
+    from simcore.population._describe import ontology_versions
+
+    versions = ontology_versions(folder)
     if not versions:
         return None
     try:

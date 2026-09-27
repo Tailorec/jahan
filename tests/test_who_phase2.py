@@ -120,3 +120,14 @@ def test_unknown_attributes_and_sources_are_refused(tmp_path):
         describe_pool(matrix, ("gss",), ("nope",))
     with pytest.raises(ValueError, match="no such source"):
         describe_pool(matrix, ("nope",), ("sex",))
+
+
+def test_a_saved_matrix_is_memory_mapped_and_opened_once_per_process(tmp_path):
+    """Loading copied the whole matrix into memory on every request — 1.5 GB and 3.4 s each on the real corpus."""
+    import numpy as np
+
+    cache = fake_cache(tmp_path)
+    build_matrix(HfCoresetSource(cache_dir=cache))
+    first = load_matrix(HfCoresetSource(cache_dir=cache))
+    assert isinstance(first.codes, np.memmap)
+    assert load_matrix(HfCoresetSource(cache_dir=cache)) is first
