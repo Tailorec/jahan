@@ -89,3 +89,67 @@ def describe_pool(matrix, sources: tuple[str, ...], required: tuple[str, ...]) -
         pool_by_source=pool_by_source,
         costs=tuple(costs),
     )
+
+
+def value_counts(matrix, sources: tuple[str, ...], required: tuple[str, ...], attribute: str) -> list[dict]:
+    """Every value of `attribute` with its count per source among the candidate
+    pool — what the value picker ticks, never typed."""
+    if attribute not in matrix.attributes:
+        raise ValueError(f"the corpus carries no such attribute: {attribute}")
+    unknown_sources = sorted(set(sources) - set(matrix.sources))
+    if unknown_sources:
+        raise ValueError(f"the corpus carries no such source: {', '.join(unknown_sources)}")
+    unknown_required = sorted(set(required) - set(matrix.attributes))
+    if unknown_required:
+        raise ValueError(f"the corpus carries no such attribute: {', '.join(unknown_required)}")
+    import numpy as np
+
+    base = matrix.pool_mask(tuple(sources), tuple(required))
+    position = matrix.attributes.index(attribute)
+    column = matrix.codes[position]
+    vocabulary = matrix.vocabulary[attribute]
+    out = []
+    for code, value in enumerate(vocabulary):
+        hit = base & (column == code)
+        out.append({"value": value, "n": int(hit.sum()), "by_source": matrix.by_source(hit)})
+    return out
+
+
+def alternatives(matrix, codebook, sources: tuple[str, ...], attribute: str, limit: int = 3) -> list[dict]:
+    """The other ways the corpus asks the same question: attributes sharing
+    the most words with `attribute`'s label and category, with how many people
+    in `sources` carry each. Choosing one swaps the filter in one click."""
+    import re
+
+    from simcore.brief._codebook import expand_terms, kind_of, measures_of
+
+    if attribute not in matrix.attributes:
+        raise ValueError(f"the corpus carries no such attribute: {attribute}")
+
+    def words_of(name: str) -> set[str]:
+        text = f"{name.replace('_', ' ')} {codebook.label(name)} {codebook.category(name)}".lower()
+        return {word for word in re.split(r"[^a-z0-9]+", text) if len(word) > 2}
+
+    wanted = expand_terms(sorted(words_of(attribute)))
+    ranked = []
+    for other in matrix.attributes:
+        if other == attribute:
+            continue
+        shared = sum(1 for term in wanted if term in words_of(other))
+        if shared:
+            ranked.append((-shared, other))
+    present_rows = matrix.pool_mask(tuple(sources), ())
+    out = []
+    for _, other in sorted(ranked)[:limit]:
+        position = matrix.attributes.index(other)
+        hit = present_rows & (matrix.codes[position] != -1)
+        out.append({
+            "id": other,
+            "label": codebook.label(other),
+            "category": codebook.category(other),
+            "measures": measures_of(other, codebook.label(other), codebook.category(other)),
+            "kind": kind_of(other, codebook.label(other), codebook.category(other)),
+            "n": int(hit.sum()),
+            "by_source": matrix.by_source(hit),
+        })
+    return out

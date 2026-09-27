@@ -123,7 +123,7 @@ _SYNONYMS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _expand(terms: list[str]) -> list[str]:
+def expand_terms(terms: list[str]) -> list[str]:
     expanded = list(terms)
     for term in terms:
         expanded.extend(_SYNONYMS.get(term, ()))
@@ -142,7 +142,7 @@ def word_search(query: str, codebook: CodebookLike, limit: int = 5) -> tuple[str
     terms = [word for word in re.split(r"[^a-z0-9]+", query.lower()) if word]
     if not terms:
         return ()
-    wanted = _expand(terms)
+    wanted = expand_terms(terms)
     ranked: list[tuple[int, float, str]] = []
     for attribute in codebook.attributes:
         label = codebook.label(attribute) if hasattr(codebook, "label") else ""
@@ -223,4 +223,4 @@ def validate_against_codebook(ontology: CategoryOntology, codebook: CodebookLike
                 )
 
 
-__all__ = ["kind_of", "measures_of", "suggest_attributes", "validate_against_codebook", "word_search"]
+__all__ = ["expand_terms", "kind_of", "measures_of", "suggest_attributes", "validate_against_codebook", "word_search"]

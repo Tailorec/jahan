@@ -130,6 +130,54 @@ export default function WhoPage() {
 
   const shareTotal = audiences.reduce((t, a) => t + (a.share ?? 0), 0);
 
+  interface PickerData { state: string; id: string; label: string; values: { value: string; n: number; by_source: Record<string, number> }[]; also_asks: { id: string; label: string; category: string; measures: string; kind: string; n: number; by_source: Record<string, number> }[] }
+  const [pickerFor, setPickerFor] = React.useState<{ ai: number; attr: string } | null>(null);
+  const [picker, setPicker] = React.useState<PickerData | null>(null);
+
+  const pickerKey = pickerFor ? JSON.stringify({ attr: pickerFor.attr, s: JSON.parse(sourcesKey), r: JSON.parse(requiredKey) }) : null;
+  const askPicker = React.useCallback(async () => {
+    if (!pickerKey) { setPicker(null); return; }
+    try {
+      const parsed = JSON.parse(pickerKey);
+      const q = `sources=${encodeURIComponent(parsed.s.join(","))}&required=${encodeURIComponent(parsed.r.join(","))}`;
+      setPicker(await api<PickerData>(`/api/codebook/${encodeURIComponent(parsed.attr)}/values?${q}`));
+    } catch {
+      setPicker(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pickerKey]);
+  React.useEffect(() => { askPicker(); }, [askPicker]);
+
+  function toggleValue(ai: number, attr: string, value: string) {
+    setAudiences((as) => as.map((a, i) => {
+      if (i !== ai) return a;
+      const current = a.filters[attr] ?? [];
+      const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
+      if (next.length === 0) {
+        const filters = { ...a.filters };
+        delete filters[attr];
+        return { ...a, filters };
+      }
+      return { ...a, filters: { ...a.filters, [attr]: next } };
+    }));
+  }
+  function swapFilter(ai: number, from: string, to: { id: string }) {
+    setPickerFor({ ai, attr: to.id });
+    setAudiences((as) => as.map((a, i) => {
+      if (i !== ai) return a;
+      const current = a.filters[from] ?? [];
+      const row = rows.find((r) => r.id === to.id);
+      const vocab = row?.values ?? [];
+      const kept = current.filter((v) => vocab.includes(v));
+      const filters = { ...a.filters };
+      delete filters[from];
+      filters[to.id] = kept.length ? kept : vocab.slice(0, 1);
+      const declared = rows.some((r) => r.id === to.id) ? rows : [...rows, { id: to.id, label: to.id, category: "", measures: "", kind: "", role: "Defines audiences", required: false, values: vocab }];
+      setRows(declared);
+      return { ...a, filters };
+    }));
+  }
+
   function addAudience() {
     setAudiences((as) => [...as, { name: `Group ${as.length + 1}`, share: null, filters: {}, descriptions: [] }]);
   }
@@ -249,10 +297,13 @@ export default function WhoPage() {
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
                       {Object.entries(a.filters).map(([attr, values]) => {
                         const row = rows.find((r) => r.id === attr);
+                        const open = pickerFor?.ai === ai && pickerFor?.attr === attr;
                         return (
-                          <span key={attr} className="tag">
-                            <span className="mono">{attr}</span> = {values.join(" / ")}
-                            <span className="sub" style={{ fontSize: 11 }}> · measures: {row?.measures ?? "—"}</span>
+                          <span key={attr}>
+                            <button className="tag" onClick={() => setPickerFor(open ? null : { ai, attr })}>
+                              <span className="mono">{attr}</span> = {values.join(" / ")}
+                              <span className="sub" style={{ fontSize: 11 }}> · measures: {row?.measures ?? "—"}</span>
+                            </button>
                             <button className="btn quiet sm" style={{ marginLeft: 4 }} onClick={() => setAudiences((as) => as.map((x, i) => (i === ai ? { ...x, filters: Object.fromEntries(Object.entries(x.filters).filter(([k]) => k !== attr)) } : x)))}>✕</button>
                           </span>
                         );
@@ -268,6 +319,32 @@ export default function WhoPage() {
                         </select>
                       )}
                     </div>
+                    {pickerFor?.ai === ai && picker && picker.id === pickerFor.attr && (
+                      <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10, marginTop: 6 }}>
+                        <div className="sub" style={{ fontSize: 12, marginBottom: 6 }}>Tick values — nothing here is typed.</div>
+                        {(picker.values ?? []).map((v) => (
+                          <label key={v.value} style={{ fontSize: 12.5, display: "flex", gap: 6, alignItems: "center", padding: "2px 0" }}>
+                            <input type="checkbox" checked={(a.filters[picker.id] ?? []).includes(v.value)} onChange={() => toggleValue(ai, picker.id, v.value)} />
+                            {v.value}
+                            <span className="mono sub" style={{ fontSize: 11, marginLeft: "auto" }}>
+                              {v.n.toLocaleString("en-US")} · {Object.entries(v.by_source).map(([s, n]) => `${s} ${n.toLocaleString("en-US")}`).join(" · ")}
+                            </span>
+                          </label>
+                        ))}
+                        {(picker.also_asks ?? []).length > 0 && (
+                          <div style={{ marginTop: 8 }}>
+                            <div className="sub" style={{ fontSize: 12, marginBottom: 4 }}>The corpus also asks this as</div>
+                            {(picker.also_asks ?? []).map((alt) => (
+                              <div key={alt.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12.5, padding: "2px 0" }}>
+                                <span><b>{alt.label}</b> <span className="mono sub" style={{ fontSize: 11 }}>{alt.id}</span></span>
+                                <span className="mono sub" style={{ fontSize: 11 }}>{alt.n.toLocaleString("en-US")} answered</span>
+                                <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => swapFilter(ai, picker.id, alt)}>Swap</button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     {a.descriptions.length > 0 && <div className="sub" style={{ fontSize: 12, marginTop: 4 }}>Describes (excludes nobody): {a.descriptions.join(", ")}</div>}
                     {head?.dominant_source && <div className="sub" style={{ fontSize: 12, marginTop: 4 }}>Drawn mostly from {head.dominant_source} — a difference from other audiences may be a difference between surveys.</div>}
                     {head && Object.entries(head.filter_costs).map(([attr, without]) => (

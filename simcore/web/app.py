@@ -1168,6 +1168,38 @@ def create_app(
         outcome["state"] = "ready"
         return outcome
 
+    @app.get("/api/codebook/{attribute}/values")
+    def read_attribute_values(request: Request, attribute: str, sources: str = "", required: str = "") -> dict[str, Any]:
+        """Every value of `attribute` with its count per source among the
+        candidate pool — the value picker ticks these, never typed. Beneath it,
+        "the corpus also asks this as" lists the other ways the corpus asks the
+        same question with how many people answered each."""
+        from simcore.population import alternatives, value_counts
+        from simcore.ports.hf import HfCoresetSource
+        from simcore.ports.matrix import load_matrix
+
+        if not _NAME.fullmatch(attribute):
+            raise _missing(f"no record of attribute {attribute}")
+        corpus = _corpus_root(request)
+        if corpus is None:
+            raise HTTPException(status_code=409, detail="no corpus is cached here, so there is nobody to count")
+        try:
+            source = HfCoresetSource(cache_dir=corpus)
+            matrix = load_matrix(source)
+        except Exception as failure:
+            raise HTTPException(status_code=409, detail=_pool_failure(failure))
+        if matrix is None:
+            return {"state": "building"}
+        chosen = tuple(name for name in sources.split(",") if name) or matrix.sources
+        needed = tuple(name for name in required.split(",") if name)
+        codebook = _codebook_or_refuse(request)
+        try:
+            counts = value_counts(matrix, chosen, needed, attribute)
+            other = alternatives(matrix, codebook, chosen, attribute)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        return {"state": "ready", "id": attribute, "label": codebook.label(attribute), "values": counts, "also_asks": other}
+
     @app.post("/api/audiences/preview")
     def preview_audiences_route(request: Request, body: dict[str, Any]) -> dict[str, Any]:
         """Each audience's head count against its quota at the study size, its
