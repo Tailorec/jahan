@@ -2,6 +2,13 @@
 
 import numpy as np
 import pytest
+import socket
+
+# The retrieval gate is the suite's one network test: it embeds 15 queries
+# through the endpoint. Saved here, before isolation replaces them below.
+_REAL_CONNECT = socket.socket.connect
+_REAL_CONNECT_EX = socket.socket.connect_ex
+_REAL_CREATE_CONNECTION = socket.create_connection
 
 from simcore.population import describe_pool
 from simcore.ports.embeddings import cache_path, codebook_digest, load_embeddings, rank_meaning
@@ -85,9 +92,12 @@ def _gate_inputs():
     return matrix, embeddings
 
 
-def test_retrieval_gate():
+def test_retrieval_gate(monkeypatch):
     """Of the evaluation's 15 queries, at least 11 find an expected attribute
     first and 13 within the top five — surveyed sources only."""
+    monkeypatch.setattr(socket.socket, "connect", _REAL_CONNECT)
+    monkeypatch.setattr(socket.socket, "connect_ex", _REAL_CONNECT_EX)
+    monkeypatch.setattr(socket, "create_connection", _REAL_CREATE_CONNECTION)
     from simcore.population._search import _shares
     from simcore.ports.embeddings import _embed, embed_model, endpoint_base
 
