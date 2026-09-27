@@ -73,6 +73,9 @@ export default function OverviewPage() {
                     </td>
                   </tr>
                 ))}
+                {data.runs.length === 0 && (
+                  <tr><td colSpan={7} className="sub">No study has run yet. <Link href="/who">Describe who you study</Link> to start one.</td></tr>
+                )}
               </tbody>
             </table>
           </div></div>
