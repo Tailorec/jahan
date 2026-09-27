@@ -115,34 +115,45 @@ def value_counts(matrix, sources: tuple[str, ...], required: tuple[str, ...], at
     return out
 
 
-def alternatives(matrix, codebook, sources: tuple[str, ...], attribute: str, limit: int = 3) -> list[dict]:
-    """The other ways the corpus asks the same question: attributes sharing
-    the most words with `attribute`'s label and category, with how many people
-    in `sources` carry each. Choosing one swaps the filter in one click."""
+_GENERIC = frozenset({"status", "level", "type", "frequency", "attitude", "interest", "skill", "familiarity", "value", "habit", "the", "and", "for"})
+
+
+def alternatives(matrix, codebook, sources: tuple[str, ...], attribute: str, limit: int = 3, embeddings=None) -> list[dict]:
+    """The other ways the corpus asks the same question, with how many people in `sources` answered each.
+
+    Neighbours by meaning when attribute embeddings exist, else by words shared in the labels. Two
+    attributes with the same value list are skipped: that is a shared wording template (Prudence and
+    Curiosity both run Signature … Absent), not the same question.
+    """
     import re
 
-    from simcore.brief._codebook import expand_terms, kind_of, measures_of
+    import numpy as np
+
+    from simcore.brief._codebook import kind_of, measures_of
 
     if attribute not in matrix.attributes:
         raise ValueError(f"the corpus carries no such attribute: {attribute}")
+    if embeddings is not None and attribute in embeddings["ids"]:
+        ids = embeddings["ids"]
+        similarity = embeddings["vectors"] @ embeddings["vectors"][ids.index(attribute)]
+        ranked = [ids[int(j)] for j in np.argsort(-similarity)]
+    else:
+        # ponytail: shared label words only; embeddings are the real answer and are built in the background
+        def words_of(name: str) -> set[str]:
+            return {word for word in re.split(r"[^a-z0-9]+", codebook.label(name).lower()) if len(word) > 2} - _GENERIC
 
-    def words_of(name: str) -> set[str]:
-        text = f"{name.replace('_', ' ')} {codebook.label(name)} {codebook.category(name)}".lower()
-        return {word for word in re.split(r"[^a-z0-9]+", text) if len(word) > 2}
-
-    wanted = expand_terms(sorted(words_of(attribute)))
-    ranked = []
-    for other in matrix.attributes:
-        if other == attribute:
-            continue
-        shared = sum(1 for term in wanted if term in words_of(other))
-        if shared:
-            ranked.append((-shared, other))
+        wanted = words_of(attribute)
+        scored = [(-len(wanted & words_of(other)), other) for other in matrix.attributes if wanted & words_of(other)]
+        ranked = [other for _, other in sorted(scored)]
+    own_values = tuple(codebook.vocabulary(attribute) or ())
     present_rows = matrix.pool_mask(tuple(sources), ())
     out = []
-    for _, other in sorted(ranked)[:limit]:
-        position = matrix.attributes.index(other)
-        hit = present_rows & (matrix.codes[position] != -1)
+    for other in ranked:
+        if other == attribute or other not in matrix.attributes or tuple(codebook.vocabulary(other) or ()) == own_values:
+            continue
+        hit = present_rows & (matrix.codes[matrix.attributes.index(other)] != -1)
+        if not hit.any():
+            continue
         out.append({
             "id": other,
             "label": codebook.label(other),
@@ -152,4 +163,6 @@ def alternatives(matrix, codebook, sources: tuple[str, ...], attribute: str, lim
             "n": int(hit.sum()),
             "by_source": matrix.by_source(hit),
         })
+        if len(out) == limit:
+            break
     return out

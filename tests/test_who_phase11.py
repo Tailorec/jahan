@@ -93,3 +93,23 @@ def test_the_latest_version_is_the_highest_number_not_the_last_in_text_order(tmp
     for version in ("1.0.2", "1.0.10", "1.0.0"):
         (tmp_path / f"{version}.json").write_text("{}")
     assert [path.stem for path in ontology_versions(tmp_path)] == ["1.0.0", "1.0.2", "1.0.10"]
+
+
+def test_an_attribute_marked_ordered_is_saved_with_its_scale():
+    """The page's "ordered" was never sent and never saved: new categories always had no scales."""
+    new = prepare_launch(
+        {"mode": "new", "id": "thing"},
+        [{"id": "sex", "domain": "demographic", "required": True},
+         {"id": "region", "domain": "demographic", "required": False, "ordered": True}],
+        [{"name": "a", "share": 1.0, "filters": {}}], [], lambda category_id: None, _Codebook(),
+    )
+    assert new["ontology"]["ordinal_scales"] == [
+        {"attribute": "region", "bands": [{"label": "Africa", "midpoint": 0.0}, {"label": "Europe", "midpoint": 1.0}]}]
+    reused = prepare_launch(
+        {"mode": "reuse", "id": "study"},
+        [{"id": "sex", "domain": "demographic", "required": True},
+         {"id": "region", "domain": "demographic", "required": False, "ordered": True}],
+        [{"name": "a", "share": 1.0, "filters": {}}], [], lambda category_id: _before(), _Codebook(),
+    )
+    assert [scale["attribute"] for scale in reused["ontology"]["ordinal_scales"]] == ["region"]
+    assert reused["action"] == "new_version"

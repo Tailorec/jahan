@@ -1244,7 +1244,10 @@ def create_app(
         codebook = _codebook_or_refuse(request)
         try:
             counts = value_counts(matrix, chosen, needed, attribute)
-            other = alternatives(matrix, codebook, chosen, attribute)
+            from simcore.ports.embeddings import codebook_digest, embed_model, load_embeddings
+
+            other = alternatives(matrix, codebook, chosen, attribute,
+                                 embeddings=load_embeddings(corpus, codebook_digest(corpus), embed_model()))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
         return {"state": "ready", "id": attribute, "label": codebook.label(attribute), "values": counts, "also_asks": other}

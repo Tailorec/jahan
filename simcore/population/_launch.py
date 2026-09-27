@@ -22,11 +22,14 @@ def prepare_launch(category: dict, rows: list[dict], audiences: list[dict], assu
     before = ontology_lookup(category_id) if category.get("mode") == "reuse" else None
     domains = {row["id"]: row.get("domain") or "category_behaviour" for row in rows}
     required = [row["id"] for row in rows if row.get("required")]
+    ordered = [row["id"] for row in rows if row.get("ordered")]
     if not required:
         raise ValueError("a category conditions on at least one attribute")
     if before is not None:
         scales_before = {scale["attribute"]: scale for scale in before.get("ordinal_scales") or []}
-        scales = [scales_before[attribute] for attribute in domains if attribute in scales_before]
+        # The category's own scales stay as they are; an attribute this study adds keeps the order it was given.
+        scales = [scales_before.get(attribute) or _scale(attribute, codebook)
+                  for attribute in domains if attribute in scales_before or attribute in ordered]
         unchanged = (
             domains == before.get("attribute_domains")
             and set(required) == set(before.get("conditioning_set") or [])
@@ -59,7 +62,7 @@ def prepare_launch(category: dict, rows: list[dict], audiences: list[dict], assu
             "attribute_domains": domains,
             "conditioning_set": required,
             "completion_policy": {"completable_domains": ["economic", "media", "decision_rule"]},
-            "ordinal_scales": [],
+            "ordinal_scales": [_scale(attribute, codebook) for attribute in ordered],
             "relevance_order": required + [row["id"] for row in rows if not row.get("required")],
             "anchor_sets": {"purchase_intent": "purchase-intent-v1"},
             "targets": None,
@@ -95,6 +98,13 @@ def prepare_launch(category: dict, rows: list[dict], audiences: list[dict], assu
         "action": action,
         "from_version": from_version,
     }
+
+
+def _scale(attribute: str, codebook) -> dict:
+    """An ordered attribute's bands, in the codebook's own order; midpoints are positions, which is all a
+    widening step or an ordinal distance reads."""
+    return {"attribute": attribute, "bands": [{"label": str(value), "midpoint": float(position)}
+                                             for position, value in enumerate(codebook.vocabulary(attribute) or ())]}
 
 
 def _bump(version: str) -> str:
