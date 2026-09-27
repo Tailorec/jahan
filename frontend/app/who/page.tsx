@@ -2,182 +2,412 @@
 
 import Link from "next/link";
 import React from "react";
+import { dump } from "js-yaml";
 import Shell from "@/components/shell";
-import { PageHead, Callout } from "@/components/ui";
 import { api, ApiError, useApi, whyNot } from "@/lib/api";
-import { coverageLabel, coverageBand, COVERAGE_NOTE, shouldPoll, type CoverageInfo } from "@/lib/coverage";
+import "./who.css";
 
-interface CodebookHit {
-  id: string;
-  label: string;
-  category: string;
-  domain?: string;
-  measures: string;
-  kind: string;
-  values: string[];
-  relevance?: number | null;
-  present?: number;
-  total?: number;
-  share?: number;
-  carry_by_source?: Record<string, number>;
-  if_required?: { pool: number; by_source: Record<string, number>; lost: number; wiped_sources: string[] };
-}
-interface CodebookReply {
-  attributes: CodebookHit[];
-  total: number;
-  mode: string;
-  meaning_available: boolean;
-  meaning_note: string;
-}
-interface Status { engine_version: string; endpoint_configured: boolean }
+/* Who you study — the mockup's page (mockups/ontology/index.html) on the engine's own routes. Every count
+   here is the engine's: this page lays them out and keeps what the person chose, nothing more. */
 
-const PRESETS: { label: string; sources: string[] }[] = [
-  { label: "All surveys", sources: ["stackoverflow", "gss", "prism", "real_human_survey"] },
+const COLORS: Record<string, string> = { stackoverflow: "var(--seg1)", gss: "var(--seg2)", amazon: "var(--seg3)", prism: "var(--seg4)", real_human_survey: "var(--seg5)", wiki: "oklch(0.7 0.02 75)" };
+const NAMES: Record<string, string> = { stackoverflow: "Stack Overflow survey", gss: "General Social Survey (US)", amazon: "Amazon reviewers", prism: "PRISM survey", real_human_survey: "Real human survey", wiki: "Wikipedia figures" };
+const SURVEYS = ["stackoverflow", "gss", "prism", "real_human_survey"];
+const TEXT_SOURCES = ["amazon", "wiki"];
+const PRESETS = [
+  { label: "All surveys", sources: SURVEYS },
   { label: "US public", sources: ["gss"] },
   { label: "Developers", sources: ["stackoverflow"] },
 ];
+const DOMAINS: [string, string][] = [["demographic", "Who they are"], ["psychographic", "How they think"], ["category_behaviour", "What they do"], ["economic", "Money & work"], ["decision_rule", "How they decide"], ["media", "What they read & watch"]];
+const EXAMPLES = [
+  "A children's education savings app. Three groups: parents of young kids (40%), people early in their career (30%) and retirees (30%), all in North America. I care about how careful they are with money and how much they trust technology.",
+  "An AI code-review tool. Software developers who use AI coding assistants every day, compared with developers who never use them. I want to know how much they trust AI output.",
+  "A premium meal-kit subscription. Busy parents who work full time, compared with retirees who cook every day. I want to know how price-sensitive they are.",
+];
 
-const TEXT_SOURCES = ["amazon", "wiki"];
-const TEXT_LABEL = "read by a model from text, not surveyed";
+interface Status { endpoint_configured: boolean }
+interface Corpus { people: Record<string, number>; answered: Record<string, number>; attributes: number; text_sources: string[] }
+interface Pool { state: string; sources_total?: number; pool?: number; pool_by_source?: Record<string, number>; costs?: { attribute: string; removes: number; emptied_sources: string[] }[]; corpus?: Corpus }
+interface Entry { id: string; label: string; category: string; domain: string; measures: string; values: string[]; ordered?: boolean; required?: boolean; locked?: boolean; role?: string; phrase?: string | null }
+interface Row extends Entry { required: boolean; locked: boolean; role: string; ordered: boolean; guessed: boolean }
+interface Option { id: string; label: string; carried?: number }
+interface Change { attribute: string; values: string[]; before: number; after: number; accepted: boolean }
+interface Audience { name: string; share: number | null; filters: Record<string, string[]>; descriptions: string[]; changes: Change[]; options: Record<string, Option[]> }
+interface Choice { attribute: string; label: string; values: string[]; n_alone: number; entry?: Entry; options?: Option[] }
+interface Question { phrase: string; choices: Choice[]; applies_to: string[] }
+interface Head { name: string; quota: number; head_count: number; by_source: Record<string, number>; dominant_source: string | null; filter_costs: Record<string, number>; empty_note: string | null; text_would_add: Record<string, number> }
+interface Preview { state: string; audiences?: Head[]; assumptions?: { text: string; source: string }[] }
+interface Reading { product: string | null; groups: { name: string; share: number | null; traits: string[] }[]; everyone: string[]; topics: string[] }
+interface Category { id: string; version: string; products: string[] }
+interface Described { reading: Reading; product: string | null; match: Category | null; new_id: string; categories: Category[] }
+interface Chosen { mode: "reuse" | "new"; id: string; version: string | null }
+interface Matched { phrase: string; attribute?: string; values?: string[]; unsure?: boolean; describes?: boolean }
+interface Turn { text: string; phase: "reading" | "confirm" | "drafting" | "done" | "error"; described?: Described; error?: string; added?: number; matched?: Matched[]; missing?: { phrase: string; missing: string }[]; ms?: number }
+interface Values { state: string; id: string; label: string; values: { value: string; n: number; by_source: Record<string, number> }[]; also_asks: (Entry & { n: number })[] }
+interface Picker { ai: number; attr: string; pending: string[] | null; data: Values | null; declare?: Entry; replaces?: string }
+interface Hit extends Entry { present?: number; share?: number; carry_by_source?: Record<string, number>; if_required?: { pool: number; lost: Record<string, number> | number; wiped_sources: string[] } }
+interface Ready { ontology: { category: string; version: string } & Record<string, unknown>; audiences: { name: string; share: number | null; attribute_filters: Record<string, string | string[]> }[]; assumptions: { text: string; source: string }[]; action: "reused" | "new_version" | "new_category"; from_version: string | null }
 
-interface DraftRow { id: string; label: string; category: string; domain: string; ordered?: boolean; measures: string; kind: string; role: string; required: boolean; locked?: boolean; values: string[] }
-interface PoolCost { attribute: string; pool_without: number; removes: number; removes_by_source: Record<string, number>; emptied_sources: string[] }
-interface PoolReply { state: string; sources_total?: number; sources_by_source?: Record<string, number>; pool?: number; pool_by_source?: Record<string, number>; costs?: PoolCost[] }
-interface HeadCount { name: string; quota: number; head_count: number; by_source: Record<string, number>; dominant_source: string | null; filter_costs: Record<string, number>; empty_note: string | null; text_would_add: Record<string, number> }
-interface PreviewReply { state: string; audiences?: HeadCount[]; assumptions?: { text: string; source: string }[] }
-interface Audience { name: string; share: number | null; filters: Record<string, string[]>; descriptions: string[]; changes?: { attribute: string; values: string[]; before: number; after: number; accepted: boolean }[] }
+const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
+const pct = (x: number) => (x === 0 ? "0%" : x < 0.01 ? `${(x * 100).toFixed(2)}%` : `${(x * 100).toFixed(x < 0.1 ? 1 : 0)}%`);
+const post = <T,>(path: string, body: unknown) => api<T>(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+const rowOf = (e: Entry): Row => ({ ...e, required: !!e.required, locked: !!e.locked, role: e.role ?? "added", ordered: !!e.ordered, guessed: !!e.ordered && !e.locked });
+const feels = (measures?: string) => !!measures && measures.startsWith("how people feel");
+
+function SourceBar({ bySource }: { bySource: Record<string, number> }) {
+  const entries = Object.entries(bySource).sort((a, b) => b[1] - a[1]);
+  const sum = entries.reduce((t, [, n]) => t + n, 0) || 1;
+  return (
+    <>
+      <div className="bar">{entries.map(([s, n]) => <span key={s} style={{ width: `${(n / sum) * 100}%`, background: COLORS[s] }} />)}</div>
+      <div className="legend">{entries.slice(0, 4).map(([s, n]) => <span key={s}><span className="swatch" style={{ background: COLORS[s] }} />{s} {pct(n / sum)}</span>)}</div>
+    </>
+  );
+}
+
+function Measures({ measures }: { measures?: string }) {
+  if (!measures) return null;
+  return <span className={`m${feels(measures) ? " feel" : ""}`}>measures: {measures}</span>;
+}
 
 export default function WhoPage() {
-  const [sources, setSources] = React.useState<string[]>(PRESETS[0].sources);
-  const [studySize, setStudySize] = React.useState(200);
-  const [query, setQuery] = React.useState("");
-  const [hits, setHits] = React.useState<CodebookHit[] | null>(null);
-  const [meaningNote, setMeaningNote] = React.useState<string | null>(null);
-  const [searchMode, setSearchMode] = React.useState("words");
-  const [corpusMissing, setCorpusMissing] = React.useState(false);
-  const [rows, setRows] = React.useState<DraftRow[]>([]);
-  const [coverage, setCoverage] = React.useState<CoverageInfo | null>(null);
-  const [pool, setPool] = React.useState<PoolReply | null>(null);
   const { data: status } = useApi<Status>("/api/status");
+  const [sources, setSources] = React.useState<string[]>(SURVEYS);
+  const [studySize, setStudySize] = React.useState(200);
+  const [pool, setPool] = React.useState<Pool | null>(null);
+  const [corpusMissing, setCorpusMissing] = React.useState(false);
 
-  const requiredKey = JSON.stringify(rows.filter((r) => r.required).map((r) => r.id));
-  const sourcesKey = JSON.stringify(sources);
-  const askPool = React.useCallback(async () => {
-    try {
-      setPool(await api<PoolReply>("/api/pool", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sources: JSON.parse(sourcesKey), required: JSON.parse(requiredKey) }),
-      }));
-    } catch {
-      setPool(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourcesKey, requiredKey]);
-  React.useEffect(() => { askPool(); }, [askPool]);
+  const [text, setText] = React.useState("");
+  const [turns, setTurns] = React.useState<Turn[]>([]);
+  const [category, setCategory] = React.useState<Chosen | null>(null);
+  const [rows, setRows] = React.useState<Row[]>([]);
+  const [audiences, setAudiences] = React.useState<Audience[]>([]);
+  const [questions, setQuestions] = React.useState<Question[]>([]);
+  const [preview, setPreview] = React.useState<Preview | null>(null);
+  const [blockers, setBlockers] = React.useState<string[] | null>(null);
+  const [busy, setBusy] = React.useState(false);
+  const [followup, setFollowup] = React.useState("");
+  const [byHand, setByHand] = React.useState<{ categories: Category[]; newId: string } | null>(null);
 
-  const search = React.useCallback(async (q: string) => {
-    if (!q.trim()) { setHits(null); return; }
-    try {
-      const s = JSON.parse(sourcesKey).join(",");
-      const r = JSON.parse(requiredKey).join(",");
-      const d = await api<CodebookReply>(`/api/codebook?query=${encodeURIComponent(q)}&limit=12&mode=meaning&sources=${encodeURIComponent(s)}&required=${encodeURIComponent(r)}`);
-      setHits(d.attributes);
-      setSearchMode(d.mode === "meaning" ? "meaning" : "words");
-      setMeaningNote(d.meaning_available ? null : d.meaning_note);
+  const [picker, setPicker] = React.useState<Picker | null>(null);
+  const [addingTo, setAddingTo] = React.useState<number | null>(null);
+  const [searchOpen, setSearchOpen] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const [hits, setHits] = React.useState<Hit[] | null>(null);
+  const [searchNote, setSearchNote] = React.useState<string | null>(null);
+
+  const [ready, setReady] = React.useState<Ready | null>(null);
+  const [saved, setSaved] = React.useState(false);
+  const [continueError, setContinueError] = React.useState<string | null>(null);
+
+  const reused = category?.mode === "reuse";
+  const required = rows.filter((r) => r.required).map((r) => r.id);
+  const row = (id: string) => rows.find((r) => r.id === id);
+  const label = (id: string) => row(id)?.label ?? id;
+  const heads = preview?.audiences ?? [];
+  const noEndpoint = status !== null && !status.endpoint_configured;
+
+  // ---------------------------------------------------------------- the engine's counts
+  const poolKey = JSON.stringify({ sources, required });
+  React.useEffect(() => {
+    let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ask = () => post<Pool>("/api/pool", JSON.parse(poolKey)).then((p) => {
+      if (!live) return;
+      setPool(p);
       setCorpusMissing(false);
-    } catch (e) {
-      setHits(null);
-      setCorpusMissing(e instanceof ApiError && e.status === 409);
-    }
+      if (p.state === "building") timer = setTimeout(ask, 3000);
+    }).catch((e) => { if (live) { setPool(null); setCorpusMissing(e instanceof ApiError && e.status === 409); } });
+    ask();
+    return () => { live = false; clearTimeout(timer); };
+  }, [poolKey]);
+
+  const previewKey = JSON.stringify({ sources, required, study_size: studySize, audiences: audiences.map((a) => ({ name: a.name, share: a.share, filters: a.filters })) });
+  React.useEffect(() => {
+    const body = JSON.parse(previewKey);
+    if (!body.audiences.length) { setPreview(null); return; }
+    let live = true;
+    post<Preview>("/api/audiences/preview", body).then((p) => { if (live) setPreview(p); }).catch(() => { if (live) setPreview(null); });
+    return () => { live = false; };
+  }, [previewKey]);
+
+  const blockersKey = JSON.stringify({
+    category,
+    questions: questions.map((q) => ({ phrase: q.phrase, applies_to: q.applies_to })),
+    changes: audiences.flatMap((a) => a.changes),
+    audiences: audiences.map((a) => ({ name: a.name, share: a.share })),
+    previews: heads.map((h) => ({ quota: h.quota, head_count: h.head_count })),
+  });
+  React.useEffect(() => {
+    let live = true;
+    api<{ blockers: string[] }>("/api/who/blockers", { method: "POST", headers: { "content-type": "application/json" }, body: blockersKey })
+      .then((d) => { if (live) setBlockers(d.blockers); }).catch(() => { if (live) setBlockers(null); });
+    return () => { live = false; };
+  }, [blockersKey]);
+
+  // ---------------------------------------------------------------- find more attributes
+  React.useEffect(() => {
+    if (!searchOpen || !query.trim()) { setHits(null); return; }
+    let live = true;
+    const t = setTimeout(() => {
+      const q = new URLSearchParams({ query, limit: "8", mode: "meaning", sources: sources.join(","), required: required.join(",") });
+      api<{ attributes: Hit[]; mode: string; meaning_note: string }>(`/api/codebook?${q}`)
+        .then((d) => { if (live) { setHits(d.attributes); setSearchNote(d.meaning_note || null); } })
+        .catch((e) => { if (live) { setHits([]); setSearchNote(whyNot(e)); } });
+    }, 280);
+    return () => { live = false; clearTimeout(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourcesKey, requiredKey]);
+  }, [searchOpen, query, poolKey]);
 
-  React.useEffect(() => {
-    const t = setTimeout(() => search(query), 250);
-    return () => clearTimeout(t);
-  }, [query, search]);
-
-  const askCoverage = React.useCallback(async (retry = false) => {
-    try {
-      setCoverage(await api<CoverageInfo>("/api/corpus/coverage" + (retry ? "?retry=true" : "")));
-    } catch (e) {
-      setCoverage({ available: false, state: "failed", detail: whyNot(e) });
-    }
-  }, []);
-  React.useEffect(() => { askCoverage(); }, [askCoverage]);
-  React.useEffect(() => {
-    if (!shouldPoll(coverage) || coverage === null) return;
-    const t = setTimeout(() => askCoverage(), 3000);
-    return () => clearTimeout(t);
-  }, [coverage, askCoverage]);
-
-  const toggleSource = (name: string) =>
-    setSources((s) => (s.includes(name) ? s.filter((x) => x !== name) : [...s, name]));
-
-  const coverageOf = (id: string) => (coverage?.state === "ready" ? coverage.attributes?.[id] : undefined);
-
-  function addAttr(h: CodebookHit, required: boolean) {
-    if (rows.some((r) => r.id === h.id)) return;
-    setRows((rs) => [...rs, { id: h.id, label: h.label, category: h.category, domain: h.domain ?? "category_behaviour", measures: h.measures, kind: h.kind, role: required ? "Required for everyone" : "Describes everyone", required, values: h.values }]);
+  // ---------------------------------------------------------------- keeping the draft
+  function declare(entries: Entry[]) {
+    setRows((rs) => {
+      const next = [...rs];
+      for (const e of entries) if (e && !next.some((r) => r.id === e.id)) next.push(rowOf({ ...e, required: reused ? false : e.required }));
+      // The conditioning set leads the order, as the file will hold it.
+      return [...next.filter((r) => r.required), ...next.filter((r) => !r.required)];
+    });
   }
 
-  const [audiences, setAudiences] = React.useState<Audience[]>([]);
-  const [preview, setPreview] = React.useState<PreviewReply | null>(null);
+  async function fit(list: Audience[], requiredNow: string[]) {
+    try {
+      const d = await post<{ state: string; audiences: { name: string; filters: Record<string, string[]>; descriptions: string[]; changes: Change[] }[] }>("/api/draft/fit", {
+        sources, required: requiredNow, study_size: studySize, audiences: list.map((a) => ({ name: a.name, share: a.share, filters: a.filters, descriptions: a.descriptions })),
+      });
+      if (d.state !== "ready") return;
+      // Fitting only ever adds changes: what the person already accepted stays accepted.
+      setAudiences(list.map((a, i) => (d.audiences[i] ? { ...a, filters: d.audiences[i].filters, descriptions: d.audiences[i].descriptions, changes: [...a.changes, ...d.audiences[i].changes] } : a)));
+    } catch { /* best effort: Continue still names what is short */ }
+  }
 
-  interface ReadingGroup { name: string; share: number | null; traits: string[] }
-  interface DescribeReply { reading: { product: string | null; groups: ReadingGroup[]; everyone: string[]; topics: string[] }; product: string | null; match: { id: string; version: string; products: string[] } | null; new_id: string; categories: { id: string; version: string; products: string[] }[] }
-  const [description, setDescription] = React.useState("");
-  const [described, setDescribed] = React.useState<DescribeReply | null>(null);
-  const [describing, setDescribing] = React.useState(false);
-  const [describeError, setDescribeError] = React.useState<string | null>(null);
-  const [category, setCategory] = React.useState<{ mode: "reuse" | "new"; id: string } | null>(null);
-  const [sameAs, setSameAs] = React.useState("");
+  function patchTurn(i: number, patch: Partial<Turn>) {
+    setTurns((ts) => ts.map((t, k) => (k === i ? { ...t, ...patch } : t)));
+  }
 
-  interface DraftUnsure { phrase: string; choices: { attribute: string; label: string; values: string[]; n_alone: number }[] }
-  interface DraftAudience { name: string; share: number | null; filters: Record<string, string[]>; phrases: Record<string, string>; unsure: DraftUnsure[]; descriptions: string[] }
-  interface DraftAttr { id: string; label: string; category: string; ordered?: boolean; domain: string; measures: string; kind: string; values: string[]; required: boolean; locked: boolean; role: string; phrase: string | null }
-  interface DraftQuestion { phrase: string; choices: { attribute: string; label: string; values: string[]; n_alone: number }[]; applies_to: string[] }
-  interface DraftReply { state: string; audiences: DraftAudience[]; attributes: DraftAttr[]; questions: DraftQuestion[]; unmatched: { phrase: string; missing: string }[] }
-  const [drafted, setDrafted] = React.useState<DraftReply | null>(null);
-  const [drafting, setDrafting] = React.useState(false);
-  const [draftError, setDraftError] = React.useState<string | null>(null);
-  const [questions, setQuestions] = React.useState<DraftQuestion[]>([]);
-  const [blockers, setBlockers] = React.useState<string[] | null>(null);
+  async function readIt(value: string) {
+    const said = value.trim();
+    if (!said || busy) return;
+    setBusy(true);
+    setTurns([{ text: said, phase: "reading" }]);
+    try {
+      patchTurn(0, { phase: "confirm", described: await post<Described>("/api/describe", { text: said }) });
+    } catch (e) {
+      patchTurn(0, { phase: "error", error: whyNot(e) });
+    }
+    setBusy(false);
+  }
 
-  interface ReadyReply { state: string; ontology: { category: string; version: string }; audiences: { name: string; share: number | null; attribute_filters: Record<string, string | string[]> }[]; assumptions: { text: string; source: string }[]; action: string; from_version: string | null }
-  const [ready, setReady] = React.useState<ReadyReply | null>(null);
-  const [continuing, setContinuing] = React.useState(false);
-  const [continueError, setContinueError] = React.useState<string | null>(null);
-  const [saved, setSaved] = React.useState(false);
+  async function chooseCategory(chosen: Chosen, fromText: boolean) {
+    const first = turns[0];
+    setCategory(chosen);
+    setBusy(true);
+    if (fromText) patchTurn(0, { phase: "drafting" });
+    const started = Date.now();
+    try {
+      const reading = fromText ? first.described!.reading : { product: null, groups: [], everyone: [], topics: [] };
+      const d = await post<{ state: string; audiences: (Omit<Audience, "changes" | "options"> & { phrases: Record<string, string>; options: Record<string, Option[]> })[]; attributes: Entry[]; questions: Question[]; unmatched: { phrase: string; missing: string }[] }>(
+        "/api/draft", { text: fromText ? first.text : "", reading, category: chosen, sources },
+      );
+      if (d.state !== "ready") throw new Error("the persona matrix is still building — try again in a minute");
+      const drafted = d.attributes.map(rowOf);
+      const ordered = [...drafted.filter((r) => r.required), ...drafted.filter((r) => !r.required)];
+      setRows(ordered);
+      const list: Audience[] = d.audiences.map((a) => ({ name: a.name, share: a.share, filters: a.filters, descriptions: a.descriptions ?? [], changes: [], options: a.options ?? {} }));
+      setAudiences(list);
+      setQuestions(d.questions);
+      if (fromText) {
+        const matched: Matched[] = [];
+        for (const a of d.audiences) for (const [attribute, phrase] of Object.entries(a.phrases ?? {})) {
+          if (!matched.some((m) => m.phrase === phrase)) matched.push({ phrase, attribute, values: a.filters[attribute] });
+        }
+        for (const q of d.questions) matched.push({ phrase: q.phrase, unsure: true });
+        for (const e of d.attributes) if (e.role === "matters" && e.phrase) matched.push({ phrase: e.phrase, attribute: e.id, describes: true });
+        patchTurn(0, { phase: "done", added: list.length, matched, missing: d.unmatched, ms: Date.now() - started });
+      }
+      if (list.length) await fit(list, ordered.filter((r) => r.required).map((r) => r.id));
+    } catch (e) {
+      setCategory(null);
+      if (fromText) patchTurn(0, { phase: "confirm", error: whyNot(e) });
+      else setContinueError(whyNot(e));
+    }
+    setBusy(false);
+  }
 
+  async function sendFollowup() {
+    const said = followup.trim();
+    if (!said || busy) return;
+    setBusy(true);
+    setFollowup("");
+    const at = turns.length;
+    setTurns((ts) => [...ts, { text: said, phase: "drafting" }]);
+    const started = Date.now();
+    try {
+      const d = await post<{ state: string; audiences: Audience[]; added: string[]; questions: Question[]; unmatched: { phrase: string; missing: string }[]; fits: Record<string, { attribute?: string; unsure?: boolean }>; attributes: Entry[] }>(
+        "/api/draft/followup", { text: said, sources, audiences: audiences.map((a) => ({ name: a.name, share: a.share, filters: a.filters, descriptions: a.descriptions })) },
+      );
+      if (d.state !== "ready") throw new Error("the persona matrix is still building — try again in a minute");
+      declare(d.attributes);
+      const before = new Map(audiences.map((a) => [a.name, a]));
+      const list: Audience[] = d.audiences.map((a) => ({
+        name: a.name, share: a.share, filters: a.filters, descriptions: a.descriptions ?? [],
+        changes: before.get(a.name)?.changes ?? [], options: before.get(a.name)?.options ?? {},
+      }));
+      setAudiences(list);
+      setQuestions((qs) => [...qs, ...d.questions]);
+      const matched: Matched[] = Object.entries(d.fits).map(([phrase, f]) => (f.unsure ? { phrase, unsure: true } : { phrase, attribute: f.attribute, values: list.find((a) => f.attribute && a.filters[f.attribute])?.filters[f.attribute!] }));
+      patchTurn(at, { phase: "done", added: d.added.length, matched, missing: d.unmatched, ms: Date.now() - started });
+      await fit(list, required);
+    } catch (e) {
+      patchTurn(at, { phase: "error", error: whyNot(e) });
+    }
+    setBusy(false);
+  }
+
+  function startByHand() {
+    api<{ categories: Category[] }>("/api/categories")
+      .then((d) => setByHand({ categories: d.categories, newId: "" }))
+      .catch((e) => setContinueError(whyNot(e)));
+  }
+
+  function startOver() {
+    if (!window.confirm("Start over? This clears the category, audiences and ontology.")) return;
+    setTurns([]); setCategory(null); setRows([]); setAudiences([]); setQuestions([]); setPicker(null);
+    setReady(null); setSaved(false); setByHand(null); setSearchOpen(false); setQuery(""); setContinueError(null);
+  }
+
+  // ---------------------------------------------------------------- editing audiences
+  const updateAudience = (ai: number, change: (a: Audience) => Audience) => setAudiences((as) => as.map((a, i) => (i === ai ? change(a) : a)));
+
+  function rename(ai: number, raw: string) {
+    const old = audiences[ai].name;
+    let name = raw.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "audience";
+    while (audiences.some((a, i) => i !== ai && a.name === name)) name = `${name}_2`;
+    updateAudience(ai, (a) => ({ ...a, name }));
+    // A question asked of this audience is still asked of it under its new name.
+    setQuestions((qs) => qs.map((q) => ({ ...q, applies_to: q.applies_to.map((n) => (n === old ? name : n)) })));
+  }
+
+  function dropAudience(ai: number) {
+    const gone = audiences[ai].name;
+    setAudiences((as) => as.filter((_, i) => i !== ai));
+    setQuestions((qs) => qs.map((q) => ({ ...q, applies_to: q.applies_to.filter((n) => n !== gone) })).filter((q) => q.applies_to.length));
+    setPicker(null);
+  }
+
+  function addAudience() {
+    let name = "audience";
+    for (let k = 2; audiences.some((a) => a.name === name); k++) name = `audience_${k}`;
+    setAudiences((as) => [...as, { name, share: null, filters: {}, descriptions: [], changes: [], options: {} }]);
+  }
+
+  function answer(qi: number, choice: Choice | null) {
+    const q = questions[qi];
+    if (choice) {
+      if (choice.entry) declare([choice.entry]);
+      setAudiences((as) => as.map((a) => (q.applies_to.includes(a.name)
+        ? { ...a, filters: { ...a.filters, [choice.attribute]: choice.values }, options: { ...a.options, [choice.attribute]: choice.options ?? [] } }
+        : a)));
+    }
+    setQuestions((qs) => qs.filter((_, i) => i !== qi));
+  }
+
+  function acceptChange(ai: number, ci: number) {
+    updateAudience(ai, (a) => ({ ...a, changes: a.changes.map((c, k) => (k === ci ? { ...c, accepted: true } : c)) }));
+  }
+  function undoChange(ai: number, ci: number) {
+    updateAudience(ai, (a) => {
+      const c = a.changes[ci];
+      return { ...a, filters: { ...a.filters, [c.attribute]: c.values }, descriptions: a.descriptions.filter((d) => d !== c.attribute), changes: a.changes.filter((_, k) => k !== ci) };
+    });
+  }
+  function describeInstead(ai: number, attr: string, head: Head) {
+    updateAudience(ai, (a) => {
+      const filters = { ...a.filters };
+      delete filters[attr];
+      return {
+        ...a, filters, descriptions: a.descriptions.includes(attr) ? a.descriptions : [...a.descriptions, attr],
+        changes: [...a.changes, { attribute: attr, values: a.filters[attr], before: head.head_count, after: head.filter_costs[attr], accepted: true }],
+      };
+    });
+  }
+
+  async function openPicker(ai: number, attr: string, declareIt?: Entry, replaces?: string) {
+    setAddingTo(null);
+    setPicker({ ai, attr, pending: null, data: null, declare: declareIt, replaces });
+    try {
+      const q = new URLSearchParams({ sources: sources.join(","), required: required.join(",") });
+      const data = await api<Values>(`/api/codebook/${encodeURIComponent(attr)}/values?${q}`);
+      setPicker((p) => (p && p.attr === attr ? { ...p, data } : p));
+    } catch (e) {
+      setPicker(null);
+      setContinueError(whyNot(e));
+    }
+  }
+
+  function applyPicker() {
+    if (!picker) return;
+    const { ai, attr, pending, declare: entry, replaces } = picker;
+    if (pending && pending.length) {
+      if (entry) declare([entry]);
+      updateAudience(ai, (a) => {
+        const filters = { ...a.filters };
+        if (replaces) delete filters[replaces];
+        return { ...a, filters: { ...filters, [attr]: pending } };
+      });
+    } else if (pending) {
+      updateAudience(ai, (a) => { const filters = { ...a.filters }; delete filters[attr]; return { ...a, filters }; });
+    }
+    setPicker(null);
+  }
+
+  function toggleValue(value: string) {
+    setPicker((p) => {
+      if (!p || !p.data) return p;
+      const current = new Set(p.pending ?? audiences[p.ai].filters[p.attr] ?? []);
+      if (current.has(value)) current.delete(value); else current.add(value);
+      return { ...p, pending: p.data.values.map((v) => v.value).filter((v) => current.has(v)) };
+    });
+  }
+
+  // ---------------------------------------------------------------- the ontology table
+  const updateRow = (id: string, patch: Partial<Row>) => setRows((rs) => {
+    const next = rs.map((r) => (r.id === id ? { ...r, ...patch } : r));
+    return [...next.filter((r) => r.required), ...next.filter((r) => !r.required)];
+  });
+  const usedBy = (id: string) => audiences.filter((a) => a.filters[id]).map((a) => a.name);
+  function removeRow(r: Row) {
+    const users = usedBy(r.id);
+    if (users.length && !window.confirm(`${r.label} defines ${users.join(", ")}. Removing it removes that filter too. Continue?`)) return;
+    setAudiences((as) => as.map((a) => {
+      const filters = { ...a.filters };
+      delete filters[r.id];
+      return { ...a, filters, descriptions: a.descriptions.filter((d) => d !== r.id) };
+    }));
+    setRows((rs) => rs.filter((x) => x.id !== r.id));
+  }
+
+  // ---------------------------------------------------------------- continue
   async function continueIt() {
-    if (!category || continuing) return;
-    setContinuing(true);
+    if (!category) return;
     setContinueError(null);
     try {
-      setReady(await api<ReadyReply>("/api/who/launch", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          category,
-          attributes: rows.map((r) => ({ id: r.id, domain: r.domain, required: r.required })),
-          audiences,
-          assumptions: preview?.assumptions ?? [],
-        }),
+      setReady(await post<Ready>("/api/who/launch", {
+        category,
+        attributes: rows.map((r) => ({ id: r.id, domain: r.domain, required: r.required, ordered: r.ordered })),
+        audiences: audiences.map((a) => ({ name: a.name, share: a.share, filters: a.filters })),
+        assumptions: preview?.assumptions ?? [],
       }));
       setSaved(false);
     } catch (e) {
       setContinueError(whyNot(e));
     }
-    setContinuing(false);
   }
 
   async function saveOntology() {
     if (!ready) return;
     try {
-      await api("/api/ontologies", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ontology: ready.ontology }),
-      });
+      await post("/api/ontologies", { ontology: ready.ontology });
       setSaved(true);
     } catch (e) {
       setContinueError(whyNot(e));
@@ -188,637 +418,460 @@ export default function WhoPage() {
     if (!ready) return;
     try {
       localStorage.setItem("who-launch", JSON.stringify({
-        audiences: ready.audiences, assumptions: ready.assumptions,
-        sources: JSON.parse(sourcesKey), studySize,
+        audiences: ready.audiences, assumptions: ready.assumptions, sources, studySize,
         category: ready.ontology.category, ontologyVersion: ready.ontology.version,
       }));
     } catch { /* a full store is not a failed study */ }
     window.location.href = "/intake?from=who";
   }
 
-  interface Turn { text: string; matched: string[]; missing: { phrase: string; missing: string }[] }
-  const [turns, setTurns] = React.useState<Turn[]>([]);
-  const [followup, setFollowup] = React.useState("");
-  const [followingUp, setFollowingUp] = React.useState(false);
+  // ---------------------------------------------------------------- sidebar
+  const corpus = pool?.corpus;
+  const shown = corpus ? Object.keys(corpus.people).sort((a, b) => corpus.people[b] - corpus.people[a]) : [...SURVEYS, ...TEXT_SOURCES];
+  const stillBlocked = blockers ?? ["counting"];
+  const sidebar = (
+    <aside className="who-side">
+      {category && (
+        <div>
+          <h3>Category</h3>
+          <div className="catchip">{category.id}{category.version ? ` ${category.version}` : ""}</div>
+          <div className="muted">{reused ? "reused — its required set is the category's, and stays as it is" : "new — requires the cross-survey core"}</div>
+        </div>
+      )}
+      <div>
+        <h3>Draw from</h3>
+        <div className="presets">{PRESETS.map((p) => <button key={p.label} onClick={() => setSources(p.sources)}>{p.label}</button>)}</div>
+        {shown.map((s) => (
+          <label key={s} className="src">
+            <input type="checkbox" checked={sources.includes(s)} onChange={() => setSources((xs) => (xs.includes(s) ? xs.filter((x) => x !== s) : [...xs, s]))} />
+            <span>
+              <span className="swatch" style={{ background: COLORS[s] }} />{NAMES[s] ?? s}
+              <small>
+                {corpus ? <>{fmt(corpus.people[s])} people · answered {fmt(corpus.answered[s])} of {fmt(corpus.attributes)} questions</> : null}
+                {TEXT_SOURCES.includes(s) && <>{corpus ? " · " : ""}<b className="text-src">read by a model from text, not surveyed</b></>}
+              </small>
+            </span>
+          </label>
+        ))}
+      </div>
+      <div>
+        <h3>Study size</h3>
+        <label className="size">
+          <input className="input mono" value={studySize} onChange={(e) => { const v = parseInt(e.target.value, 10); setStudySize(v > 0 ? v : 1); }} /> personas <span className="muted">— sets each audience&apos;s quota</span>
+        </label>
+      </div>
+      <div>
+        <h3>Candidate pool</h3>
+        {pool?.state === "ready" && (
+          <>
+            <div className="big">{fmt(pool.pool)}</div>
+            <div className="muted">{required.length ? <>of {fmt(pool.sources_total)} in your sources have every required answer</> : "everyone in your sources"}</div>
+            {pool.pool ? <SourceBar bySource={pool.pool_by_source ?? {}} /> : <div className="note risk">Nobody has every required answer.</div>}
+            <div style={{ marginTop: 8 }}>
+              {(pool.costs ?? []).filter((c) => c.removes > 0).sort((a, b) => b.removes - a.removes).map((c) => (
+                <div key={c.attribute} className="cost">
+                  Requiring <b>{label(c.attribute)}</b> removes {fmt(c.removes)}
+                  {c.emptied_sources.length > 0 && <> — <span style={{ color: "var(--risk)" }}>all of {c.emptied_sources.join(", ")}</span></>}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+        {pool?.state === "building" && <div className="muted"><span className="spin" />Counting who can be drawn — the matrix builds once, in the background…</div>}
+        {corpusMissing && <div className="muted">No corpus cached here, so there is nobody to count yet.</div>}
+      </div>
+      <div className="continue">
+        {turns.length + audiences.length > 0 && (
+          <ul className="blockers">{[...(busy ? ["wait for the draft"] : []), ...(blockers ?? [])].map((b) => <li key={b}>{b}</li>)}</ul>
+        )}
+        <button className="btn primary" disabled={stillBlocked.length > 0 || busy || !!ready} onClick={continueIt}>Continue to study →</button>
+        {continueError && <div className="note risk">{continueError}</div>}
+        {(turns.length > 0 || category) && <button className="btn quiet sm" style={{ width: "100%", justifyContent: "center", marginTop: 6 }} onClick={startOver}>Start over</button>}
+      </div>
+    </aside>
+  );
 
-  async function sendFollowup() {
-    if (!followup.trim() || followingUp) return;
-    setFollowingUp(true);
-    try {
-      const d = await api<{ state: string; audiences: Audience[]; added: string[]; questions: DraftQuestion[]; unmatched: { phrase: string; missing: string }[]; fits: Record<string, unknown> }>("/api/draft/followup", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: followup, audiences, sources: JSON.parse(sourcesKey) }),
-      });
-      if (d.state === "ready") {
-        const added = new Set(d.added ?? []);
-        setAudiences(d.audiences.map((a) => ({
-          name: a.name, share: added.has(a.name) ? null : a.share,
-          filters: a.filters, descriptions: a.descriptions ?? [], changes: (a as Audience).changes ?? [],
-        })));
-        setQuestions((qs) => [...qs, ...(d.questions ?? [])]);
-        setTurns((ts) => [...ts, {
-          text: followup,
-          matched: Object.entries(d.fits ?? {}).map(([phrase]) => phrase),
-          missing: d.unmatched ?? [],
-        }]);
-        setFollowup("");
-      }
-    } catch {
-      setTurns((ts) => [...ts, { text: followup, matched: [], missing: [{ phrase: followup, missing: "the follow-up could not be read" }] }]);
-    }
-    setFollowingUp(false);
+  // ---------------------------------------------------------------- main column
+  function turnView(t: Turn, i: number) {
+    const bubble = <div className="bubble">{t.text}</div>;
+    if (t.phase === "reading") return <div key={i} className="turn">{bubble}<div className="reply"><span className="spin" />Reading it and looking for its category…</div></div>;
+    if (t.phase === "drafting") return <div key={i} className="turn">{bubble}<div className="reply"><span className="spin" />Finding the attributes and counting who exists…</div></div>;
+    if (t.phase === "error") return <div key={i} className="turn">{bubble}<div className="reply" style={{ color: "var(--risk)" }}>{t.error}</div></div>;
+    if (t.phase === "confirm" && t.described) return <div key={i} className="turn">{bubble}{confirmCard(t.described, t.error)}</div>;
+    return (
+      <div key={i} className="turn">{bubble}
+        <div className="reply">
+          {!!t.added && <div>Added <b>{t.added} audience{t.added > 1 ? "s" : ""}</b>.</div>}
+          {(t.matched ?? []).length > 0 && (
+            <div style={{ marginTop: 4 }}>How I matched your words:
+              <ul>{(t.matched ?? []).map((m) => (
+                <li key={m.phrase}>“{m.phrase}” → {m.unsure
+                  ? <><b>not sure</b> — asked in the audience</>
+                  : <><b>{label(m.attribute!)}</b>{m.values ? <>: {m.values.join(" / ")}</> : m.describes ? " (describes, excludes no one)" : ""} <span className="muted">(measures {row(m.attribute!)?.measures ?? "—"})</span></>}</li>
+              ))}</ul>
+            </div>
+          )}
+          {(t.missing ?? []).length > 0 && (
+            <div style={{ marginTop: 4, color: "var(--risk)" }}>Could not find:
+              <ul>{(t.missing ?? []).map((m) => <li key={m.phrase}>“{m.phrase}” — {m.missing}</li>)}</ul>
+            </div>
+          )}
+          {t.ms !== undefined && <div className="muted" style={{ marginTop: 4 }}>{(t.ms / 1000).toFixed(1)} s · each phrase matched twice, with and without the rest of your description; where the two disagreed, you&apos;re asked</div>}
+        </div>
+      </div>
+    );
   }
 
-  async function fitIt(audiences: Audience[]) {
-    try {
-      const parsed = JSON.parse(draftKey);
-      const d = await api<{ state: string; audiences: { name: string; share: number | null; filters: Record<string, string[]>; descriptions: string[]; changes: { attribute: string; values: string[]; before: number; after: number; accepted: boolean }[]; quota: number; head_count: number; below_quota: boolean }[] }>("/api/draft/fit", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sources: parsed.s, required: parsed.r, study_size: parsed.n, audiences }),
-      });
-      if (d.state === "ready") {
-        setAudiences(d.audiences.map((a) => ({ name: a.name, share: a.share, filters: a.filters, descriptions: a.descriptions, changes: a.changes })));
-      }
-    } catch {
-      /* fitting is best-effort in the interface: the blockers still name what is short */
-    }
+  function confirmCard(u: Described, error?: string) {
+    const others = u.categories.filter((c) => !u.match || c.id !== u.match.id);
+    const r = u.reading;
+    return (
+      <div className="card confirm" style={{ marginTop: 10 }}>
+        <div style={{ fontSize: 14 }}>I read this as a study of <b>{u.product || "an unnamed product"}</b>, with:</div>
+        <div className="reply" style={{ border: 0, padding: 0 }}>
+          <ul>{r.groups.map((g) => <li key={g.name}><b>{g.name}</b>{g.share ? ` (${Math.round(g.share * 100)}%)` : ""}: {g.traits.join(", ") || <i>no traits</i>}</li>)}</ul>
+          {r.everyone.length > 0 && <div>Everyone: {r.everyone.join(", ")}</div>}
+          {r.topics.length > 0 && <div>You want to know (describes, excludes no one): {r.topics.join(", ")}</div>}
+        </div>
+        <div className="muted" style={{ marginTop: 6 }}>If something you meant is missing here, rephrase before going on — nothing has been drafted yet.</div>
+        <div style={{ marginTop: 12, fontSize: 13.5 }}>
+          {u.match
+            ? <>Is it the same kind of product as <b className="catchip">{u.match.id}</b>{u.match.products.length ? ` (${u.match.products.join(", ")})` : ""}? Studies in one category share its ontology, so their results can be compared.</>
+            : <>It doesn&apos;t look like any existing category{u.categories.length ? ` (${u.categories.map((c) => c.id).join(", ")})` : ""}.</>}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+          {u.match && <button className="btn primary" disabled={busy} onClick={() => chooseCategory({ mode: "reuse", id: u.match!.id, version: u.match!.version }, true)}>Yes — use its ontology ({u.match.version})</button>}
+          <button className={`btn${u.match ? "" : " primary"}`} disabled={busy} onClick={() => chooseCategory({ mode: "new", id: u.new_id, version: null }, true)}>Start a new category: <span className="catchip">{u.new_id}</span></button>
+          {others.length > 0 && (
+            <select className="input" style={{ width: "auto", fontSize: 12.5 }} value="" disabled={busy} onChange={(e) => { const c = others.find((o) => o.id === e.target.value); if (c) chooseCategory({ mode: "reuse", id: c.id, version: c.version }, true); }}>
+              <option value="">It&apos;s the same as…</option>
+              {others.map((c) => <option key={c.id} value={c.id}>{c.id}</option>)}
+            </select>
+          )}
+          <button className="btn quiet" onClick={() => { setText(turns[0].text); setTurns([]); }}>Rephrase</button>
+        </div>
+        {error && <div className="note risk">{error}</div>}
+      </div>
+    );
   }
 
-  async function draftIt() {
-    if (!described || !category || drafting) return;
-    setDrafting(true);
-    setDraftError(null);
-    try {
-      const d = await api<DraftReply>("/api/draft", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: description, reading: described.reading, category, sources: JSON.parse(sourcesKey) }),
-      });
-      setDrafted(d);
-      setQuestions(d.questions ?? []);
-      const fresh = (d.audiences ?? []).map((a) => ({ name: a.name, share: a.share, filters: a.filters, descriptions: a.descriptions ?? [] }));
-      setAudiences(fresh);
-      setTurns((ts) => [...ts, {
-        text: description,
-        matched: fresh.flatMap((a, i) => Object.entries((d.audiences ?? [])[i]?.phrases ?? {}).map(([attr, phrase]) => `"${phrase}" → ${attr}`)),
-        missing: d.unmatched ?? [],
-      }]);
-      fitIt(fresh);
-      setRows((rs) => {
-        const next = [...rs];
-        for (const entry of d.attributes ?? []) {
-          const at = next.findIndex((r) => r.id === entry.id);
-          const row = { id: entry.id, label: entry.label, category: entry.category, domain: entry.domain ?? "category_behaviour", ordered: entry.ordered, measures: entry.measures, kind: entry.kind, role: entry.required ? "Required for everyone" : entry.role === "matters" ? "Describes everyone" : `Defines audiences`, required: entry.required, locked: entry.locked, values: entry.values };
-          if (at >= 0) next[at] = { ...next[at], ...row };
-          else next.push(row);
-        }
-        return next;
-      });
-    } catch (e) {
-      setDraftError(whyNot(e));
-    }
-    setDrafting(false);
+  function heroView() {
+    const people = corpus ? Object.values(corpus.people).reduce((t, n) => t + n, 0) : null;
+    return (
+      <div className="hero">
+        <h1>Who do you want to study?</h1>
+        <p>Describe them the way you&apos;d brief a researcher: what you&apos;re testing, one group or several, what makes someone belong, and what you want to know about them.</p>
+        <div className="composer">
+          <textarea rows={3} value={text} autoFocus disabled={noEndpoint} placeholder="e.g. A children's savings app. Parents of young kids in North America, compared with retirees…"
+            onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); readIt(text); } }} />
+          <button className="btn primary" disabled={busy || noEndpoint || !text.trim()} onClick={() => readIt(text)}>Read it</button>
+        </div>
+        {noEndpoint
+          ? <div className="note plain" style={{ marginTop: 14 }}>Reading a description needs a language-model endpoint, and none is configured — search is by words and nothing is drafted. <button className="btn sm" onClick={startByHand}>Author audiences by hand</button></div>
+          : <div className="examples">{EXAMPLES.map((e) => <button key={e} onClick={() => setText(e)}>{e}</button>)}</div>}
+        {corpusMissing && <div className="note risk" style={{ marginTop: 14 }}>No corpus cached here, so there is nobody to count: author freely, then continue where the corpus is present.</div>}
+        <div className="fineprint">{corpus && people !== null ? <>Matched against {fmt(corpus.attributes)} attributes answered by {fmt(people)} people. </> : null}Every count you see is real; nothing is guessed.</div>
+      </div>
+    );
   }
 
-  function answerQuestion(qi: number, choice: { attribute: string; values: string[] } | null) {
-    const q = questions[qi];
-    if (choice) {
-      setAudiences((as) => as.map((a) => (q.applies_to.includes(a.name)
-        ? { ...a, filters: { ...a.filters, [choice.attribute]: choice.values } }
-        : a)));
-    }
-    setQuestions((qs) => qs.filter((_, i) => i !== qi));
+  function byHandView() {
+    const pick = byHand!;
+    return (
+      <div className="hero">
+        <h1>Which category is it?</h1>
+        <p>Studies in one category share its ontology, so their results can be compared. Reuse one, or start a new category that requires the cross-survey core.</p>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {pick.categories.map((c) => <button key={c.id} className="btn" disabled={busy} onClick={() => chooseCategory({ mode: "reuse", id: c.id, version: c.version }, false)}><span className="catchip">{c.id}</span> {c.version}</button>)}
+        </div>
+        <div className="composer" style={{ marginTop: 14 }}>
+          <input className="input mono" style={{ flex: 1, border: 0 }} placeholder="new_category_id" value={pick.newId} onChange={(e) => setByHand({ ...pick, newId: e.target.value.toLowerCase().replace(/[^a-z0-9_]+/g, "_") })} />
+          <button className="btn primary" disabled={busy || !pick.newId.replace(/_/g, "")} onClick={() => chooseCategory({ mode: "new", id: pick.newId.replace(/^_+|_+$/g, ""), version: null }, false)}>Start a new category</button>
+        </div>
+        <button className="btn quiet sm" style={{ marginTop: 10, alignSelf: "flex-start" }} onClick={() => setByHand(null)}>← Back</button>
+      </div>
+    );
   }
 
-  function acceptChange(ai: number, ci: number) {
-    setAudiences((as) => as.map((a, i) => (i === ai
-      ? { ...a, changes: (a.changes ?? []).map((c, j) => (j === ci ? { ...c, accepted: true } : c)) }
-      : a)));
-  }
-  function undoChange(ai: number, ci: number) {
-    setAudiences((as) => as.map((a, i) => {
-      if (i !== ai) return a;
-      const change = (a.changes ?? [])[ci];
-      if (!change) return a;
-      return {
-        ...a,
-        filters: { ...a.filters, [change.attribute]: change.values },
-        descriptions: a.descriptions.filter((d) => d !== change.attribute),
-        changes: (a.changes ?? []).filter((_, j) => j !== ci),
-      };
-    }));
-  }
-
-  const blockersKey = JSON.stringify({
-    category,
-    questions: questions.map((q) => ({ phrase: q.phrase, applies_to: q.applies_to })),
-    changes: audiences.flatMap((a) => a.changes ?? []),
-    audiences: audiences.map((a) => ({ name: a.name, share: a.share })),
-    previews: (preview?.audiences ?? []).map((h) => ({ quota: h.quota, head_count: h.head_count })),
-  });
-  const askBlockers = React.useCallback(async () => {
-    try {
-      const d = await api<{ blockers: string[] }>("/api/who/blockers", {
-        method: "POST", headers: { "content-type": "application/json" }, body: blockersKey,
-      });
-      setBlockers(d.blockers);
-    } catch {
-      setBlockers(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blockersKey]);
-  React.useEffect(() => { askBlockers(); }, [askBlockers]);
-
-  async function readIt() {
-    if (!description.trim() || describing) return;
-    setDescribing(true);
-    setDescribeError(null);
-    try {
-      setDescribed(await api<DescribeReply>("/api/describe", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ text: description }),
-      }));
-    } catch (e) {
-      setDescribeError(whyNot(e));
-    }
-    setDescribing(false);
+  function pickerView(a: Audience) {
+    const p = picker!;
+    if (!p.data) return <div className="picker"><span className="spin" />counting who holds each answer…</div>;
+    const current = new Set(p.pending ?? a.filters[p.attr] ?? []);
+    const max = Math.max(1, ...p.data.values.map((v) => v.n));
+    return (
+      <div className="picker">
+        <div className="muted" style={{ marginBottom: 6 }}>{p.data.label} — who holds each answer, among the candidate pool</div>
+        <table className="vt"><tbody>{p.data.values.map((v) => (
+          <tr key={v.value}>
+            <td style={{ width: 24 }}><input type="checkbox" checked={current.has(v.value)} onChange={() => toggleValue(v.value)} /></td>
+            <td>{v.value}</td>
+            <td><div className="mini">{Object.entries(v.by_source).map(([s, n]) => <span key={s} style={{ width: `${(n / max) * 100}%`, background: COLORS[s] }} />)}</div></td>
+            <td className="n">{fmt(v.n)}</td>
+          </tr>
+        ))}</tbody></table>
+        {p.data.also_asks.length > 0 && (
+          <div style={{ marginTop: 10 }}>
+            <div className="muted">The corpus also asks this as — choose one to use instead:</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+              {p.data.also_asks.slice(0, 5).map((o) => (
+                <button key={o.id} className="btn sm" onClick={() => openPicker(p.ai, o.id, o, p.replaces ?? p.attr)}>
+                  {o.label} <span className="muted">· {fmt(o.n)} answered · {o.measures}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+          <button className="btn primary sm" onClick={applyPicker}>Apply</button>
+          {a.filters[p.attr] && <button className="btn sm danger" onClick={() => { updateAudience(p.ai, (x) => { const filters = { ...x.filters }; delete filters[p.attr]; return { ...x, filters }; }); setPicker(null); }}>Remove filter</button>}
+          <button className="btn quiet sm" onClick={() => setPicker(null)}>Cancel</button>
+        </div>
+      </div>
+    );
   }
 
-  const draftKey = JSON.stringify({ s: JSON.parse(sourcesKey), r: JSON.parse(requiredKey), n: studySize, a: audiences });
-  const askPreview = React.useCallback(async () => {
-    if (audiences.length === 0) { setPreview(null); return; }
-    try {
-      const parsed = JSON.parse(draftKey);
-      setPreview(await api<PreviewReply>("/api/audiences/preview", {
-        method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sources: parsed.s, required: parsed.r, study_size: parsed.n, audiences: parsed.a }),
-      }));
-    } catch {
-      setPreview(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftKey]);
-  React.useEffect(() => { askPreview(); }, [askPreview]);
-
-  const shareTotal = audiences.reduce((t, a) => t + (a.share ?? 0), 0);
-
-  interface PickerData { state: string; id: string; label: string; values: { value: string; n: number; by_source: Record<string, number> }[]; also_asks: { id: string; label: string; category: string; measures: string; kind: string; n: number; by_source: Record<string, number> }[] }
-  const [pickerFor, setPickerFor] = React.useState<{ ai: number; attr: string } | null>(null);
-  const [picker, setPicker] = React.useState<PickerData | null>(null);
-
-  const pickerKey = pickerFor ? JSON.stringify({ attr: pickerFor.attr, s: JSON.parse(sourcesKey), r: JSON.parse(requiredKey) }) : null;
-  const askPicker = React.useCallback(async () => {
-    if (!pickerKey) { setPicker(null); return; }
-    try {
-      const parsed = JSON.parse(pickerKey);
-      const q = `sources=${encodeURIComponent(parsed.s.join(","))}&required=${encodeURIComponent(parsed.r.join(","))}`;
-      setPicker(await api<PickerData>(`/api/codebook/${encodeURIComponent(parsed.attr)}/values?${q}`));
-    } catch {
-      setPicker(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pickerKey]);
-  React.useEffect(() => { askPicker(); }, [askPicker]);
-
-  function toggleValue(ai: number, attr: string, value: string) {
-    setAudiences((as) => as.map((a, i) => {
-      if (i !== ai) return a;
-      const current = a.filters[attr] ?? [];
-      const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
-      if (next.length === 0) {
-        const filters = { ...a.filters };
-        delete filters[attr];
-        return { ...a, filters };
-      }
-      return { ...a, filters: { ...a.filters, [attr]: next } };
-    }));
+  function audienceView(a: Audience, ai: number) {
+    const h = heads[ai];
+    const n = h?.head_count ?? 0;
+    const q = h?.quota ?? Math.ceil(studySize * (a.share ?? 1 / Math.max(1, audiences.length)));
+    const asked = questions.map((x, qi) => ({ x, qi })).filter(({ x }) => x.applies_to.includes(a.name));
+    const shrinkers = h ? Object.entries(h.filter_costs).filter(([, without]) => n > 0 && without > n * 3).sort((x, y) => y[1] - x[1]) : [];
+    const adds = h ? Object.entries(h.text_would_add).filter(([, k]) => k > 0) : [];
+    const total = h ? Object.values(h.by_source).reduce((t, k) => t + k, 0) : 0;
+    const dominant = h?.dominant_source;
+    return (
+      <div key={ai} className="card">
+        <div className="aud-head">
+          <input className="name" size={Math.max(12, a.name.length + 2)} defaultValue={a.name} key={a.name} onBlur={(e) => { if (e.target.value !== a.name) rename(ai, e.target.value); }} />
+          <span className="share">
+            <input className={`input mono${a.share === null ? " missing" : ""}`} key={`${a.name}-${a.share}`} defaultValue={a.share !== null ? Math.round(a.share * 1000) / 10 : ""} placeholder="?"
+              onBlur={(e) => { const v = parseFloat(e.target.value); updateAudience(ai, (x) => ({ ...x, share: Number.isNaN(v) ? null : v / 100 })); }} />%
+          </span>
+          {a.changes.length > 0 && <span className="badge">changed from what you asked</span>}
+          <div className="count">
+            <div className="n">{h ? fmt(n) : "—"}</div>
+            <div className="muted">{asked.length ? "match so far — not counting the question below" : "people match"} · needs {fmt(q)}</div>
+          </div>
+          <button className="btn quiet sm" title="remove audience" onClick={() => dropAudience(ai)}>✕</button>
+        </div>
+        <div className="filters">
+          {Object.entries(a.filters).map(([id, values]) => (
+            <button key={id} className={`fchip${picker?.ai === ai && picker.attr === id ? " open" : ""}`} onClick={() => (picker?.ai === ai && picker.attr === id ? setPicker(null) : openPicker(ai, id))}>
+              <span>{label(id)}: <span className="v">{values.join(" / ")}</span></span><Measures measures={row(id)?.measures} />
+            </button>
+          ))}
+          {addingTo === ai
+            ? (
+              <select className="input" style={{ fontSize: 12, width: "auto" }} autoFocus defaultValue="" onBlur={() => setAddingTo(null)} onChange={(e) => {
+                if (e.target.value === "__search") { setAddingTo(null); setSearchOpen(true); return; }
+                if (e.target.value) openPicker(ai, e.target.value);
+              }}>
+                <option value="">choose an attribute…</option>
+                {rows.filter((r) => !a.filters[r.id]).map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+                <option value="__search">search for another…</option>
+              </select>
+            )
+            : <button className="addf" onClick={() => setAddingTo(ai)}>+ filter</button>}
+        </div>
+        {picker?.ai === ai && pickerView(a)}
+        {asked.map(({ x, qi }) => (
+          <div key={x.phrase} className="ask"><b>I wasn&apos;t sure what you meant by “{x.phrase}”.</b> Which is it?
+            <div className="choices">
+              {x.choices.map((c) => (
+                <button key={c.attribute} className="btn sm" onClick={() => answer(qi, c)}>
+                  <span>{c.label}: <b>{c.values.join(" / ")}</b></span>
+                  <small>{fmt(c.n_alone)} people{c.entry ? ` · measures ${c.entry.measures}` : ""}</small>
+                </button>
+              ))}
+              <button className="btn sm quiet" onClick={() => answer(qi, null)}>Neither — leave it out</button>
+            </div>
+          </div>
+        ))}
+        {n > 0 && h && <SourceBar bySource={h.by_source} />}
+        {h && n === 0 && Object.keys(a.filters).length > 0 && <div className="note risk">Nobody matches all of these together{h.empty_note ? `: ${h.empty_note}` : "."}</div>}
+        {h && n > 0 && n < q && <div className="note risk">Only {fmt(n)} people — this audience needs {fmt(q)} at a study of {fmt(studySize)}.</div>}
+        {h && n < q && adds.length > 0 && (
+          <div className="note plain">Surveyed people can&apos;t fill this. {adds.map(([s, k], i) => <React.Fragment key={s}>{i ? " and " : ""}{NAMES[s] ?? s} would add <b>{fmt(k)}</b></React.Fragment>)} — their answers were read by a model from text, not given by them. Tick them under <i>Draw from</i> to use them; that is recorded in the brief&apos;s assumptions.</div>
+        )}
+        {h && shrinkers.map(([id, without]) => (
+          <div key={id} className="note warn"><b>{label(id)}</b> is what shrinks this audience: {fmt(without)} without it, {fmt(n)} with it.
+            <button className="btn sm" onClick={() => describeInstead(ai, id, h)}>Use as a description instead</button></div>
+        ))}
+        {dominant && sources.length > 1 && total > 0 && <div className="note plain">{pct((h!.by_source[dominant] ?? 0) / total)} of these people are from the {NAMES[dominant] ?? dominant}.</div>}
+        {a.changes.map((c, ci) => (
+          <div key={`${c.attribute}-${ci}`} className={`note ${c.accepted ? "plain" : "warn"}`}>
+            {c.accepted ? "Accepted: " : "To fit the data, I kept "}<b>{label(c.attribute)}: {c.values.join(" / ")}</b> as a description, not a filter — as a filter it left {fmt(c.before)} people, not the {fmt(q)} needed.
+            {!c.accepted && <button className="btn sm primary" onClick={() => acceptChange(ai, ci)}>Accept</button>}
+            <button className="btn sm quiet" onClick={() => undoChange(ai, ci)}>Undo — use as a filter</button>
+          </div>
+        ))}
+        {a.descriptions.filter((d) => !a.changes.some((c) => c.attribute === d)).length > 0 && (
+          <div className="muted" style={{ marginTop: 8 }}>Describes (excludes no one): {a.descriptions.filter((d) => !a.changes.some((c) => c.attribute === d)).map(label).join(", ")}</div>
+        )}
+      </div>
+    );
   }
-  function swapFilter(ai: number, from: string, to: { id: string }) {
-    setPickerFor({ ai, attr: to.id });
-    setAudiences((as) => as.map((a, i) => {
-      if (i !== ai) return a;
-      const current = a.filters[from] ?? [];
-      const row = rows.find((r) => r.id === to.id);
-      const vocab = row?.values ?? [];
-      const kept = current.filter((v) => vocab.includes(v));
-      const filters = { ...a.filters };
-      delete filters[from];
-      filters[to.id] = kept.length ? kept : vocab.slice(0, 1);
-      const declared = rows.some((r) => r.id === to.id) ? rows : [...rows, { id: to.id, label: to.id, category: "", domain: "category_behaviour", measures: "", kind: "", role: "Defines audiences", required: false, values: vocab }];
-      setRows(declared);
-      return { ...a, filters };
-    }));
+
+  function ontologyView() {
+    if (!rows.length) return <div className="note plain">Nothing declared yet — find attributes below.</div>;
+    return (
+      <>
+        <div className="onto">
+          <div className="orow headrow"><span title="required for everyone">req</span><span>Attribute</span><span>Role</span><span>Kind</span><span>Ordered</span><span /></div>
+          {rows.map((r) => {
+            const users = usedBy(r.id);
+            const origin = r.role === "category" ? "the category's" : r.role === "core" ? "cross-survey core" : "";
+            const own = reused && r.locked;
+            return (
+              <div key={r.id} className="orow">
+                <input type="checkbox" checked={r.required} disabled={reused} onChange={(e) => updateRow(r.id, { required: e.target.checked })}
+                  title={reused ? "The required set belongs to the category. Changing it is a separate new-version action, not part of a study." : "Required: a persona must have answered it to be drawn at all"} />
+                <div><div>{r.label}</div><div className="id">{r.id} · measures {r.measures}{r.phrase ? ` · from “${r.phrase}”` : ""}</div></div>
+                <div>{r.required
+                  ? <><span className="role req">Required for everyone</span>{origin && <div className="muted" style={{ fontSize: 11 }}>{origin}</div>}</>
+                  : users.length ? <span className="role">Defines {users.join(", ")}</span> : <span className="role">Describes everyone</span>}</div>
+                <select value={r.domain} disabled={own} onChange={(e) => updateRow(r.id, { domain: e.target.value })} title="Kind — 'Who they are' and 'How they think' are never filled in by a model when missing">
+                  {DOMAINS.map(([d, l]) => <option key={d} value={d}>{l}</option>)}
+                </select>
+                <label className="muted" title={r.guessed ? "guessed from its values — check" : ""}>
+                  <input type="checkbox" checked={r.ordered} disabled={own} onChange={(e) => updateRow(r.id, { ordered: e.target.checked, guessed: false })} /> {r.guessed ? "yes?" : ""}
+                </label>
+                <button className="btn quiet sm" disabled={own} onClick={() => removeRow(r)}>✕</button>
+              </div>
+            );
+          })}
+        </div>
+        <div className="muted" style={{ marginTop: 6 }}>
+          {reused
+            ? "This category's own attributes are locked: studies reuse its ontology as it is, and anything you add makes a new version of it. Changing what it requires is a separate decision about the category, not about this study. "
+            : <>A new category requires only the <b>cross-survey core</b> — what every survey asked most people — so no survey is shut out of later studies. Require more only if every future study of this category needs it; the sidebar shows what each requirement costs. </>}
+          <b>Describes</b>: shown to the model when a persona has it, never used to exclude anyone.
+        </div>
+      </>
+    );
   }
 
-  function addAudience() {
-    setAudiences((as) => [...as, { name: `Group ${as.length + 1}`, share: null, filters: {}, descriptions: [] }]);
+  function searchView() {
+    return (
+      <div className="card search" style={{ marginBottom: 10 }}>
+        <input className="input" autoFocus placeholder="Search by meaning — e.g. kids, health, politics, owns a car" value={query} onChange={(e) => setQuery(e.target.value)} />
+        {searchNote && <div className="muted" style={{ marginTop: 6 }}>{searchNote}</div>}
+        {(hits ?? []).map((h) => {
+          const f = h.if_required;
+          const lost = f ? (typeof f.lost === "number" ? f.lost : Object.values(f.lost).reduce((t, k) => t + k, 0)) : 0;
+          return (
+            <div key={h.id} className="result">
+              <div>
+                <h4>{h.label} <span className="muted mono" style={{ fontSize: 11, fontWeight: 400 }}>{h.id} · measures {h.measures}</span></h4>
+                <div className="muted">
+                  {h.share !== undefined && <>{pct(h.share)} have answered it ({fmt(h.present)}) · </>}
+                  {Object.entries(h.carry_by_source ?? {}).filter(([s]) => sources.includes(s)).sort((x, y) => y[1] - x[1]).slice(0, 3).map(([s, k], i) => (
+                    <React.Fragment key={s}>{i ? " · " : ""}<span className="swatch" style={{ background: COLORS[s] }} />{s} {fmt(k)}</React.Fragment>
+                  ))}
+                </div>
+                <div className="muted mono" style={{ fontSize: 11 }}>{h.values.join(" · ")}</div>
+                {!reused && f && <div className={`impact ${f.wiped_sources.length || !h.present ? "bad" : "muted"}`}>If required: {fmt(f.pool + lost)} → {fmt(f.pool)}{f.wiped_sources.length ? ` — removes everyone from ${f.wiped_sources.join(", ")}` : ""}</div>}
+              </div>
+              <div style={{ display: "flex", gap: 6, alignItems: "start" }}>
+                {row(h.id) ? <span className="chip plain">added</span> : <>
+                  <button className="btn sm" onClick={() => declare([{ ...h, role: "added", required: false }])}>+ Describe</button>
+                  {!reused && <button className="btn sm" onClick={() => declare([{ ...h, role: "added", required: true }])}>+ Require</button>}
+                </>}
+              </div>
+            </div>
+          );
+        })}
+        {query && hits?.length === 0 && <div className="muted" style={{ paddingTop: 8 }}>Nothing close — the corpus carries no attribute like that; try fewer words.</div>}
+      </div>
+    );
   }
-  function moveToDescription(ai: number, attr: string) {
-    setAudiences((as) => as.map((a, i) => {
-      if (i !== ai) return a;
-      const filters = { ...a.filters };
-      delete filters[attr];
-      return { ...a, filters, descriptions: a.descriptions.includes(attr) ? a.descriptions : [...a.descriptions, attr] };
-    }));
+
+  function readyView(d: Ready) {
+    const onto = JSON.stringify(d.ontology, null, 2);
+    const brief = dump({ ontology_version: d.ontology.version, audiences: d.audiences, ...(d.assumptions.length ? { assumptions: d.assumptions } : {}) });
+    const download = (content: string, type: string) => `data:${type},${encodeURIComponent(content)}`;
+    return (
+      <>
+        <div className="head"><h1>Ready for a study</h1></div>
+        <div className="note ok">The engine accepts all of it: the ontology passes its schema and codebook checks, every audience is one a brief can carry, and every assumption is one the ledger records. The launch form opens with these audiences, your sources and a study of {fmt(studySize)}.</div>
+        <div className="note plain">
+          {d.action === "reused" && <>Reuses <b className="catchip">{d.ontology.category} {d.ontology.version}</b> exactly as it is — no new version.</>}
+          {d.action === "new_version" && <>A new version of <b className="catchip">{d.ontology.category}</b>: {d.from_version} → <b>{d.ontology.version}</b>, adding the attributes this study declares. Its required set is unchanged.</>}
+          {d.action === "new_category" && <>A new category, <b className="catchip">{d.ontology.category} {d.ontology.version}</b>, requiring the cross-survey core.</>}
+        </div>
+        {d.assumptions.length > 0 && (
+          <div className="note warn"><b>Written to the brief&apos;s assumptions</b> and stated in every report:
+            <ul style={{ margin: "4px 0 0 16px" }}>{d.assumptions.map((a) => <li key={a.text}>{a.text}</li>)}</ul></div>
+        )}
+        <div className="grid g2" style={{ gap: 14, marginTop: 14 }}>
+          <div><div className="sect"><h2>Ontology</h2><div className="tools">{d.action !== "reused" && <a className="btn sm" href={download(`${onto}\n`, "application/json")} download={`${d.ontology.category}-${d.ontology.version}.json`}>Download</a>}</div></div><pre className="out">{onto}</pre></div>
+          <div><div className="sect"><h2>For the brief</h2><div className="tools"><a className="btn sm" href={download(brief, "text/yaml")} download="brief-audiences.yaml">Download</a></div></div><pre className="out">{brief}</pre></div>
+        </div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 14 }}>
+          {d.action !== "reused" && (saved
+            ? <span className="chip ok"><span className="dot" />saved {d.ontology.category} {d.ontology.version}</span>
+            : <button className="btn primary" onClick={saveOntology}>Save ontology {d.ontology.version}</button>)}
+          <button className="btn primary" disabled={d.action !== "reused" && !saved} onClick={openLaunch}>Open launch form →</button>
+          <button className="btn" onClick={() => { setReady(null); setContinueError(null); }}>← Back to editing</button>
+        </div>
+        {d.action !== "reused" && !saved && <div className="muted" style={{ marginTop: 6 }}>Save the new version first — a saved version is never overwritten, so past studies keep resolving to what they ran on.</div>}
+      </>
+    );
+  }
+
+  const shareSum = audiences.every((a) => a.share !== null) ? audiences.reduce((t, a) => t + (a.share ?? 0), 0) : null;
+  const matching = heads.reduce((t, h) => t + h.head_count, 0);
+  const splits = (preview?.assumptions ?? []).filter((a) => a.text.startsWith("differences between"));
+
+  let main: React.ReactNode;
+  if (ready) main = readyView(ready);
+  else if (!category && byHand && !turns.length) main = byHandView();
+  else if (!turns.length && !category) main = heroView();
+  else if (!category) main = <section>{turns.map(turnView)}</section>;
+  else {
+    main = (
+      <>
+        <div className="head">
+          <h1>{audiences.length} audience{audiences.length === 1 ? "" : "s"}</h1>
+          <span className="muted">{fmt(matching)} matching people · ontology <span className="catchip">{category.id}</span>{reused ? " (reused)" : " (new)"}</span>
+        </div>
+        {splits.length > 0 && (
+          <div className="note warn" style={{ marginBottom: 14 }}>Your audiences come mostly from different surveys, so a difference between them may be a difference between the surveys. <b>This will be recorded in the brief&apos;s assumptions</b> and stated in every report:
+            <ul style={{ margin: "4px 0 0 16px" }}>{splits.map((a) => <li key={a.text}>{a.text}</li>)}</ul></div>
+        )}
+        <section>
+          <div className="sect"><h2>Audiences</h2>
+            <span className="muted">shares: {shareSum === null ? <b style={{ color: "var(--risk)" }}>not all set</b> : <><b style={{ color: Math.abs(shareSum - 1) > 0.005 ? "var(--risk)" : "inherit" }}>{Math.round(shareSum * 100)}%</b> of 100%</>} · study of {fmt(studySize)}</span>
+            <div className="tools"><button className="btn sm" onClick={addAudience}>+ Add audience</button></div>
+          </div>
+          {audiences.length ? audiences.map(audienceView) : <div className="note plain">No audiences yet — {noEndpoint ? "add one and give it filters." : "describe one below."}</div>}
+        </section>
+        <section>
+          <div className="sect"><h2>Ontology</h2><span className="muted">what every persona in this category is described by</span>
+            <div className="tools"><button className="btn sm" onClick={() => setSearchOpen((o) => !o)}>{searchOpen ? "Close search" : "Find more attributes"}</button></div></div>
+          {searchOpen && searchView()}
+          {ontologyView()}
+        </section>
+        {turns.length > 0 && <section><div className="sect"><h2>Conversation</h2></div>{turns.map(turnView)}</section>}
+        {!noEndpoint && (
+          <div className="dock">
+            <div className="composer">
+              <textarea rows={1} value={followup} disabled={busy} placeholder="Add a group, or tell me more — e.g. “add students (20%)”, “all of them in North America”, “I also care about their health”"
+                onChange={(e) => setFollowup(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendFollowup(); } }} />
+              <button className="btn primary sm" disabled={busy || !followup.trim()} onClick={sendFollowup}>Send</button>
+            </div>
+          </div>
+        )}
+      </>
+    );
   }
 
   return (
     <Shell crumbs={<><Link href="/">Workspace</Link> / <b>Who you study</b></>}>
-      <PageHead
-        title="Who you study"
-        sub="Describe the people, see who exists. Every count on this page is real — read from the corpus, never invented."
-      />
-      {corpusMissing && (
-        <Callout icon="alert"><div><b>No corpus cached here.</b> Search and drafting need the corpus — author freely, then continue where it is present.</div></Callout>
-      )}
-      <div className="grid g2">
-        <div>
-          <div className="panel">
-            <div className="panel-head"><h2>Category</h2><span className="hint">reused or new — confirmed from your description</span></div>
-            <div className="panel-body">
-              {category
-                ? <div style={{ fontSize: 12.5 }}><span className="mono">{category.id}</span> · {category.mode === "reuse" ? "reused ontology" : "new category"}</div>
-                : <div className="sub" style={{ fontSize: 12.5 }}>No category confirmed yet. Describe who you want to study first.</div>}
-            </div>
-          </div>
-          <div className="panel" style={{ marginTop: 16 }}>
-            <div className="panel-head"><h2>Draw from</h2></div>
-            <div className="panel-body" style={{ display: "grid", gap: 6 }}>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {PRESETS.map((p) => (
-                  <button key={p.label} className="btn sm" onClick={() => setSources(p.sources)}>{p.label}</button>
-                ))}
-              </div>
-              {["stackoverflow", "gss", "prism", "real_human_survey", ...TEXT_SOURCES].map((name) => (
-                <label key={name} style={{ fontSize: 12.5, display: "flex", gap: 6, alignItems: "center" }}>
-                  <input type="checkbox" checked={sources.includes(name)} onChange={() => toggleSource(name)} />
-                  <span className="mono">{name}</span>
-                  {TEXT_SOURCES.includes(name) && <span className="sub" style={{ fontSize: 11 }}>{TEXT_LABEL}</span>}
-                </label>
-              ))}
-            </div>
-          </div>
-          <div className="panel" style={{ marginTop: 16 }}>
-            <div className="panel-head"><h2>Study size</h2></div>
-            <div className="panel-body">
-              <label style={{ fontSize: 12.5, display: "flex", gap: 6, alignItems: "center" }}>
-                <input className="input mono" style={{ width: 90 }} value={studySize} onChange={(e) => setStudySize(Number(e.target.value) || 0)} />
-                personas <span className="sub">— sets each audience&apos;s quota</span>
-              </label>
-            </div>
-          </div>
-          <div className="panel" style={{ marginTop: 16 }}>
-            <div className="panel-head"><h2>Candidate pool</h2></div>
-            <div className="panel-body">
-              {pool?.state === "ready" && (
-                <div style={{ display: "grid", gap: 6 }}>
-                  <div style={{ fontSize: 22, fontWeight: 650 }}>{(pool.pool ?? 0).toLocaleString("en-US")}</div>
-                  <div className="sub" style={{ fontSize: 12 }}>of {(pool.sources_total ?? 0).toLocaleString("en-US")} in your sources have every required answer</div>
-                  <div className="mono sub" style={{ fontSize: 11 }}>
-                    {Object.entries(pool.pool_by_source ?? {}).map(([name, n]) => `${name} ${n.toLocaleString("en-US")}`).join(" · ")}
-                  </div>
-                  {(JSON.parse(sourcesKey).includes("amazon") || JSON.parse(sourcesKey).includes("wiki")) && (
-                    <div className="sub" style={{ fontSize: 11 }}>Includes people read by a model from text, not surveyed.</div>
-                  )}
-                  {(pool.costs ?? []).map((c) => (
-                    <div key={c.attribute} className="sub" style={{ fontSize: 12 }}>
-                      Requiring <span className="mono">{c.attribute}</span> removes {c.removes.toLocaleString("en-US")}
-                      {c.emptied_sources.length > 0 && <> — empties {c.emptied_sources.join(", ")}</>}
-                    </div>
-                  ))}
-                </div>
-              )}
-              {pool?.state === "building" && <div className="help">Counting who can be drawn — the matrix is building once, in the background…</div>}
-              {pool === null && <div className="sub" style={{ fontSize: 12.5 }}>No corpus cached here, so there is nobody to count yet.</div>}
-            </div>
-          </div>
-          <div className="panel" style={{ marginTop: 16 }}>
-            <div className="panel-body" style={{ display: "grid", gap: 8 }}>
-              {(blockers ?? []).length > 0 && (
-                <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12.5 }}>
-                  {(blockers ?? []).map((b, i) => <li key={i}>{b}</li>)}
-                </ul>
-              )}
-              {(blockers ?? []).length === 0 && audiences.length > 0 && (
-                <div className="sub" style={{ fontSize: 12.5 }}>Nothing stands in the way.</div>
-              )}
-              <button className="btn primary" disabled={(blockers ?? ["loading"]).length > 0 || continuing} onClick={continueIt}>{continuing ? "Checking…" : "Continue to study →"}</button>
-              {continueError && <Callout icon="alert"><div><b>Cannot continue.</b> {continueError}</div></Callout>}
-            </div>
-          </div>
-        </div>
-        <div>
-          <div className="panel">
-            <div className="panel-head"><h2>Who do you want to study?</h2></div>
-            <div className="panel-body" style={{ display: "grid", gap: 8 }}>
-              <div className="sub" style={{ fontSize: 12.5 }}>Say who you are testing, the groups, what makes someone belong, and what you want to know.</div>
-              <input className="input" placeholder="e.g. parents of young kids and retirees in North America…" value={description} onChange={(e) => setDescription(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") readIt(); }} />
-              <div><button className="btn sm" disabled={describing || !description.trim()} onClick={readIt}>{describing ? "Reading…" : "Read it"}</button></div>
-              {describeError && <Callout icon="alert"><div><b>Could not read that.</b> {describeError}</div></Callout>}
-              {status && !status.endpoint_configured && <div className="help">Without an endpoint, describing and drafting are unavailable — author audiences by hand below.</div>}
-              <div className="sub" style={{ fontSize: 12 }}>Every count on this page is real.</div>
-            </div>
-          </div>
-          {described && (
-            <div className="panel" style={{ marginTop: 16 }}>
-              <div className="panel-head"><h2>I read this as a study of {described.product ?? "your product"}</h2></div>
-              <div className="panel-body" style={{ display: "grid", gap: 8 }}>
-                {described.reading.groups.map((g, i) => (
-                  <div key={i} style={{ fontSize: 12.5 }}><b>{g.name}</b>{g.share !== null && <> ({Math.round(g.share * 100)}%)</>}: {g.traits.join("; ") || "—"}</div>
-                ))}
-                {described.reading.everyone.length > 0 && <div style={{ fontSize: 12.5 }}><b>Everyone</b>: {described.reading.everyone.join("; ")}</div>}
-                {described.reading.topics.length > 0 && <div style={{ fontSize: 12.5 }}><b>You want to know</b>: {described.reading.topics.join("; ")}</div>}
-                <div className="sub" style={{ fontSize: 12 }}>Something missing? Rephrase and read again — nothing is drafted before you confirm the category.</div>
-                {described.match
-                  ? <div style={{ fontSize: 12.5 }}>Same kind of product as <b className="mono">{described.match.id}</b>? <span className="sub">{(described.match.products ?? []).join(", ")}</span></div>
-                  : <div style={{ fontSize: 12.5 }}>No existing category looks like the same kind of product. Start <b className="mono">{described.new_id}</b> as a new category?</div>}
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {described.match && <button className="btn primary sm" onClick={() => setCategory({ mode: "reuse", id: described.match!.id })}>Yes — use its ontology</button>}
-                  <button className="btn sm" onClick={() => setCategory({ mode: "new", id: described.new_id })}>Start a new category</button>
-                  {described.categories.length > 0 && (
-                    <select className="input" style={{ width: 220 }} value={sameAs} onChange={(e) => setSameAs(e.target.value)}>
-                      <option value="">It&apos;s the same as…</option>
-                      {described.categories.map((c) => <option key={c.id} value={c.id}>{c.id} @{c.version}</option>)}
-                    </select>
-                  )}
-                  {sameAs && <button className="btn sm" onClick={() => { setCategory({ mode: "reuse", id: sameAs }); setSameAs(""); }}>Use {sameAs}</button>}
-                  <button className="btn quiet sm" onClick={() => setDescribed(null)}>Rephrase</button>
-                </div>
-              </div>
-            </div>
-          )}
-          {described && category && (
-            <div className="panel" style={{ marginTop: 16 }}>
-              <div className="panel-head"><h2>Draft</h2><span className="hint">matched against the corpus, checked — you confirm</span></div>
-              <div className="panel-body" style={{ display: "grid", gap: 8 }}>
-                <div><button className="btn primary sm" disabled={drafting} onClick={draftIt}>{drafting ? "Drafting…" : "Draft audiences"}</button></div>
-                {draftError && <Callout icon="alert"><div><b>Could not draft.</b> {draftError}</div></Callout>}
-              </div>
-            </div>
-          )}
-          {ready && (
-            <div className="panel" style={{ marginTop: 16 }}>
-              <div className="panel-head"><h2>Ready for a study</h2><span className="hint">checked by the engine&apos;s own types</span></div>
-              <div className="panel-body" style={{ display: "grid", gap: 8 }}>
-                <div style={{ fontSize: 12.5 }}>
-                  {ready.action === "reused" && <>Reuses <b className="mono">{ready.ontology.category}@{ready.ontology.version}</b> as it is.</>}
-                  {ready.action === "new_version" && <>Publishes <b className="mono">{ready.ontology.category}@{ready.ontology.version}</b> — a new patch version adding what you declared, conditioning set unchanged (from {ready.from_version}).</>}
-                  {ready.action === "new_category" && <>Starts <b className="mono">{ready.ontology.category}@1.0.0</b> as a new category.</>}
-                </div>
-                {(ready.assumptions ?? []).length > 0 && (
-                  <div style={{ display: "grid", gap: 4 }}>
-                    <div className="sub" style={{ fontSize: 12 }}>Assumptions written to the brief:</div>
-                    {ready.assumptions.map((a, i) => <div key={i} className="sub" style={{ fontSize: 12.5 }}>assumed — {a.text}</div>)}
-                  </div>
-                )}
-                <div className="sub" style={{ fontSize: 12 }}>Audiences: {(ready.audiences ?? []).map((a) => a.name).join(", ")}</div>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  <a className="btn sm" href={`data:application/json,${encodeURIComponent(JSON.stringify(ready.ontology, null, 2))}`} download={`${ready.ontology.category}-${ready.ontology.version}.json`}>Ontology ↓</a>
-                  <a className="btn sm" href={`data:application/json,${encodeURIComponent(JSON.stringify(ready.audiences, null, 2))}`} download="audiences.json">Audiences ↓</a>
-                  {!saved
-                    ? <button className="btn primary sm" onClick={saveOntology}>Save ontology</button>
-                    : <span className="chip ok"><span className="dot" />saved {ready.ontology.category}@{ready.ontology.version}</span>}
-                  <button className="btn primary sm" disabled={!saved && ready.action !== "reused"} onClick={openLaunch}>Open launch form →</button>
-                  <button className="btn quiet sm" onClick={() => setReady(null)}>Back to editing</button>
-                </div>
-                {!saved && ready.action !== "reused" && <div className="help">Save the new version first — past studies keep resolving to what they ran on, so versions are never overwritten.</div>}
-              </div>
-            </div>
-          )}
-          {turns.length > 0 && (
-            <div className="panel" style={{ marginTop: 16 }}>
-              <div className="panel-head"><h2>Conversation</h2><span className="hint">how each message was matched</span></div>
-              <div className="panel-body" style={{ display: "grid", gap: 8 }}>
-                {turns.map((t, i) => (
-                  <div key={i} style={{ fontSize: 12.5 }}>
-                    <div><b>You:</b> {t.text}</div>
-                    {t.matched.length > 0 && <div className="sub" style={{ marginTop: 2 }}>Matched: {t.matched.join("; ")}</div>}
-                    {t.missing.map((u, j) => (
-                      <div key={j} className="sub" style={{ marginTop: 2 }}>Could not find <b>&quot;{u.phrase}&quot;</b> — {u.missing}</div>
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          <div className="panel" style={{ marginTop: 16 }}>
-            <div className="panel-head"><h2>Audiences</h2><span className="hint">{shareTotal > 0 ? `${Math.round(shareTotal * 100)}% of 100%` : "authored by hand until drafting lands"}</span></div>
-            <div className="panel-body" style={{ display: "grid", gap: 10 }}>
-              {audiences.length === 0 && <div className="empty"><b>No audiences yet.</b>Find attributes below and describe who belongs.</div>}
-              {audiences.map((a, ai) => {
-                const head = preview?.audiences?.[ai];
-                return (
-                  <div key={ai} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <input className="input" style={{ width: 160 }} value={a.name} onChange={(e) => setAudiences((as) => as.map((x, i) => (i === ai ? { ...x, name: e.target.value } : x)))} />
-                      <label style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center" }}>
-                        <input className="input mono" style={{ width: 60 }} value={a.share === null ? "" : Math.round(a.share * 100)} placeholder="%" onChange={(e) => setAudiences((as) => as.map((x, i) => (i === ai ? { ...x, share: e.target.value === "" ? null : Number(e.target.value) / 100 } : x)))} /> share %
-                      </label>
-                      <button className="btn quiet sm" style={{ marginLeft: "auto" }} onClick={() => setAudiences((as) => as.filter((_, i) => i !== ai))}>✕</button>
-                    </div>
-                    {a.share === null && <div className="sub" style={{ fontSize: 12, marginTop: 4 }}>This group still needs its share.</div>}
-                    {(a.changes ?? []).length > 0 && <div><span className="tag">changed from what you asked</span></div>}
-                    {(a.changes ?? []).map((c, ci) => (
-                      <div key={ci} className="sub" style={{ fontSize: 12, marginTop: 4 }}>
-                        {c.attribute} moved to a description: {c.before.toLocaleString("en-US")} → {c.after.toLocaleString("en-US")} people.
-                        {!c.accepted && <><button className="btn sm" style={{ marginLeft: 6 }} onClick={() => acceptChange(ai, ci)}>Accept</button><button className="btn quiet sm" style={{ marginLeft: 4 }} onClick={() => undoChange(ai, ci)}>Undo</button></>}
-                      </div>
-                    ))}
-                    {head && (
-                      <div className="sub" style={{ fontSize: 12.5, marginTop: 6 }}>
-                        {head.head_count.toLocaleString("en-US")} people — needs {head.quota.toLocaleString("en-US")}
-                        <span className="mono" style={{ fontSize: 11, marginLeft: 8 }}>
-                          {Object.entries(head.by_source).map(([s, n]) => `${s} ${n.toLocaleString("en-US")}`).join(" · ")}
-                        </span>
-                      </div>
-                    )}
-                    {preview?.state === "building" && <div className="help">Counting…</div>}
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
-                      {Object.entries(a.filters).map(([attr, values]) => {
-                        const row = rows.find((r) => r.id === attr);
-                        const open = pickerFor?.ai === ai && pickerFor?.attr === attr;
-                        return (
-                          <span key={attr}>
-                            <button className="tag" onClick={() => setPickerFor(open ? null : { ai, attr })}>
-                              <span className="mono">{attr}</span> = {values.join(" / ")}
-                              <span className="sub" style={{ fontSize: 11 }}> · measures: {row?.measures ?? "—"}</span>
-                            </button>
-                            <button className="btn quiet sm" style={{ marginLeft: 4 }} onClick={() => setAudiences((as) => as.map((x, i) => (i === ai ? { ...x, filters: Object.fromEntries(Object.entries(x.filters).filter(([k]) => k !== attr)) } : x)))}>✕</button>
-                          </span>
-                        );
-                      })}
-                      {rows.filter((r) => !a.filters[r.id]).length > 0 && (
-                        <select className="input" style={{ width: 200 }} defaultValue="" onChange={(e) => {
-                          const row = rows.find((r) => r.id === e.target.value);
-                          if (row && row.values.length) setAudiences((as) => as.map((x, i) => (i === ai ? { ...x, filters: { ...x.filters, [row.id]: [row.values[0]] } } : x)));
-                          e.target.value = "";
-                        }}>
-                          <option value="" disabled>+ filter</option>
-                          {rows.filter((r) => !a.filters[r.id]).map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
-                        </select>
-                      )}
-                    </div>
-                    {questions.map((q, qi) => q.applies_to.includes(a.name) && (
-                      <div key={qi} style={{ border: "1px dashed var(--line)", borderRadius: "var(--r-md)", padding: 10, marginTop: 6 }}>
-                        <div style={{ fontSize: 12.5 }}>I wasn&apos;t sure what you meant by <b>&quot;{q.phrase}&quot;</b>:</div>
-                        {q.choices.map((c, ci) => (
-                          <div key={ci} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12.5, padding: "2px 0" }}>
-                            <span><b>{c.label}</b> <span className="mono sub" style={{ fontSize: 11 }}>{c.attribute} = {(c.values ?? []).join(" / ")}</span></span>
-                            <span className="mono sub" style={{ fontSize: 11 }}>{(c.n_alone ?? 0).toLocaleString("en-US")} people</span>
-                            <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => answerQuestion(qi, c)}>Use this</button>
-                          </div>
-                        ))}
-                        <div><button className="btn quiet sm" onClick={() => answerQuestion(qi, null)}>Neither — leave it out</button></div>
-                      </div>
-                    ))}
-                    {pickerFor?.ai === ai && picker && picker.id === pickerFor.attr && (
-                      <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10, marginTop: 6 }}>
-                        <div className="sub" style={{ fontSize: 12, marginBottom: 6 }}>Tick values — nothing here is typed.</div>
-                        {(picker.values ?? []).map((v) => (
-                          <label key={v.value} style={{ fontSize: 12.5, display: "flex", gap: 6, alignItems: "center", padding: "2px 0" }}>
-                            <input type="checkbox" checked={(a.filters[picker.id] ?? []).includes(v.value)} onChange={() => toggleValue(ai, picker.id, v.value)} />
-                            {v.value}
-                            <span className="mono sub" style={{ fontSize: 11, marginLeft: "auto" }}>
-                              {v.n.toLocaleString("en-US")} · {Object.entries(v.by_source).map(([s, n]) => `${s} ${n.toLocaleString("en-US")}`).join(" · ")}
-                            </span>
-                          </label>
-                        ))}
-                        {(picker.also_asks ?? []).length > 0 && (
-                          <div style={{ marginTop: 8 }}>
-                            <div className="sub" style={{ fontSize: 12, marginBottom: 4 }}>The corpus also asks this as</div>
-                            {(picker.also_asks ?? []).map((alt) => (
-                              <div key={alt.id} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12.5, padding: "2px 0" }}>
-                                <span><b>{alt.label}</b> <span className="mono sub" style={{ fontSize: 11 }}>{alt.id}</span></span>
-                                <span className="mono sub" style={{ fontSize: 11 }}>{alt.n.toLocaleString("en-US")} answered</span>
-                                <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => swapFilter(ai, picker.id, alt)}>Swap</button>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    {a.descriptions.length > 0 && <div className="sub" style={{ fontSize: 12, marginTop: 4 }}>Describes (excludes nobody): {a.descriptions.join(", ")}</div>}
-                    {head?.dominant_source && <div className="sub" style={{ fontSize: 12, marginTop: 4 }}>Drawn mostly from {head.dominant_source} — a difference from other audiences may be a difference between surveys.</div>}
-                    {head && Object.entries(head.filter_costs).map(([attr, without]) => (
-                      head.head_count > 0 && without >= head.head_count * 2 && (
-                        <div key={attr} className="sub" style={{ fontSize: 12, marginTop: 4 }}>
-                          Removing {attr} would grow {head.head_count.toLocaleString("en-US")} → {without.toLocaleString("en-US")}.
-                          <button className="btn sm" style={{ marginLeft: 6 }} onClick={() => moveToDescription(ai, attr)}>Use as a description instead</button>
-                        </div>
-                      )
-                    ))}
-                    {head && head.head_count < head.quota && Object.keys(head.text_would_add ?? {}).length > 0 && (
-                      <div className="sub" style={{ fontSize: 12, marginTop: 4 }}>
-                        Surveyed people can&apos;t fill this. {Object.entries(head.text_would_add).map(([s, n]) => `${s} would add ${n.toLocaleString("en-US")}`).join(" and ")} — their answers were read by a model from text, not given by them. Tick them under <i>Draw from</i> to use them; that is recorded in the brief&apos;s assumptions.
-                      </div>
-                    )}
-                    {head?.empty_note && <div className="sub" style={{ fontSize: 12, marginTop: 4 }}>{head.empty_note}</div>}
-                  </div>
-                );
-              })}
-              <div><button className="btn sm" onClick={addAudience}>+ Add audience</button></div>
-            </div>
-          </div>
-          {(preview?.assumptions ?? []).length > 0 && (
-            <div className="panel" style={{ marginTop: 16 }}>
-              <div className="panel-head"><h2>Assumptions written to the brief</h2></div>
-              <div className="panel-body" style={{ display: "grid", gap: 6 }}>
-                {(preview?.assumptions ?? []).map((a, i) => (
-                  <div key={i} className="sub" style={{ fontSize: 12.5 }}>assumed — {a.text}</div>
-                ))}
-              </div>
-            </div>
-          )}
-          <div className="panel" style={{ marginTop: 16 }}>
-            <div className="panel-head"><h2>Ontology</h2><span className="hint">req · attribute · role · kind · ordered</span></div>
-            <div className="panel-body">
-              {rows.length === 0 && <div className="empty"><b>Nothing declared yet.</b>Add attributes from the search.</div>}
-              {rows.map((r) => (
-                <div key={r.id} style={{ borderTop: "1px solid var(--line)", padding: "8px 0", display: "grid", gap: 2 }}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-                    <b>{r.label}</b>
-                    <span className="mono sub" style={{ fontSize: 11 }}>{r.id}</span>
-                    <span className="sub" style={{ fontSize: 11.5 }}>measures: {r.measures}</span>
-                    {r.locked && <span className="tag">category — locked</span>}
-                    {!r.locked && <button className="btn quiet sm" style={{ marginLeft: "auto" }} onClick={() => setRows((xs) => xs.filter((x) => x.id !== r.id))}>✕</button>}
-                  </div>
-                  <div className="sub" style={{ fontSize: 11.5 }}>{r.role} · {r.kind} · ordered: {r.ordered ? "yes?" : "—"}</div>
-                  {!r.locked && (
-                    <label style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center", marginTop: 4 }}>
-                      <input type="checkbox" checked={r.required} onChange={() => setRows((xs) => xs.map((x) => (x.id === r.id ? { ...x, required: !x.required } : x)))} /> required for everyone
-                    </label>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-          <div className="panel" style={{ marginTop: 16 }}>
-            <div className="panel-head"><h2>Find more attributes</h2><span className="hint">search by {searchMode}</span></div>
-            <div className="panel-body" style={{ display: "grid", gap: 8 }}>
-              <input className="input mono" placeholder="search attributes — e.g. kids, money, wealthy" value={query} onChange={(e) => setQuery(e.target.value)} />
-              {coverage?.state === "failed" && (
-                <div className="help">Coverage could not be counted — {coverage.detail} <button className="btn sm" onClick={() => askCoverage(true)}>Count again</button></div>
-              )}
-              {status && !status.endpoint_configured && (
-                <div className="help">Search by meaning is unavailable without an endpoint — searching by words.</div>
-              )}
-              {meaningNote && <div className="help">{meaningNote}</div>}
-              {(hits ?? []).map((h) => {
-                const found = coverageOf(h.id);
-                const band = coverageBand(found?.recorded);
-                return (
-                  <div key={h.id} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <b>{h.label}</b>
-                      <span className="mono sub" style={{ fontSize: 11 }}>{h.id}</span>
-                      {rows.some((r) => r.id === h.id)
-                        ? <span className="tag">declared</span>
-                        : <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
-                          <button className="btn sm" onClick={() => addAttr(h, false)}>+ Describe</button>
-                          <button className="btn sm" onClick={() => addAttr(h, true)}>+ Require</button>
-                        </span>}
-                    </div>
-                    <div className="sub" style={{ fontSize: 11.5, marginTop: 4 }}>{h.category} · measures: {h.measures} · {h.kind}</div>
-                    {(h.relevance !== undefined && h.relevance !== null) && <div className="sub" style={{ fontSize: 11.5 }}>match {h.relevance.toFixed(2)}</div>}
-                    {(h.present !== undefined && h.total !== undefined) && (
-                      <div className="mono sub" style={{ fontSize: 11, marginTop: 2 }}>
-                        answered by {h.present.toLocaleString("en-US")} of {h.total.toLocaleString("en-US")} · {Object.entries(h.carry_by_source ?? {}).map(([s, n]) => `${s} ${n.toLocaleString("en-US")}`).join(" · ")}
-                      </div>
-                    )}
-                    {h.if_required && (
-                      <div className="sub" style={{ fontSize: 11.5 }}>requiring keeps {(h.if_required.pool ?? 0).toLocaleString("en-US")} in the pool{(h.if_required.wiped_sources ?? []).length > 0 && <> — empties {(h.if_required.wiped_sources ?? []).join(", ")}</>}</div>
-                    )}
-                    <div className="mono sub" style={{ fontSize: 11, marginTop: 4 }}>{h.values.join(" · ")}</div>
-                    {found && (
-                      <div style={{ marginTop: 6 }}>
-                        <span className={`chip ${band === "most" ? "ok" : band === "few" ? "risk" : "plain"}`} data-coverage={band}>
-                          <span className="dot" />{coverageLabel(found.recorded)}
-                        </span>
-                        {COVERAGE_NOTE[band] && <div className="sub" style={{ fontSize: 11.5, marginTop: 4 }}>{COVERAGE_NOTE[band]}</div>}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              {query && hits?.length === 0 && <div className="empty"><b>Nothing resembles that.</b>An attribute the corpus does not carry is refused — try a shorter search.</div>}
-            </div>
-          </div>
-        </div>
+      <div className="who">
+        {sidebar}
+        <div className="who-main">{main}</div>
       </div>
-      {category && (
-        <div style={{ position: "sticky", bottom: 0, padding: "10px 0 4px", background: "var(--bg)" }}>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              className="input"
-              placeholder="Add a group, or tell me more — e.g. “add students”, “all of them in North America”"
-              value={followup}
-              onChange={(e) => setFollowup(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") sendFollowup(); }}
-              style={{ flex: 1 }}
-            />
-            <button className="btn primary sm" disabled={followingUp || !followup.trim()} onClick={sendFollowup}>{followingUp ? "…" : "Send"}</button>
-          </div>
-        </div>
-      )}
     </Shell>
   );
 }
