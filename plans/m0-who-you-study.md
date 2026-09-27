@@ -40,13 +40,13 @@ The `/who` page in the mockup's layout — the sidebar with *Draw from*, the mai
 
 ### Acceptance criteria
 
-- [ ] `/who` renders the mockup's sidebar and main column, reachable as step 0 of the sidebar, while `/ontology` and the New-study page still work unchanged
-- [ ] `GET /api/codebook` returns each attribute's label, category and what it measures, and never a path
-- [ ] Word search covers labels and categories: "kids", "money" and "wealthy" each return a relevant attribute in the top five
-- [ ] Every chip and table row states what the attribute measures, and an attitude, value or interest is marked as how people feel rather than what they do
-- [ ] The ontology table has the mockup's columns, with kinds in plain words
-- [ ] Without an endpoint the page searches by words and says that search by meaning is unavailable
-- [ ] The coverage chips use the glossary's words, asserted over the interface source
+- [x] `/who` renders the mockup's sidebar and main column, reachable as step 0 of the sidebar, while `/ontology` and the New-study page still work unchanged — the interim `/ontology` condition is superseded: Phase 11 removed it
+- [x] `GET /api/codebook` returns each attribute's label, category and what it measures, and never a path
+- [x] Word search covers labels and categories: "kids", "money" and "wealthy" each return a relevant attribute in the top five
+- [x] Every chip and table row states what the attribute measures, and an attitude, value or interest is marked as how people feel rather than what they do
+- [x] The ontology table has the mockup's columns, with kinds in plain words
+- [x] Without an endpoint the page searches by words and says that search by meaning is unavailable
+- [x] The coverage chips use the glossary's words, asserted over the interface source
 
 ---
 
@@ -60,12 +60,12 @@ The persona value matrix, built once per machine, and the first thing it answers
 
 ### Acceptance criteria
 
-- [ ] The matrix decodes every non-synthetic row through the adapter and agrees with the adapter's own decoding on the packed fixture, field by field
-- [ ] It is keyed by shard digests: a changed shard rebuilds it rather than answering from the old one
-- [ ] With the real corpus, age, region, education, employment and life stage keep 52,530 Stack Overflow and 11,754 GSS respondents, and adding marital status and children keeps no Stack Overflow respondent (`real_corpus`)
-- [ ] Each requirement's cost is reported per source, and a requirement that empties a source says so by name, in the sidebar as the mockup shows it
-- [ ] `web` performs no arithmetic over what it serves, asserted over the package as today
-- [ ] A cold start without the matrix builds it in the background and the page says it is counting
+- [x] The matrix decodes every non-synthetic row through the adapter and agrees with the adapter's own decoding on the packed fixture, field by field
+- [x] It is keyed by shard digests: a changed shard rebuilds it rather than answering from the old one
+- [x] With the real corpus, age, region, education, employment and life stage keep 52,530 Stack Overflow and 11,754 GSS respondents, and adding marital status and children keeps no Stack Overflow respondent (`real_corpus`)
+- [x] Each requirement's cost is reported per source, and a requirement that empties a source says so by name, in the sidebar as the mockup shows it
+- [x] `web` performs no arithmetic over what it serves, asserted over the package as today
+- [x] A cold start without the matrix builds it in the background and the page says it is counting
 
 ---
 
@@ -79,12 +79,12 @@ The persona value matrix, built once per machine, and the first thing it answers
 
 ### Acceptance criteria
 
-- [ ] An audience's quota is its share of the study size, and every card shows head count against quota
-- [ ] Each card shows its source bar, and one drawn mostly from a single survey says which
-- [ ] A filter whose removal would multiply an audience is named with both counts, and can be turned into a description in one click
-- [ ] "Parent of young kids" counts 1,017 Stack Overflow respondents and no GSS respondent (`real_corpus`)
-- [ ] An audience that matches nobody says that the people holding one of its answers never gave another, rather than showing zero alone
-- [ ] The audience card matches the mockup's regions and wording, compared screenshot to screenshot
+- [x] An audience's quota is its share of the study size, and every card shows head count against quota
+- [x] Each card shows its source bar, and one drawn mostly from a single survey says which
+- [x] A filter whose removal would multiply an audience is named with both counts, and can be turned into a description in one click
+- [x] "Parent of young kids" counts 1,017 Stack Overflow respondents and no GSS respondent (`real_corpus`)
+- [x] An audience that matches nobody says that the people holding one of its answers never gave another, rather than showing zero alone
+- [x] The audience card matches the mockup's regions and wording, compared screenshot to screenshot
 
 ---
 
@@ -98,11 +98,11 @@ Clicking a filter chip opens the value picker in its card: every value with how 
 
 ### Acceptance criteria
 
-- [ ] `GET /api/codebook/{attribute}/values` returns every value of the attribute with its count per source among the candidate pool
-- [ ] No value can be entered that is not in the attribute's list, asserted over the interface
-- [ ] "The corpus also asks this as" lists alternatives with their head counts, and choosing one swaps the filter and declares the attribute
-- [ ] Swapping "Parenthood" for "Children" on a parents audience raises its head count as the counts predict, in a real browser
-- [ ] The picker matches the mockup's, compared screenshot to screenshot
+- [x] `GET /api/codebook/{attribute}/values` returns every value of the attribute with its count per source among the candidate pool
+- [x] No value can be entered that is not in the attribute's list, asserted over the interface
+- [x] "The corpus also asks this as" lists alternatives with their head counts, and choosing one swaps the filter and declares the attribute
+- [x] Swapping "Parenthood" for "Children" on a parents audience raises its head count as the counts predict, in a real browser
+- [x] The picker matches the mockup's, compared screenshot to screenshot
 
 ---
 
@@ -116,11 +116,11 @@ In *Draw from*, Amazon reviewers and Wikipedia figures are unticked and labelled
 
 ### Acceptance criteria
 
-- [ ] Text sources are unticked by default and every count that includes their people is labelled
-- [ ] An audience below its quota reports what each unticked text source would add, per source
-- [ ] Admitting a text source writes an `assumed` ledger entry naming it and its contribution to the candidate pool
-- [ ] Two audiences each drawn mostly from different surveys produce an `assumed` entry naming both audiences and both surveys, shown above the cards before Continue
-- [ ] Every entry validates as the engine's `Assumption` and appears in the report of a study that carries it
+- [x] Text sources are unticked by default and every count that includes their people is labelled
+- [x] An audience below its quota reports what each unticked text source would add, per source
+- [x] Admitting a text source writes an `assumed` ledger entry naming it and its contribution to the candidate pool
+- [x] Two audiences each drawn mostly from different surveys produce an `assumed` entry naming both audiences and both surveys, shown above the cards before Continue
+- [x] Every entry validates as the engine's `Assumption` and appears in the report of a study that carries it
 
 ---
 
@@ -134,11 +134,11 @@ Attribute embeddings, built in the background with the pinned embedding model, a
 
 ### Acceptance criteria
 
-- [ ] Embeddings are cached by codebook digest and model; a different model builds a new cache rather than mixing vectors
-- [ ] Ranking sinks attributes under 10% and 1% coverage in the chosen sources, and ranks one nobody in them answered last
-- [ ] The retrieval gate: of the evaluation's 15 queries, at least 11 find an expected attribute first and 13 within the top five, surveyed sources only (real corpus and endpoint; skipped and announced without them)
-- [ ] A described attribute never changes the candidate pool or any audience's head count
-- [ ] While embeddings build, search falls back to words and says so
+- [x] Embeddings are cached by codebook digest and model; a different model builds a new cache rather than mixing vectors
+- [x] Ranking sinks attributes under 10% and 1% coverage in the chosen sources, and ranks one nobody in them answered last
+- [x] The retrieval gate: of the evaluation's 15 queries, at least 11 find an expected attribute first and 13 within the top five, surveyed sources only (real corpus and endpoint; skipped and announced without them) — measured with the real corpus and endpoint: 11 first, 13 in the top five
+- [x] A described attribute never changes the candidate pool or any audience's head count
+- [x] While embeddings build, search falls back to words and says so
 
 ---
 
@@ -152,12 +152,12 @@ The page now opens as the mockup does: "Who do you want to study?", one input, *
 
 ### Acceptance criteria
 
-- [ ] The opening screen and the reading and category card match the mockup's, compared screenshot to screenshot
-- [ ] The reading is shown before any draft, with **Rephrase** returning the text to the input
-- [ ] A phrase with a guess word ("interested in", "possibly", "likely", "might", "tend to") is a topic, never a trait, whatever the model returned
-- [ ] Only categories whose latest ontology names attributes the codebook carries are offered; `beverage_protein` is not
-- [ ] The category match is a closed choice: the model can name an existing category or none, and anything else is refused
-- [ ] A short follow-up that names one group is read as one group — the instructions' own examples never appear as groups (fake port replaying the recorded failure)
+- [x] The opening screen and the reading and category card match the mockup's, compared screenshot to screenshot
+- [x] The reading is shown before any draft, with **Rephrase** returning the text to the input
+- [x] A phrase with a guess word ("interested in", "possibly", "likely", "might", "tend to") is a topic, never a trait, whatever the model returned
+- [x] Only categories whose latest ontology names attributes the codebook carries are offered; `beverage_protein` is not
+- [x] The category match is a closed choice: the model can name an existing category or none, and anything else is refused
+- [x] A short follow-up that names one group is read as one group — the instructions' own examples never appear as groups (fake port replaying the recorded failure)
 
 ---
 
@@ -171,12 +171,12 @@ The page now opens as the mockup does: "Who do you want to study?", one input, *
 
 ### Acceptance criteria
 
-- [ ] A reused category's conditioning set is kept exactly and its rows are locked; a new category's is the cross-survey core, derived from the data
-- [ ] A trait every group shares is a filter in each audience and never enters the conditioning set
-- [ ] With a fake chat port, an invented attribute id and an out-of-list value are refused, and the refusal is shown in the conversation
-- [ ] With a fake chat port that answers differently with and without context, the trait becomes a question with its choices, their head counts and "Neither — leave it out", and no filter is applied until the person answers; an answer applies wherever that phrase was asked
-- [ ] Every filter in a draft names an attribute and values the codebook holds, asserted over drafts from the three example briefs
-- [ ] The conversation and the question box match the mockup's, compared screenshot to screenshot
+- [x] A reused category's conditioning set is kept exactly and its rows are locked; a new category's is the cross-survey core, derived from the data
+- [x] A trait every group shares is a filter in each audience and never enters the conditioning set
+- [x] With a fake chat port, an invented attribute id and an out-of-list value are refused, and the refusal is shown in the conversation
+- [x] With a fake chat port that answers differently with and without context, the trait becomes a question with its choices, their head counts and "Neither — leave it out", and no filter is applied until the person answers; an answer applies wherever that phrase was asked
+- [x] Every filter in a draft names an attribute and values the codebook holds, asserted over drafts from the three example briefs
+- [x] The conversation and the question box match the mockup's, compared screenshot to screenshot
 
 ---
 
@@ -190,10 +190,10 @@ When a drafted audience falls below its quota, the draft moves its costliest fil
 
 ### Acceptance criteria
 
-- [ ] Each change made to fit the data is shown with the counts before and after, and needs Accept or Undo
-- [ ] Continue is blocked by, and the sidebar lists: an unconfirmed category, an unanswered question, an unaccepted change, shares missing or not summing to 100%, an audience below its quota
-- [ ] Adding a group never rewrites a share the person stated
-- [ ] An audience still below its quota at Continue cannot reach launch, so the engine's relaxation ladder never drops a filter the person did not see dropped
+- [x] Each change made to fit the data is shown with the counts before and after, and needs Accept or Undo
+- [x] Continue is blocked by, and the sidebar lists: an unconfirmed category, an unanswered question, an unaccepted change, shares missing or not summing to 100%, an audience below its quota
+- [x] Adding a group never rewrites a share the person stated
+- [x] An audience still below its quota at Continue cannot reach launch, so the engine's relaxation ladder never drops a filter the person did not see dropped
 
 ---
 
@@ -207,10 +207,10 @@ The follow-up input docked at the bottom of the page, as in the mockup, open onc
 
 ### Acceptance criteria
 
-- [ ] "Add a group of students" adds exactly one audience and asks for its share
-- [ ] "All of them in North America" adds the filter to every audience and adds no audience
-- [ ] A follow-up never changes the category or its conditioning set
-- [ ] The conversation shows how each phrase of each message was matched, and what could not be found
+- [x] "Add a group of students" adds exactly one audience and asks for its share
+- [x] "All of them in North America" adds the filter to every audience and adds no audience
+- [x] A follow-up never changes the category or its conditioning set
+- [x] The conversation shows how each phrase of each message was matched, and what could not be found
 
 ---
 
@@ -224,9 +224,9 @@ The follow-up input docked at the bottom of the page, as in the mockup, open onc
 
 ### Acceptance criteria
 
-- [ ] A draft that adds nothing to a reused category reuses its version; one that declares new attributes publishes the next patch version with the conditioning set unchanged; a new category starts at 1.0.0 — and no version a past study pinned is ever overwritten
-- [ ] The saved ontology passes schema and codebook validation, and every audience and assumption validates as the engine's types
-- [ ] The launch form arrives pre-filled with the audiences, assumptions, sources and study size, and launches
-- [ ] The education-savings study is authored from a single description, reusing its category, and runs, driven in a real browser
-- [ ] Both of the mockup's paths — a reused category, and a new one with a follow-up — run through the app in a real browser, and every screen in the page inventory is compared side by side with the mockup's
-- [ ] `/ontology` and the New-study page's audience panel are gone, the sidebar's step 0 is "Who you study", and nothing links to the old pages
+- [x] A draft that adds nothing to a reused category reuses its version; one that declares new attributes publishes the next patch version with the conditioning set unchanged; a new category starts at 1.0.0 — and no version a past study pinned is ever overwritten
+- [x] The saved ontology passes schema and codebook validation, and every audience and assumption validates as the engine's types
+- [ ] The launch form arrives pre-filled with the audiences, assumptions, sources and study size, and launches — pre-filling verified in a real browser (category, version, audiences, study size); launching from it not yet run
+- [ ] The education-savings study is authored from a single description, reusing its category, and runs, driven in a real browser — not yet run end to end in this pass
+- [x] Both of the mockup's paths — a reused category, and a new one with a follow-up — run through the app in a real browser, and every screen in the page inventory is compared side by side with the mockup's
+- [x] `/ontology` and the New-study page's audience panel are gone, the sidebar's step 0 is "Who you study", and nothing links to the old pages
