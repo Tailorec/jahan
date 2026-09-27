@@ -39,7 +39,7 @@ const PRESETS: { label: string; sources: string[] }[] = [
 const TEXT_SOURCES = ["amazon", "wiki"];
 const TEXT_LABEL = "read by a model from text, not surveyed";
 
-interface DraftRow { id: string; label: string; category: string; measures: string; kind: string; role: string; required: boolean; values: string[] }
+interface DraftRow { id: string; label: string; category: string; measures: string; kind: string; role: string; required: boolean; locked?: boolean; values: string[] }
 interface PoolCost { attribute: string; pool_without: number; removes: number; removes_by_source: Record<string, number>; emptied_sources: string[] }
 interface PoolReply { state: string; sources_total?: number; sources_by_source?: Record<string, number>; pool?: number; pool_by_source?: Record<string, number>; costs?: PoolCost[] }
 interface HeadCount { name: string; quota: number; head_count: number; by_source: Record<string, number>; dominant_source: string | null; filter_costs: Record<string, number>; empty_note: string | null; text_would_add: Record<string, number> }
@@ -129,6 +129,54 @@ export default function WhoPage() {
   const [describeError, setDescribeError] = React.useState<string | null>(null);
   const [category, setCategory] = React.useState<{ mode: "reuse" | "new"; id: string } | null>(null);
   const [sameAs, setSameAs] = React.useState("");
+
+  interface DraftUnsure { phrase: string; choices: { attribute: string; label: string; values: string[]; n_alone: number }[] }
+  interface DraftAudience { name: string; share: number | null; filters: Record<string, string[]>; phrases: Record<string, string>; unsure: DraftUnsure[]; descriptions: string[] }
+  interface DraftAttr { id: string; label: string; category: string; measures: string; kind: string; values: string[]; required: boolean; locked: boolean; role: string; phrase: string | null }
+  interface DraftQuestion { phrase: string; choices: { attribute: string; label: string; values: string[]; n_alone: number }[]; applies_to: string[] }
+  interface DraftReply { state: string; audiences: DraftAudience[]; attributes: DraftAttr[]; questions: DraftQuestion[]; unmatched: { phrase: string; missing: string }[] }
+  const [drafted, setDrafted] = React.useState<DraftReply | null>(null);
+  const [drafting, setDrafting] = React.useState(false);
+  const [draftError, setDraftError] = React.useState<string | null>(null);
+  const [questions, setQuestions] = React.useState<DraftQuestion[]>([]);
+
+  async function draftIt() {
+    if (!described || !category || drafting) return;
+    setDrafting(true);
+    setDraftError(null);
+    try {
+      const d = await api<DraftReply>("/api/draft", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: description, reading: described.reading, category, sources: JSON.parse(sourcesKey) }),
+      });
+      setDrafted(d);
+      setQuestions(d.questions ?? []);
+      setAudiences((d.audiences ?? []).map((a) => ({ name: a.name, share: a.share, filters: a.filters, descriptions: a.descriptions ?? [] })));
+      setRows((rs) => {
+        const next = [...rs];
+        for (const entry of d.attributes ?? []) {
+          const at = next.findIndex((r) => r.id === entry.id);
+          const row = { id: entry.id, label: entry.label, category: entry.category, measures: entry.measures, kind: entry.kind, role: entry.required ? "Required for everyone" : entry.role === "matters" ? "Describes everyone" : `Defines audiences`, required: entry.required, locked: entry.locked, values: entry.values };
+          if (at >= 0) next[at] = { ...next[at], ...row };
+          else next.push(row);
+        }
+        return next;
+      });
+    } catch (e) {
+      setDraftError(whyNot(e));
+    }
+    setDrafting(false);
+  }
+
+  function answerQuestion(qi: number, choice: { attribute: string; values: string[] } | null) {
+    const q = questions[qi];
+    if (choice) {
+      setAudiences((as) => as.map((a) => (q.applies_to.includes(a.name)
+        ? { ...a, filters: { ...a.filters, [choice.attribute]: choice.values } }
+        : a)));
+    }
+    setQuestions((qs) => qs.filter((_, i) => i !== qi));
+  }
 
   async function readIt() {
     if (!description.trim() || describing) return;
@@ -340,6 +388,31 @@ export default function WhoPage() {
               </div>
             </div>
           )}
+          {described && category && (
+            <div className="panel" style={{ marginTop: 16 }}>
+              <div className="panel-head"><h2>Draft</h2><span className="hint">matched against the corpus, checked — you confirm</span></div>
+              <div className="panel-body" style={{ display: "grid", gap: 8 }}>
+                <div><button className="btn primary sm" disabled={drafting} onClick={draftIt}>{drafting ? "Drafting…" : "Draft audiences"}</button></div>
+                {draftError && <Callout icon="alert"><div><b>Could not draft.</b> {draftError}</div></Callout>}
+              </div>
+            </div>
+          )}
+          {drafted && (
+            <div className="panel" style={{ marginTop: 16 }}>
+              <div className="panel-head"><h2>Conversation</h2><span className="hint">how each phrase was matched</span></div>
+              <div className="panel-body" style={{ display: "grid", gap: 6 }}>
+                {(drafted.audiences ?? []).map((a, i) => (
+                  <div key={i} style={{ fontSize: 12.5 }}>
+                    <b>{a.name}</b>: {Object.entries(a.phrases ?? {}).map(([attr, phrase]) => `"${phrase}" → ${attr} (${(a.filters[attr] ?? []).join(" / ")})`).join("; ") || "—"}
+                  </div>
+                ))}
+                {(drafted.unmatched ?? []).map((u, i) => (
+                  <div key={`u${i}`} className="sub" style={{ fontSize: 12.5 }}>Could not find <b>&quot;{u.phrase}&quot;</b> — {u.missing}</div>
+                ))}
+                {(drafted.unmatched ?? []).length === 0 && <div className="sub" style={{ fontSize: 12.5 }}>Everything was matched.</div>}
+              </div>
+            </div>
+          )}
           <div className="panel" style={{ marginTop: 16 }}>
             <div className="panel-head"><h2>Audiences</h2><span className="hint">{shareTotal > 0 ? `${Math.round(shareTotal * 100)}% of 100%` : "authored by hand until drafting lands"}</span></div>
             <div className="panel-body" style={{ display: "grid", gap: 10 }}>
@@ -389,6 +462,19 @@ export default function WhoPage() {
                         </select>
                       )}
                     </div>
+                    {questions.map((q, qi) => q.applies_to.includes(a.name) && (
+                      <div key={qi} style={{ border: "1px dashed var(--line)", borderRadius: "var(--r-md)", padding: 10, marginTop: 6 }}>
+                        <div style={{ fontSize: 12.5 }}>I wasn&apos;t sure what you meant by <b>&quot;{q.phrase}&quot;</b>:</div>
+                        {q.choices.map((c, ci) => (
+                          <div key={ci} style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12.5, padding: "2px 0" }}>
+                            <span><b>{c.label}</b> <span className="mono sub" style={{ fontSize: 11 }}>{c.attribute} = {(c.values ?? []).join(" / ")}</span></span>
+                            <span className="mono sub" style={{ fontSize: 11 }}>{(c.n_alone ?? 0).toLocaleString("en-US")} people</span>
+                            <button className="btn sm" style={{ marginLeft: "auto" }} onClick={() => answerQuestion(qi, c)}>Use this</button>
+                          </div>
+                        ))}
+                        <div><button className="btn quiet sm" onClick={() => answerQuestion(qi, null)}>Neither — leave it out</button></div>
+                      </div>
+                    ))}
                     {pickerFor?.ai === ai && picker && picker.id === pickerFor.attr && (
                       <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10, marginTop: 6 }}>
                         <div className="sub" style={{ fontSize: 12, marginBottom: 6 }}>Tick values — nothing here is typed.</div>
@@ -457,12 +543,15 @@ export default function WhoPage() {
                     <b>{r.label}</b>
                     <span className="mono sub" style={{ fontSize: 11 }}>{r.id}</span>
                     <span className="sub" style={{ fontSize: 11.5 }}>measures: {r.measures}</span>
-                    <button className="btn quiet sm" style={{ marginLeft: "auto" }} onClick={() => setRows((xs) => xs.filter((x) => x.id !== r.id))}>✕</button>
+                    {r.locked && <span className="tag">category — locked</span>}
+                    {!r.locked && <button className="btn quiet sm" style={{ marginLeft: "auto" }} onClick={() => setRows((xs) => xs.filter((x) => x.id !== r.id))}>✕</button>}
                   </div>
                   <div className="sub" style={{ fontSize: 11.5 }}>{r.role} · {r.kind}</div>
-                  <label style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center", marginTop: 4 }}>
-                    <input type="checkbox" checked={r.required} onChange={() => setRows((xs) => xs.map((x) => (x.id === r.id ? { ...x, required: !x.required } : x)))} /> required for everyone
-                  </label>
+                  {!r.locked && (
+                    <label style={{ fontSize: 12, display: "flex", gap: 4, alignItems: "center", marginTop: 4 }}>
+                      <input type="checkbox" checked={r.required} onChange={() => setRows((xs) => xs.map((x) => (x.id === r.id ? { ...x, required: !x.required } : x)))} /> required for everyone
+                    </label>
+                  )}
                 </div>
               ))}
             </div>

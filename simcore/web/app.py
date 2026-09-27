@@ -1262,6 +1262,63 @@ def create_app(
                 detail=f"the language model could not be reached ({type(failure).__name__}); drafting is unavailable",
             )
 
+    @app.post("/api/draft")
+    def draft_route(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """A confirmed category and a reading become audiences and an ontology
+        draft. Each trait is matched among 20 candidates with counts in view;
+        an attribute never offered, or a value outside its list, is refused."""
+        from simcore.population import Reading, draft
+        from simcore.ports.embeddings import codebook_digest, embed_model, load_embeddings
+        from simcore.ports.hf import HfCoresetSource
+        from simcore.ports.matrix import load_matrix
+
+        text = body.get("text") or ""
+        reading_raw = body.get("reading") or {}
+        category = body.get("category") or {}
+        if not isinstance(text, str) or not text.strip():
+            raise HTTPException(status_code=422, detail="describe who you want to study first")
+        if not isinstance(category, dict) or category.get("id") is None:
+            raise HTTPException(status_code=422, detail="confirm the category before anything is drafted")
+        codebook = _codebook_or_refuse(request)
+        corpus = _corpus_root(request)
+        try:
+            matrix = load_matrix(HfCoresetSource(cache_dir=corpus))
+        except Exception as failure:
+            raise HTTPException(status_code=409, detail=_pool_failure(failure))
+        if matrix is None:
+            return {"state": "building"}
+        embeddings = load_embeddings(corpus, codebook_digest(corpus), embed_model())
+        if embeddings is None:
+            raise HTTPException(
+                status_code=409,
+                detail="drafting is unavailable until search by meaning lands — it is building",
+            )
+        try:
+            reading = _reading_of(reading_raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+        def lookup(category_id: str):
+            return _latest_ontology(_ontologies_root(request), category_id)
+
+        wanted = body.get("sources")
+        try:
+            drafted = draft(
+                _chat_json, text.strip(), reading, category,
+                tuple(wanted) if wanted is not None else matrix.sources,
+                matrix, codebook, embeddings, lookup,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        except Exception as failure:
+            raise HTTPException(
+                status_code=409,
+                detail=f"the language model could not be reached ({type(failure).__name__}); drafting is unavailable",
+            )
+        outcome = drafted.to_json()
+        outcome["state"] = "ready"
+        return outcome
+
     @app.post("/api/audiences/preview")
     def preview_audiences_route(request: Request, body: dict[str, Any]) -> dict[str, Any]:
         """Each audience's head count against its quota at the study size, its
@@ -1392,6 +1449,46 @@ def _chat_json(system: str, user: str, max_tokens: int) -> dict:
     content = reply["choices"][0]["message"]["content"]
     found = re.search(r"\{.*\}", content, re.S)
     return _json.loads(found.group(0)) if found else {}
+
+
+def _reading_of(raw: Any):
+    """The confirmed reading as the engine's own type, or why it is refused."""
+    from simcore.population import Group, Reading
+
+    if not isinstance(raw, dict):
+        raise ValueError("a reading names groups, shared traits and topics")
+    groups = []
+    for audience in raw.get("groups") or []:
+        if not isinstance(audience, dict):
+            raise ValueError("a reading names groups, shared traits and topics")
+        share = audience.get("share")
+        groups.append(Group(
+            name=str(audience.get("name") or "audience"),
+            share=share if isinstance(share, (int, float)) and share > 0 else None,
+            traits=tuple(str(trait) for trait in audience.get("traits") or []),
+        ))
+    return Reading(
+        product=raw.get("product"),
+        groups=tuple(groups),
+        everyone=tuple(str(trait) for trait in raw.get("everyone") or []),
+        topics=tuple(str(topic) for topic in raw.get("topics") or []),
+    )
+
+
+def _latest_ontology(root: str, category_id: str):
+    """The latest saved ontology version for a category, or nothing."""
+    import json as _json
+
+    folder = Path(root, category_id)
+    if not _NAME.fullmatch(category_id) or not folder.is_dir():
+        return None
+    versions = sorted(folder.glob("*.json"))
+    if not versions:
+        return None
+    try:
+        return _json.loads(versions[-1].read_text(encoding="utf-8"))
+    except ValueError:
+        return None
 
 
 def _pool_failure(failure: Exception) -> str:
