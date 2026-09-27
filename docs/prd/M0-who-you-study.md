@@ -211,6 +211,11 @@ unaccepted change, shares missing or not summing to 100%, an audience below its 
 surveyed people cannot fill an audience, the page says what each would add; admitting one writes an `assumed` entry
 with its contribution to the candidate pool.
 
+**The interface follows the mockup page.** The step is a new route, `/who`, at step 0 of the sidebar, built in the
+layout and wording of `mockups/ontology/index.html` (mockups commit `8cc4be9`) with the frontend's existing design
+tokens, which are the mockups' own. It is built from the first phase and filled in phase by phase; the old ontology
+builder and audience panel keep working until the last phase retires them, so nothing is built twice.
+
 **The interface speaks the glossary.** Candidate pool, audience, text source, extracted; never "segment",
 "model-read" or "inferred". The coverage chips shipped on 2026-09-20 say "dense/sparse", which the glossary avoids;
 they become coverage.
