@@ -10,6 +10,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="simcore.web", description="Serve the engine over HTTP.")
     parser.add_argument("--runs", type=Path, default=Path("runs"))
     parser.add_argument("--ontologies", type=Path, default=Path("ontologies"))
+    parser.add_argument("--audiences", type=Path, default=Path("audiences"), help="where Who you study saves audience sets")
     parser.add_argument("--anchors", type=Path, default=Path("anchors"))
     parser.add_argument("--corpus", type=Path, default=None, help="a cached corpus directory, when not the default cache")
     parser.add_argument(
@@ -28,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     app = create_app(
         runs_dir=args.runs.resolve(),
         ontology_dir=args.ontologies.resolve(),
+        audience_dir=args.audiences.resolve(),
         anchors_dir=args.anchors.resolve(),
         corpus_dir=args.corpus.resolve() if args.corpus is not None else None,
         engine_root=args.engine_root.resolve() if args.engine_root is not None else Path.cwd(),

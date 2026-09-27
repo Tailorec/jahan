@@ -407,6 +407,11 @@ def _ontologies_root(request: Request) -> str:
     return request.app.state.ontology_dir or str(Path(request.app.state.engine_root, "ontologies"))
 
 
+def _audience_sets_root(request: Request) -> str:
+    """Where Who you study saves audience sets: the configured directory, else the checkout's."""
+    return request.app.state.audience_dir or str(Path(request.app.state.engine_root, "audiences"))
+
+
 def _anchors_root(request: Request) -> str:
     return request.app.state.anchors_dir or str(Path(request.app.state.engine_root, "anchors"))
 
@@ -475,6 +480,7 @@ def create_app(
     *,
     runs_dir: str | Path,
     ontology_dir: str | Path | None = None,
+    audience_dir: str | Path | None = None,
     anchors_dir: str | Path | None = None,
     engine_root: str | Path | None = None,
     corpus_dir: str | Path | None = None,
@@ -491,6 +497,7 @@ def create_app(
     Path(runs_dir).mkdir(parents=True, exist_ok=True)
     app.state.runs_dir = str(runs_dir)
     app.state.ontology_dir = str(ontology_dir) if ontology_dir is not None else None
+    app.state.audience_dir = str(audience_dir) if audience_dir is not None else None
     app.state.anchors_dir = str(anchors_dir) if anchors_dir is not None else None
     app.state.engine_root = str(engine_root) if engine_root is not None else str(Path.cwd())
     app.state.corpus_dir = str(corpus_dir) if corpus_dir is not None else None
@@ -1122,6 +1129,33 @@ def create_app(
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text("\n".join([ontology.model_dump_json(indent=2), ""]), encoding="utf-8")
         return {"category": ontology.category, "version": str(ontology.version)}
+
+    @app.post("/api/audience-sets", status_code=201)
+    def save_audience_set_route(request: Request, body: dict[str, Any]) -> dict[str, Any]:
+        """Save what Who you study finished with — audiences, assumptions, sources and study size —
+        against the one ontology version they were drafted in. A saved set is never overwritten."""
+        from simcore.population import save_audience_set
+
+        try:
+            return save_audience_set(_audience_sets_root(request), _ontologies_root(request), body)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+
+    @app.get("/api/audience-sets")
+    def list_audience_sets_route(request: Request) -> dict[str, Any]:
+        """Every saved audience set, newest first: what a study starts from."""
+        from simcore.population import list_audience_sets
+
+        return {"audience_sets": list_audience_sets(_audience_sets_root(request))}
+
+    @app.get("/api/audience-sets/{category}/{set_id}")
+    def read_audience_set_route(request: Request, category: str, set_id: str) -> dict[str, Any]:
+        from simcore.population import load_audience_set
+
+        found = load_audience_set(_audience_sets_root(request), category, set_id)
+        if found is None:
+            raise _missing(f"no audience set {category}/{set_id}")
+        return found
 
     @app.post("/api/pool")
     def read_pool(request: Request, body: dict[str, Any]) -> dict[str, Any]:

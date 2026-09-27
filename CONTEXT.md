@@ -76,6 +76,10 @@ _Avoid_: dry run, estimate, what-if, simulation
 A named, attribute-defined slice of the target market, declared in the brief and referred to by name in study inputs. When a brief declares none, the engine derives audiences from the dataset's calibration targets so there is always a grouping to report over.
 _Avoid_: segment (ambiguous — it has meant three different things), stratum, cell, demo
 
+**Audience Set**:
+What Who you study finishes with, saved as one unit: the audiences with their filters and shares, the assumptions they carry, the sources and study size they were counted at, and the one ontology version they were drafted against. A study starts by choosing an audience set, never an ontology alone — one ontology serves many audience sets. A saved set is never changed; editing one saves another.
+_Avoid_: preset, template, saved audiences, draft
+
 **Community**:
 A cluster of personas discovered in the generated social graph. Communities emerge from homophily and tie strength, so they routinely cut across audiences — that divergence is a finding, not a defect. Communities never appear in study inputs, only in results.
 _Avoid_: segment, cluster, group, tribe

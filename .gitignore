@@ -25,3 +25,6 @@ frontend/.next-test/
 
 # Ontologies are made on the Who-you-study page and stay on the machine that made them.
 /ontologies/
+
+# Audience sets saved by Who you study, like the ontologies they are drafted against.
+/audiences/
