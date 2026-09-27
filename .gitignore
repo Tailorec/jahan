@@ -23,6 +23,5 @@ frontend/next-env.d.ts
 frontend/tsconfig.tsbuildinfo
 frontend/.next-test/
 
-# Ontologies people make on the Who-you-study page stay on their machine. The four seed versions the
-# example briefs and the tests pin are already tracked, and git keeps tracking them.
+# Ontologies are made on the Who-you-study page and stay on the machine that made them.
 /ontologies/
