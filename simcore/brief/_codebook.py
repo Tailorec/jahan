@@ -108,10 +108,13 @@ def measures_of(attribute: str, label: str = "", category: str = "") -> str:
     and category, never from a model. An attitude, value or interest is how
     people feel rather than what they do."""
     hay = _haystack(attribute, label, category)
-    if _has_any(hay, _ATTITUDE_WORDS):
+    # The attribute's own words first: a habit filed under the "Interests" family is still a habit.
+    if _has_any(f"{attribute} {label}".lower(), _ATTITUDE_WORDS):
         return "how people feel rather than what they do"
     if _has_any(hay, _HABIT_WORDS):
         return "what people do regularly"
+    if _has_any(hay, _ATTITUDE_WORDS):
+        return "how people feel rather than what they do"
     return "a fact about the person"
 
 

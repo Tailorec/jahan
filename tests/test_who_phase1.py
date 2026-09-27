@@ -85,3 +85,8 @@ def test_real_codebook_word_search_top_five():
     codebook = Codebook.from_json(REAL_CACHE / "persona_codes.schema.json")
     for query in ("kids", "money", "wealthy"):
         assert word_search(query, codebook, limit=5), f"{query!r} finds nothing in the top five"
+
+
+def test_a_habit_filed_under_interests_is_still_a_habit():
+    assert measures_of("lstyle_cooking_freq", "Cooking frequency", "Interests: Culture") == "what people do regularly"
+    assert measures_of("topic_travel", "Travel", "Interests: Culture").startswith("how people feel")
