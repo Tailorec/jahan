@@ -25,6 +25,67 @@ class CodebookLike(Protocol):
     @property
     def attributes(self) -> tuple[str, ...]: ...
     def vocabulary(self, attribute: str) -> tuple[str, ...] | None: ...
+    def label(self, attribute: str) -> str: ...
+    def category(self, attribute: str) -> str: ...
+
+
+_ATTITUDE_WORDS = frozenset({
+    "attitude", "att_", "value", "values", "interest", "opinion", "belief",
+    "trust", "sentiment", "lean", "religios", "ideolog", "tolerance",
+    "satisfaction", "confidence", "worry", "fear", "pride", "empathy",
+})
+
+_HABIT_WORDS = frozenset({
+    "habit", "frequency", "freq", "uses", "usage", "spending", "saving",
+    "budget", "exercise", "cook", "subscription", "smok", "drink", "diet",
+    "sleep", "commute", "shop", "travel", "routine", "practice",
+})
+
+_MONEY_WORDS = frozenset({
+    "income", "money", "wealth", "socioeconomic", "employment", "employ",
+    "work", "job", "salary", "wage", "occupation", "profession",
+})
+
+_DECIDE_WORDS = frozenset({"decision", "risk", "choice", "style", "closure", "impuls"})
+
+_MEDIA_WORDS = frozenset({"media", "read", "watch", "news", "social", "linguistic", "language", "learn"})
+
+
+def _haystack(attribute: str, label: str, category: str) -> str:
+    return f"{attribute} {label} {category}".lower()
+
+
+def _has_any(haystack: str, words: frozenset[str]) -> bool:
+    return any(word in haystack for word in words)
+
+
+def measures_of(attribute: str, label: str = "", category: str = "") -> str:
+    """What an attribute measures, in the builder's words — taken from its id
+    and category, never from a model. An attitude, value or interest is how
+    people feel rather than what they do."""
+    hay = _haystack(attribute, label, category)
+    if _has_any(hay, _ATTITUDE_WORDS):
+        return "how people feel rather than what they do"
+    if _has_any(hay, _HABIT_WORDS):
+        return "what people do regularly"
+    return "a fact about the person"
+
+
+def kind_of(attribute: str, label: str = "", category: str = "") -> str:
+    """The ontology table's kind column, in plain words."""
+    family = (category.split(":")[0] if ":" in category else category).strip().lower()
+    hay = _haystack(attribute, label, category)
+    if _has_any(hay, _MONEY_WORDS):
+        return "Money & work"
+    if _has_any(hay, _DECIDE_WORDS) or family.startswith("risk"):
+        return "How they decide"
+    if _has_any(hay, _MEDIA_WORDS) or family in {"linguistic", "learning"}:
+        return "What they read & watch"
+    if family in {"personality", "values & motivation", "worldview", "state"}:
+        return "How they think"
+    if family in {"behavior", "health", "skills", "developer", "professional", "expertise", "interests"}:
+        return "What they do"
+    return "Who they are"
 
 
 def _words(name: str) -> list[str]:
@@ -37,6 +98,65 @@ def _kin(word: str, other: str) -> bool:
         return True
     short, long = sorted((word, other), key=len)
     return len(short) >= 3 and long.startswith(short)
+
+
+_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "kid": ("child", "children", "parent", "parenthood", "family"),
+    "kids": ("child", "children", "parent", "parenthood", "family"),
+    "child": ("kid", "kids", "parent", "parenthood"),
+    "children": ("kid", "kids", "parent", "parenthood"),
+    "parent": ("child", "children", "kid", "kids", "parenthood"),
+    "parents": ("child", "children", "kid", "kids", "parenthood"),
+    "money": ("income", "wealth", "salary", "economic", "socioeconomic", "spending", "saving"),
+    "wealthy": ("wealth", "income", "socioeconomic", "rich", "affluent"),
+    "wealth": ("income", "socioeconomic", "money"),
+    "income": ("money", "wealth", "salary", "socioeconomic"),
+    "salary": ("income", "money", "wage", "wealth"),
+    "poor": ("income", "wealth", "socioeconomic"),
+    "rich": ("wealth", "income", "socioeconomic"),
+    "married": ("marital", "marriage", "spouse"),
+    "student": ("education", "school", "life_stage"),
+    "students": ("education", "school", "life_stage"),
+    "retired": ("retirement", "retire", "life_stage", "employment"),
+    "religious": ("religion", "religiosity", "faith"),
+    "politics": ("political", "ideology", "lean"),
+}
+
+
+def _expand(terms: list[str]) -> list[str]:
+    expanded = list(terms)
+    for term in terms:
+        expanded.extend(_SYNONYMS.get(term, ()))
+    return expanded
+
+
+def word_search(query: str, codebook: CodebookLike, limit: int = 5) -> tuple[str, ...]:
+    """Attributes matching `query` by words over ids, labels and categories.
+
+    Terms match when a word of the attribute text starts with the term or the
+    term starts with it, so "kids" finds children and "wealthy" finds wealth.
+    A small synonym map covers the cases letters alone cannot reach ("kids"
+    shares no letters with "children"). Most shared terms first, most similar
+    text second.
+    """
+    terms = [word for word in re.split(r"[^a-z0-9]+", query.lower()) if word]
+    if not terms:
+        return ()
+    wanted = _expand(terms)
+    ranked: list[tuple[int, float, str]] = []
+    for attribute in codebook.attributes:
+        label = codebook.label(attribute) if hasattr(codebook, "label") else ""
+        category = codebook.category(attribute) if hasattr(codebook, "category") else ""
+        text = f"{attribute.replace('_', ' ')} {label} {category}".lower()
+        words = [word for word in re.split(r"[^a-z0-9]+", text) if word]
+        shared = sum(
+            1 for term in wanted
+            if any(term in word or word in term or _kin(term, word) for word in words if len(word) > 2)
+        )
+        if shared:
+            similarity = difflib.SequenceMatcher(None, query.lower(), text).ratio()
+            ranked.append((-shared, -similarity, attribute))
+    return tuple(attribute for *_, attribute in sorted(ranked)[:limit])
 
 
 def suggest_attributes(name: str, codebook: CodebookLike, limit: int = 3) -> tuple[str, ...]:
@@ -103,4 +223,4 @@ def validate_against_codebook(ontology: CategoryOntology, codebook: CodebookLike
                 )
 
 
-__all__ = ["suggest_attributes", "validate_against_codebook"]
+__all__ = ["kind_of", "measures_of", "suggest_attributes", "validate_against_codebook", "word_search"]

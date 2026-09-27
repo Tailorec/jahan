@@ -40,6 +40,18 @@ class Codebook:
                 return tuple(str(v) for v in col["values"])  # type: ignore[union-attr]
         return None
 
+    def label(self, attribute: str) -> str:
+        for col in self.columns:
+            if col["id"] == attribute:  # type: ignore[comparison-overlap]
+                return str(col.get("label") or attribute)  # type: ignore[union-attr]
+        return attribute
+
+    def category(self, attribute: str) -> str:
+        for col in self.columns:
+            if col["id"] == attribute:  # type: ignore[comparison-overlap]
+                return str(col.get("category") or "")  # type: ignore[union-attr]
+        return ""
+
     @property
     def field_count(self) -> int:
         return len(self.columns)
