@@ -13,17 +13,21 @@ from pathlib import Path
 FRONTEND = Path(__file__).resolve().parents[3] / "frontend"
 
 
-def test_gates_show_statistic_threshold_and_verdict():
+def test_gates_show_statistic_threshold_and_verdict_in_words():
     text = (FRONTEND / "app" / "population" / "page.tsx").read_text()
-    for marker in ("Statistic", "Threshold", "pass at p >", "pass at similarity", "recompute the call"):
+    for marker in ("words.question", "words.result", "words.rule", "words.raw", "words.failed"):
         assert marker in text, f"population page lacks {marker!r}"
+    words = (FRONTEND / "lib" / "gates.ts").read_text()
+    # The statistic stays beside the words, so the call can still be recomputed.
+    for marker in ("Passes when that chance is above", "Passes at similarity", "χ²", "KS D", "Needs at least"):
+        assert marker in words, f"gate words lack {marker!r}"
 
 
 def test_requested_achieved_relaxations_synthesized_and_completion():
     text = (FRONTEND / "app" / "population" / "page.tsx").read_text()
     for marker in (
-        "Requested", "Achieved", "relaxation", "rows_before",
-        "Synthesized", "May be completed", "Never synthesized",
+        "Asked for", "Reached", "relaxation", "explainRelaxation(",
+        "Synthesized", "May be filled in", "Never filled in",
     ):
         assert marker in text, f"population page lacks {marker!r}"
 

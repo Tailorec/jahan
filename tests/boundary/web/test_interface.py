@@ -412,7 +412,7 @@ def test_no_page_throws_while_it_renders(stack, page):
 def test_a_failed_or_gate_only_population_shows_its_gates(stack):
     html, _ = _render(stack["base"], f"/population?run={stack['gated']}")
     text = _visible(html)
-    assert "Distribution gates" in text and "pass at" in text, "each gate shows its statistic and threshold"
+    assert "Distribution gates" in text and "Passes" in text, "each gate shows its statistic and threshold"
     assert "Audience mix" in text
 
 
