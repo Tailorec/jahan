@@ -205,7 +205,7 @@ export default function PopulationPage() {
                   <tr><td>May be filled in<Tip text="Kinds of field a model may complete for a persona who left them blank, as the category's ontology allows." /></td><td className="mono sub">{completable.length ? completable.join(", ") : "—"}</td></tr>
                   <tr><td>Never filled in<Tip text="Who a person is and how they think are only ever what they said; a persona without them is not drawn." /></td><td className="mono sub">demographic, psychographic</td></tr>
                   <tr><td>Model that filled them</td><td className="num mono">{manifest?.completion?.model_id ?? "—"}</td></tr>
-                  <tr><td>Social graph<Tip text="The fingerprint of the network the personas are connected by; the same draw always builds the same network." /></td><td className="num mono">{manifest ? (manifest.graph_hash ? `${manifest.graph_hash.slice(0, 12)}…` : "none attached") : "—"}</td></tr>
+                  <tr><td>Social graph<Tip text="The fingerprint (hash) of the social network built between the personas: who knows whom, and how closely. The same draw and seed always build the same network, so the same fingerprint. The feed, forum and word-of-mouth environments spread posts and opinions along it; a survey room does not use it." /></td><td className="num mono">{manifest ? (manifest.graph_hash ? `${manifest.graph_hash.slice(0, 12)}…` : "none attached") : "—"}</td></tr>
                 </tbody></table></div>
               </div>
             </div>
@@ -220,8 +220,10 @@ export default function PopulationPage() {
                         <tr key={c}><td className="mono">{c}</td><td className="num">{pct(s)}</td></tr>
                       ))}
                     </tbody></table>
+                  ) : !digest ? (
+                    <div className="empty"><b>Not yet — the study has not run.</b>Communities are found in the social network as the study runs: who talks to whom, and which groups form. A gate run builds the network but runs nothing, so there is nothing to show until the study is launched.</div>
                   ) : (
-                    <div className="empty"><b>No communities formed.</b>{digest?.polarization_reason ? <> {digest.polarization_reason}</> : " The network formed no clear groups, so polarization is unmeasured rather than zero."}</div>
+                    <div className="empty"><b>No communities formed.</b>{digest.polarization_reason ? <> {digest.polarization_reason}</> : " The network formed no clear groups, so polarization is unmeasured rather than zero."}</div>
                   )}
                   {digest && <p className="sub" style={{ fontSize: 12 }}>
                     <span className="mono">world {digest.world_id}</span> · audience divergence <b>{digest.audience_divergence != null ? digest.audience_divergence.toFixed(3) : "—"}</b>
