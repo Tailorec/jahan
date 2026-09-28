@@ -31,13 +31,14 @@ def chi_squared(sample: Sequence[AttributeValue], expected: np.ndarray, vocabula
     """The chi-squared statistic, its degrees of freedom and its p-value, or nothing when the
     expectation carries no mass or fewer than two categories survive it."""
     observed = counts_of(sample, vocabulary)
-    if observed.sum() == 0 or expected.sum() == 0:
+    # A value the reference never saw carries no expectation, so it is left out on both sides. Every drawn
+    # person came from their pool, so it is the reference sample's miss, not a skew — and keeping its count
+    # while dropping its expectation made the two totals disagree, which the test refuses outright.
+    keep = expected > 0
+    observed, expected = observed[keep], expected[keep]
+    if observed.sum() == 0 or expected.sum() == 0 or len(observed) < 2:
         return None
     scaled = expected / expected.sum() * observed.sum()
-    keep = scaled > 0
-    observed, scaled = observed[keep], scaled[keep]
-    if len(observed) < 2:
-        return None
     result = stats.chisquare(observed, scaled)
     return float(result.statistic), int(len(observed) - 1), float(result.pvalue)
 

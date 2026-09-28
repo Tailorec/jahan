@@ -95,3 +95,14 @@ def test_the_design_weighs_each_pool_by_how_many_of_it_answered():
     few = [SimpleNamespace(values={"a": "y"}) for _ in range(10)] + [SimpleNamespace(values={}) for _ in range(90)]
     expected = _expected([(0.5, everyone), (0.5, few)], "a", ["x", "y"])
     assert abs(expected[0] / expected.sum() - 1 / 1.1) < 1e-9
+
+
+def test_a_value_the_reference_never_saw_does_not_break_the_check():
+    # 20,000 drawn against a 5,000-row reference: a rare answer can be drawn that the reference missed.
+    import numpy as np
+
+    from simcore.population._gates import chi_squared
+
+    sample = ["a"] * 60 + ["b"] * 40 + ["c"]  # "c" was drawn, never seen in the reference
+    statistic, degrees, p_value = chi_squared(sample, np.array([0.6, 0.4, 0.0]), ["a", "b", "c"])
+    assert degrees == 1 and statistic == 0.0 and p_value == 1.0
