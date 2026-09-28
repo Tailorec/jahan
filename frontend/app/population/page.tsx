@@ -5,6 +5,7 @@ import Shell from "@/components/shell";
 import { PageHead, Chip, Callout, TrustLine } from "@/components/ui";
 import React from "react";
 import { useApi, useRunId } from "@/lib/api";
+import { SOURCE_COLORS, SOURCE_NAMES, TEXT_SOURCES } from "@/lib/sources";
 import { ORIGIN_WORDS, REFERENCE_WORDS, explainGate, explainRelaxation, gateMeter, type GateMeter } from "@/lib/gates";
 import type {
   CategoryOntology, FieldOrigin, GateReport, OutcomeDigest, PersonaRecord, PopulationManifest,
@@ -20,10 +21,6 @@ interface Detail {
   ontology: CategoryOntology | null;
 }
 
-const SOURCE_NAMES: Record<string, string> = {
-  stackoverflow: "Stack Overflow", gss: "GSS (US public)", prism: "PRISM", real_human_survey: "Real human survey",
-  amazon: "Amazon reviewers", wiki: "Wikipedia figures", synthetic: "synthetic",
-};
 const label = (id: string) => id.replace(/^demo_/, "").replace(/_/g, " ");
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 
@@ -35,6 +32,28 @@ function Meter({ meter, passed }: { meter: GateMeter; passed: boolean }) {
       <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: at(meter.line), background: "var(--risk-soft)", borderRadius: "4px 0 0 4px", borderRight: "1px solid var(--line-2)" }} />
       <div style={{ position: "absolute", left: at(meter.line), top: -3, bottom: -3, width: 2, marginLeft: -1, background: "var(--ink-3)" }} />
       <div style={{ position: "absolute", left: at(meter.value), top: -3, width: 14, height: 14, marginLeft: -7, borderRadius: "50%", background: passed ? "var(--ok)" : "var(--risk)", border: "2px solid var(--bg)", boxShadow: "0 0 0 1px var(--line-2)" }} />
+    </div>
+  );
+}
+
+/* Who the personas really are: each source's share as one bar, then a line per source, largest first; a source
+   whose answers were read from text by a model says so. */
+function SourceMix({ mix }: { mix: Record<string, number> }) {
+  const entries = Object.entries(mix).sort((a, b) => b[1] - a[1]);
+  return (
+    <div style={{ marginTop: 6 }}>
+      <div style={{ display: "flex", height: 10, borderRadius: 5, overflow: "hidden", background: "var(--surface-2)" }}>
+        {entries.map(([s, w]) => <span key={s} title={`${SOURCE_NAMES[s] ?? s}: ${pct(w)}`} style={{ width: `${w * 100}%`, background: SOURCE_COLORS[s] ?? "var(--ink-3)" }} />)}
+      </div>
+      <div style={{ display: "grid", gap: 3, marginTop: 8, fontSize: 12 }}>
+        {entries.map(([s, w]) => (
+          <div key={s} style={{ display: "grid", gridTemplateColumns: "10px 1fr auto", gap: 6, alignItems: "center" }}>
+            <span style={{ width: 9, height: 9, borderRadius: 2, background: SOURCE_COLORS[s] ?? "var(--ink-3)" }} />
+            <span>{SOURCE_NAMES[s] ?? s}{TEXT_SOURCES.includes(s) && <span style={{ color: "oklch(0.5 0.11 70)", fontSize: 11 }}> · read from text</span>}</span>
+            <span className="mono" style={{ fontVariantNumeric: "tabular-nums" }}>{pct(w)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -93,7 +112,7 @@ export default function PopulationPage() {
         <>
           <div className="stat-strip" style={{ marginBottom: 20 }}>
             <div className="stat"><div className="k">Personas<Tip text="How many personas were drawn and kept for this study." /></div><div className="v">{manifest ? manifest.persona_ids.length.toLocaleString() : "none built"}</div><div className="d">{manifest ? "drawn to the audience shares" : "the draw failed its gates, so no population was kept"}</div></div>
-            <div className="stat"><div className="k">Source mix<Tip text="Which dataset each drawn persona came from. If one survey dominates, the personas are mostly that survey's kind of people." /></div><div className="v" style={{ fontSize: 15 }}>{Object.entries(gate.source_mix).sort((a, b) => b[1] - a[1]).map(([s, w]) => `${SOURCE_NAMES[s] ?? s} ${pct(w)}`).join(" · ")}</div><div className="d">who the personas really are</div></div>
+            <div className="stat" style={{ gridColumn: "span 2" }}><div className="k">Source mix<Tip text="Which dataset each drawn persona came from. If one survey dominates, the personas are mostly that survey's kind of people." /></div><SourceMix mix={gate.source_mix} /></div>
             <div className="stat"><div className="k">Synthesized<Tip text="The share of persona fields a model filled in because the person never answered them. Only money, media and decision fields may be filled; who people are and how they think never are." /></div><div className="v">{manifest ? <>{(manifest.synthesized_share * 100).toFixed(1)}<small>%</small></> : "—"}</div><div className="d">{manifest ? "of fields filled in by a model" : "no manifest to state it"}</div></div>
             <div className="stat"><div className="k">Relaxations<Tip text="How many times an audience's filters had to be loosened because too few people matched them exactly." /></div><div className="v">{gate.relaxations.length}</div><div className="d">{gate.relaxations.length ? "filters loosened to fill audiences" : "every audience filled as declared"}</div></div>
             <div className="stat"><div className="k">Judged against<Tip text={REFERENCE_WORDS[gate.reference]} /></div><div className="v" style={{ fontSize: 16 }}>{gate.reference === "design" ? "the study's design" : "category targets"}</div><div className="d">what the checks compare the draw with</div></div>

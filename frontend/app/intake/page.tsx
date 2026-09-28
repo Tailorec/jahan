@@ -12,6 +12,7 @@ import {
   CHANNELS, CHANNEL_GUIDE, ONE_ENVIRONMENT_NOTE, defaultAnchor, defaultSources, gateRequest, leftOut, problems, shardsFor, studyRequest,
   type AnchorCatalogue, type ChannelName, type CorpusInfo, type StudyForm,
 } from "@/lib/study";
+import { TEXT_SOURCES } from "@/lib/sources";
 
 /* What the population gate answers: the report and manifest the engine wrote, or — when the
    draw was refused before a report existed — the engine's reason, never a path. */
@@ -509,7 +510,6 @@ export default function IntakePage() {
   );
 }
 
-const TEXT_SOURCES = ["amazon", "wiki"];
 
 /* Each shard as the people in it, not a file number: which sources it holds and how many, whether they were
    surveyed, read from text by a model, or synthetic and never drawn. */

@@ -7,15 +7,12 @@ import Shell from "@/components/shell";
 import { useSessionState } from "@/lib/session";
 import { api, ApiError, useApi, whyNot } from "@/lib/api";
 import type { AudienceSet } from "@/lib/engine";
+import { SOURCE_COLORS as COLORS, SOURCE_NAMES as NAMES, SURVEYS, TEXT_SOURCES } from "@/lib/sources";
 import "./who.css";
 
 /* Who you study — the mockup's page (mockups/ontology/index.html) on the engine's own routes. Every count
    here is the engine's: this page lays them out and keeps what the person chose, nothing more. */
 
-const COLORS: Record<string, string> = { stackoverflow: "var(--seg1)", gss: "var(--seg2)", amazon: "var(--seg3)", prism: "var(--seg4)", real_human_survey: "var(--seg5)", wiki: "oklch(0.7 0.02 75)" };
-const NAMES: Record<string, string> = { stackoverflow: "Stack Overflow survey", gss: "General Social Survey (US)", amazon: "Amazon reviewers", prism: "PRISM survey", real_human_survey: "Real human survey", wiki: "Wikipedia figures" };
-const SURVEYS = ["stackoverflow", "gss", "prism", "real_human_survey"];
-const TEXT_SOURCES = ["amazon", "wiki"];
 const PRESETS = [
   { label: "All surveys", sources: SURVEYS },
   { label: "US public", sources: ["gss"] },
