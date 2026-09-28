@@ -1775,6 +1775,13 @@ def _why_it_stopped(run_dir: Path, hide: tuple[str, ...]) -> str | None:
     """The last thing a stopped study said, when it is not running and has no report."""
     if lifecycle.is_live(run_dir.name) or Path(run_dir, "report.json").is_file():
         return None
+    # A gate that passed but built nothing wrote why beside its report; a gate run has no launch log.
+    refusal = Path(run_dir, "build-refusal.txt")
+    if refusal.is_file():
+        said = refusal.read_text(encoding="utf-8").strip()
+        for prefix in hide:
+            said = said.replace(prefix, "…")
+        return said
     return lifecycle.log_tail(run_dir, hide)
 
 
@@ -1934,12 +1941,16 @@ def _run_gate(request: Request, body: GateRequest) -> dict[str, Any]:
                 argv, cwd=request.app.state.engine_root, capture_output=True, text=True, timeout=240
             )
         except subprocess.TimeoutExpired:
-            raise HTTPException(status_code=504, detail="the population gate took longer than four minutes")
+            why = "the population gate took longer than four minutes and was stopped"
+            if Path(_runs_dir(request), run_id).is_dir():
+                Path(_runs_dir(request), run_id, "build-refusal.txt").write_text(why + "\n", encoding="utf-8")
+            raise HTTPException(status_code=504, detail=why)
     run_dir = Path(_runs_dir(request), run_id)
     gate = _read_json_silent(Path(run_dir, "gate-report.json"))
     manifest = _read_json_silent(Path(run_dir, "manifest.json"))
     refusal = None
-    if gate is None:
+    # Any failure is said: no report, or a report that passed and then built nothing.
+    if gate is None or (done.returncode != 0 and manifest is None):
         hide = _hidden_prefixes(request)
         lines = [line for line in (done.stderr or done.stdout).splitlines() if line.strip()]
         refusal = lines[-1] if lines else "the gate wrote no report"

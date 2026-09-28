@@ -151,3 +151,31 @@ def test_a_new_category_named_like_a_different_one_is_refused():
         prepare_launch({"mode": "new", "id": "study"},
                        [{"id": "region", "domain": "demographic", "required": True}],
                        [{"name": "a", "share": 1.0, "filters": {}}], [], lambda category_id: _before(), _Codebook())
+
+
+def test_a_gate_that_passes_and_builds_nothing_says_why(tmp_path, monkeypatch):
+    # The reason is written beside the gate report, and the run entry serves it: "no personas" is never unexplained.
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+
+    import simcore.cli._study as study
+    from simcore.web import create_app
+
+    run_dir = tmp_path / "runs" / "run-built-nothing"
+    run_dir.mkdir(parents=True)
+    passing = SimpleNamespace(overall=True, results=(), model_dump_json=lambda **_: '{"overall": true, "results": []}')
+    monkeypatch.setattr(study, "assess", lambda *a, **k: passing, raising=False)
+    import simcore.population as population
+    monkeypatch.setattr(population, "assess", lambda *a, **k: passing)
+
+    def no_network(*_a, **_k):
+        raise RuntimeError("the social graph fails its structural gates: ['connectivity']")
+
+    monkeypatch.setattr(study, "build", no_network, raising=False)
+    monkeypatch.setattr(population, "build", no_network)
+    with pytest.raises(RuntimeError):
+        study.gate_and_build(SimpleNamespace(), n=10, population_seed=1, chat=None, coreset=None, run_dir=run_dir)
+    assert (run_dir / "build-refusal.txt").read_text().startswith("RuntimeError: the social graph fails")
+    entry = TestClient(create_app(runs_dir=tmp_path / "runs")).get("/api/runs/run-built-nothing").json()
+    assert "social graph fails" in entry["launch_error"]

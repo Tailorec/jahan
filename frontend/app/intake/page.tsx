@@ -382,6 +382,10 @@ export default function IntakePage() {
                       ))}
                     </tbody></table>
                     {gate.manifest && <p className="sub mono" style={{ color: "var(--ink-3)" }}>{gate.manifest.persona_ids.length} personas · synthesized {(gate.manifest.synthesized_share * 100).toFixed(1)}% · kept with the run</p>}
+                    {gate.gate.overall && !gate.manifest && (
+                      <Callout icon="alert"><div><b>Every check passed, but the population was not built.</b>
+                        <pre className="mono" style={{ fontSize: 11, whiteSpace: "pre-wrap", marginTop: 6 }}>{gate.refusal ?? "No reason was given."}</pre></div></Callout>
+                    )}
                     {gate.run_id && <Link className="btn sm" href={`/population?run=${gate.run_id}`}>Open gate report {ICONS.arrow}</Link>}
                   </>
                 ) : (

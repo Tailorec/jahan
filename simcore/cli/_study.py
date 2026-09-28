@@ -354,7 +354,12 @@ def gate_and_build(
     if not gate_report.overall:
         failed = sorted(result.attribute for result in gate_report.results if not result.passed)
         raise GateFailure(f"the sample failed its distribution gates: {failed}")
-    built = build(pack, n, population_seed, coreset=coreset, inference=chat, parameters=parameters)
+    try:
+        built = build(pack, n, population_seed, coreset=coreset, inference=chat, parameters=parameters)
+    except Exception as failure:
+        # A passing gate that builds nothing must say why, beside the report that passed.
+        (run_dir / "build-refusal.txt").write_text(f"{type(failure).__name__}: {failure}\n", encoding="utf-8")
+        raise
     population = built.population
     (run_dir / "manifest.json").write_text(population.manifest.model_dump_json(indent=2) + "\n")
     (run_dir / "personas.json").write_text(json.dumps(

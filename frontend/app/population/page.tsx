@@ -19,6 +19,7 @@ interface Detail {
   personas: PersonaRecord[] | null;
   personaTotal: number;
   ontology: CategoryOntology | null;
+  summary: { launch_error?: string | null } | null;
 }
 
 const label = (id: string) => id.replace(/^demo_/, "").replace(/_/g, " ");
@@ -98,6 +99,13 @@ export default function PopulationPage() {
       {!data && !error && <div className="empty"><b>Loading population…</b></div>}
       {data && <TrustLine level={data.report?.trust.level ?? null} runId={runId} />}
       {data && !gate && <Callout icon="alert"><div>No gate-report.json for this run.</div></Callout>}
+      {gate && gate.overall && !manifest && (
+        <Callout icon="alert"><div>
+          <b>The draw passed every check, but the population was not built.</b> Building it — filling unanswered fields and
+          connecting the personas into a social network — stopped, so no personas were kept and nothing was simulated.
+          <div className="mono" style={{ fontSize: 12, marginTop: 6, whiteSpace: "pre-wrap" }}>{data?.summary?.launch_error ?? "No reason was recorded for this run: run the gate again, and the reason appears here."}</div>
+        </div></Callout>
+      )}
       {gate && !gate.overall && (
         <Callout icon="alert"><div>
           <b>This study never ran.</b> The draw failed {failures.length} of its {gate.results.length} checks, so no personas were kept, nothing was simulated and nothing was spent.
@@ -111,7 +119,7 @@ export default function PopulationPage() {
       {gate && (
         <>
           <div className="stat-strip" style={{ marginBottom: 20 }}>
-            <div className="stat"><div className="k">Personas<Tip text="How many personas were drawn and kept for this study." /></div><div className="v">{manifest ? manifest.persona_ids.length.toLocaleString() : "none built"}</div><div className="d">{manifest ? "drawn to the audience shares" : "the draw failed its gates, so no population was kept"}</div></div>
+            <div className="stat"><div className="k">Personas<Tip text="How many personas were drawn and kept for this study." /></div><div className="v">{manifest ? manifest.persona_ids.length.toLocaleString() : "none built"}</div><div className="d">{manifest ? "drawn to the audience shares" : gate.overall ? "the build stopped after the gate, so none were kept" : "the draw failed its gates, so no population was kept"}</div></div>
             <div className="stat" style={{ gridColumn: "span 2" }}><div className="k">Source mix<Tip text="Which dataset each drawn persona came from. If one survey dominates, the personas are mostly that survey's kind of people." /></div><SourceMix mix={gate.source_mix} /></div>
             <div className="stat"><div className="k">Synthesized<Tip text="The share of persona fields a model filled in because the person never answered them. Only money, media and decision fields may be filled; who people are and how they think never are." /></div><div className="v">{manifest ? <>{(manifest.synthesized_share * 100).toFixed(1)}<small>%</small></> : "—"}</div><div className="d">{manifest ? "of fields filled in by a model" : "no manifest to state it"}</div></div>
             <div className="stat"><div className="k">Relaxations<Tip text="How many times an audience's filters had to be loosened because too few people matched them exactly." /></div><div className="v">{gate.relaxations.length}</div><div className="d">{gate.relaxations.length ? "filters loosened to fill audiences" : "every audience filled as declared"}</div></div>
@@ -233,7 +241,7 @@ export default function PopulationPage() {
                   </div>
                   {!personas && (manifest
                     ? <div className="empty"><b>No persona records.</b>Runs recorded before personas.json need a re-run — the manifest alone cannot say where a field came from.</div>
-                    : <div className="empty"><b>No personas were built.</b>The draw failed its gates before any persona was kept, so there is no record to sample.</div>)}
+                    : <div className="empty"><b>No personas were built.</b>{gate?.overall ? "The draw passed its gates, but building the population stopped — see the note above." : "The draw failed its gates before any persona was kept, so there is no record to sample."}</div>)}
                   {personas && runId && <PersonaTable runId={runId} total={data?.personaTotal ?? 0} order={onto?.relevance_order ?? []} />}
                 </div>
               </div>
