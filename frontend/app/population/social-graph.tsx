@@ -19,7 +19,9 @@ interface GraphView {
   circle: { center: string; friends: number; friends_of_friends: number; nodes: Person[]; edges: [number, number, number][] };
 }
 
-const PALETTE = ["var(--seg1)", "var(--seg2)", "var(--seg3)", "var(--seg4)", "var(--seg5)", "oklch(0.7 0.02 75)"];
+// Plain colours, not CSS variables: the whole network is drawn by WebGL, which cannot read them. The
+// circle uses the same ones, so an audience is one colour in both views.
+const PALETTE = ["#b8822b", "#2a8797", "#3f8a55", "#9a66b3", "#b35d47", "#8e8a82", "#5b7fc4", "#c4a13a"];
 
 export function SocialGraph({ runId, Meter, Tip }: {
   runId: string;
@@ -91,6 +93,8 @@ export function SocialGraph({ runId, Meter, Tip }: {
           </div>
         </div>
       </div>
+
+      <WholeNetwork runId={runId} picked={data.circle.center} onPick={setCenter} />
 
       <div>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -167,3 +171,90 @@ function Circle({ view, color, onPick }: { view: GraphView["circle"]; color: (a:
     </svg>
   );
 }
+
+interface Network { graph_hash: string; nodes: [string, string | null, string | null, number][]; edges: [number, number, number][]; audiences: string[]; communities: string[] }
+
+/* The whole network: one dot per persona — every one of them, sized by how many ties it has and coloured by
+   audience or community — laid out by ForceAtlas2 in a worker, so tied people pull together. */
+function WholeNetwork({ runId, picked, onPick }: { runId: string; picked: string | null; onPick: (id: string) => void }) {
+  const { data, error } = useApi<Network>(`/api/runs/${encodeURIComponent(runId)}/graph/network`);
+  const box = React.useRef<HTMLDivElement>(null);
+  const [by, setBy] = React.useState<"audience" | "community">("audience");
+  const [phase, setPhase] = React.useState<"drawing" | "arranging" | "settled">("drawing");
+  const graphRef = React.useRef<{ refresh: () => void; paint: (by: "audience" | "community", picked: string | null) => void } | null>(null);
+  const groups = data ? (by === "audience" ? data.audiences : data.communities) : [];
+
+  React.useEffect(() => {
+    if (!data || !box.current) return;
+    let renderer: { kill: () => void; refresh: () => void } | null = null;
+    let layout: { start: () => void; stop: () => void; kill: () => void } | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let live = true;
+    (async () => {
+      const [{ default: Graph }, { default: Sigma }, { default: FA2Layout }, { default: forceAtlas2 }] = await Promise.all([
+        import("graphology"), import("sigma"), import("graphology-layout-forceatlas2/worker"), import("graphology-layout-forceatlas2"),
+      ]);
+      if (!live || !box.current) return;
+      const graph = new Graph({ type: "undirected", multi: false });
+      const n = data.nodes.length;
+      data.nodes.forEach(([id, audience, community, ties], i) => {
+        // A sunflower spiral to start from: deterministic, so the same network always settles the same way.
+        const angle = i * 2.399963, radius = Math.sqrt(i + 1);
+        graph.addNode(String(i), {
+          x: radius * Math.cos(angle), y: radius * Math.sin(angle),
+          size: Math.max(1.2, Math.min(10, (n > 5000 ? 0.8 : 1.6) + Math.sqrt(ties) * 0.55)),
+          label: `${id} · ${audience ?? "no audience"} · ${ties} ties`, persona: id, audience, community,
+          color: "#8e8a82",
+        });
+      });
+      data.edges.forEach(([u, v, w], k) => graph.addEdgeWithKey(String(k), String(u), String(v), { size: 0.25 + w * (n > 5000 ? 0.4 : 0.9), color: n > 5000 ? "rgba(95,90,80,0.14)" : n > 1000 ? "#e2ddd5" : "#cfc9bf" }));
+      const paint = (group: "audience" | "community", chosen: string | null) => {
+        const names = group === "audience" ? data.audiences : data.communities;
+        graph.forEachNode((key, attrs) => {
+          const g = group === "audience" ? attrs.audience : attrs.community;
+          graph.setNodeAttribute(key, "color", attrs.persona === chosen ? "#111111" : g === null ? "#b9b4ab" : PALETTE[names.indexOf(g) % PALETTE.length]);
+          graph.setNodeAttribute(key, "zIndex", attrs.persona === chosen ? 1 : 0);
+        });
+      };
+      paint("audience", picked);
+      const sigma = new Sigma(graph, box.current, { labelRenderedSizeThreshold: n > 2000 ? 14 : 9, zIndex: true, defaultEdgeType: "line" });
+      sigma.on("clickNode", ({ node }) => onPick(graph.getNodeAttribute(node, "persona")));
+      renderer = sigma;
+      graphRef.current = { refresh: () => sigma.refresh(), paint: (g, chosen) => { paint(g, chosen); sigma.refresh(); } };
+      const settings = forceAtlas2.inferSettings(graph);
+      layout = new FA2Layout(graph, { settings: { ...settings, barnesHutOptimize: n > 800, slowDown: 2 } });
+      layout.start();
+      setPhase("arranging");
+      timer = setTimeout(() => { layout?.stop(); setPhase("settled"); }, n > 5000 ? 20000 : n > 1000 ? 9000 : 4000);
+    })();
+    return () => { live = false; clearTimeout(timer); layout?.kill(); renderer?.kill(); graphRef.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  React.useEffect(() => { graphRef.current?.paint(by, picked); }, [by, picked]);
+
+  if (error) return null; // the panel above already says there is no saved network
+  return (
+    <div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <b style={{ fontSize: 13 }}>The whole network</b>
+        <span className="sub" style={{ fontSize: 12 }}>
+          {data ? <>every persona is one dot — {data.nodes.length.toLocaleString()} personas, {data.edges.length.toLocaleString()} ties · {phase === "arranging" ? "arranging: tied people pull together…" : phase === "settled" ? "settled" : "drawing…"}</> : "reading the network…"}
+        </span>
+        <span style={{ marginLeft: "auto", display: "flex", gap: 4, alignItems: "center", fontSize: 12 }}>
+          colour by
+          <select className="input" style={{ width: "auto", fontSize: 12, padding: "2px 6px" }} value={by} onChange={(e) => setBy(e.target.value as "audience" | "community")}>
+            <option value="audience">audience</option>
+            <option value="community" disabled={!data?.communities.length}>community{data && !data.communities.length ? " (none formed)" : ""}</option>
+          </select>
+        </span>
+      </div>
+      <div ref={box} style={{ height: 560, marginTop: 8, border: "1px solid var(--line)", borderRadius: "var(--r-md)", background: "var(--bg)" }} />
+      <div className="sub" style={{ fontSize: 11.5, display: "flex", gap: 12, flexWrap: "wrap", marginTop: 6 }}>
+        {groups.map((g) => <span key={g}><span style={{ display: "inline-block", width: 9, height: 9, borderRadius: "50%", background: PALETTE[groups.indexOf(g) % PALETTE.length], marginRight: 4 }} />{g}</span>)}
+        <span>· bigger dot: more ties · scroll to zoom, drag to move · hover for who it is · click a dot to open that persona&apos;s circle below (shown in black)</span>
+      </div>
+    </div>
+  );
+}
+

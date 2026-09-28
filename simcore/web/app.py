@@ -902,6 +902,16 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
 
+    @app.get("/api/runs/{run_id}/graph/network")
+    def run_graph_network(request: Request, run_id: str) -> dict[str, Any]:
+        """Every persona and every tie of the run's social graph, to draw it whole."""
+        from simcore.population._graph_view import whole_network
+
+        path = Path(_run_dir(request, run_id), "graph.json")
+        if not path.is_file():
+            raise _missing("this run kept no social graph: it was built before graphs were saved, or never built — run the gate again")
+        return whole_network(_read_graph(str(path), path.stat().st_mtime_ns))
+
     @app.get("/api/runs/{run_id}/personas")
     def run_personas(
         request: Request,

@@ -58,3 +58,19 @@ def graph_view(stored: dict, center: str | None = None, limit: int = 120) -> dic
             "edges": [[position[u], position[v], weight] for u, v, weight in edges if u in depth and v in depth],
         },
     }
+
+
+def whole_network(stored: dict) -> dict:
+    """Every persona and every tie, for drawing the network whole: each node with its audience, its
+    community and its number of ties; each tie as two node positions and its strength."""
+    ties = [0] * len(stored["nodes"])
+    for u, v, _ in stored["edges"]:
+        ties[u] += 1
+        ties[v] += 1
+    return {
+        "graph_hash": stored.get("graph_hash"),
+        "nodes": [[persona_id, audience, community, ties[i]] for i, (persona_id, audience, community) in enumerate(stored["nodes"])],
+        "edges": stored["edges"],
+        "audiences": sorted({node[1] for node in stored["nodes"] if node[1] is not None}),
+        "communities": sorted({node[2] for node in stored["nodes"] if node[2] is not None}),
+    }

@@ -35,3 +35,12 @@ def test_without_a_persona_the_circle_starts_from_someone_typical_and_an_unknown
     assert graph_view(STORED)["circle"]["center"] in {"a", "c", "d", "b"}  # two or three ties, not the hub
     with pytest.raises(ValueError, match="no persona"):
         graph_view(STORED, "nobody")
+
+
+def test_the_whole_network_is_every_persona_and_every_tie():
+    from simcore.population._graph_view import whole_network
+
+    net = whole_network(STORED)
+    assert [node[0] for node in net["nodes"]] == ["hub", "a", "b", "c", "d", "e"]
+    assert [node[3] for node in net["nodes"]] == [4, 3, 2, 2, 2, 1]
+    assert net["edges"] == STORED["edges"] and net["audiences"] == ["parents", "retirees"] and net["communities"] == ["c1", "c2"]
