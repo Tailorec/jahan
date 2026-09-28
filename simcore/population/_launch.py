@@ -19,12 +19,22 @@ def prepare_launch(category: dict, rows: list[dict], audiences: list[dict], assu
     if not isinstance(category, dict) or not category.get("id"):
         raise ValueError("confirm the category before continuing")
     category_id = category["id"]
-    before = ontology_lookup(category_id) if category.get("mode") == "reuse" else None
     domains = {row["id"]: row.get("domain") or "category_behaviour" for row in rows}
     required = [row["id"] for row in rows if row.get("required")]
     ordered = [row["id"] for row in rows if row.get("ordered")]
     if not required:
         raise ValueError("a category conditions on at least one attribute")
+    before = ontology_lookup(category_id)
+    if category.get("mode") != "reuse" and before is not None:
+        # A "new" category that is already saved — continuing again after saving it, say — is that category:
+        # reused as it is, or a new version of it. Only a different required set is a different category.
+        if set(required) != set(before.get("conditioning_set") or []):
+            raise ValueError(
+                f"a category named {category_id} is already saved with a different required set "
+                f"({', '.join(before.get('conditioning_set') or [])}): reuse it, or start the new one under another name"
+            )
+    elif category.get("mode") != "reuse":
+        before = None
     if before is not None:
         scales_before = {scale["attribute"]: scale for scale in before.get("ordinal_scales") or []}
         # The category's own scales stay as they are; an attribute this study adds keeps the order it was given.

@@ -15,7 +15,9 @@ REPO = Path(__file__).resolve().parents[1]
 
 def test_text_sources_are_off_by_default_and_labelled():
     source = (REPO / "frontend" / "app" / "who" / "page.tsx").read_text()
-    assert '["stackoverflow", "gss", "prism", "real_human_survey"]' in source
+    shared = (REPO / "frontend" / "lib" / "sources.ts").read_text()
+    # The page starts from the surveys (`useSessionState(..., SURVEYS)`), named once in lib/sources.ts.
+    assert 'SURVEYS = ["stackoverflow", "gss", "prism", "real_human_survey"]' in shared and '"who:sources", SURVEYS' in source
     assert "read by a model from text, not surveyed" in source
     assert TEXT_LABEL == "read by a model from text, not surveyed"
 

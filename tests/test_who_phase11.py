@@ -132,3 +132,22 @@ def test_a_machine_with_no_ontologies_folder_lists_none_and_the_first_save_makes
     }})
     assert saved.status_code == 201 and (folder / "fresh" / "1.0.0.json").is_file()
     assert [o["category"] for o in client.get("/api/ontologies").json()["ontologies"]] == ["fresh"]
+
+
+@pytest.mark.parametrize("rows, action, version", [
+    ([{"id": "sex", "domain": "demographic", "required": True}], "reused", "1.0.0"),
+    ([{"id": "sex", "domain": "demographic", "required": True},
+      {"id": "region", "domain": "demographic", "required": False}], "new_version", "1.0.1"),
+])
+def test_a_new_category_already_saved_is_that_category(rows, action, version):
+    # Continuing again after saving a new category must not try to create its 1.0.0 a second time.
+    out = prepare_launch({"mode": "new", "id": "study"}, rows, [{"name": "a", "share": 1.0, "filters": {}}], [],
+                         lambda category_id: _before(), _Codebook())
+    assert (out["action"], out["ontology"]["version"]) == (action, version)
+
+
+def test_a_new_category_named_like_a_different_one_is_refused():
+    with pytest.raises(ValueError, match="already saved with a different required set"):
+        prepare_launch({"mode": "new", "id": "study"},
+                       [{"id": "region", "domain": "demographic", "required": True}],
+                       [{"name": "a", "share": 1.0, "filters": {}}], [], lambda category_id: _before(), _Codebook())
