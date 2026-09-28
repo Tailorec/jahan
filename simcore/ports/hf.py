@@ -568,6 +568,7 @@ def _stream(path: Path, chunk: int = 1 << 20) -> Iterator[bytes]:
 def _matrix_positions(cache_dir: str, paths: tuple[str, ...]) -> dict[str, tuple[int, np.ndarray]]:
     """Where each shard's rows sit in the persona matrix: its offset, and the positions of its
     non-synthetic rows, in the order the matrix was built — the manifest's."""
+    import pyarrow.compute as pc
     import pyarrow.parquet as pq
 
     from .coverage import SYNTHETIC
@@ -575,8 +576,9 @@ def _matrix_positions(cache_dir: str, paths: tuple[str, ...]) -> dict[str, tuple
     where: dict[str, tuple[int, np.ndarray]] = {}
     offset = 0
     for path in paths:
-        sources = np.asarray(pq.ParquetFile(Path(cache_dir, path)).read(columns=["source"])["source"].to_pylist(), dtype=object)
-        kept = np.flatnonzero(sources != SYNTHETIC)
+        # Compared in Arrow and read back as booleans: a Python string per row is memory a large draw lacks.
+        column = pq.ParquetFile(Path(cache_dir, path)).read(columns=["source"])["source"]
+        kept = np.flatnonzero(~pc.equal(column, SYNTHETIC).to_numpy(zero_copy_only=False))
         where[Path(path).stem] = (offset, kept)
         offset += len(kept)
     return where
