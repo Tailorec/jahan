@@ -5,7 +5,7 @@ import Shell from "@/components/shell";
 import { PageHead, Chip, Callout, TrustLine } from "@/components/ui";
 import React from "react";
 import { useApi, useRunId } from "@/lib/api";
-import { ORIGIN_WORDS, REFERENCE_WORDS, explainGate, explainRelaxation } from "@/lib/gates";
+import { ORIGIN_WORDS, REFERENCE_WORDS, explainGate, explainRelaxation, gateMeter, type GateMeter } from "@/lib/gates";
 import type {
   CategoryOntology, FieldOrigin, GateReport, OutcomeDigest, PersonaRecord, PopulationManifest,
 } from "@/lib/engine";
@@ -26,6 +26,18 @@ const SOURCE_NAMES: Record<string, string> = {
 };
 const label = (id: string) => id.replace(/^demo_/, "").replace(/_/g, " ");
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
+
+/* Where one result landed against its pass line: the pale zone below the line fails, the dot is this draw. */
+function Meter({ meter, passed }: { meter: GateMeter; passed: boolean }) {
+  const at = (x: number) => `${Math.min(100, Math.max(0, (x / meter.max) * 100))}%`;
+  return (
+    <div aria-hidden style={{ position: "relative", height: 8, borderRadius: 4, background: "var(--surface-2)" }}>
+      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: at(meter.line), background: "var(--risk-soft)", borderRadius: "4px 0 0 4px", borderRight: "1px solid var(--line-2)" }} />
+      <div style={{ position: "absolute", left: at(meter.line), top: -3, bottom: -3, width: 2, marginLeft: -1, background: "var(--ink-3)" }} />
+      <div style={{ position: "absolute", left: at(meter.value), top: -3, width: 14, height: 14, marginLeft: -7, borderRadius: "50%", background: passed ? "var(--ok)" : "var(--risk)", border: "2px solid var(--bg)", boxShadow: "0 0 0 1px var(--line-2)" }} />
+    </div>
+  );
+}
 
 /* A small "?" that explains a term on hover, and to a screen reader. */
 function Tip({ text }: { text: string }) {
@@ -109,33 +121,50 @@ export default function PopulationPage() {
               </div>
               <div className="panel">
                 <div className="panel-head"><h2>Distribution gates</h2><span className="hint">does the draw look like the people it was drawn from?</span></div>
-                <div className="panel-body" style={{ display: "grid", gap: 10 }}>
-                  <p className="sub" style={{ fontSize: 12.5, margin: 0 }}>
-                    Each check compares one attribute of the drawn personas with the same attribute among the people they could have been drawn from. A random draw is never a perfect copy; a check fails only when the gap is bigger than chance explains. {REFERENCE_WORDS[gate.reference]}
-                  </p>
-                  {gate.results.map((r, i) => {
-                    const words = explainGate(r, label);
-                    return (
-                      <div key={i} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10, borderColor: r.passed ? "var(--line)" : "var(--risk)" }}>
-                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                          <b style={{ textTransform: "capitalize" }}>{words.title}</b>
-                          <span className="sub" style={{ fontSize: 11 }}>{r.kind === "categorical" ? "categories" : r.kind === "ordinal" ? "ordered scale" : "network"}</span>
-                          <span style={{ marginLeft: "auto" }}>{r.passed ? <Chip className="ok">pass</Chip> : <Chip className="risk">fail</Chip>}</span>
-                        </div>
-                        <div className="sub" style={{ fontSize: 12, marginTop: 2 }}>{words.question}</div>
-                        <div style={{ fontSize: 12.5, marginTop: 6 }}>{words.result} <span className="sub">{words.rule}</span></div>
-                        {!r.passed && words.failed && <div style={{ fontSize: 12.5, marginTop: 4, color: "var(--risk)" }}>{words.failed}</div>}
-                        <div className="mono sub" style={{ fontSize: 11, marginTop: 4 }}>
-                          {words.raw}
-                          <Tip text={r.kind === "categorical"
-                            ? "Chi-square test. χ² measures how far the drawn counts are from the expected counts; dof is the number of categories minus one; p is the chance of a gap at least this big if the draw were fair. Pass when p is above the significance level."
-                            : r.kind === "ordinal"
-                              ? "Kolmogorov–Smirnov test. D is the largest gap between the two cumulative spreads across the ordered bands; similarity is 1 − D. Pass when similarity reaches the threshold."
-                              : "A structural measure of the generated social network, with the floor it must reach."} />
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="panel-body" style={{ display: "grid", gap: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <b style={{ fontSize: 15, color: failures.length ? "var(--risk)" : undefined }}>{gate.results.length - failures.length} of {gate.results.length} checks passed</b>
+                    <Tip text={`Each check compares one attribute of the drawn personas with the same attribute among the people they could have been drawn from. A random draw is never a perfect copy, so a check fails only when the gap is bigger than chance explains. ${REFERENCE_WORDS[gate.reference]}`} />
+                    <span className="sub" style={{ marginLeft: "auto", fontSize: 11.5, display: "flex", gap: 10, alignItems: "center" }}>
+                      <span><span style={{ display: "inline-block", width: 14, height: 7, background: "var(--risk-soft)", border: "1px solid var(--line-2)", verticalAlign: 0 }} /> fails here</span>
+                      <span><span style={{ display: "inline-block", width: 2, height: 11, background: "var(--ink-3)", verticalAlign: -1 }} /> pass line</span>
+                      <span><span style={{ display: "inline-block", width: 9, height: 9, borderRadius: "50%", background: "var(--ok)", verticalAlign: 0 }} /> this draw</span>
+                    </span>
+                  </div>
+                  <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", overflow: "hidden" }}>
+                    {gate.results.map((r, i) => {
+                      const words = explainGate(r, label);
+                      const meter = gateMeter(r);
+                      return (
+                        <details key={i} open={!r.passed} style={{ borderTop: i ? "1px solid var(--line)" : 0, boxShadow: r.passed ? undefined : "inset 3px 0 0 var(--risk)" }}>
+                          <summary style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(140px, 1.2fr) 64px", gap: 14, alignItems: "center", padding: "10px 12px", cursor: "pointer", listStyle: "none" }}>
+                            <span>
+                              <b style={{ textTransform: "capitalize" }}>{words.title}</b>
+                              <div className="sub" style={{ fontSize: 11 }}>{r.kind === "categorical" ? "categories" : r.kind === "ordinal" ? "ordered scale" : "network"} · details ▾</div>
+                            </span>
+                            <span>
+                              <Meter meter={meter} passed={r.passed} />
+                              <div className="mono sub" style={{ fontSize: 11, marginTop: 7 }}>{meter.short}</div>
+                            </span>
+                            <span style={{ justifySelf: "end" }}>{r.passed ? <Chip className="ok">pass</Chip> : <Chip className="risk">fail</Chip>}</span>
+                          </summary>
+                          <div style={{ padding: "0 12px 12px", fontSize: 12.5, display: "grid", gap: 4 }}>
+                            <div className="sub">{words.question}</div>
+                            <div>{words.result} <span className="sub">{words.rule}</span></div>
+                            {!r.passed && words.failed && <div style={{ color: "var(--risk)" }}>{words.failed}</div>}
+                            <div className="mono sub" style={{ fontSize: 11 }}>
+                              {words.raw}
+                              <Tip text={r.kind === "categorical"
+                                ? "Chi-square test. χ² measures how far the drawn counts are from the expected counts; dof is the number of categories minus one; p is the chance of a gap at least this big if the draw were fair. Pass when p is above the significance level."
+                                : r.kind === "ordinal"
+                                  ? "Kolmogorov–Smirnov test. D is the largest gap between the two cumulative spreads across the ordered bands; similarity is 1 − D. Pass when similarity reaches the threshold."
+                                  : "A structural measure of the generated social network, with the floor it must reach."} />
+                            </div>
+                          </div>
+                        </details>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
               {gate.relaxations.length > 0 && (

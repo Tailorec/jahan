@@ -64,6 +64,28 @@ export function explainGate(r: GateResult, label: (id: string) => string = (id) 
   };
 }
 
+/* Where a result sits against its pass line, for a meter: every gate passes when its number reaches the line —
+   a chance above the significance level, a similarity or a network measure at or above its floor. */
+export interface GateMeter { value: number; line: number; max: number; short: string }
+
+export function gateMeter(r: GateResult): GateMeter {
+  if (r.kind === "categorical") {
+    const value = r.p_value ?? 0;
+    const line = r.significance_level ?? 0.05;
+    return { value, line, max: 1, short: `chance ${pct(value)} · needs above ${pct(line)}` };
+  }
+  if (r.kind === "ordinal") {
+    const value = r.ks_similarity ?? 0;
+    const line = r.similarity_threshold ?? 0.8;
+    return { value, line, max: 1, short: `similarity ${value.toFixed(2)} · needs ${line.toFixed(2)}+` };
+  }
+  const value = r.measured ?? 0;
+  const line = r.threshold ?? 0;
+  const share = r.check === "connectivity";
+  const show = (x: number) => (share ? pct(x) : r.check === "degree_shape" ? `${x.toFixed(1)}×` : x.toFixed(2));
+  return { value, line, max: share ? 1 : Math.max(value, line) * 1.25 || 1, short: `${show(value)} · needs ${show(line)}+` };
+}
+
 export const REFERENCE_WORDS: Record<GateReference, string> = {
   design: "Judged against the study's own design: each audience's pool of eligible people, weighted by the shares you asked for. A pass means the random draw came out as designed — not that it matches the whole market.",
   category_targets: "Judged against the category's measured population, since this study declared no audiences: a pass means the sample resembles the category as surveyed.",

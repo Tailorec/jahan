@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { explainGate, explainRelaxation } from "../lib/gates.ts";
+import { explainGate, explainRelaxation, gateMeter } from "../lib/gates.ts";
 
 test("a categorical gate says the chance, the rule, and keeps the statistic to recompute it", () => {
   const words = explainGate({ kind: "categorical", attribute: "region", chi_square: 3.21, degrees_of_freedom: 4, p_value: 0.523, significance_level: 0.05, passed: true, reference: "design" }, () => "Region");
@@ -29,4 +29,13 @@ test("a relaxation says what was loosened and what it cost", () => {
 test("a vanishing chance is said as one, not rounded to zero", () => {
   const words = explainGate({ kind: "categorical", attribute: "region", chi_square: 21.7, degrees_of_freedom: 4, p_value: 0.0002, significance_level: 0.05, passed: false, reference: "design" });
   assert.match(words.result, /less than 0\.1% of the time/);
+});
+
+test("a meter puts each result against its pass line", () => {
+  const chance = gateMeter({ kind: "categorical", p_value: 0.28, significance_level: 0.05, passed: true, reference: "design" });
+  assert.deepEqual([chance.value, chance.line, chance.max, chance.short], [0.28, 0.05, 1, "chance 28% · needs above 5%"]);
+  assert.equal(gateMeter({ kind: "ordinal", ks_similarity: 0.99, similarity_threshold: 0.8, passed: true, reference: "design" }).short, "similarity 0.99 · needs 0.80+");
+  const hubs = gateMeter({ kind: "graph", check: "degree_shape", measured: 4, threshold: 3, passed: true, reference: "design" });
+  assert.equal(hubs.short, "4.0× · needs 3.0×+");
+  assert.equal(hubs.max, 5);
 });
