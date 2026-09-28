@@ -58,7 +58,6 @@ export default function IntakePage() {
   const [budget, setBudget] = useSessionState("intake:budget", "20");
   const [elicits, setElicits] = useSessionState("intake:elicits", "reaction");
   const [anchorVersion, setAnchorVersion] = useSessionState("intake:anchorVersion", "");
-  const [mode, setMode] = useSessionState<"fake" | "real">("intake:mode", "fake");
   const [model, setModel] = useSessionState("intake:model", "");
   const [embedModel, setEmbedModel] = useSessionState("intake:embedModel", "");
   // What a real study also decides: where the population is drawn from, which draw, and what the models cost.
@@ -97,7 +96,7 @@ export default function IntakePage() {
   } | null>(null);
   const [ledgerError, setLedgerError] = React.useState<string | null>(null);
   const [checkingBrief, setCheckingBrief] = React.useState(false);
-  const { data: endpoint } = useApi<{ endpoint_configured: boolean; fake_available: boolean }>("/api/status");
+  const { data: endpoint } = useApi<{ endpoint_configured: boolean }>("/api/status");
 
   // Who is studied comes from an audience set Who you study saved: its audiences, assumptions, sources and
   // study size, together with the one ontology version they were drafted against — never the ontology alone.
@@ -138,9 +137,9 @@ export default function IntakePage() {
   }, [form.product.category, form.ontologyVersion]);
 
   const briefYaml = React.useMemo(() => briefToYaml(form), [form]);
-  const realNeedsEndpoint = mode === "real" && endpoint?.endpoint_configured === false;
+  const realNeedsEndpoint = endpoint?.endpoint_configured === false;
   const studyForm: StudyForm = {
-    mode, n, horizon, tickUnit, seeds, budget, channel, elicits, anchorVersion, model, embedModel,
+    n, horizon, tickUnit, seeds, budget, channel, elicits, anchorVersion, model, embedModel,
     populationSeed, shards, sources, priceChatIn, priceChatOut, priceEmbedIn, validation,
   };
   // Who is studied comes only from Who you study: without its audiences there is nothing to draw.
@@ -149,7 +148,7 @@ export default function IntakePage() {
     ...problems(studyForm),
   ];
   const chosenAnchor = anchors?.anchors.find((a) => `${a.construct}=${a.version}` === anchorVersion);
-  const anchorMismatch = mode === "real" && !!chosenAnchor?.embed_model_id && !!embedModel.trim() && chosenAnchor.embed_model_id !== embedModel.trim();
+  const anchorMismatch = !!chosenAnchor?.embed_model_id && !!embedModel.trim() && chosenAnchor.embed_model_id !== embedModel.trim();
   const toggle = (list: string[], set: (v: string[]) => void, value: string) =>
     set(list.includes(value) ? list.filter((x) => x !== value) : [...list, value].sort());
 
@@ -206,7 +205,7 @@ export default function IntakePage() {
       <PageHead
         title="New study"
         sub={<>Author a <b>brief</b> — the product, its claims, price, competitors, target market — against a pinned <b>category ontology</b>. Claims carry a <b>claim source</b> — asserted, public (needs evidence), or assumed — and the assumption ledger travels into every report.</>}
-        actions={<>{endpoint && <span className={`chip ${endpoint.endpoint_configured ? "ok" : "plain"}`} title="The server's environment configures the endpoint — never the browser"><span className="dot" />{endpoint.endpoint_configured ? "endpoint configured" : "no endpoint — fake only"}</span>}<span className="chip plain mono">brief YAML · validated by intake</span></>}
+        actions={<>{endpoint && <span className={`chip ${endpoint.endpoint_configured ? "ok" : "plain"}`} title="The server's environment configures the endpoint — never the browser"><span className="dot" />{endpoint.endpoint_configured ? "endpoint configured" : "no endpoint — studies cannot run"}</span>}<span className="chip plain mono">brief YAML · validated by intake</span></>}
       />
       <div className="grid g-32">
         <div>
@@ -363,7 +362,7 @@ export default function IntakePage() {
             </div>
           </div>
           <div className="panel">
-            <div className="panel-head"><h2>Population gate</h2><span className="hint">{mode === "fake" ? "coreset-gate · fake corpus · no spend" : "coreset-gate · your real corpus · a few model calls at most"}</span></div>
+            <div className="panel-head"><h2>Population gate</h2><span className="hint">coreset-gate · your real corpus · a few model calls at most</span></div>
             <div className="panel-body" style={{ display: "grid", gap: 10 }}>
               <div className="field" style={{ margin: 0 }}><label>n personas</label><input className="input mono" value={n} onChange={(e) => setN(e.target.value)} /></div>
               <button className="btn primary" disabled={gating || realNeedsEndpoint || mistakes.length > 0} onClick={runGate}>{gating ? "Gating…" : <>Run gate {ICONS.arrow}</>}</button>
@@ -393,32 +392,21 @@ export default function IntakePage() {
             </div>
           </div>
           <div className="panel">
-            <div className="panel-head"><h2>Launch study</h2><span className="hint">{mode === "fake" ? "fake first — no key, no corpus, no network" : "a real study, on the server's endpoint"}</span></div>
+            <div className="panel-head"><h2>Launch study</h2><span className="hint">on the server&apos;s endpoint, with the models named below</span></div>
             <div className="panel-body" style={{ display: "grid", gap: 10 }}>
-              <div className="field" style={{ margin: 0 }}><label>Kind of study</label>
-                <select className="input" value={mode} onChange={(e) => setMode(e.target.value as "fake" | "real")}>
-                  <option value="fake">fake — deterministic stand-ins, marked as fake everywhere</option>
-                  <option value="real">real — asks the models named below</option>
-                </select>
-                {mode === "real" && (
-                  <div className="help">{endpoint?.endpoint_configured
-                    ? "The endpoint and its key are the server's environment. This form never asks for either."
-                    : <b>No endpoint is configured where the server runs — set SIMCORE_INFERENCE_BASE_URL (and its key) in its environment, then restart it. A key is never typed into a browser.</b>}</div>
-                )}
-              </div>
-              {mode === "real" && (
+              <div className="help" style={{ marginTop: 0 }}>{endpoint?.endpoint_configured
+                ? "The endpoint and its key are the server's environment. This form never asks for either."
+                : <b>No endpoint is configured where the server runs — set SIMCORE_INFERENCE_BASE_URL (and its key) in its environment, then restart it. A key is never typed into a browser.</b>}</div>
                 <div className="grid g2">
                   <div className="field" style={{ margin: 0 }}><label>Chat model (pinned)</label><input className="input mono" value={model} placeholder="model id" onChange={(e) => setModel(e.target.value)} /></div>
                   <div className="field" style={{ margin: 0 }}><label>Embedding model (pinned)</label><input className="input mono" value={embedModel} placeholder="model id" onChange={(e) => setEmbedModel(e.target.value)} />
                     <div className="help">Pins are study inputs — recorded, hashed, and fixed for the whole run.</div></div>
                 </div>
-              )}
-              {mode === "real" && (
                 <div style={{ display: "grid", gap: 10 }}>
                   <div className="field" style={{ margin: 0 }}>
                     <label>Draw from these shards</label>
                     {!corpus?.available
-                      ? <div className="help"><b>No corpus is cached where the server runs.</b> A real study draws real personas; fetch the release first, or run a fake study.</div>
+                      ? <div className="help"><b>No corpus is cached where the server runs.</b> A study draws real personas; fetch the release first.</div>
                       : <ShardPicker corpus={corpus} shards={shards} sources={sources}
                           onToggle={(id) => { setShardsByHand(true); toggle(shards, setShards, id); }}
                           onFollowSources={() => { setShardsByHand(false); setShards(shardsFor(corpus, sources)); }} />}
@@ -453,14 +441,6 @@ export default function IntakePage() {
                     <div className="help">Prices are what let the budget ladder measure spend. Without them a cost the gateway does not quote stays unknown, and a run where nothing is priced stops rather than spend blind.</div>
                   </div>
                 </div>
-              )}
-              {mode === "fake" && (
-                <div className="field" style={{ margin: 0 }}><label>Environment</label>
-                  <select className="input" value={channel} onChange={(e) => setChannel(e.target.value as ChannelName)}>
-                    {CHANNELS.map((c) => <option key={c} value={c}>{c} — {CHANNEL_GUIDE[c].summary}</option>)}
-                  </select>
-                  <div className="help">{CHANNEL_GUIDE[channel].use} <i>{ONE_ENVIRONMENT_NOTE}</i></div></div>
-              )}
               <div className="grid g2">
                 <div className="field" style={{ margin: 0 }}><label>Horizon (ticks)</label><input className="input mono" value={horizon} onChange={(e) => setHorizon(e.target.value)} /></div>
                 <div className="field" style={{ margin: 0 }}><label>Tick unit</label>
@@ -498,10 +478,10 @@ export default function IntakePage() {
                 <input className="input" value={validation} placeholder="e.g. Interview twenty parents before building anything." onChange={(e) => setValidation(e.target.value)} />
                 <div className="help">Printed last in the report: what a reader should do to check this against real people.</div></div>
               {mistakes.length > 0 && <Callout icon="alert"><div><b>Before this can start:</b><ul style={{ margin: "6px 0 0 16px" }}>{mistakes.map((m) => <li key={m}>{m}</li>)}</ul></div></Callout>}
-              <button className="btn primary" disabled={launching || realNeedsEndpoint || mistakes.length > 0} onClick={launchStudy}>{launching ? "Launching…" : <>Run {mode} study {ICONS.arrow}</>}</button>
+              <button className="btn primary" disabled={launching || realNeedsEndpoint || mistakes.length > 0} onClick={launchStudy}>{launching ? "Launching…" : <>Run study {ICONS.arrow}</>}</button>
               {launched?.run_id && <Link className="btn sm" href={`/run?run=${launched.run_id}`}>Watch {launched.run_id} {ICONS.arrow}</Link>}
               {launched?.error && <Callout icon="alert"><div><b>Launch refused.</b><pre className="mono" style={{ fontSize: 11, whiteSpace: "pre-wrap", marginTop: 6 }}>{launched.error}</pre></div></Callout>}
-              <p className="sub" style={{ color: "var(--ink-3)", fontSize: 12 }}>Runs as a subprocess under the same id a resume reuses, and writes the same artefacts the command line does. A fake study is marked as fake in every view of it.</p>
+              <p className="sub" style={{ color: "var(--ink-3)", fontSize: 12 }}>Runs as a subprocess under the same id a resume reuses, and writes the same artefacts the command line does.</p>
             </div>
           </div>
         </div>

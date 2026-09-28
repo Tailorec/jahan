@@ -6,7 +6,7 @@ import {
 } from "../lib/study.ts";
 
 const form = (over: Partial<StudyForm> = {}): StudyForm => ({
-  mode: "real", n: "500", horizon: "3", tickUnit: "day", seeds: "4021,917731", budget: "1.0",
+  n: "500", horizon: "3", tickUnit: "day", seeds: "4021,917731", budget: "1.0",
   channel: "survey_room", elicits: "purchase", anchorVersion: "purchase_intent=v2",
   model: "amazon.nova-micro-v1:0", embedModel: "amazon.titan-embed-text-v2:0",
   populationSeed: "4022", shards: ["0000", "0004", "0005"], sources: ["wiki", "gss", "amazon", "stackoverflow"],
@@ -39,14 +39,6 @@ test("a real study names the corpus it draws from, the draw's seed and what the 
   assert.deepEqual(body.anchor_versions, ["purchase_intent=v2"]);
 });
 
-test("a fake study sends only what it always did", () => {
-  const body = studyRequest(form({ mode: "fake" }), "brief: yaml", null);
-  for (const key of ["shards", "sources", "population_seed", "price_chat_in", "price_chat_out", "price_embed_in", "model", "embed_model"]) {
-    assert.equal(key in body, false, `${key} was sent for a fake study`);
-  }
-  assert.equal(body.fake, true);
-});
-
 test("the endpoint and its key are never a field of a study", () => {
   const text = JSON.stringify([studyRequest(form(), "b", null), gateRequest(form(), "b", null)]);
   assert.doesNotMatch(text, /api[_-]?key|base_url|endpoint|token|secret/i);
@@ -71,14 +63,6 @@ test("a real study's preview reads the real corpus with the same pins and choice
   assert.equal(gate.model, "amazon.nova-micro-v1:0");
   assert.deepEqual(gate.shards, ["0000", "0004", "0005"]);
   assert.deepEqual(gate.sources, ["wiki", "gss", "amazon", "stackoverflow"]);
-});
-
-test("a fake study's preview stays on the fake corpus", () => {
-  const gate = gateRequest(form({ mode: "fake" }), "b", null);
-  assert.equal(gate.fake, true);
-  assert.equal("model" in gate, false);
-  assert.equal("shards" in gate, false);
-  assert.equal(gate.seed, 4022);
 });
 
 test("the preview no longer hard-codes a seed the study is not using", () => {
@@ -120,7 +104,6 @@ test("the scale defaults to one that passed its check, never to whatever was fir
 
 test("a real study's mistakes are named before anything is sent", () => {
   assert.deepEqual(problems(form()), []);
-  assert.deepEqual(problems(form({ mode: "fake", shards: [], model: "" })), []);
   assert.match(problems(form({ model: "" })).join(" "), /chat model/);
   assert.match(problems(form({ shards: [] })).join(" "), /shard/);
   assert.match(problems(form({ sources: [] })).join(" "), /source/);

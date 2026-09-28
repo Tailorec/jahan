@@ -2,9 +2,9 @@
 
 The run page polls while a run is live and shows ticks closing, turns
 landing, spend against the budget and the rung in force, with cancel and
-resume beside it. Fake studies are marked in every view of them; intake
-launches the first (fake) study; the engine API carries liveness, fakery
-and per-world progress on every run entry.
+resume beside it. The interface launches real studies only; a fake study
+(the command line's, for tests) is still marked in every view of it; the
+engine API carries liveness, fakery and per-world progress on every run entry.
 """
 
 from pathlib import Path
@@ -27,20 +27,22 @@ def test_the_run_page_watches_a_live_run():
         assert marker in text, f"run page never shows {marker!r}"
 
 
-def test_intake_launches_a_fake_study():
+def test_intake_launches_real_studies_only():
     text = (FRONTEND / "app" / "intake" / "page.tsx").read_text()
     for marker in ('"/api/runs"', "Horizon", "Watch", "studyRequest("):
         assert marker in text, f"intake never offers {marker!r}"
+    assert "fake" not in text.lower(), "the interface offers no fake study"
     # What the request says lives in `lib/study.ts`, where the unit tests pin it.
     builder = (FRONTEND / "lib" / "study.ts").read_text()
-    for marker in ("brief_yaml", 'fake: form.mode === "fake"'):
+    for marker in ("brief_yaml", "fake: false"):
         assert marker in builder, f"the study request never says {marker!r}"
+    assert "form.mode ===" not in builder and "mode:" not in builder
 
 
 def test_fake_studies_are_marked_in_every_view():
+    # A fake study run from the command line is still labelled wherever it is shown.
     assert "fake study" in (FRONTEND / "app" / "run" / "page.tsx").read_text()
     assert "fake study" in (FRONTEND / "app" / "report" / "page.tsx").read_text()
-    assert "fake" in (FRONTEND / "app" / "intake" / "page.tsx").read_text()
 
 
 def test_run_entries_carry_liveness_fakery_and_progress():

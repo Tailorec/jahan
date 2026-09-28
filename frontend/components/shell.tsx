@@ -65,7 +65,7 @@ export default function Shell({ crumbs, children }: { crumbs: React.ReactNode; c
         </nav>
         <div className="side-foot">
           <div>Engine <span className="mono">{status?.engine_version ?? "—"}</span></div>
-          <div style={{ marginTop: 3 }}>{status ? (status.endpoint_configured ? "endpoint configured" : "no endpoint — fake studies only") : "—"}</div>
+          <div style={{ marginTop: 3 }}>{status ? (status.endpoint_configured ? "endpoint configured" : "no endpoint — studies cannot run") : "—"}</div>
         </div>
       </aside>
       <div className="main">

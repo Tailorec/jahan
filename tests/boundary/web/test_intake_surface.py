@@ -42,7 +42,7 @@ def test_study_states_task_and_scale():
 def test_endpoint_status_without_keys():
     text = (FRONTEND / "app" / "intake" / "page.tsx").read_text()
     assert "/api/status" in text
-    assert "no endpoint — fake only" in text or "endpoint configured" in text
+    assert "no endpoint — studies cannot run" in text and "endpoint configured" in text
     for page in list((FRONTEND / "app").rglob("*.tsx")) + list((FRONTEND / "app").rglob("*.ts")):
         content = page.read_text()
         for marker in ("API_KEY", "api_key", 'type="password"', "secret"):

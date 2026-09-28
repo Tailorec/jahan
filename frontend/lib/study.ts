@@ -51,7 +51,6 @@ export const CHANNEL_GUIDE: Record<ChannelName, { summary: string; use: string }
 };
 
 export interface StudyForm {
-  mode: "fake" | "real";
   n: string;
   horizon: string;
   tickUnit: string;
@@ -116,11 +115,10 @@ export function parseSeeds(value: string): number[] {
   return value.split(",").map((part) => part.trim()).filter(Boolean).map(Number);
 }
 
-/* What is wrong with a real study's inputs, in words, before anything is sent. The engine refuses the same
+/* What is wrong with a study's inputs, in words, before anything is sent. The engine refuses the same
    things; saying so here saves a round trip and points at the field. Empty when the form is sound. */
 export function problems(form: StudyForm): string[] {
   const found: string[] = [];
-  if (form.mode === "fake") return found;
   if (!form.model.trim() || !form.embedModel.trim()) found.push("Name the chat model and the embedding model to pin.");
   if (form.shards.length === 0) found.push("Choose at least one cached shard to draw from.");
   if (form.sources.length === 0) found.push("Choose at least one persona source to admit.");
@@ -137,50 +135,39 @@ export function problems(form: StudyForm): string[] {
   return found;
 }
 
-/* The request that starts a study. A fake study sends only what it always did; a real one also names the
-   corpus it draws from, the draw's seed and what the models cost. */
+/* The request that starts a study: its models, the corpus it draws from, the draw's seed and what the models
+   cost. The interface only starts real studies; a fake one is the command line's, for tests. */
 export function studyRequest(form: StudyForm, briefYaml: string, evidence: unknown): Record<string, unknown> {
   const body: Record<string, unknown> = {
     brief_yaml: briefYaml, evidence_json: evidence,
     n: Number(form.n), horizon: Number(form.horizon), tick_unit: form.tickUnit, seeds: form.seeds,
-    budget: Number(form.budget), channel: form.channel, fake: form.mode === "fake",
+    budget: Number(form.budget), channel: form.channel, fake: false,
     elicits: form.elicits,
+    model: form.model.trim(), embed_model: form.embedModel.trim(), shards: form.shards, sources: form.sources,
   };
   if (form.anchorVersion.trim()) body.anchor_versions = [form.anchorVersion.trim()];
   if (form.validation.trim()) body.validation = form.validation.trim();
-  if (form.mode === "real") {
-    body.model = form.model.trim();
-    body.embed_model = form.embedModel.trim();
-    body.shards = form.shards;
-    body.sources = form.sources;
-    const seed = number(form.populationSeed);
-    if (seed !== undefined) body.population_seed = seed;
-    const inRate = number(form.priceChatIn);
-    const outRate = number(form.priceChatOut);
-    if (inRate !== undefined && outRate !== undefined) {
-      body.price_chat_in = inRate;
-      body.price_chat_out = outRate;
-    }
-    const embed = number(form.priceEmbedIn);
-    if (embed !== undefined) body.price_embed_in = embed;
+  const seed = number(form.populationSeed);
+  if (seed !== undefined) body.population_seed = seed;
+  const inRate = number(form.priceChatIn);
+  const outRate = number(form.priceChatOut);
+  if (inRate !== undefined && outRate !== undefined) {
+    body.price_chat_in = inRate;
+    body.price_chat_out = outRate;
   }
+  const embed = number(form.priceEmbedIn);
+  if (embed !== undefined) body.price_embed_in = embed;
   return body;
 }
 
-/* The request that previews the population a study would draw. It follows the mode: a real study's preview
-   reads the real corpus with the same pins and choices, because a preview drawn from anything else says
-   nothing about the study it belongs to. */
+/* The request that previews the population a study would draw: the real corpus, with the same pins and
+   choices, because a preview drawn from anything else says nothing about the study it belongs to. */
 export function gateRequest(form: StudyForm, briefYaml: string, evidence: unknown): Record<string, unknown> {
   const seed = number(form.populationSeed);
   const body: Record<string, unknown> = {
     brief_yaml: briefYaml, evidence_json: evidence, n: Number(form.n),
-    seed: seed !== undefined ? seed : 4021, fake: form.mode === "fake",
+    seed: seed !== undefined ? seed : 4021, fake: false,
+    model: form.model.trim(), embed_model: form.embedModel.trim(), shards: form.shards, sources: form.sources,
   };
-  if (form.mode === "real") {
-    body.model = form.model.trim();
-    body.embed_model = form.embedModel.trim();
-    body.shards = form.shards;
-    body.sources = form.sources;
-  }
   return body;
 }
