@@ -3,6 +3,7 @@
 import Link from "next/link";
 import Shell from "@/components/shell";
 import { PageHead, Chip, Callout, TrustLine } from "@/components/ui";
+import React from "react";
 import { useApi, useRunId } from "@/lib/api";
 import { ORIGIN_WORDS, REFERENCE_WORDS, explainGate, explainRelaxation } from "@/lib/gates";
 import type {
@@ -34,11 +35,6 @@ function Tip({ text }: { text: string }) {
       border: "1px solid var(--line-2)", fontSize: 10, color: "var(--ink-3)", cursor: "help", verticalAlign: 1,
     }}>?</span>
   );
-}
-
-function OriginTag({ origin }: { origin: string }) {
-  const cls = origin === "measured" ? "ok" : origin === "extracted" ? "tier-cat" : "tier-explo";
-  return <span className={`tag ${cls}`} title={ORIGIN_WORDS[origin as FieldOrigin] ?? origin} style={{ cursor: "help" }}>{origin}</span>;
 }
 
 export default function PopulationPage() {
@@ -159,31 +155,6 @@ export default function PopulationPage() {
             </div>
             <div>
               <div className="panel">
-                <div className="panel-head"><h2>Sample personas</h2><span className="hint">{(data?.personaTotal ?? 0).toLocaleString()} in this study — hover a tag for where a value came from</span></div>
-                <div className="panel-body" style={{ display: "grid", gap: 8 }}>
-                  <div className="sub" style={{ fontSize: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {(["measured", "extracted", "synthesized"] as FieldOrigin[]).map((o) => <span key={o}><OriginTag origin={o} /> {ORIGIN_WORDS[o].split(" — ")[1]}</span>)}
-                  </div>
-                  {!personas && (manifest
-                    ? <div className="empty"><b>No persona records.</b>Runs recorded before personas.json need a re-run — the manifest alone cannot say where a field came from.</div>
-                    : <div className="empty"><b>No personas were built.</b>The draw failed its gates before any persona was kept, so there is no record to sample.</div>)}
-                  {(personas ?? []).map((p) => (
-                    <div key={p.persona_id} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                        <b className="mono">{p.persona_id}</b>
-                        <span className="tag">from {SOURCE_NAMES[p.source] ?? p.source}</span>
-                        <Link href={`/trace?run=${runId}&persona=${encodeURIComponent(p.persona_id)}`} style={{ marginLeft: "auto", fontSize: 12 }}>beliefs →</Link>
-                      </div>
-                      <div className="mono sub" style={{ marginTop: 6, fontSize: 11.5 }}>
-                        {Object.entries({ ...p.conditioning, ...p.attributes }).map(([k, v]) => (
-                          <span key={k} style={{ marginRight: 10 }}>{k}={String(v)} <OriginTag origin={p.origins[k] ?? "?"} /></span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="panel">
                 <div className="panel-head"><h2>Audiences vs communities</h2><span className="hint">the groups you declared, against the groups the network formed</span></div>
                 <div className="panel-body" style={{ display: "grid", gap: 8 }}>
                   <p className="sub" style={{ fontSize: 12.5 }}>Audiences are the groups you declared. Communities are groups of personas who ended up closely tied in the social network; they often cut across audiences, and that is a finding, not a defect.</p>
@@ -206,8 +177,66 @@ export default function PopulationPage() {
               </div>
             </div>
           </div>
+          <div className="panel" style={{ marginTop: 16 }}>
+                <div className="panel-head"><h2>Personas</h2><span className="hint">all {(data?.personaTotal ?? 0).toLocaleString()} in this study — each value coloured by where it came from</span></div>
+                <div className="panel-body" style={{ display: "grid", gap: 8 }}>
+                  <div className="sub" style={{ fontSize: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {(["measured", "extracted", "synthesized"] as FieldOrigin[]).map((o) => <span key={o}><b style={{ color: ORIGIN_COLOR[o] }}>{o}</b>: {ORIGIN_WORDS[o].split(" — ")[1]}</span>)}
+                  </div>
+                  {!personas && (manifest
+                    ? <div className="empty"><b>No persona records.</b>Runs recorded before personas.json need a re-run — the manifest alone cannot say where a field came from.</div>
+                    : <div className="empty"><b>No personas were built.</b>The draw failed its gates before any persona was kept, so there is no record to sample.</div>)}
+                  {personas && runId && <PersonaTable runId={runId} total={data?.personaTotal ?? 0} order={onto?.relevance_order ?? []} />}
+                </div>
+              </div>
         </>
       )}
     </Shell>
   );
 }
+
+const PAGE = 50;
+const ORIGIN_COLOR: Record<string, string> = { measured: "var(--ink)", calibrated: "var(--ink)", extracted: "oklch(0.5 0.11 70)", synthesized: "var(--risk)" };
+
+/* Every persona the study drew, a page at a time from the engine: one row each, one column per field, each
+   value coloured by where it came from and explained on hover. */
+function PersonaTable({ runId, total, order }: { runId: string; total: number; order: string[] }) {
+  const [offset, setOffset] = React.useState(0);
+  const { data, error } = useApi<{ personas: PersonaRecord[]; total: number }>(`/api/runs/${encodeURIComponent(runId)}/personas?offset=${offset}&limit=${PAGE}`);
+  const rows = data?.personas ?? [];
+  // The ontology's own order, the same on every page; anything else a record carries follows, sorted.
+  const carried = [...new Set(rows.flatMap((p) => [...Object.keys(p.conditioning), ...Object.keys(p.attributes)]))];
+  const fields = [...order, ...carried.filter((f) => !order.includes(f)).sort()];
+  const last = Math.min(offset + PAGE, total);
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      {error && <Callout icon="alert"><div>{error}</div></Callout>}
+      <div style={{ overflowX: "auto", border: "1px solid var(--line)", borderRadius: "var(--r-md)" }}>
+        <table className="tbl" style={{ fontSize: 12, whiteSpace: "nowrap" }}>
+          <thead><tr><th>Persona</th><th>From</th>{fields.map((f) => <th key={f}>{f.replace(/^demo_/, "").replace(/_/g, " ")}</th>)}<th /></tr></thead>
+          <tbody>
+            {rows.map((p) => (
+              <tr key={p.persona_id}>
+                <td className="mono">{p.persona_id}</td>
+                <td>{SOURCE_NAMES[p.source] ?? p.source}</td>
+                {fields.map((f) => {
+                  const value = p.conditioning[f] ?? p.attributes[f];
+                  const origin = p.origins[f] ?? "";
+                  return <td key={f} title={value === undefined ? "not answered" : ORIGIN_WORDS[origin as FieldOrigin] ?? origin}
+                    style={{ color: value === undefined ? "var(--ink-3)" : ORIGIN_COLOR[origin] ?? undefined, cursor: "help" }}>{value === undefined ? "—" : String(value)}</td>;
+                })}
+                <td><Link href={`/trace?run=${runId}&persona=${encodeURIComponent(p.persona_id)}`} style={{ fontSize: 12 }}>beliefs →</Link></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+        <span className="sub">{total ? `${(offset + 1).toLocaleString()}–${last.toLocaleString()} of ${total.toLocaleString()}` : "none"}</span>
+        <button className="btn sm" style={{ marginLeft: "auto" }} disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>← Previous</button>
+        <button className="btn sm" disabled={last >= total} onClick={() => setOffset(offset + PAGE)}>Next {PAGE} →</button>
+      </div>
+    </div>
+  );
+}
+
