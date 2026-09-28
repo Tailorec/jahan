@@ -114,10 +114,11 @@ def sample(
     sample_rows = tuple(rows[row_id] for _, row_id in drawn)
     if audiences:
         references = tuple(
-            (shares[name], tuple(_reference(outcome.pool, sampling_seed, name, coreset))) for name, _, outcome in resolved
+            (shares[name], tuple(_reference(outcome.pool, sampling_seed, name, coreset, ontology.relevance_order)))
+            for name, _, outcome in resolved
         )
     else:
-        references = ((1.0, tuple(_reference(eligible, sampling_seed, "population", coreset))),)
+        references = ((1.0, tuple(_reference(eligible, sampling_seed, "population", coreset, ontology.relevance_order))),)
 
     return Sampled(
         rows=sample_rows,
@@ -205,12 +206,16 @@ def _by_attribute(rows: Sequence) -> Mapping[AttributeId, list]:
 REFERENCE_CAP = 5_000
 
 
-def _reference(pool: Sequence[str], seed: int, name: str, coreset: CoresetSource) -> list:
-    """A bounded, seeded read of one pool, standing for its distribution."""
+def _reference(pool: Sequence[str], seed: int, name: str, coreset: CoresetSource, attributes: Sequence[AttributeId] = ()) -> list:
+    """A bounded, seeded read of one pool, standing for its distribution. Only the gated attributes' values
+    are read, from the persona matrix where it is built — decoding thousands of rows one at a time was most
+    of a gate's time — and through the adapter otherwise; either way the same rows and the same values."""
     if len(pool) > REFERENCE_CAP:
         generator = random.Random(f"population-reference:{seed}:{name}")
         pool = tuple(generator.sample(list(pool), k=REFERENCE_CAP))
-    return list(coreset.rows(pool))
+    read = getattr(coreset, "reference_values", None)
+    looked_up = read(tuple(pool), tuple(attributes)) if read is not None and attributes else None
+    return looked_up if looked_up is not None else list(coreset.rows(pool))
 
 
 def _expected(references: Sequence[tuple[float, Sequence]], attribute: AttributeId, vocabulary: Sequence):

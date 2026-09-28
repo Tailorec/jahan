@@ -158,3 +158,17 @@ def test_each_cached_shard_says_which_sources_it_holds(tmp_path):
         for name, count in shard["sources"].items():
             total[name] = total.get(name, 0) + count
     assert total == {"wiki": 1, "stackoverflow": 2, "gss": 1, "synthetic": 1}  # what the fixture wrote
+
+
+def test_a_gate_reads_the_same_values_from_the_matrix_as_from_the_rows(tmp_path):
+    # The gate's reference is looked up in the matrix rather than decoded row by row: same rows, same values.
+    cache = fake_cache(tmp_path)
+    source = HfCoresetSource(cache_dir=cache)
+    ids = [row.row_id for row in source.rows(source.matching({}, present=())) if row.source != "synthetic"]
+    assert len(ids) == 4
+    assert source.reference_values(ids, ATTRIBUTES) is None, "no matrix built yet: the gate decodes rows"
+    build_matrix(HfCoresetSource(cache_dir=cache))
+    fresh = HfCoresetSource(cache_dir=cache)
+    looked_up = fresh.reference_values(ids, ATTRIBUTES)
+    decoded = list(fresh.rows(ids))
+    assert [held.values for held in looked_up] == [{a: v for a, v in row.values.items() if a in ATTRIBUTES} for row in decoded]

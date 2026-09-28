@@ -229,6 +229,45 @@ class HfCoresetSource:
                 mask &= np.isin(shard.sources, np.asarray(requested, dtype=object))
             yield shard, mask
 
+    def reference_values(self, ids: Sequence[str], attributes: Sequence[AttributeId]) -> list | None:
+        """The values of `attributes` for rows `ids`, read from the persona value matrix — the same decoding
+        as `rows`, looked up instead of decoded one row at a time — or nothing when the matrix is not built
+        or does not hold one of the rows. A gate's reference distribution needs only these values."""
+        from types import SimpleNamespace
+
+        from .matrix import MISSING, load_matrix
+
+        paths = tuple(str(entry["path"]) for entry in self._manifest["files"])
+        try:
+            whole = self if len(self._entries) == len(paths) else HfCoresetSource(cache_dir=self.cache_dir)
+            matrix = load_matrix(whole)
+            where = _matrix_positions(str(self.cache_dir), paths) if matrix is not None else None
+        except (OSError, ValueError, MissingShard):
+            return None
+        if matrix is None or where is None:
+            return None
+        columns = []
+        for row_id in ids:
+            shard, _, index = row_id.partition(":")
+            if shard not in where or not index.isdigit():
+                return None
+            offset, kept = where[shard]
+            at = int(np.searchsorted(kept, int(index)))
+            if at >= len(kept) or int(kept[at]) != int(index):
+                return None  # a synthetic row, which the matrix leaves out
+            columns.append(offset + at)
+        picked = np.asarray(columns, dtype=np.int64)
+        position = {attribute: row for row, attribute in enumerate(matrix.attributes)}
+        values: list[dict] = [{} for _ in columns]
+        for attribute in attributes:
+            if attribute not in position:
+                continue
+            vocabulary = matrix.vocabulary[attribute]
+            for k, code in enumerate(matrix.codes[position[attribute]][picked].tolist()):
+                if code != MISSING:
+                    values[k][attribute] = vocabulary[code]
+        return [SimpleNamespace(values=held) for held in values]
+
     def rows(self, ids: Iterable[str]) -> Iterator[DecodedRow]:
         by_shard: dict[str, list[int]] = {}
         for row_id in ids:
@@ -523,6 +562,24 @@ def _stream(path: Path, chunk: int = 1 << 20) -> Iterator[bytes]:
     with path.open("rb") as handle:
         while block := handle.read(chunk):
             yield block
+
+
+@lru_cache(maxsize=4)
+def _matrix_positions(cache_dir: str, paths: tuple[str, ...]) -> dict[str, tuple[int, np.ndarray]]:
+    """Where each shard's rows sit in the persona matrix: its offset, and the positions of its
+    non-synthetic rows, in the order the matrix was built — the manifest's."""
+    import pyarrow.parquet as pq
+
+    from .coverage import SYNTHETIC
+
+    where: dict[str, tuple[int, np.ndarray]] = {}
+    offset = 0
+    for path in paths:
+        sources = np.asarray(pq.ParquetFile(Path(cache_dir, path)).read(columns=["source"])["source"].to_pylist(), dtype=object)
+        kept = np.flatnonzero(sources != SYNTHETIC)
+        where[Path(path).stem] = (offset, kept)
+        offset += len(kept)
+    return where
 
 
 def shard_sources(path: str | Path) -> dict[str, int]:
