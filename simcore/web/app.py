@@ -10,6 +10,7 @@ calls live, so neither path recomputes what the other computes.
 from __future__ import annotations
 
 import json
+from functools import lru_cache
 import re
 import threading
 from contextlib import asynccontextmanager
@@ -887,6 +888,19 @@ def create_app(
     @app.get("/api/runs/{run_id}/ontology")
     def run_ontology(request: Request, run_id: str) -> dict[str, Any]:
         return _read_json(Path(_run_dir(request, run_id), "ontology.json"))
+
+    @app.get("/api/runs/{run_id}/graph")
+    def run_graph(request: Request, run_id: str, persona: str | None = None, limit: int = Query(default=120, ge=2, le=400)) -> dict[str, Any]:
+        """The run's social graph, read: its shape, how ties are spread, the hubs, and one persona's circle."""
+        from simcore.population._graph_view import graph_view
+
+        path = Path(_run_dir(request, run_id), "graph.json")
+        if not path.is_file():
+            raise _missing("this run kept no social graph: it was built before graphs were saved, or never built — run the gate again")
+        try:
+            return graph_view(_read_graph(str(path), path.stat().st_mtime_ns), persona, limit)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
 
     @app.get("/api/runs/{run_id}/personas")
     def run_personas(
@@ -1963,6 +1977,12 @@ def _run_gate(request: Request, body: GateRequest) -> dict[str, Any]:
         "manifest": manifest,
         "refusal": refusal,
     }
+
+
+@lru_cache(maxsize=4)
+def _read_graph(path: str, _mtime_ns: int) -> dict:
+    """A run's graph.json, read once per version of the file: a large study's graph is megabytes."""
+    return json.loads(Path(path).read_text(encoding="utf-8"))
 
 
 def _read_json_silent(path: Path) -> Any | None:

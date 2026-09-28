@@ -5,6 +5,7 @@ import Shell from "@/components/shell";
 import { PageHead, Chip, Callout, TrustLine } from "@/components/ui";
 import React from "react";
 import { useApi, useRunId } from "@/lib/api";
+import { SocialGraph } from "./social-graph";
 import { SOURCE_COLORS, SOURCE_NAMES, TEXT_SOURCES } from "@/lib/sources";
 import { ORIGIN_WORDS, REFERENCE_WORDS, explainGate, explainRelaxation, gateMeter, type GateMeter } from "@/lib/gates";
 import type {
@@ -235,6 +236,12 @@ export default function PopulationPage() {
               </div>
             </div>
           </div>
+          {manifest && runId && (
+            <div className="panel" style={{ marginTop: 16 }}>
+              <div className="panel-head"><h2>Social network</h2><span className="hint">who knows whom among the personas — word of mouth, feeds and forums travel along these ties</span></div>
+              <div className="panel-body"><SocialGraph runId={runId} Meter={Meter} Tip={Tip} /></div>
+            </div>
+          )}
           <div className="panel" style={{ marginTop: 16 }}>
                 <div className="panel-head"><h2>Personas</h2><span className="hint">all {(data?.personaTotal ?? 0).toLocaleString()} in this study — each value coloured by where it came from</span></div>
                 <div className="panel-body" style={{ display: "grid", gap: 8 }}>

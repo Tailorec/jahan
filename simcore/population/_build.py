@@ -7,7 +7,7 @@ a live model the completed fields make a rebuild a different population, so a st
 carried (ADR 0015)."""
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -46,6 +46,8 @@ class BuiltPopulation:
 
     population: Population
     embeddings: np.ndarray | None = None
+    # Which declared audience each persona was drawn for — what a view of the social graph colours by.
+    audience_of: Mapping[str, str] = field(default_factory=dict)
 
 
 def build(
@@ -123,7 +125,7 @@ def build(
         graph=graph_build.graph,
         communities=communities,
     )
-    return BuiltPopulation(population, embeddings)
+    return BuiltPopulation(population, embeddings, audience_of)
 
 
 def _requested_mix(pack) -> FrozenDict:

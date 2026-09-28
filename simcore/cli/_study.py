@@ -362,6 +362,7 @@ def gate_and_build(
         raise
     population = built.population
     (run_dir / "manifest.json").write_text(population.manifest.model_dump_json(indent=2) + "\n")
+    _write_graph(run_dir, population, built.audience_of)
     (run_dir / "personas.json").write_text(json.dumps(
         {
             "run_id": run_dir.name,
@@ -374,6 +375,26 @@ def gate_and_build(
         sort_keys=True,
     ) + "\n")
     return population
+
+
+def _write_graph(run_dir: Path, population, audience_of) -> None:
+    """The social graph whose hash the manifest carries, so it can be looked at: each persona once, with the
+    audience it was drawn for and the community it fell in; each tie once, as two indices and its strength;
+    and the structural checks the graph passed."""
+    graph = population.graph
+    if graph is None:
+        return
+    community_of = {member: community.community_id for community in population.communities for member in community.member_ids}
+    ids = [persona.persona_id for persona in population.personas]
+    index = {persona_id: position for position, persona_id in enumerate(ids)}
+    report = population.gate_report
+    (run_dir / "graph.json").write_text(json.dumps({
+        "graph_hash": population.manifest.graph_hash,
+        "nodes": [[persona_id, audience_of.get(persona_id), community_of.get(persona_id)] for persona_id in ids],
+        "edges": [[index[edge.u], index[edge.v], edge.weight] for edge in graph.edges],
+        "checks": [result.model_dump(mode="json") for result in report.results if result.kind == "graph"],
+        "audience_assortativity": report.audience_assortativity,
+    }, separators=(",", ":")) + "\n")
 
 
 def prepare_study(
