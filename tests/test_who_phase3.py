@@ -82,3 +82,16 @@ def test_parent_of_young_kids_reference_counts():
     )
     assert got.by_source.get("stackoverflow") == 1017
     assert got.by_source.get("gss", 0) == 0
+
+
+def test_the_design_weighs_each_pool_by_how_many_of_it_answered():
+    # Half the study from a pool where everyone answered "x", half from one where one in ten answered "y":
+    # the drawn answers are about ten "x" to one "y", and that is what the design must expect.
+    from types import SimpleNamespace
+
+    from simcore.population._assess import _expected
+
+    everyone = [SimpleNamespace(values={"a": "x"}) for _ in range(100)]
+    few = [SimpleNamespace(values={"a": "y"}) for _ in range(10)] + [SimpleNamespace(values={}) for _ in range(90)]
+    expected = _expected([(0.5, everyone), (0.5, few)], "a", ["x", "y"])
+    assert abs(expected[0] / expected.sum() - 1 / 1.1) < 1e-9

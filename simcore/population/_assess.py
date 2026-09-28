@@ -214,13 +214,17 @@ def _reference(pool: Sequence[str], seed: int, name: str, coreset: CoresetSource
 
 
 def _expected(references: Sequence[tuple[float, Sequence]], attribute: AttributeId, vocabulary: Sequence):
-    """What the study's design implies for one attribute: each pool's distribution, weighted by the
-    share the brief asked that audience to hold."""
+    """What the study's design implies for one attribute among the drawn personas who answered it: each
+    pool's answers, weighted by the share the brief asked that audience to hold times how many of the pool
+    answered. The sample's answers come mostly from the audiences that answered most, so weighting by
+    share alone expects the wrong mixture — fair draws failed about seven checks in ten wherever the
+    audiences answered an attribute at very different rates (their own filters, say)."""
     expected = np.zeros(len(vocabulary), dtype=float)
     for share, rows in references:
+        if not rows:
+            continue
         counts = counts_of([row.values[attribute] for row in rows if attribute in row.values], vocabulary)
-        if counts.sum() > 0:
-            expected += share * counts / counts.sum()
+        expected += share * counts / len(rows)
     return expected
 
 
