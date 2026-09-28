@@ -48,6 +48,8 @@ interface Picker { ai: number; attr: string; pending: string[] | null; data: Val
 interface Hit extends Entry { present?: number; share?: number; carry_by_source?: Record<string, number>; if_required?: { pool: number; lost: Record<string, number> | number; wiped_sources: string[] } }
 interface Ready { ontology: { category: string; version: string } & Record<string, unknown>; audiences: { name: string; share: number | null; attribute_filters: Record<string, string | string[]> }[]; assumptions: { text: string; source: string }[]; action: "reused" | "new_version" | "new_category"; from_version: string | null }
 
+// A category is named in lower case, digits and underscores — the form its folder and every study pin take.
+const categoryId = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 48);
 const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
 const pct = (x: number) => (x === 0 ? "0%" : x < 0.01 ? `${(x * 100).toFixed(2)}%` : `${(x * 100).toFixed(x < 0.1 ? 1 : 0)}%`);
 const post = <T,>(path: string, body: unknown) => api<T>(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -100,6 +102,8 @@ export default function WhoPage() {
 
   const [ready, setReady] = useSessionState<Ready | null>("who:ready", null);
   const [setName, setSetName] = useSessionState("who:setName", "");
+  const [newName, setNewName] = useSessionState("who:newName", "");
+  const [categoryName, setCategoryName] = useSessionState("who:categoryName", "");
   const [ontologySaved, setOntologySaved] = useSessionState("who:ontologySaved", false);
   const [savedSet, setSavedSet] = useSessionState<AudienceSet | null>("who:savedSet", null);
   const { data: savedSets } = useApi<{ audience_sets: AudienceSet[] }>("/api/audience-sets");
@@ -195,7 +199,9 @@ export default function WhoPage() {
     setBusy(true);
     setTurns([{ text: said, phase: "reading" }]);
     try {
-      patchTurn(0, { phase: "confirm", described: await post<Described>("/api/describe", { text: said }) });
+      const described = await post<Described>("/api/describe", { text: said });
+      setNewName(described.new_id);
+      patchTurn(0, { phase: "confirm", described });
     } catch (e) {
       patchTurn(0, { phase: "error", error: whyNot(e) });
     }
@@ -397,16 +403,21 @@ export default function WhoPage() {
   }
 
   // ---------------------------------------------------------------- continue
-  async function continueIt() {
-    if (!category) return;
+  // `renamed` continues under another name for a new category: every check runs again under it.
+  async function continueIt(renamed?: Chosen) {
+    const chosen = renamed ?? category;
+    if (!chosen) return;
     setContinueError(null);
     try {
-      setReady(await post<Ready>("/api/who/launch", {
-        category,
+      const planned = await post<Ready>("/api/who/launch", {
+        category: chosen,
         attributes: rows.map((r) => ({ id: r.id, domain: r.domain, required: r.required, ordered: r.ordered })),
         audiences: audiences.map((a) => ({ name: a.name, share: a.share, filters: a.filters })),
         assumptions: preview?.assumptions ?? [],
-      }));
+      });
+      if (renamed) setCategory(renamed);
+      setReady(planned);
+      setCategoryName(planned.ontology.category);
       setSavedSet(null);
       setOntologySaved(false);
       setSetName(audiences.map((a) => a.name).join(" · "));
@@ -518,7 +529,7 @@ export default function WhoPage() {
         {turns.length + audiences.length > 0 && (
           <ul className="blockers">{[...(busy ? ["wait for the draft"] : []), ...(blockers ?? [])].map((b) => <li key={b}>{b}</li>)}</ul>
         )}
-        <button className="btn primary" disabled={stillBlocked.length > 0 || busy || !!ready} onClick={continueIt}>Continue to study →</button>
+        <button className="btn primary" disabled={stillBlocked.length > 0 || busy || !!ready} onClick={() => continueIt()}>Continue to study →</button>
         {continueError && <div className="note risk">{continueError}</div>}
         {(turns.length > 0 || category) && <button className="btn quiet sm" style={{ width: "100%", justifyContent: "center", marginTop: 6 }} onClick={startOver}>Start over</button>}
       </div>
@@ -575,7 +586,12 @@ export default function WhoPage() {
         </div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
           {u.match && <button className="btn primary" disabled={busy} onClick={() => chooseCategory({ mode: "reuse", id: u.match!.id, version: u.match!.version }, true)}>Yes — use its ontology ({u.match.version})</button>}
-          <button className={`btn${u.match ? "" : " primary"}`} disabled={busy} onClick={() => chooseCategory({ mode: "new", id: u.new_id, version: null }, true)}>Start a new category: <span className="catchip">{u.new_id}</span></button>
+          <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+            <input className="input mono" aria-label="New category name" style={{ width: 210, fontSize: 12.5 }} value={newName} placeholder={u.new_id}
+              onChange={(e) => setNewName(e.target.value)} />
+            <button className={`btn${u.match ? "" : " primary"}`} disabled={busy || !categoryId(newName || u.new_id)}
+              onClick={() => chooseCategory({ mode: "new", id: categoryId(newName || u.new_id), version: null }, true)}>Start a new category</button>
+          </span>
           {others.length > 0 && (
             <select className="input" style={{ width: "auto", fontSize: 12.5 }} value="" disabled={busy} onChange={(e) => { const c = others.find((o) => o.id === e.target.value); if (c) chooseCategory({ mode: "reuse", id: c.id, version: c.version }, true); }}>
               <option value="">It&apos;s the same as…</option>
@@ -584,6 +600,9 @@ export default function WhoPage() {
           )}
           <button className="btn quiet" onClick={() => { setText(turns[0].text); setTurns([]); }}>Rephrase</button>
         </div>
+        {u.categories.some((c) => c.id === categoryId(newName)) && (
+          <div className="note warn">A category named <span className="catchip">{categoryId(newName)}</span> already exists: starting it here reuses that one. Choose another name for a new category.</div>
+        )}
         {error && <div className="note risk">{error}</div>}
       </div>
     );
@@ -853,6 +872,18 @@ export default function WhoPage() {
           <div><div className="sect"><h2>Ontology</h2><div className="tools">{d.action !== "reused" && <a className="btn sm" href={download(`${onto}\n`, "application/json")} download={`${d.ontology.category}-${d.ontology.version}.json`}>Download</a>}</div></div><pre className="out">{onto}</pre></div>
           <div><div className="sect"><h2>For the brief</h2><div className="tools"><a className="btn sm" href={download(brief, "text/yaml")} download="brief-audiences.yaml">Download</a></div></div><pre className="out">{brief}</pre></div>
         </div>
+        {d.action === "new_category" && !savedSet && (
+          <div className="field" style={{ marginTop: 14, maxWidth: 520 }}>
+            <label>Name this category</label>
+            <div style={{ display: "flex", gap: 6 }}>
+              <input className="input mono" value={categoryName} onChange={(e) => setCategoryName(e.target.value)} />
+              <button className="btn" disabled={!categoryId(categoryName) || categoryId(categoryName) === d.ontology.category}
+                onClick={() => continueIt({ mode: "new", id: categoryId(categoryName), version: null })}>Rename</button>
+            </div>
+            <div className="help">Studies of the same kind of product share a category, so its name should say what that kind is — {categoryId(categoryName) && categoryId(categoryName) !== categoryName ? <>saved as <span className="mono">{categoryId(categoryName)}</span></> : "lower case, digits and underscores"}.</div>
+          </div>
+        )}
+        {continueError && <div className="note risk">{continueError}</div>}
         <div className="field" style={{ marginTop: 14, maxWidth: 520 }}>
           <label>Name this audience set</label>
           <input className="input" value={setName} disabled={!!savedSet} onChange={(e) => setSetName(e.target.value)} />
