@@ -26,7 +26,7 @@ def test_gates_show_statistic_threshold_and_verdict_in_words():
 def test_requested_achieved_relaxations_synthesized_and_completion():
     text = (FRONTEND / "app" / "population" / "page.tsx").read_text()
     for marker in (
-        "Asked for", "Reached", "relaxation", "explainRelaxation(",
+        "asked for", "reached", "relaxation", "explainRelaxation(",
         "Synthesized", "May be filled in", "Never filled in",
     ):
         assert marker in text, f"population page lacks {marker!r}"

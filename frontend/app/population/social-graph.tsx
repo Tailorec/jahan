@@ -22,7 +22,7 @@ interface GraphView {
 
 // Plain colours, not CSS variables: the whole network is drawn by WebGL, which cannot read them. The
 // circle uses the same ones, so an audience is one colour in both views.
-const PALETTE = ["#b8822b", "#2a8797", "#3f8a55", "#9a66b3", "#b35d47", "#8e8a82", "#5b7fc4", "#c4a13a"];
+export const PALETTE = ["#b8822b", "#2a8797", "#3f8a55", "#9a66b3", "#b35d47", "#8e8a82", "#5b7fc4", "#c4a13a"];
 
 export function SocialGraph({ runId, Meter, Tip }: {
   runId: string;

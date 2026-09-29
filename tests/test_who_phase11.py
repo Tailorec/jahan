@@ -175,7 +175,9 @@ def test_a_gate_that_passes_and_builds_nothing_says_why(tmp_path, monkeypatch):
     monkeypatch.setattr(study, "build", no_network, raising=False)
     monkeypatch.setattr(population, "build", no_network)
     with pytest.raises(RuntimeError):
-        study.gate_and_build(SimpleNamespace(), n=10, population_seed=1, chat=None, coreset=None, run_dir=run_dir)
+        study.gate_and_build(SimpleNamespace(ontology=CategoryOntology.model_validate(_before())), n=10, population_seed=1,
+                             chat=None, coreset=None, run_dir=run_dir)
     assert (run_dir / "build-refusal.txt").read_text().startswith("RuntimeError: the social graph fails")
+    assert (run_dir / "ontology.json").is_file(), "the ontology the draw was judged under travels with it"
     entry = TestClient(create_app(runs_dir=tmp_path / "runs")).get("/api/runs/run-built-nothing").json()
     assert "social graph fails" in entry["launch_error"]

@@ -9,6 +9,11 @@ export type FieldOrigin = "measured" | "extracted" | "synthesized" | "calibrated
 export type PersonaFieldDomain =
   | "demographic" | "psychographic" | "category_behaviour"
   | "economic" | "decision_rule" | "media";
+/* Each field domain in the words the pages use, in the order they are offered. */
+export const DOMAIN_WORDS: [PersonaFieldDomain, string][] = [
+  ["demographic", "Who they are"], ["psychographic", "How they think"], ["category_behaviour", "What they do"],
+  ["economic", "Money & work"], ["decision_rule", "How they decide"], ["media", "What they read & watch"],
+];
 export type TickUnit = "hour" | "day" | "week";
 export type InterventionKind = "launch" | "teaser" | "promotion";
 export type Channel = "survey_room" | "social_feed" | "forum" | "wom";

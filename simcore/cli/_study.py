@@ -349,6 +349,8 @@ def gate_and_build(
     from simcore.schemas import GateReport, PopulationParameters
 
     parameters = PopulationParameters(admissible_sources=sources) if sources else PopulationParameters()
+    # The ontology the draw was judged under travels with it, so a gate run says what may be filled and why.
+    (run_dir / "ontology.json").write_text(pack.ontology.model_dump_json(indent=2) + "\n")
     gate_report: GateReport = assess(pack, n, population_seed, coreset=coreset, parameters=parameters)
     (run_dir / "gate-report.json").write_text(gate_report.model_dump_json(indent=2) + "\n")
     if not gate_report.overall:

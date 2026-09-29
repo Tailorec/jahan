@@ -6,7 +6,7 @@ import { dump } from "js-yaml";
 import Shell from "@/components/shell";
 import { useSessionState } from "@/lib/session";
 import { api, ApiError, useApi, whyNot } from "@/lib/api";
-import type { AudienceSet } from "@/lib/engine";
+import { DOMAIN_WORDS, type AudienceSet } from "@/lib/engine";
 import { SOURCE_COLORS as COLORS, SOURCE_NAMES as NAMES, SURVEYS, TEXT_SOURCES } from "@/lib/sources";
 import "./who.css";
 
@@ -18,7 +18,6 @@ const PRESETS = [
   { label: "US public", sources: ["gss"] },
   { label: "Developers", sources: ["stackoverflow"] },
 ];
-const DOMAINS: [string, string][] = [["demographic", "Who they are"], ["psychographic", "How they think"], ["category_behaviour", "What they do"], ["economic", "Money & work"], ["decision_rule", "How they decide"], ["media", "What they read & watch"]];
 const EXAMPLES = [
   "A children's education savings app. Three groups: parents of young kids (40%), people early in their career (30%) and retirees (30%), all in North America. I care about how careful they are with money and how much they trust technology.",
   "An AI code-review tool. Software developers who use AI coding assistants every day, compared with developers who never use them. I want to know how much they trust AI output.",
@@ -796,7 +795,7 @@ export default function WhoPage() {
                   ? <><span className="role req">Required for everyone</span>{origin && <div className="muted" style={{ fontSize: 11 }}>{origin}</div>}</>
                   : users.length ? <span className="role">Defines {users.join(", ")}</span> : <span className="role">Describes everyone</span>}</div>
                 <select value={r.domain} disabled={own} onChange={(e) => updateRow(r.id, { domain: e.target.value })} title="Kind — 'Who they are' and 'How they think' are never filled in by a model when missing">
-                  {DOMAINS.map(([d, l]) => <option key={d} value={d}>{l}</option>)}
+                  {DOMAIN_WORDS.map(([d, l]) => <option key={d} value={d}>{l}</option>)}
                 </select>
                 <label className="muted" title={r.guessed ? "guessed from its values — check" : ""}>
                   <input type="checkbox" checked={r.ordered} disabled={own} onChange={(e) => updateRow(r.id, { ordered: e.target.checked, guessed: false })} /> {r.guessed ? "yes?" : ""}

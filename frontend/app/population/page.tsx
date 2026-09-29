@@ -5,9 +5,10 @@ import Shell from "@/components/shell";
 import { PageHead, Chip, Callout, TrustLine } from "@/components/ui";
 import React from "react";
 import { useApi, useRunId } from "@/lib/api";
-import { SocialGraph } from "./social-graph";
+import { PALETTE, SocialGraph } from "./social-graph";
 import { SOURCE_COLORS, SOURCE_NAMES, TEXT_SOURCES } from "@/lib/sources";
 import { ORIGIN_WORDS, REFERENCE_WORDS, explainGate, explainRelaxation, gateMeter, type GateMeter } from "@/lib/gates";
+import { DOMAIN_WORDS } from "@/lib/engine";
 import type {
   CategoryOntology, FieldOrigin, GateReport, OutcomeDigest, PersonaRecord, PopulationManifest,
 } from "@/lib/engine";
@@ -131,21 +132,7 @@ export default function PopulationPage() {
             <div>
               <div className="panel">
                 <div className="panel-head"><h2>Audience mix</h2><span className="hint">the shares you asked for, and what the draw reached</span></div>
-                <div className="panel-body tight"><table className="tbl">
-                  <thead><tr><th>Audience</th><th className="num">Asked for<Tip text="The audience's share of the study, from the audience set." /></th><th className="num">Reached<Tip text="The share of drawn personas that belong to this audience. Lower than asked means too few people matched." /></th></tr></thead>
-                  <tbody>
-                    {Object.keys(manifest?.requested_mix ?? gate.achieved_mix).map((a) => {
-                      const asked = manifest?.requested_mix[a];
-                      const reached = gate.achieved_mix[a] ?? 0;
-                      const short = asked !== undefined && reached + 0.0005 < asked;
-                      return (
-                        <tr key={a}><td className="strong mono">{a}</td>
-                          <td className="num">{asked !== undefined ? pct(asked) : "not recorded"}</td>
-                          <td className="num" style={{ color: short ? "var(--risk)" : undefined }}>{pct(reached)}{short ? " — short" : ""}</td></tr>
-                      );
-                    })}
-                  </tbody>
-                </table></div>
+                <div className="panel-body"><AudienceMix asked={manifest?.requested_mix ?? null} reached={gate.achieved_mix} people={manifest?.persona_ids.length ?? null} relaxations={gate.relaxations} Tip={Tip} /></div>
               </div>
               <div className="panel">
                 <div className="panel-head"><h2>Distribution gates</h2><span className="hint">does the draw look like the people it was drawn from?</span></div>
@@ -195,19 +182,9 @@ export default function PopulationPage() {
                   </div>
                 </div>
               </div>
-              {gate.relaxations.length > 0 && (
-                <Callout icon="alert"><div><b>{gate.relaxations.length} relaxation{gate.relaxations.length > 1 ? "s" : ""}: </b>
-                  some audiences are no longer exactly what was declared, because too few people matched.
-                  {gate.relaxations.map((r, i) => <div key={i} style={{ fontSize: 12.5, marginTop: 4 }}>{explainRelaxation(r, label)}</div>)}</div></Callout>
-              )}
               <div className="panel">
                 <div className="panel-head"><h2>Completion</h2><span className="hint">fields a model may fill when a person never answered them</span></div>
-                <div className="panel-body tight"><table className="tbl"><tbody>
-                  <tr><td>May be filled in<Tip text="Kinds of field a model may complete for a persona who left them blank, as the category's ontology allows." /></td><td className="mono sub">{completable.length ? completable.join(", ") : "—"}</td></tr>
-                  <tr><td>Never filled in<Tip text="Who a person is and how they think are only ever what they said; a persona without them is not drawn." /></td><td className="mono sub">demographic, psychographic</td></tr>
-                  <tr><td>Model that filled them</td><td className="num mono">{manifest?.completion?.model_id ?? "—"}</td></tr>
-                  <tr><td>Social graph<Tip text="The fingerprint (hash) of the social network built between the personas: who knows whom, and how closely. The same draw and seed always build the same network, so the same fingerprint. The feed, forum and word-of-mouth environments spread posts and opinions along it; a survey room does not use it." /></td><td className="num mono">{manifest ? (manifest.graph_hash ? `${manifest.graph_hash.slice(0, 12)}…` : "none attached") : "—"}</td></tr>
-                </tbody></table></div>
+                <div className="panel-body"><Completion ontology={onto} origins={gate.attribute_origins} synthesized={manifest?.synthesized_share ?? null} model={manifest?.completion?.model_id ?? null} Tip={Tip} /></div>
               </div>
             </div>
             <div>
@@ -301,6 +278,109 @@ function PersonaTable({ runId, total, order }: { runId: string; total: number; o
         <button className="btn sm" style={{ marginLeft: "auto" }} disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>← Previous</button>
         <button className="btn sm" disabled={last >= total} onClick={() => setOffset(offset + PAGE)}>Next {PAGE} →</button>
       </div>
+    </div>
+  );
+}
+
+/* Each audience as a row: the share asked for as a tick, the share reached as a bar, how many people that is,
+   and anything that had to be loosened to reach it. Colours match the social network's. */
+function AudienceMix({ asked, reached, people, relaxations, Tip }: {
+  asked: Record<string, number> | null; reached: Record<string, number>; people: number | null;
+  relaxations: GateReport["relaxations"]; Tip: (p: { text: string }) => React.ReactElement;
+}) {
+  const names = Object.keys(asked ?? reached);
+  const colour = (name: string) => PALETTE[[...names].sort().indexOf(name) % PALETTE.length];
+  const top = Math.max(0.05, ...names.map((n) => Math.max(asked?.[n] ?? 0, reached[n] ?? 0)));
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div title="The whole population, by audience" style={{ display: "flex", height: 12, borderRadius: 6, overflow: "hidden", background: "var(--surface-2)" }}>
+        {names.map((n) => <span key={n} title={`${label(n)}: ${pct(reached[n] ?? 0)}`} style={{ width: `${(reached[n] ?? 0) * 100}%`, background: colour(n) }} />)}
+      </div>
+      {names.map((n) => {
+        const want = asked?.[n];
+        const got = reached[n] ?? 0;
+        const short = want !== undefined && got + 0.0005 < want;
+        const loosened = relaxations.filter((r) => r.audience === n);
+        return (
+          <div key={n} style={{ display: "grid", gap: 4 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+              <span style={{ width: 10, height: 10, borderRadius: "50%", background: colour(n), alignSelf: "center" }} />
+              <b style={{ textTransform: "capitalize" }}>{label(n)}</b>
+              <span className="sub" style={{ marginLeft: "auto", fontSize: 12 }}>
+                {people !== null && <><b style={{ color: "var(--ink)" }}>{Math.round(got * people).toLocaleString()}</b> people · </>}
+                reached <b style={{ color: short ? "var(--risk)" : "var(--ink)" }}>{pct(got)}</b>{want !== undefined && <> of {pct(want)} asked</>}
+              </span>
+            </div>
+            <div style={{ position: "relative", height: 8, borderRadius: 4, background: "var(--surface-2)" }}>
+              <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${(got / top) * 100}%`, borderRadius: 4, background: colour(n), opacity: short ? 0.55 : 1 }} />
+              {want !== undefined && <div title={`asked for ${pct(want)}`} style={{ position: "absolute", left: `${(want / top) * 100}%`, top: -3, bottom: -3, width: 2, marginLeft: -1, background: "var(--ink)" }} />}
+            </div>
+            {short && people !== null && want !== undefined && (
+              <div style={{ fontSize: 12, color: "var(--risk)" }}>Short by {Math.round((want - got) * people).toLocaleString()} people: too few matched this audience.</div>
+            )}
+            {loosened.map((r, i) => <div key={i} className="note-line" style={{ fontSize: 12, color: "oklch(0.42 0.10 85)" }}>Loosened: {explainRelaxation(r, label)}</div>)}
+          </div>
+        );
+      })}
+      <div className="sub" style={{ fontSize: 11.5 }}>
+        The dark tick is the share asked for; the bar is the share reached.<Tip text="Reached below asked means the audience's pool held too few people. Filters loosened to reach a share are listed under its audience, and the audience is then no longer exactly what was declared." />
+      </div>
+    </div>
+  );
+}
+
+/* What a model was allowed to fill, what it did fill, and which of this study's attributes each rule covers. */
+function Completion({ ontology, origins, synthesized, model, Tip }: {
+  ontology: CategoryOntology | null; origins: Record<string, FieldOrigin>; synthesized: number | null; model: string | null;
+  Tip: (p: { text: string }) => React.ReactElement;
+}) {
+  const allowed = new Set<string>((ontology?.completion_policy?.completable_domains ?? []) as string[]);
+  const words = Object.fromEntries(DOMAIN_WORDS) as Record<string, string>;
+  const attributes = Object.entries(ontology?.attribute_domains ?? {});
+  const may = attributes.filter(([, d]) => allowed.has(d));
+  const never = attributes.filter(([, d]) => !allowed.has(d));
+  const chip = (text: string, open: boolean) => (
+    <span key={text} className="tag" style={{ background: open ? "var(--warn-soft)" : "var(--ok-soft)", borderColor: "transparent" }}>{text}</span>
+  );
+  const row = ([id, domain]: [string, string]) => (
+    <div key={id} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 150px 84px", gap: 8, fontSize: 12, padding: "3px 0", borderTop: "1px solid var(--line)" }}>
+      <span className="mono" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{id}</span>
+      <span className="sub">{words[domain] ?? domain}</span>
+      <span title={origins[id] ? ORIGIN_WORDS[origins[id]] : "not checked by the gate"} style={{ cursor: "help", color: origins[id] === "synthesized" ? "var(--risk)" : origins[id] === "extracted" ? "oklch(0.5 0.11 70)" : "var(--ink-3)" }}>{origins[id] ?? "—"}</span>
+    </div>
+  );
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+        <span style={{ fontSize: 26, fontWeight: 650, fontVariantNumeric: "tabular-nums" }}>{synthesized === null ? "—" : `${(synthesized * 100).toFixed(1)}%`}</span>
+        <span className="sub" style={{ fontSize: 12.5 }}>
+          {synthesized === null ? "no population was built, so nothing was filled"
+            : synthesized === 0 ? "of persona fields were filled in by a model — every value came from the people themselves"
+              : <>of persona fields were filled in by a model{model && <>, <span className="mono">{model}</span></>}</>}
+        </span>
+      </div>
+      <div style={{ display: "grid", gap: 6 }}>
+        <div style={{ fontSize: 12.5 }}>
+          <b>May be filled in</b> when a person left them blank<Tip text="The category's ontology lists the kinds of field a model may complete. Only these, and only for a persona who never answered." />
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>{[...allowed].map((d) => chip(words[d] ?? d, true))}{!allowed.size && <span className="sub">{ontology ? "nothing — this category lets no field be filled" : "not recorded with this run — its ontology was not kept"}</span>}</div>
+        </div>
+        <div style={{ fontSize: 12.5 }}>
+          <b>Never filled in</b><Tip text="Who a person is and how they think are only ever what they said. A persona missing a required one is not drawn at all; a missing optional one stays missing." />
+          <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>{(ontology ? DOMAIN_WORDS.filter(([d]) => !allowed.has(d)) : DOMAIN_WORDS.slice(0, 2)).map(([, w]) => chip(w, false))}</div>
+        </div>
+      </div>
+      {attributes.length > 0 && (
+        <details>
+          <summary style={{ cursor: "pointer", fontSize: 12.5 }}>This study&apos;s {attributes.length} attributes: {may.length} may be filled, {never.length} never</summary>
+          <div style={{ marginTop: 6 }}>
+            <div className="sub" style={{ fontSize: 11, display: "grid", gridTemplateColumns: "minmax(0, 1fr) 150px 84px", gap: 8 }}><span>attribute</span><span>kind</span><span>came from</span></div>
+            {may.length > 0 && <div className="sub" style={{ fontSize: 11, marginTop: 6 }}>may be filled</div>}
+            {may.map(row)}
+            <div className="sub" style={{ fontSize: 11, marginTop: 6 }}>never filled</div>
+            {never.map(row)}
+          </div>
+        </details>
+      )}
     </div>
   );
 }
