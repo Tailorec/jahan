@@ -210,7 +210,9 @@ function WholeNetwork({ runId, picked, onPick }: { runId: string; picked: string
           color: "#8e8a82",
         });
       });
-      data.edges.forEach(([u, v, w], k) => graph.addEdgeWithKey(String(k), String(u), String(v), { size: 0.25 + w * (n > 5000 ? 0.4 : 0.9), color: n > 5000 ? "rgba(95,90,80,0.14)" : n > 1000 ? "#e2ddd5" : "#cfc9bf" }));
+      // Solid colours only: sigma's WebGL drew translucent (rgba) ties as nothing at all. At least a pixel wide,
+      // and lighter as the network grows, so tens of thousands of ties stay a soft layer behind the dots.
+      data.edges.forEach(([u, v, w], k) => graph.addEdgeWithKey(String(k), String(u), String(v), { size: 1 + w, color: n > 5000 ? "#e4e0d9" : n > 1000 ? "#dad5cd" : "#cfc9bf" }));
       const paint = (group: "audience" | "community", chosen: string | null) => {
         const names = group === "audience" ? data.audiences : data.communities;
         graph.forEachNode((key, attrs) => {
@@ -225,7 +227,7 @@ function WholeNetwork({ runId, picked, onPick }: { runId: string; picked: string
       let sigma: InstanceType<typeof Sigma> | null = null;
       if (hasWebGL()) {
         try {
-          sigma = new Sigma(graph, box.current, { labelRenderedSizeThreshold: n > 2000 ? 14 : 9, zIndex: true, defaultEdgeType: "line" });
+          sigma = new Sigma(graph, box.current, { labelRenderedSizeThreshold: n > 2000 ? 14 : 9, zIndex: true, defaultEdgeType: "line", minEdgeThickness: 1 });
           sigma.on("clickNode", ({ node }) => onPick(graph.getNodeAttribute(node, "persona")));
         } catch {
           box.current.innerHTML = "";
