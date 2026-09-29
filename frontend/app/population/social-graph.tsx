@@ -5,6 +5,7 @@ import { Callout, Chip } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { explainGate, gateMeter, type GateMeter } from "@/lib/gates";
 import type { GateResult } from "@/lib/engine";
+import type Graph from "graphology";
 
 /* The social graph a run's population was built with, as the engine reads it: its shape, the checks it
    passed, how ties are spread, the hubs, and one persona's circle drawn as rings. */
@@ -181,6 +182,7 @@ function WholeNetwork({ runId, picked, onPick }: { runId: string; picked: string
   const box = React.useRef<HTMLDivElement>(null);
   const [by, setBy] = React.useState<"audience" | "community">("audience");
   const [phase, setPhase] = React.useState<"drawing" | "arranging" | "settled">("drawing");
+  const [flat, setFlat] = React.useState(false); // drawn on a 2D canvas: this browser has no WebGL
   const graphRef = React.useRef<{ refresh: () => void; paint: (by: "audience" | "community", picked: string | null) => void } | null>(null);
   const groups = data ? (by === "audience" ? data.audiences : data.communities) : [];
 
@@ -189,6 +191,7 @@ function WholeNetwork({ runId, picked, onPick }: { runId: string; picked: string
     let renderer: { kill: () => void; refresh: () => void } | null = null;
     let layout: { start: () => void; stop: () => void; kill: () => void } | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let tick: ReturnType<typeof setInterval> | undefined;
     let live = true;
     (async () => {
       const [{ default: Graph }, { default: Sigma }, { default: FA2Layout }, { default: forceAtlas2 }] = await Promise.all([
@@ -217,17 +220,36 @@ function WholeNetwork({ runId, picked, onPick }: { runId: string; picked: string
         });
       };
       paint("audience", picked);
-      const sigma = new Sigma(graph, box.current, { labelRenderedSizeThreshold: n > 2000 ? 14 : 9, zIndex: true, defaultEdgeType: "line" });
-      sigma.on("clickNode", ({ node }) => onPick(graph.getNodeAttribute(node, "persona")));
-      renderer = sigma;
-      graphRef.current = { refresh: () => sigma.refresh(), paint: (g, chosen) => { paint(g, chosen); sigma.refresh(); } };
+      // WebGL when the browser has it; many Linux browsers turn it off for their GPU, and then the same network
+      // is drawn on a plain 2D canvas — slower to redraw, but every persona and every tie is still there.
+      let sigma: InstanceType<typeof Sigma> | null = null;
+      if (hasWebGL()) {
+        try {
+          sigma = new Sigma(graph, box.current, { labelRenderedSizeThreshold: n > 2000 ? 14 : 9, zIndex: true, defaultEdgeType: "line" });
+          sigma.on("clickNode", ({ node }) => onPick(graph.getNodeAttribute(node, "persona")));
+        } catch {
+          box.current.innerHTML = "";
+          sigma = null;
+        }
+      }
+      if (sigma) {
+        const drawn = sigma;
+        renderer = drawn;
+        graphRef.current = { refresh: () => drawn.refresh(), paint: (g, chosen) => { paint(g, chosen); drawn.refresh(); } };
+      } else {
+        const drawn = flatRenderer(graph, box.current, onPick);
+        renderer = drawn;
+        setFlat(true);
+        tick = setInterval(drawn.refresh, 250); // the layout moves nodes; a 2D canvas redraws on a clock
+        graphRef.current = { refresh: drawn.refresh, paint: (g, chosen) => { paint(g, chosen); drawn.refresh(); } };
+      }
       const settings = forceAtlas2.inferSettings(graph);
       layout = new FA2Layout(graph, { settings: { ...settings, barnesHutOptimize: n > 800, slowDown: 2 } });
       layout.start();
       setPhase("arranging");
-      timer = setTimeout(() => { layout?.stop(); setPhase("settled"); }, n > 5000 ? 20000 : n > 1000 ? 9000 : 4000);
+      timer = setTimeout(() => { layout?.stop(); clearInterval(tick); renderer?.refresh(); setPhase("settled"); }, n > 5000 ? 20000 : n > 1000 ? 9000 : 4000);
     })();
-    return () => { live = false; clearTimeout(timer); layout?.kill(); renderer?.kill(); graphRef.current = null; };
+    return () => { live = false; clearTimeout(timer); clearInterval(tick); layout?.kill(); renderer?.kill(); graphRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
@@ -239,7 +261,7 @@ function WholeNetwork({ runId, picked, onPick }: { runId: string; picked: string
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         <b style={{ fontSize: 13 }}>The whole network</b>
         <span className="sub" style={{ fontSize: 12 }}>
-          {data ? <>every persona is one dot — {data.nodes.length.toLocaleString()} personas, {data.edges.length.toLocaleString()} ties · {phase === "arranging" ? "arranging: tied people pull together…" : phase === "settled" ? "settled" : "drawing…"}</> : "reading the network…"}
+          {data ? <>every persona is one dot — {data.nodes.length.toLocaleString()} personas, {data.edges.length.toLocaleString()} ties · {phase === "arranging" ? "arranging: tied people pull together…" : phase === "settled" ? "settled" : "drawing…"}{flat && " · drawn without WebGL, which this browser has turned off"}</> : "reading the network…"}
         </span>
         <span style={{ marginLeft: "auto", display: "flex", gap: 4, alignItems: "center", fontSize: 12 }}>
           colour by
@@ -256,5 +278,110 @@ function WholeNetwork({ runId, picked, onPick }: { runId: string; picked: string
       </div>
     </div>
   );
+}
+
+function hasWebGL(): boolean {
+  try {
+    const canvas = document.createElement("canvas");
+    return !!(canvas.getContext("webgl2") || canvas.getContext("webgl"));
+  } catch {
+    return false;
+  }
+}
+
+/* The network on a 2D canvas, for browsers without WebGL: ties as one batched path, dots grouped by colour.
+   Scroll zooms, drag pans, hover names a persona and a click opens their circle. */
+function flatRenderer(graph: Graph, host: HTMLDivElement, onPick: (id: string) => void) {
+  const canvas = document.createElement("canvas");
+  Object.assign(canvas.style, { width: "100%", height: "100%", display: "block", cursor: "grab" });
+  host.appendChild(canvas);
+  const ctx = canvas.getContext("2d")!;
+  let zoom = 1, panX = 0, panY = 0, fit = { s: 1, cx: 0, cy: 0 }, w = 1, h = 1;
+  const screen = (x: number, y: number): [number, number] => [(x - fit.cx) * fit.s * zoom + w / 2 + panX, (y - fit.cy) * fit.s * zoom + h / 2 + panY];
+
+  const draw = () => {
+    const dpr = window.devicePixelRatio || 1;
+    w = host.clientWidth || 1; h = host.clientHeight || 1;
+    if (canvas.width !== Math.round(w * dpr)) { canvas.width = Math.round(w * dpr); canvas.height = Math.round(h * dpr); }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    graph.forEachNode((_, a) => { minX = Math.min(minX, a.x); maxX = Math.max(maxX, a.x); minY = Math.min(minY, a.y); maxY = Math.max(maxY, a.y); });
+    fit = { s: 0.92 * Math.min(w / Math.max(1e-6, maxX - minX), h / Math.max(1e-6, maxY - minY)), cx: (minX + maxX) / 2, cy: (minY + maxY) / 2 };
+    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = graph.order > 5000 ? "rgba(95,90,80,0.10)" : "rgba(95,90,80,0.28)";
+    ctx.beginPath();
+    graph.forEachEdge((_e, _a, _s, _t, sa, ta) => {
+      const [x1, y1] = screen(sa.x, sa.y), [x2, y2] = screen(ta.x, ta.y);
+      ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+    });
+    ctx.stroke();
+    const byColour = new Map<string, [number, number, number][]>();
+    let chosen = null as [number, number, number] | null;
+    graph.forEachNode((_, a) => {
+      const [x, y] = screen(a.x, a.y);
+      const r = Math.max(1, (a.size as number) * 0.55 * Math.sqrt(zoom));
+      if (a.color === "#111111") chosen = [x, y, r + 2];
+      else byColour.set(a.color, [...(byColour.get(a.color) ?? []), [x, y, r]]);
+    });
+    for (const [colour, dots] of byColour) {
+      ctx.fillStyle = colour;
+      ctx.beginPath();
+      for (const [x, y, r] of dots) { ctx.moveTo(x + r, y); ctx.arc(x, y, r, 0, 2 * Math.PI); }
+      ctx.fill();
+    }
+    if (chosen) {
+      const [x, y, r] = chosen;
+      ctx.fillStyle = "#111111"; ctx.beginPath(); ctx.arc(x, y, r, 0, 2 * Math.PI); ctx.fill();
+    }
+  };
+
+  const nearest = (event: MouseEvent, within: number): string | null => {
+    const box = canvas.getBoundingClientRect();
+    const mx = event.clientX - box.left, my = event.clientY - box.top;
+    let best: string | null = null, bestDistance = within * within;
+    graph.forEachNode((key, a) => {
+      const [x, y] = screen(a.x, a.y);
+      const d = (x - mx) ** 2 + (y - my) ** 2;
+      if (d < bestDistance) { bestDistance = d; best = key; }
+    });
+    return best;
+  };
+  let dragging = false, moved = false, lastX = 0, lastY = 0;
+  const down = (e: MouseEvent) => { dragging = true; moved = false; lastX = e.clientX; lastY = e.clientY; canvas.style.cursor = "grabbing"; };
+  const move = (e: MouseEvent) => {
+    if (dragging) {
+      panX += e.clientX - lastX; panY += e.clientY - lastY; lastX = e.clientX; lastY = e.clientY; moved = true; draw();
+      return;
+    }
+    const key = nearest(e, 7);
+    canvas.title = key ? String(graph.getNodeAttribute(key, "label")) : "";
+  };
+  const up = (e: MouseEvent) => {
+    canvas.style.cursor = "grab";
+    if (dragging && !moved) { const key = nearest(e, 9); if (key) onPick(String(graph.getNodeAttribute(key, "persona"))); }
+    dragging = false;
+  };
+  const wheel = (e: WheelEvent) => {
+    e.preventDefault();
+    const box = canvas.getBoundingClientRect();
+    const mx = e.clientX - box.left - w / 2 - panX, my = e.clientY - box.top - h / 2 - panY;
+    const factor = Math.exp(-e.deltaY * 0.0015);
+    zoom *= factor; panX -= mx * (factor - 1); panY -= my * (factor - 1);
+    draw();
+  };
+  canvas.addEventListener("mousedown", down);
+  window.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", up);
+  canvas.addEventListener("wheel", wheel, { passive: false });
+  draw();
+  return {
+    refresh: draw,
+    kill: () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      canvas.remove();
+    },
+  };
 }
 
