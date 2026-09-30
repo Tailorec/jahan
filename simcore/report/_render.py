@@ -112,7 +112,8 @@ OASIS_DEPARTURES = (
     "Feed and forum port OASIS (camel-ai/oasis): follows start from the generated social graph rather "
     "than an imported follow list; a profile is a persona's rendered attributes, not a user bio; recency "
     "is counted in ticks; there is no 4,000-post pre-filter, since a study has far fewer posts; and the "
-    "feed's ranking model is reached through the gateway rather than loaded in-process."
+    "feed's ranking model is reached through the gateway rather than loaded in-process, with the pooler "
+    "layer its checkpoint lacks initialised from a fixed seed rather than afresh on every start."
 )
 REPEATED_SSR = (
     "Purchase intent is scored by semantic similarity rating (arXiv 2510.08338), whose evidence is for a "

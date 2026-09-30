@@ -17,6 +17,9 @@ if importlib.util.find_spec("transformers") is None or importlib.util.find_spec(
     pytest.skip("TwHIN server check needs torch and transformers (tools/twhin_server.py)", allow_module_level=True)
 
 
+from tests.boundary.web.test_interface import _loopback_is_allowed  # noqa: E402,F401 — the server is local
+
+
 def test_the_server_returns_upstreams_pooler_output_truncated_at_512():
     import torch
     from transformers import AutoModel, AutoTokenizer
@@ -37,7 +40,9 @@ def test_the_server_returns_upstreams_pooler_output_truncated_at_512():
     finally:
         server.shutdown()
     tokenizer = AutoTokenizer.from_pretrained("Twitter/twhin-bert-base", model_max_length=512)
+    torch.manual_seed(server_module.POOLER_SEED)
     model = AutoModel.from_pretrained("Twitter/twhin-bert-base").eval()
+    assert hasattr(model.encoder.layer[0].attention.self, "distance_embedding"), "relative positions were dropped"
     with torch.no_grad():
         inputs = tokenizer(texts, return_tensors="pt", padding=True, truncation=True)
         assert inputs["input_ids"].shape[1] == 512

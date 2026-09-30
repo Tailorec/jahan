@@ -4,7 +4,18 @@ Vectors are computed exactly as OASIS computes them (`process_recsys_posts.proce
 tokenizer truncates at 512 tokens, pads the batch, and the vector is the model's `pooler_output`.
 It runs outside the engine, behind the gateway, so PyTorch never enters `simcore` (ADR 0021):
 
-    uv run --no-project --with torch --with transformers python tools/twhin_server.py --port 8100
+    uv run --no-project --with torch --with "transformers<5" \
+      --index https://download.pytorch.org/whl/cpu --index-strategy unsafe-best-match \
+      python tools/twhin_server.py --port 8100
+
+The CPU wheel keeps the download near 200 MB; the model weights add about 1.1 GB on first start.
+
+Two things the checkpoint forces. It uses `relative_key` position embeddings, which transformers 5
+no longer builds for BERT — it silently drops them and runs a different model — so transformers
+stays below 5, as OASIS's own pins imply. And it carries no pooler weights: `pooler_output` passes
+through a freshly initialised layer, which upstream re-randomises on every start. Here that layer
+is initialised from a fixed seed, so the same text embeds the same way on every start and a
+resumed feed ranks as the run it continues did.
 """
 
 import argparse
@@ -15,7 +26,9 @@ import torch
 from transformers import AutoModel, AutoTokenizer
 
 MODEL = "Twitter/twhin-bert-base"
+POOLER_SEED = 0
 tokenizer = AutoTokenizer.from_pretrained(MODEL, model_max_length=512)
+torch.manual_seed(POOLER_SEED)  # the checkpoint has no pooler: initialise it the same way every start
 model = AutoModel.from_pretrained(MODEL).eval()
 
 
