@@ -138,12 +138,12 @@ The forum's recsys mode becomes `reddit_hot`, the ranking already ported verbati
 
 ### Acceptance criteria
 
-- [ ] The server returns `pooler_output` for a text, equal to transformers' own on the same input within 1e-5, and truncates at 512 tokens (skipped, announced, without transformers)
-- [ ] Launching a feed study without `recsys_embed` is refused, naming the pin
-- [ ] With a fake embedder, a post from a tie outranks an unrelated recommended post, ties' posts come most-liked first, and among recommended posts, similarity × recency orders them exactly as the port of upstream's formula on the same numbers
-- [ ] No ranking call embeds: embeddings happen once per persona profile update and once per post, and the embed call count after a fake run equals personas + profile updates + posts
-- [ ] A resumed feed run ranks identically to an uninterrupted one
-- [ ] SSR still scores in `embed`: a digest refuses a survey turn scored in the recsys model
+- [x] The server returns `pooler_output` for a text, equal to transformers' own on the same input within 1e-5, and truncates at 512 tokens (skipped, announced, without transformers; run for real in phase 8)
+- [x] Launching a feed study without `recsys_embed` is refused, naming the pin
+- [x] With a fake embedder, a post from a tie outranks an unrelated recommended post, ties' posts come most-liked first, and among recommended posts, similarity × recency orders them exactly as the port of upstream's formula on the same numbers
+- [x] No ranking call embeds: embeddings happen once per persona profile update and once per post, and the embed call count after a fake run equals personas + profile updates + posts
+- [x] A resumed feed run ranks identically to an uninterrupted one
+- [x] SSR still scores in `embed`: a digest refuses a survey turn scored in the recsys model
 
 ---
 
@@ -156,17 +156,17 @@ The forum's recsys mode becomes `reddit_hot`, the ranking already ported verbati
 - **Digest:** intent and adoption are read from survey turns only, per wave tick and per audience, share-weighted over audiences as today (ADR 0007) — an intent trajectory.
 - **Spread per channel:** exposures by channel and reason per tick, cumulative reach per channel, and word-of-mouth paths, from the existing `_spread` module.
 - **Report:**
-  - a finding for intent and adoption across waves by audience, and the reached-versus-unreached gap at each wave;
+  - a finding for intent and adoption across waves by audience, and the reached-versus-unreached gap at each wave (the digest's per-wave section; the trajectory finding cites the first and last waves' answers);
   - a method disclosure naming the channels, survey interval, launch reach, the chat model, both embedding models, and the OASIS departures listed in the PRD;
   - a sentence that repeated SSR is an extension of the paper's one-shot evidence.
 
 ### Acceptance criteria
 
-- [ ] On a fake run with known survey answers, the per-wave per-audience intent equals the hand-computed mixture at every wave
-- [ ] Channel turns contribute nothing to intent or adoption, even when scored; a channel purchase is counted under behaviour
-- [ ] A persona reached by no channel by wave *t* is counted in that wave's unreached group
-- [ ] The report's method section names every setting and both models, asserted over the rendered report
-- [ ] A run with no channels and one wave produces today's concept-test headline, with the same numbers on the same fake answers
+- [x] On a fake run with known survey answers, the per-wave per-audience intent equals the hand-computed mixture at every wave
+- [x] Channel turns contribute nothing to intent or adoption, even when scored; a channel purchase is counted under behaviour
+- [x] A persona reached by no channel by wave *t* is counted in that wave's unreached group
+- [x] The report's method section names every setting and both models, asserted over the rendered report
+- [x] A run with no channels and one wave produces today's concept-test headline, with the same numbers on the same fake answers
 
 ---
 
