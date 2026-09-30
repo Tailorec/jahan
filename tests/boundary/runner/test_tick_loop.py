@@ -241,7 +241,7 @@ def test_persona_state_carried_and_never_shared():
         return tuple(out)
 
     run(config, pack=pack, population=population, trace=trace, registry=registry,
-        world_factory=lambda header: FakeWorld(header), agent_fn=agent_fn)
+        world_factory=lambda header: FakeWorld(header, channel="forum"), agent_fn=agent_fn)
     # p-000001 accumulates, p-000002 stays flat: states never shared.
     assert seen[(1, "p-000001")] == pytest.approx(0.6)
     assert seen[(2, "p-000001")] == pytest.approx(0.7)

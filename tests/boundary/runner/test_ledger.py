@@ -280,7 +280,7 @@ def test_priced_and_unpriced_calls_together_still_degrade_on_the_ladder():
     result, trace, plans = _run_billing([_cost(0.02), _cost(None)], max_cost=1.0, horizon=8)
     rungs = [event.payload.rung.value for event in trace.all_events() if event.payload.kind == "degraded"]
     assert rungs, "a run with prices and unknowns never reached a rung"
-    assert any(plan is not None and plan.tier_b_frozen for plan in plans) or "pause" in rungs
+    assert any(plan is not None and plan.tier_b_frozen for plan in plans) or "pause" in rungs or "wave_unaffordable" in rungs
 
 
 def _cost_event(n: int, tick: int, cost: float | None, world: str = "a00631e91974"):

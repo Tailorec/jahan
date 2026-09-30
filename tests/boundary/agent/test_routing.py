@@ -133,6 +133,26 @@ def test_a_purchase_turn_with_no_pinned_version_records_verbatim_and_failure(tmp
     assert outcome.turn.reaction.elicitation_failure.kind is ElicitationFailureKind.UNPINNED_ANCHORS
 
 
+def test_a_channel_purchase_is_behaviour_never_intent(tmp_path):
+    """A purchase on a channel is recorded as the action it was, and never scored: intent comes
+    from survey waves only, so a reaction-task turn carries no distribution (ADR 0048)."""
+    from simcore.schemas import TurnJob
+
+    from .support import job_payload
+
+    job = TurnJob.model_validate(job_payload(0))
+    assert job.task.value == "reaction"
+    (outcome,) = turns(
+        [job], chat=FakeChat(responder=answering(action="buy", verbatim="I bought it after training")),
+        config=AgentConfig(category="beverage_protein", anchors_dir=str(tmp_path)),
+        embed=FakeEmbed(dim=8, model_id=FAKE_MODEL),
+    )
+    assert isinstance(outcome, CompletedTurn)
+    assert outcome.turn.reaction.action.value == "buy"
+    assert outcome.turn.reaction.intent is None
+    assert outcome.turn.reaction.elicitation_failure is None
+
+
 def test_no_code_path_asks_a_model_for_a_rating():
     """Every prompt constant the module sends is scanned: none requests a number."""
     prompt_files = ["_prompt.py", "_turns.py", "_guard.py", "_probe.py", "_reflect.py"]

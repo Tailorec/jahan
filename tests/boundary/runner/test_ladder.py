@@ -9,8 +9,8 @@ from simcore.schemas import BriefPack, CompletedTurn, CostRecorded, Population, 
 from tests.study_builders import pack_payload, population_payload, run_config_payload, scenario_payload, ulid
 
 
-def _config(horizon: int = 8, max_cost: float = 1.0, **overrides):
-    scenario = scenario_payload(horizon_ticks=horizon, interventions=[])
+def _config(horizon: int = 8, max_cost: float = 1.0, survey_every: int = 1, **overrides):
+    scenario = scenario_payload(horizon_ticks=horizon, interventions=[], survey_every=survey_every)
     payload = run_config_payload(scenarios=[scenario], seeds=[4021])
     payload["budget"] = {"max_cost": max_cost, "currency": "USD"}
     payload.update(overrides)
@@ -85,10 +85,10 @@ def _completed(job: TurnJob, n: int, amount: float) -> CompletedTurn:
                                          "costs": [_cost(amount).model_dump(mode="json")]})
 
 
-def _run_with_cost(amount_per_turn: float, max_cost: float, ladder=None):
+def _run_with_cost(amount_per_turn: float, max_cost: float, ladder=None, survey_every: int = 1):
     pack, population = _pack(), _population()
     trace, registry = InMemoryTraceSink(), InMemoryRegistry()
-    config = _repinned(_config(max_cost=max_cost), pack, population)
+    config = _repinned(_config(max_cost=max_cost, survey_every=survey_every), pack, population)
     worlds: list[PlanWorld] = []
     agent_plans: list[TickPlan] = []
 
@@ -103,8 +103,10 @@ def _run_with_cost(amount_per_turn: float, max_cost: float, ladder=None):
 
 
 def test_thresholds_produce_observable_effects():
-    # 4 personas x billed ticks x 0.04 pushes past warn and freeze on a 1.0 budget.
-    result, trace, worlds, agent_plans = _run_with_cost(0.04, 1.0)
+    # 4 personas x billed ticks x 0.04 pushes past warn and freeze on a 0.8 budget. Waves land
+    # on the boundary ticks only, so the mid-run degradation the ladder owns stays observable;
+    # the closing wave then pauses the world, which is the wave check's own behaviour.
+    result, trace, worlds, agent_plans = _run_with_cost(0.04, 0.8, survey_every=8)
     kinds = [e.payload.kind for e in trace.all_events()]
     assert "degraded" in kinds
     # Tier-B frozen observed in agent plans, activation drop in world plans.
@@ -125,7 +127,11 @@ def test_degraded_events_carry_rate_and_freeze():
     degraded = [e for e in trace.all_events() if e.payload.kind == "degraded"]
     assert degraded
     for event in degraded:
-        assert event.payload.activation_rate in (1.0, 0.4)
+        if event.payload.rung == "wave_unaffordable":
+            # A wave the budget cannot cover pauses the world with nothing in force.
+            assert event.payload.activation_rate == 0.0
+        else:
+            assert event.payload.activation_rate in (1.0, 0.4)
         assert isinstance(event.payload.tier_b_frozen, bool)
 
 
@@ -136,7 +142,8 @@ def test_replay_applies_recorded_rung():
 
     pack, population = _pack(), _population()
     trace, registry = InMemoryTraceSink(), InMemoryRegistry()
-    config = _repinned(_config(max_cost=1.0), pack, population)
+    # Waves on the boundary ticks only: the interrupted mid-run is ladder territory.
+    config = _repinned(_config(max_cost=1.0, survey_every=8), pack, population)
     worlds: list[PlanWorld] = []
     agent_plans: list[TickPlan] = []
 

@@ -519,7 +519,7 @@ def test_turns_recall_only_earlier_memories_of_the_same_persona():
     [
         ({R["started"]: "completed"}, "moves the world from nothing to completed"),
         ({R["completed"]: "started"}, "moves the world from started to started"),
-        ({R["launch"]: "paused"}, "which only follows the budget's pause rung"),
+        ({R["launch"]: "paused"}, "which only follows a pause rung"),
     ],
     ids=["completed-first", "started-twice", "paused-without-the-pause-rung"],
 )

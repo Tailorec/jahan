@@ -128,9 +128,9 @@ def test_an_exhausted_budget_exits_3_and_keeps_the_completed_worlds_artefacts(tm
     monkeypatch.chdir(tmp_path)
     out = tmp_path / "runs"
     # A wave costs a turn per persona per tick, tick 0 included: 24 personas × 3 ticks × $50
-    # is $3600 a world, so the first world completes inside $3000 and the second pauses in its
-    # second tick, leaving one completed world and one partial one.
-    code, output = run_command(*fake_args(out, RUN_ID, horizon="3", budget="3000", seeds="4021,917731"))
+    # is $3600 a world. Inside $4000 the first world completes and the second pauses before
+    # the wave it cannot cover, leaving one completed world and one partial one.
+    code, output = run_command(*fake_args(out, RUN_ID, horizon="3", budget="4000", seeds="4021,917731"))
     assert code == 3, output
     assert "paused" in output
     run_dir = out / RUN_ID
@@ -138,7 +138,7 @@ def test_an_exhausted_budget_exits_3_and_keeps_the_completed_worlds_artefacts(tm
     assert (run_dir / "report.json").is_file()
     result = json.loads((run_dir / "result.json").read_text())
     assert {outcome["status"] for outcome in result["outcomes"]} == {"completed", "partial"}
-    assert any("pause" in outcome["rungs"] for outcome in result["outcomes"])
+    assert any("pause" in rung or "unaffordable" in rung for outcome in result["outcomes"] for rung in outcome["rungs"])
 
 
 def test_a_usage_error_is_not_mistaken_for_a_failed_gate():

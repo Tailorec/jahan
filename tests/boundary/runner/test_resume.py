@@ -34,10 +34,11 @@ def _repinned(config, pack, population):
 
 
 class FakeWorld:
-    def __init__(self, header):
+    def __init__(self, header, channel: str = "survey_room"):
         from simcore.schemas import Exposure, Impression, Presentation, Stimulus, View, WorldDelta
 
         self._header = header
+        self._channel = channel
         self._personas = list(header.population.persona_ids)
         self._concept = Stimulus.model_validate({"stimulus_id": f"st-{ulid(11)}", "tick": 0, "kind": "concept", "text": "Clear protein water"})
         self.steps: list[int] = []
@@ -57,7 +58,7 @@ class FakeWorld:
         for idx, pid in enumerate(sorted(self._personas)):
             impression = Impression.model_validate(
                 {"impression_id": f"im-{ulid(500 + tick * 100 + idx)}", "persona_id": pid,
-                 "channel": "survey_room", "tick": tick,
+                 "channel": self._channel, "tick": tick,
                  "exposures": [{"stimulus_id": self._concept.stimulus_id, "reason": "interest", "attention": 1.0}]})
             view = View.model_validate({"impression_id": impression.impression_id, "contexts": {self._concept.stimulus_id: {}}})
             presentations.append(Presentation.model_validate({"impression": impression.model_dump(mode="json"), "view": view.model_dump(mode="json")}))
@@ -124,14 +125,15 @@ def test_persona_state_rebuilt_equals_carried():
         return tuple(_completed(j, i) for i, j in enumerate(jobs))
 
     run(config, pack=pack, population=population, trace=trace, registry=registry,
-        world_factory=lambda header: FakeWorld(header), agent_fn=agent_fn)
+        world_factory=lambda header: FakeWorld(header, channel="forum"), agent_fn=agent_fn)
     # Rebuild from the record up to tick 1 and compare against what tick 2 carried.
     from simcore.runner import turns_by_tick  # noqa
 
     events = trace.events_for(next(iter({e.world_id for e in trace.all_events()})))
     upto1 = tuple(e for e in events if e.tick <= 1)
     rebuilt = rebuild_persona_states(population, upto1)
-    # The carried state at tick 2 equals rebuilt state after tick 1 (beliefs moved twice: ticks 1).
+    # The carried state at tick 2 equals rebuilt state after tick 1 (the tick-1 channel turn
+    # moved it once; the wave only reads, so survey turns never move it).
     # Direct equality: rebuild from all events equals final carried advancement.
     rebuilt_all = rebuild_persona_states(population, events)
     assert set(rebuilt_all) == set(carried) | set(rebuilt_all)
