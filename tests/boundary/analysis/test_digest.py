@@ -108,7 +108,8 @@ def test_action_mix_belief_movement_and_wom_match_recomputation(tmp_path):
         assert result.belief_movement_mean[dim] == sum(deltas) / len(deltas)
         assert result.belief_movement_abs[dim] == sum(abs(d) for d in deltas) / len(deltas)
 
-    edges = view.edges()
+    assert any(str(edge.channel) != "wom" for edge in view.edges()), "the world has non-wom edges to leave out"
+    edges = [edge for edge in view.edges() if str(edge.channel) == "wom"]
     assert result.wom_deliveries == sum(edge.count for edge in edges)
     assert result.wom_reach == len({edge.v for edge in edges})
 

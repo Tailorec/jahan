@@ -138,7 +138,9 @@ def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
     moves = [move for _, _, move in signed_moves(events)]
     belief_move_mean = sum(moves) / len(moves) if moves else 0.0
 
-    edges = view.edges()
+    # Word of mouth only: a feed or forum edge is a persona meeting a peer's post, which is that
+    # channel's spread (see `exposures_by_channel`), not a peer telling them.
+    edges = [edge for edge in view.edges() if str(edge.channel) == "wom"]
     wom_deliveries = sum(edge.count for edge in edges)
     wom_reach = len({edge.v for edge in edges})
 
