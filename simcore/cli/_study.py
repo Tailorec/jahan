@@ -97,6 +97,15 @@ class StoreTrace:
             if event.payload.kind == "stimulus_published":
                 self.published[event.payload.stimulus.stimulus_id] = event.payload.stimulus.text
 
+    def note_published(self, stimuli) -> None:
+        """What this tick published, before its turns are taken.
+
+        The write lands after the agent answers, so without this the tick-0 wave would show
+        the concept without its words: a persona cannot answer what it was never shown.
+        """
+        for stimulus in stimuli:
+            self.published[stimulus.stimulus_id] = stimulus.text
+
     def prime_published(self) -> None:
         """What earlier ticks published, for a run this process is resuming rather than starting."""
         try:
@@ -126,6 +135,21 @@ class StoreTrace:
         return tuple(out)
 
 
+def parse_channels(raw: str | None) -> list[str]:
+    """`--channels social_feed,forum`, as the channels a study ticks. Empty means none: the
+    concept test, where every persona only ever sees the concept."""
+    if raw is None:
+        return []
+    named = [item.strip() for item in str(raw).split(",") if item.strip()]
+    known = ("social_feed", "forum", "wom")
+    unknown = sorted(set(named) - set(known))
+    if unknown:
+        raise GateFailure(
+            f"unknown channels {', '.join(unknown)}: a study ticks any combination of {', '.join(known)}, or none"
+        )
+    return sorted(set(named))
+
+
 def assemble_scenario(
     pack: BriefPack,
     *,
@@ -134,16 +158,17 @@ def assemble_scenario(
     description: str,
     tick_unit: str = "day",
     horizon_ticks: int = 4,
-    elicits: str = "reaction",
+    channels: list[str] | tuple[str, ...] = (),
+    survey_every: int = 1,
+    launch_reach: float = 0.10,
 ) -> Scenario:
     """The study's baseline scenario: the whole proposition at the brief's price.
 
     The variant emphasizes every claim the brief makes — the concept presents the
     product, not a slice of it — and the audiences run at the shares the brief declares.
-
-    `elicits` is what an activated persona is asked. A concept test exists to ask purchase
-    intent, and the default asks for a reaction: the first real study pinned a passing scale
-    and then asked 897 personas what they would do, so not one turn was scored for intent.
+    Which channels spread information, and when purchase intent is measured, are scenario
+    content (ADR 0048): a study with no channels is the concept test, and every persona
+    answers the survey wave on its ticks.
     """
     weights = pack.brief.audience_shares
     if weights is None:
@@ -163,7 +188,9 @@ def assemble_scenario(
         "tick_unit": tick_unit,
         "horizon_ticks": horizon_ticks,
         "interventions": [],
-        "elicits": elicits,
+        "channels": list(channels),
+        "survey_every": survey_every,
+        "launch_reach": launch_reach,
     })
     check_scenario_against_brief(scenario, pack.brief)
     return scenario
@@ -437,7 +464,13 @@ def prepare_study(
                 description=pack.brief.product.description,
                 tick_unit=args.tick_unit,
                 horizon_ticks=args.horizon,
-                elicits=getattr(args, "elicits", None) or "reaction",
+                channels=parse_channels(getattr(args, "channels", "") or ""),
+                survey_every=getattr(args, "survey_every", None) or 1,
+                launch_reach=(
+                    getattr(args, "launch_reach", None)
+                    if getattr(args, "launch_reach", None) is not None
+                    else 0.10
+                ),
             )
         ]
     chat, embed, coreset, pins, embed_pin = assemble_backend(pack, args)
@@ -483,7 +516,7 @@ def prepare_study(
     )
 
 
-def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1, force: bool = False) -> RunResult:
+def run_study(handles: StudyHandles, *, max_workers: int = 1, force: bool = False) -> RunResult:
     """Run every world of the configuration to its horizon, recording the trace.
 
     A resume whose inputs moved refuses unless forced; forcing is recorded in the
@@ -496,7 +529,9 @@ def run_study(handles: StudyHandles, *, channel: str, max_workers: int = 1, forc
 
     def world_factory(header):
         store.create_world(handles.run_id, header)
-        return World(header, population=handles.population, config=WorldConfig(platform=channel))
+        # A world's channels come from its scenario, never beside it (ADR 0048).
+        return World(header, population=handles.population,
+                     config=WorldConfig(channels=frozenset(header.scenario.channels)))
 
     def agent_fn(jobs):
         return agent_turns(

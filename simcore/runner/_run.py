@@ -39,7 +39,7 @@ from simcore.schemas import (
     derive_world_id,
 )
 from simcore.schemas.base import canonical_hash
-from simcore.schemas.enums import LifecyclePhase
+from simcore.schemas.enums import Channel, LifecyclePhase, TurnTask
 from simcore.schemas.trace import (
     BeliefSnapshot,
     ExposureDropped,
@@ -310,9 +310,9 @@ def run_world(
             return meter.unpriceable()  # type: ignore[attr-defined]
         return unpriceable(_all_recorded())
 
-    # What this world's personas are asked is the scenario's to say (a concept test asks purchase
-    # intent; a feed study asks for reactions), and the header carries the scenario.
-    elicits = header.scenario.elicits
+    # What a turn asks is its impression's channel's to say: a survey wave asks purchase
+    # intent, and any other channel asks for a reaction (ADR 0048). The old per-run `elicits`
+    # is gone: intent has one source, one schedule and one respondent set in every study.
     previous: list[Turn] = list(previous_turns) if previous_turns is not None else []
     paused = bool(current is not None and getattr(current, "value", None) == "pause")
     if paused:
@@ -354,6 +354,7 @@ def run_world(
             delta = _call_reset(world, tick_plan)
         else:
             delta = _call_step(world, tick, previous, tick_plan)
+        _note_published(trace, delta.published)
         jobs: list[TurnJob] = []
         order: list[Presentation] = list(delta.presentations)
         for presentation in order:
@@ -365,7 +366,11 @@ def run_world(
                         "persona": persona.model_dump(mode="json"),
                         "state": states[pid].model_dump(mode="json"),
                         "presentation": presentation.model_dump(mode="json"),
-                        "task": elicits.value,
+                        "task": (
+                            TurnTask.PURCHASE.value
+                            if presentation.impression.channel is Channel.SURVEY_ROOM
+                            else TurnTask.REACTION.value
+                        ),
                     }
                 )
             )
@@ -439,6 +444,36 @@ def _finalize(trace, world_id: str) -> None:
     finalize(world_id)
 
 
+def _recorded_entry(registry: object, run_id: str) -> object | None:
+    """This run's registry entry, or nothing when the run is unknown.
+
+    A record from before channels became scenario content no longer parses — its scenarios
+    still name `elicits`, which the contract forbids — so its resume is refused here, naming
+    the moved input and the decision that moved it, rather than failing on a schema error.
+    """
+    try:
+        return registry.entry(run_id)  # type: ignore[attr-defined]
+    except ValueError as error:
+        raise ResumeRefused(
+            "scenario",
+            "a run recorded before channels, survey waves and launch reach became scenario content",
+            f"the presented configuration (ADR 0048: {error})",
+        ) from error
+
+
+def _note_published(trace: object, stimuli) -> None:
+    """Hand the tick's newly published stimuli to the trace before its turns are taken.
+
+    The agent reads what each stimulus says from the trace's published cache, which the
+    write only fills after the tick's turns are recorded — a tick behind. Without this the
+    tick-0 wave would show the concept without its words. A sink without the hook keeps
+    whatever its own write does; nothing here fails for want of it.
+    """
+    hook = getattr(trace, "note_published", None)
+    if callable(hook):
+        hook(stimuli)
+
+
 def _remember(registry, entry: RunRegistryEntry) -> None:
     """Pin a run's entry the first time and move it afterwards.
 
@@ -501,7 +536,7 @@ def run(
         except Exception:
             pass
 
-    stored = registry.entry(config.run_id)  # type: ignore[attr-defined]
+    stored = _recorded_entry(registry, config.run_id)
     forced_from: tuple[str, ...] = tuple(stored.forced_from) if stored is not None else ()
     forced_inputs: tuple[str, ...] = tuple(stored.forced_inputs) if stored is not None else ()
     base_discarded = 0

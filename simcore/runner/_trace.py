@@ -20,6 +20,7 @@ class InMemoryTraceSink:
         self._seen: set[tuple[str, int]] = set()
         self.writes: list[list[TraceEvent]] = []
         self.finalized: list[str] = []
+        self.published: dict[str, str] = {}
         self._lock = threading.Lock()
 
     def write(self, events: object) -> None:
@@ -38,6 +39,13 @@ class InMemoryTraceSink:
         """Remembered rather than performed: in memory there is nothing to convert, and a test
         can see that a finished world was handed over."""
         self.finalized.append(world_id)
+
+    def note_published(self, stimuli) -> None:
+        """What the tick published, before its turns are taken — the runner's hook so an agent
+        reading `published` sees the current tick's words, not only earlier ticks'."""
+        with self._lock:
+            for stimulus in stimuli:
+                self.published[stimulus.stimulus_id] = stimulus.text
 
     def events_for(self, world_id: str) -> tuple[TraceEvent, ...]:
         return tuple(sorted(self._events.get(world_id, []), key=lambda e: e.seq))

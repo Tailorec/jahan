@@ -6,8 +6,6 @@ import argparse
 import sys
 from pathlib import Path
 
-from simcore.schemas import STUDY_CHANNELS
-
 from ._launch_record import record_launch
 from ._study import (
     DEFAULT_VALIDATION,
@@ -52,11 +50,14 @@ def add_study_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--tick-unit", default="day")
     parser.add_argument("--budget", type=float, default=20.0, help="max spend in USD")
     parser.add_argument(
-        "--channel", default="survey_room", choices=[channel.value for channel in STUDY_CHANNELS],
-        help="the environment personas are reached through",
+        "--channels", default="",
+        help="which channels spread information: any comma-separated combination of "
+        "social_feed,forum,wom, or empty for none (the concept test)",
     )
-    parser.add_argument("--elicits", default="reaction", metavar="TASK",
-                        help="what an activated persona is asked: reaction (default) or purchase")
+    parser.add_argument("--survey-every", type=int, default=1,
+                        help="ticks between survey waves; tick 0 and the last tick always wave")
+    parser.add_argument("--launch-reach", type=float, default=0.10,
+                        help="share exposed at launch; only meaningful with --channels wom")
     parser.add_argument("--force", action="store_true", help="resume despite moved inputs; recorded, never silent")
 
 
@@ -71,6 +72,10 @@ def cmd_concepts_run(argv: list[str] | None = None) -> int:
     seeds = [int(seed) for seed in args.seeds.split(",") if seed.strip()]
     if not seeds:
         raise ValueError("at least one replicate seed is required")
+    from ._study import parse_channels
+
+    # Refuse an unknown channel before anything is drawn or written: no run, no artefacts.
+    parse_channels(args.channels or "")
 
     handles = prepare_study(
         brief_path=args.brief,
@@ -86,7 +91,7 @@ def cmd_concepts_run(argv: list[str] | None = None) -> int:
         args=args,
     )
     record_launch(handles.run_dir, handles.run_id, ["concepts", "run", *(argv if argv is not None else sys.argv[3:])])
-    result = run_study(handles, channel=args.channel, force=args.force)
+    result = run_study(handles, force=args.force)
 
     if any(outcome.status.value == "completed" for outcome in result.outcomes):
         analysis = analyze_study(handles, result)

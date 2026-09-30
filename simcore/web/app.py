@@ -123,9 +123,12 @@ class StudyRequest(_CorpusChoices):
     horizon: int = Field(default=2, ge=1)
     tick_unit: Literal["hour", "day", "week"] = "day"
     budget: float = Field(default=20.0, gt=0)
-    channel: str = "survey_room"
+    # Which channels spread information: any combination of feed, forum and word of mouth,
+    # including none (the concept test). The survey room is a wave's internal channel, never a choice.
+    channels: list[str] = Field(default_factory=list)
+    survey_every: int = Field(default=1, ge=1)
+    launch_reach: float = Field(default=0.10, ge=0.0, le=1.0)
     seeds: str | list[int] = "4021"
-    elicits: Literal["reaction", "purchase"] = "reaction"
     anchor_versions: list[str] | None = None
     # The draw's own seed, and what a real model costs — study inputs, recorded and hashed. Prices are
     # what lets the budget ladder measure spend; a chat price needs both its input and output rate.
@@ -155,15 +158,22 @@ class StudyRequest(_CorpusChoices):
                 raise ValueError(f"{value!r} is not a run id: `run-` and 26 characters of a ULID") from None
         return value
 
-    @field_validator("channel")
+    @field_validator("channels")
     @classmethod
-    def _a_channel_the_engine_has(cls, value: str) -> str:
-        from simcore.schemas import STUDY_CHANNELS
+    def _channels_are_ones_the_engine_has(cls, value: list[str]) -> list[str]:
+        known = ("social_feed", "forum", "wom")
+        unknown = sorted({name for name in value if name not in known})
+        if unknown:
+            raise ValueError(
+                f"a study ticks any combination of {', '.join(known)}, or none — not {', '.join(unknown)}"
+            )
+        return sorted(set(value))
 
-        known = [channel.value for channel in STUDY_CHANNELS]
-        if value not in known:
-            raise ValueError(f"a study runs on one of {', '.join(known)}, not {value!r}")
-        return value
+    @model_validator(mode="after")
+    def _launch_reach_needs_wom_alone(self) -> "StudyRequest":
+        if self.channels != ["wom"] and self.launch_reach != 0.10:
+            raise ValueError("launch_reach is only meaningful when channels is exactly [wom]")
+        return self
 
     @field_validator("validation")
     @classmethod
@@ -368,9 +378,10 @@ def _study_argv(request: Request, run_id: str, body: StudyRequest) -> list[str]:
         "--horizon", str(body.horizon),
         "--tick-unit", body.tick_unit,
         "--budget", str(body.budget),
-        "--channel", body.channel,
+        "--channels", ",".join(body.channels),
+        "--survey-every", str(body.survey_every),
+        "--launch-reach", str(body.launch_reach),
         "--seeds", str(seeds),
-        "--elicits", body.elicits,
     ]
     if body.fake:
         argv.append("--fake")
