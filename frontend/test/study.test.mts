@@ -1,13 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  CHANNELS, CHANNEL_GUIDE, cachedShards, defaultAnchor, defaultSources, gateRequest, leftOut, shardsFor, parseSeeds, problems, studyRequest,
+  CHANNELS, CHANNEL_GUIDE, cachedShards, defaultAnchor, defaultSources, gateRequest, leftOut, shardsFor, parseSeeds, problems, studyRequest, waveTicks,
   type AnchorCatalogue, type CorpusInfo, type StudyForm,
 } from "../lib/study.ts";
 
 const form = (over: Partial<StudyForm> = {}): StudyForm => ({
   n: "500", horizon: "3", tickUnit: "day", seeds: "4021,917731", budget: "1.0",
-  channel: "survey_room", elicits: "purchase", anchorVersion: "purchase_intent=v2",
+  channels: ["social_feed"], surveyEvery: "2", launchReach: "0.10", anchorVersion: "purchase_intent=v2",
   model: "amazon.nova-micro-v1:0", embedModel: "amazon.titan-embed-text-v2:0",
   populationSeed: "4022", shards: ["0000", "0004", "0005"], sources: ["wiki", "gss", "amazon", "stackoverflow"],
   priceChatIn: "0.035", priceChatOut: "0.14", priceEmbedIn: "0.02", validation: "",
@@ -117,10 +117,31 @@ test("replicate seeds are read as the numbers they are", () => {
   assert.deepEqual(parseSeeds("4021, 917731,"), [4021, 917731]);
 });
 
-test("every environment a study can run on says why one would choose it, and word of mouth is not offered", () => {
+test("every channel a study can tick says why one would choose it, and the survey room is not offered", () => {
   assert.deepEqual(Object.keys(CHANNEL_GUIDE).sort(), [...CHANNELS].sort());
-  assert.match(CHANNEL_GUIDE.survey_room.use, /word of mouth is zero/);
+  assert.deepEqual([...CHANNELS].sort(), ["forum", "social_feed", "wom"]);
   assert.match(CHANNEL_GUIDE.social_feed.use, /spreads/);
   assert.match(CHANNEL_GUIDE.forum.use, /polarization/);
-  assert.equal((CHANNELS as readonly string[]).includes("wom"), false);
+  assert.match(CHANNEL_GUIDE.wom.use, /launch reach/);
+});
+
+test("the launch body carries the ticked channels, the survey interval and the launch reach", () => {
+  const body = studyRequest(form(), "b", null);
+  assert.deepEqual(body.channels, ["social_feed"]);
+  assert.equal(body.survey_every, 2);
+  assert.equal(body.launch_reach, 0.10);
+  assert.equal("elicits" in body, false);
+  assert.equal("channel" in body, false);
+});
+
+test("wave ticks always open and close a study", () => {
+  assert.deepEqual(waveTicks(2, 7), [0, 2, 4, 6]);
+  assert.deepEqual(waveTicks(3, 5), [0, 3, 4]);
+  assert.deepEqual(waveTicks(9, 5), [0, 4]);
+});
+
+test("a launch reach outside word of mouth alone is named before anything is sent", () => {
+  assert.deepEqual(problems(form()), []);
+  assert.match(problems(form({ channels: [], launchReach: "0.2" })).join(" "), /launch reach/);
+  assert.deepEqual(problems(form({ channels: ["wom"], launchReach: "0.2" })), []);
 });

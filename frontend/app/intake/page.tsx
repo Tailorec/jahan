@@ -9,7 +9,7 @@ import { api, useApi, whyNot } from "@/lib/api";
 import { briefToYaml, type BriefForm } from "@/lib/briefYaml";
 import type { AudienceSet, CategoryOntology, ClaimSource } from "@/lib/engine";
 import {
-  CHANNELS, CHANNEL_GUIDE, ONE_ENVIRONMENT_NOTE, defaultAnchor, defaultSources, gateRequest, leftOut, problems, shardsFor, studyRequest,
+  CHANNELS, CHANNEL_GUIDE, defaultAnchor, defaultSources, gateRequest, leftOut, problems, shardsFor, studyRequest, waveTicks,
   type AnchorCatalogue, type ChannelName, type CorpusInfo, type StudyForm,
 } from "@/lib/study";
 import { TEXT_SOURCES } from "@/lib/sources";
@@ -56,13 +56,16 @@ export default function IntakePage() {
   const [tickUnit, setTickUnit] = useSessionState("intake:tickUnit", "day");
   const [seeds, setSeeds] = useSessionState("intake:seeds", "4021");
   const [budget, setBudget] = useSessionState("intake:budget", "20");
-  const [elicits, setElicits] = useSessionState("intake:elicits", "reaction");
   const [anchorVersion, setAnchorVersion] = useSessionState("intake:anchorVersion", "");
   const [model, setModel] = useSessionState("intake:model", "");
   const [embedModel, setEmbedModel] = useSessionState("intake:embedModel", "");
   // What a real study also decides: where the population is drawn from, which draw, and what the models cost.
   // Defaults come from what is actually there — the cached shards, the measured sources, a scale that passed.
-  const [channel, setChannel] = useSessionState<ChannelName>("intake:channel", "survey_room");
+  // Which channels spread information, when intent is measured, and — for word of mouth alone —
+  // the launch reach. No channels ticked is the concept test: every persona sees the concept alone.
+  const [channels, setChannels] = useSessionState<ChannelName[]>("intake:channels", []);
+  const [surveyEvery, setSurveyEvery] = useSessionState("intake:surveyEvery", "1");
+  const [launchReach, setLaunchReach] = useSessionState("intake:launchReach", "0.10");
   const [populationSeed, setPopulationSeed] = useSessionState("intake:populationSeed", "4021");
   const [shards, setShards] = useSessionState<string[]>("intake:shards", []);
   const [sources, setSources] = useSessionState<string[]>("intake:sources", []);
@@ -139,9 +142,15 @@ export default function IntakePage() {
   const briefYaml = React.useMemo(() => briefToYaml(form), [form]);
   const realNeedsEndpoint = endpoint?.endpoint_configured === false;
   const studyForm: StudyForm = {
-    n, horizon, tickUnit, seeds, budget, channel, elicits, anchorVersion, model, embedModel,
+    n, horizon, tickUnit, seeds, budget, channels, surveyEvery, launchReach, anchorVersion, model, embedModel,
     populationSeed, shards, sources, priceChatIn, priceChatOut, priceEmbedIn, validation,
   };
+  const womAlone = channels.length === 1 && channels[0] === "wom";
+  const horizonTicks = Number(horizon);
+  const everyTicks = Number(surveyEvery);
+  const listedWaves = Number.isFinite(horizonTicks) && Number.isFinite(everyTicks) && everyTicks >= 1 && horizonTicks >= 1
+    ? waveTicks(everyTicks, horizonTicks)
+    : [];
   // Who is studied comes only from Who you study: without its audiences there is nothing to draw.
   const mistakes = [
     ...(form.audiences.length ? [] : ["Choose an audience set — Who you study saves them."]),
@@ -429,11 +438,29 @@ export default function IntakePage() {
                   <div className="grid g2">
                     <div className="field" style={{ margin: 0 }}><label>Population seed</label><input className="input mono" value={populationSeed} onChange={(e) => setPopulationSeed(e.target.value)} />
                       <div className="help">Which persona draw. A draw the gate refuses is a draw refused — re-draw with another seed and say you did.</div></div>
-                    <div className="field" style={{ margin: 0 }}><label>Environment</label>
-                      <select className="input" value={channel} onChange={(e) => setChannel(e.target.value as ChannelName)}>
-                        {CHANNELS.map((c) => <option key={c} value={c}>{c} — {CHANNEL_GUIDE[c].summary}</option>)}
-                      </select>
-                      <div className="help">{CHANNEL_GUIDE[channel].use} <i>{ONE_ENVIRONMENT_NOTE}</i></div></div>
+                    <div className="field" style={{ margin: 0 }}><label>Channels — what spreads information</label>
+                      <div style={{ display: "grid", gap: 4 }}>
+                        {CHANNELS.map((c) => (
+                          <label key={c} style={{ fontSize: 13 }}>
+                            <input type="checkbox" checked={channels.includes(c)} onChange={() => toggle(channels, setChannels, c)} /> <span className="mono">{c}</span> — {CHANNEL_GUIDE[c].summary}
+                          </label>
+                        ))}
+                      </div>
+                      <div className="help">{channels.length === 0
+                        ? "Concept test — every persona sees the concept alone."
+                        : channels.map((c) => CHANNEL_GUIDE[c].use).join(" ")}</div></div>
+                  </div>
+                  <div className="grid g2">
+                    <div className="field" style={{ margin: 0 }}><label>Survey every k ticks</label>
+                      <input className="input mono" value={surveyEvery} onChange={(e) => setSurveyEvery(e.target.value)} />
+                      <div className="help">{listedWaves.length
+                        ? <>Waves at ticks <span className="mono">{listedWaves.join(", ")}</span> — every persona answers the purchase-intent question.</>
+                        : "How often every persona is surveyed for purchase intent."}</div></div>
+                    {womAlone && (
+                      <div className="field" style={{ margin: 0 }}><label>Launch reach</label>
+                        <input className="input mono" value={launchReach} onChange={(e) => setLaunchReach(e.target.value)} />
+                        <div className="help">The share of personas who hear first-hand at launch, chosen at random — without them nobody has anything to pass on.</div></div>
+                    )}
                   </div>
                   <div className="field" style={{ margin: 0 }}>
                     <label>What the models cost (USD per million tokens) — optional</label>
@@ -458,12 +485,6 @@ export default function IntakePage() {
                 <div className="field" style={{ margin: 0 }}><label>Budget (USD)</label><input className="input mono" value={budget} onChange={(e) => setBudget(e.target.value)} /></div>
               </div>
               <div className="grid g2">
-                <div className="field" style={{ margin: 0 }}><label>Asked — what personas answer</label>
-                  <select className="input" value={elicits} onChange={(e) => setElicits(e.target.value)}>
-                    <option value="reaction">reaction</option>
-                    <option value="purchase">purchase intent</option>
-                  </select>
-                  <div className="help">A purchase-intent study is scored by the anchor version below.</div></div>
                 <div className="field" style={{ margin: 0 }}><label>Anchor version</label>
                   {anchors && anchors.anchors.length > 0
                     ? <select className="input mono" value={anchorVersion} onChange={(e) => setAnchorVersion(e.target.value)}>

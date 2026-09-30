@@ -24,22 +24,14 @@ export interface AnchorInfo {
 }
 export interface AnchorCatalogue { anchors: AnchorInfo[]; defaults: string[] }
 
-/* The environments a study runs on. `wom` is a channel a message is delivered on, not one a study runs on. */
-export const CHANNELS = ["survey_room", "social_feed", "forum"] as const;
+/* The channels a study can tick: any combination, including none. The survey room is a wave's
+   internal channel, never a choice. */
+export const CHANNELS = ["social_feed", "forum", "wom"] as const;
 export type ChannelName = (typeof CHANNELS)[number];
 
-/* Why one would choose each environment. The architecture has a world run these together — a persona reacting once per
-   channel per tick — but this build runs one platform per world, so a study picks one. Word of mouth is not a
-   choice: in a feed or a forum it rides beside the platform, when a persona reacts strongly enough and is close enough
-   to a peer, and the peer meets it on a later tick. */
-export const ONE_ENVIRONMENT_NOTE =
-  "This version runs one environment per study; running them together is designed but not built.";
-
+/* What each channel does, in a line. Word of mouth alone starts from a launch reach — a random
+   share of personas who hear first-hand — without whom nobody has anything to pass on. */
 export const CHANNEL_GUIDE: Record<ChannelName, { summary: string; use: string }> = {
-  survey_room: {
-    summary: "measure purchase intent, concept alone",
-    use: "Each persona is shown the concept alone and answers. Nothing spreads between personas, so word of mouth is zero by construction. Choose this to measure purchase intent by audience against a clean baseline.",
-  },
   social_feed: {
     summary: "a feed: reactions can spread",
     use: "Personas scroll a feed holding the concept and each other's posts, and can like, comment, follow, buy or ask a peer. A persona who reacts strongly to a peer they are close to passes it on, so reach grows over the ticks. Choose this to see how a reaction spreads and whether social proof moves intent.",
@@ -48,7 +40,19 @@ export const CHANNEL_GUIDE: Record<ChannelName, { summary: string; use: string }
     summary: "threads: discussion and disagreement form",
     use: "Personas read and reply in threads, and can upvote, downvote, reply or buy. Discussion forms and communities can drift apart, so polarization is measured. Choose this to see how the concept is argued over, not only how each persona feels.",
   },
+  wom: {
+    summary: "word of mouth along social ties",
+    use: "A persona who reacts strongly tells close ties, who hear on the next tick. Alone it starts from the launch reach below; beside a feed or a forum it carries what personas do there. Choose this to isolate what spreads person to person.",
+  },
 };
+
+/* The wave ticks for a survey interval and horizon: {0, k, 2k, …} ∪ {horizon − 1}. */
+export function waveTicks(surveyEvery: number, horizon: number): number[] {
+  const ticks = new Set<number>();
+  for (let t = 0; t < horizon; t += surveyEvery) ticks.add(t);
+  ticks.add(horizon - 1);
+  return [...ticks].sort((a, b) => a - b);
+}
 
 export interface StudyForm {
   n: string;
@@ -56,8 +60,9 @@ export interface StudyForm {
   tickUnit: string;
   seeds: string;
   budget: string;
-  channel: ChannelName;
-  elicits: string;
+  channels: ChannelName[];
+  surveyEvery: string;
+  launchReach: string;
   anchorVersion: string;
   model: string;
   embedModel: string;
@@ -132,6 +137,17 @@ export function problems(form: StudyForm): string[] {
   if (form.populationSeed.trim() !== "" && (seed === undefined || !Number.isInteger(seed) || seed < 0)) {
     found.push("The population seed is a whole number, zero or more.");
   }
+  const every = number(form.surveyEvery);
+  if (every !== undefined && (!Number.isInteger(every) || every < 1)) {
+    found.push("Survey waves come every k ticks, k a whole number of one or more.");
+  }
+  const reach = number(form.launchReach);
+  if (reach !== undefined && (reach < 0 || reach > 1)) {
+    found.push("The launch reach is a share, between zero and one.");
+  }
+  if ((reach ?? 0.10) !== 0.10 && !(form.channels.length === 1 && form.channels[0] === "wom")) {
+    found.push("The launch reach is only meaningful with word of mouth alone.");
+  }
   return found;
 }
 
@@ -141,11 +157,14 @@ export function studyRequest(form: StudyForm, briefYaml: string, evidence: unkno
   const body: Record<string, unknown> = {
     brief_yaml: briefYaml, evidence_json: evidence,
     n: Number(form.n), horizon: Number(form.horizon), tick_unit: form.tickUnit, seeds: form.seeds,
-    budget: Number(form.budget), channel: form.channel, fake: false,
-    elicits: form.elicits,
+    budget: Number(form.budget), channels: [...form.channels], fake: false,
     model: form.model.trim(), embed_model: form.embedModel.trim(), shards: form.shards, sources: form.sources,
   };
   if (form.anchorVersion.trim()) body.anchor_versions = [form.anchorVersion.trim()];
+  const every = number(form.surveyEvery);
+  if (every !== undefined) body.survey_every = every;
+  const reach = number(form.launchReach);
+  if (reach !== undefined) body.launch_reach = reach;
   if (form.validation.trim()) body.validation = form.validation.trim();
   const seed = number(form.populationSeed);
   if (seed !== undefined) body.population_seed = seed;

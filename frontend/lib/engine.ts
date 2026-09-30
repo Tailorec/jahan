@@ -151,7 +151,9 @@ export interface Scenario {
   horizon_ticks: number;
   interventions: { tick: number; kind: InterventionKind }[];
   exposure_budget: number;
-  elicits: string;
+  channels: Channel[];
+  survey_every: number;
+  launch_reach: number;
 }
 export interface WorldOutcome {
   world_id: string;
