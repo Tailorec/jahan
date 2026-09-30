@@ -11,9 +11,14 @@ from simcore.schemas import Channel
 from simcore.world import WorldConfig, select_targets, sentiment_strength, wants_to_talk
 from tests.study_builders import PERSONA_IDS
 
-from .helpers import answer_turn, felt_turn, make_population, make_world
+from .helpers import answer_turn, felt_turn, make_population, make_world, on_channel
 
 FEED = WorldConfig(platform="social_feed", exposure_budget=6)
+
+
+def feed_only(delta):
+    """This suite's subject is feed and word of mouth: the wave rides along but is never what is asserted."""
+    return [p for p in delta.presentations if p.impression.channel is not Channel.SURVEY_ROOM]
 
 
 def drive_talk(config=FEED):
@@ -23,7 +28,7 @@ def drive_talk(config=FEED):
     world = make_world(config=config, population=population)
     world.reset()
     first = world.step(1, [])
-    by_persona = {p.impression.persona_id: p for p in first.presentations}
+    by_persona = {p.impression.persona_id: p for p in feed_only(first)}
     subject = by_persona["p-000001"].impression.exposures[0].stimulus_id
     turns = [felt_turn(by_persona["p-000001"], 1)]
     turns += [
@@ -80,7 +85,7 @@ def test_the_per_tick_cap_holds_and_targets_come_from_a_derived_seed():
     world = make_world(config=FEED, population=population)
     world.reset()
     first_delta = world.step(1, [])
-    by_persona = {p.impression.persona_id: p for p in first_delta.presentations}
+    by_persona = {p.impression.persona_id: p for p in feed_only(first_delta)}
     second = world.step(2, [felt_turn(by_persona[pid], n) for n, pid in enumerate(sorted(by_persona))])
     delivered = sum(
         len(p.impression.exposures)
@@ -94,7 +99,7 @@ def test_a_persona_with_no_ties_produces_no_deliveries_and_no_error():
     world = make_world(config=FEED)
     world.reset()
     first = world.step(1, [])
-    by_persona = {p.impression.persona_id: p for p in first.presentations}
+    by_persona = {p.impression.persona_id: p for p in feed_only(first)}
     second = world.step(2, [felt_turn(by_persona[pid], n) for n, pid in enumerate(sorted(by_persona))])
     assert second.presentations
     assert not [p for p in second.presentations if p.impression.channel is Channel.WOM]
@@ -121,7 +126,7 @@ def test_word_of_mouth_replays_exactly_like_everything_else():
     world = make_world(config=FEED, population=population)
     world.reset()
     first = world.step(1, [])
-    by_persona = {p.impression.persona_id: p for p in first.presentations}
+    by_persona = {p.impression.persona_id: p for p in feed_only(first)}
     strong = [felt_turn(by_persona[pid], n) for n, pid in enumerate(sorted(by_persona))]
     second = world.step(2, strong)
     assert any(p.impression.channel is Channel.WOM for p in second.presentations)

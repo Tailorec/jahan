@@ -56,7 +56,13 @@ def test_reset_returns_the_opening_delta_as_tick_zero_from_trace_types():
     world = make_world()
     delta = world.reset()
     assert delta.tick == 0
-    assert delta.dropped == () and delta.presentations == ()
+    assert delta.dropped == ()
+    # Tick 0 always waves: the baseline survey goes out with the opening delta, after launch.
+    assert [p.impression.persona_id for p in delta.presentations] == sorted(PERSONA_IDS)
+    for presentation in delta.presentations:
+        assert presentation.impression.channel is Channel.SURVEY_ROOM
+        assert len(presentation.impression.exposures) == 1
+        assert presentation.impression.exposures[0].stimulus_id == world.concept_id()
     kinds = [stimulus.kind.value for stimulus in delta.published]
     assert kinds[0] == "concept"
     assert kinds[1:] == ["claim_post"] * 3
@@ -67,7 +73,7 @@ def test_reset_returns_the_opening_delta_as_tick_zero_from_trace_types():
     assert_no_world_state(delta)
 
 
-def test_step_returns_one_survey_presentation_per_activated_persona():
+def test_step_returns_one_survey_presentation_per_persona():
     world = make_world()
     world.reset()
     delta = world.step(1, [])

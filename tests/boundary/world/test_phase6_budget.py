@@ -11,9 +11,14 @@ from simcore.schemas import Channel
 from simcore.world import WorldConfig, exposure_concentration
 from tests.study_builders import PERSONA_IDS, scenario_payload
 
-from .helpers import act_turn, answer_turn, drive, make_population, make_world
+from .helpers import act_turn, answer_turn, drive, make_population, make_world, on_channel
 
 FEED = WorldConfig(platform="social_feed")
+
+
+def feed_only(delta):
+    """This suite's subject is the feed: the wave rides along but is never what is asserted."""
+    return on_channel(delta.presentations, Channel.SOCIAL_FEED)
 
 
 def busy_feed(budget_scenario=None, likes=False):
@@ -23,7 +28,7 @@ def busy_feed(budget_scenario=None, likes=False):
     world = make_world(config=FEED, population=population, scenario=scenario)
     world.reset()
     first = world.step(1, [])
-    by_persona = {p.impression.persona_id: p for p in first.presentations}
+    by_persona = {p.impression.persona_id: p for p in feed_only(first)}
     turns = []
     for n, pid in enumerate(sorted(by_persona)):
         if likes:
@@ -67,8 +72,8 @@ def test_random_selects_without_reference_to_engagement_deterministically():
     _, _, _, plain_third = busy_feed()
     _, _, _, rerun_third = busy_feed()
     # The same seed deals the same exposures twice.
-    assert [p.impression for p in plain_third.presentations] == [
-        p.impression for p in rerun_third.presentations
+    assert [p.impression for p in feed_only(plain_third)] == [
+        p.impression for p in feed_only(rerun_third)
     ]
     # Engagement cannot move the control arm: identical posts, likes hammering different targets.
     first_a = make_world(config=FEED, population=make_population())
@@ -77,9 +82,9 @@ def test_random_selects_without_reference_to_engagement_deterministically():
     first_b.reset()
     shown_a = first_a.step(1, [])
     shown_b = first_b.step(1, [])
-    assert [p.impression for p in shown_a.presentations] == [p.impression for p in shown_b.presentations]
-    by_a = {p.impression.persona_id: p for p in shown_a.presentations}
-    by_b = {p.impression.persona_id: p for p in shown_b.presentations}
+    assert [p.impression for p in feed_only(shown_a)] == [p.impression for p in feed_only(shown_b)]
+    by_a = {p.impression.persona_id: p for p in feed_only(shown_a)}
+    by_b = {p.impression.persona_id: p for p in feed_only(shown_b)}
     target_a = by_a["p-000002"].impression.exposures[0].stimulus_id
     target_b = by_a["p-000003"].impression.exposures[1].stimulus_id
     assert target_a != target_b
@@ -103,9 +108,9 @@ def test_random_selects_without_reference_to_engagement_deterministically():
     )
     third_a = first_a.step(3, [])
     third_b = first_b.step(3, [])
-    assert third_a.presentations[0].view.contexts[target_a].likes == 2
-    assert third_b.presentations[0].view.contexts[target_a].likes == 0
-    assert [p.impression for p in third_a.presentations] == [p.impression for p in third_b.presentations]
+    assert feed_only(third_a)[0].view.contexts[target_a].likes == 2
+    assert feed_only(third_b)[0].view.contexts[target_a].likes == 0
+    assert [p.impression for p in feed_only(third_a)] == [p.impression for p in feed_only(third_b)]
 
 
 def test_exposure_concentration_under_random_is_measurable_on_a_fixture():
@@ -118,7 +123,7 @@ def test_exposure_concentration_under_random_is_measurable_on_a_fixture():
 
 def test_exposures_keep_their_attention_reason_and_seen_flag():
     _, first, _, _ = busy_feed()
-    for presentation in first.presentations:
+    for presentation in feed_only(first):
         shown = presentation.impression.exposures
         for rank, exposure in enumerate(shown):
             # The first slot has the persona's full notice; the last has half of it.
@@ -127,7 +132,7 @@ def test_exposures_keep_their_attention_reason_and_seen_flag():
             assert exposure.reason.value == "random"
             assert exposure.seen is True
     # What the agent is given round-trips untouched into its turn.
-    for n, presentation in enumerate(first.presentations):
+    for n, presentation in enumerate(feed_only(first)):
         turn = answer_turn(presentation, n)
         assert turn.impression.exposures == presentation.impression.exposures
 
@@ -174,7 +179,7 @@ def test_a_stimulus_outside_the_window_is_not_shown_and_not_recorded_as_dropped(
     first = world.step(1, [])
     shown = {
         presentation.impression.persona_id: {exposure.stimulus_id for exposure in presentation.impression.exposures}
-        for presentation in first.presentations
+        for presentation in feed_only(first)
     }
     dropped: dict[str, set[str]] = {}
     for entry in first.dropped:

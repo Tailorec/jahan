@@ -8,10 +8,11 @@ recomputes its signal per tick.
 
 import pytest
 
+from simcore.schemas import Channel
 from simcore.world import RecsysMode, WorldConfig, exposure_concentration
 from tests.study_builders import PERSONA_IDS, scenario_payload
 
-from .helpers import act_turn, answer_turn, make_population, make_world, targeted_turn
+from .helpers import act_turn, answer_turn, make_population, make_world, on_channel, targeted_turn
 
 HOURLY_ONE = scenario_payload(tick_unit="hour", exposure_budget=1)
 PROFILES = (
@@ -53,7 +54,7 @@ def drive_modes():
     for mode, world in worlds.items():
         world.reset()
         first = world.step(1, [])
-        by_persona = {p.impression.persona_id: p for p in first.presentations}
+        by_persona = {p.impression.persona_id: p for p in on_channel(first.presentations, Channel.SOCIAL_FEED)}
         second = world.step(
             2,
             [
@@ -76,7 +77,8 @@ def test_twitter_ranks_by_interest_match_with_no_embedding_call_at_step_time():
     worlds, embed = drive_modes()
     world, fourth, posts = worlds["twitter"]
     hub, periph = posts["p-000002"], posts["p-000004"]
-    shown = {p.impression.persona_id: p.impression.exposures[0].stimulus_id for p in fourth.presentations}
+    feed = on_channel(fourth.presentations, Channel.SOCIAL_FEED)
+    shown = {p.impression.persona_id: p.impression.exposures[0].stimulus_id for p in feed}
     assert shown["p-000001"] == hub and shown["p-000002"] == hub
     assert shown["p-000003"] == periph and shown["p-000004"] == periph
     embedded = [text for call in embed.calls for text in call]
@@ -93,24 +95,29 @@ def test_twhin_uses_degree_centralities_computed_once():
     assert world.degree_centrality("p-000002") == pytest.approx(2 / 3)
     assert world.degree_centrality("p-000001") == pytest.approx(1 / 3)
     hub = posts["p-000002"]
-    assert {e.stimulus_id for p in fourth.presentations for e in p.impression.exposures} == {hub}
+    assert {e.stimulus_id for p in on_channel(fourth.presentations, Channel.SOCIAL_FEED) for e in p.impression.exposures} == {hub}
 
 
 def test_all_four_modes_are_selectable_and_differ_on_one_fixture():
     worlds, _ = drive_modes()
-    concentrations = {mode: exposure_concentration([fourth]) for mode, (_, fourth, _) in worlds.items()}
+
+    def feed_delta(fourth):
+        return fourth.model_copy(update={"presentations": tuple(on_channel(fourth.presentations, Channel.SOCIAL_FEED))})
+
+    concentrations = {mode: exposure_concentration([feed_delta(fourth)]) for mode, (_, fourth, _) in worlds.items()}
     assert concentrations["reddit_hot"] == 1.0
     assert concentrations["twhin"] == 1.0
     assert concentrations["twitter"] == 0.5
     assert concentrations["random"] < 1.0
     assignments = {
         mode: tuple(
-            (p.impression.persona_id, p.impression.exposures[0].stimulus_id) for p in fourth.presentations
+            (p.impression.persona_id, p.impression.exposures[0].stimulus_id)
+            for p in on_channel(fourth.presentations, Channel.SOCIAL_FEED)
         )
         for mode, (_, fourth, _) in worlds.items()
     }
     assert len(set(assignments.values())) == 4
-    hot_shown = {e.stimulus_id for p in worlds["reddit_hot"][1].presentations for e in p.impression.exposures}
+    hot_shown = {e.stimulus_id for p in on_channel(worlds["reddit_hot"][1].presentations, Channel.SOCIAL_FEED) for e in p.impression.exposures}
     assert hot_shown == {worlds["reddit_hot"][2]["p-000004"]}
 
 
@@ -136,7 +143,7 @@ def test_every_mode_remains_deterministic_under_a_fixed_seed():
         rerun = make_world(config=config, population=make_population(), scenario=dict(HOURLY_ONE))
         rerun.reset()
         first = rerun.step(1, [])
-        by_persona = {p.impression.persona_id: p for p in first.presentations}
+        by_persona = {p.impression.persona_id: p for p in on_channel(first.presentations, Channel.SOCIAL_FEED)}
         second = rerun.step(
             2,
             [

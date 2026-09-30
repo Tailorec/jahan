@@ -13,7 +13,7 @@ from simcore.schemas import Channel
 from simcore.world import WorldConfig
 from tests.study_builders import scenario_payload
 
-from .helpers import act_turn, answer_turn, make_population, make_world
+from .helpers import act_turn, answer_turn, make_population, make_world, on_channel
 
 FEED = WorldConfig(platform="social_feed")
 WIDE = scenario_payload(exposure_budget=6)
@@ -37,7 +37,7 @@ def drive_feed(plan=None):
     world = make_world(config=FEED, population=population, scenario=WIDE)
     world.reset()
     first = world.step(1, [])
-    by_persona = {p.impression.persona_id: p for p in first.presentations}
+    by_persona = {p.impression.persona_id: p for p in on_channel(first.presentations, Channel.SOCIAL_FEED)}
     turns = []
     for n, (persona, (action, verbatim)) in enumerate((plan or PLAN).items()):
         if action == "ignore":
@@ -56,7 +56,9 @@ def test_the_feed_supports_post_comment_like_repost_quote_and_follow():
     post = next(s for s in second.published if s.kind.value == "peer_post")
     reply = next(s for s in second.published if s.kind.value == "peer_reply")
     commented = next(
-        p.impression.exposures[0].stimulus_id for p in first.presentations if p.impression.persona_id == "p-000002"
+        p.impression.exposures[0].stimulus_id
+        for p in on_channel(first.presentations, Channel.SOCIAL_FEED)
+        if p.impression.persona_id == "p-000002"
     )
     assert post.author == "p-000001" and post.text == "tried it after the gym, genuinely smooth"
     assert reply.author == "p-000002" and reply.in_reply_to == commented
@@ -66,7 +68,7 @@ def test_the_feed_supports_post_comment_like_repost_quote_and_follow():
     world2 = make_world(config=FEED, population=population, scenario=WIDE)
     world2.reset()
     tick1 = world2.step(1, [])
-    by_persona = {p.impression.persona_id: p for p in tick1.presentations}
+    by_persona = {p.impression.persona_id: p for p in on_channel(tick1.presentations, Channel.SOCIAL_FEED)}
     tick2 = world2.step(
         2,
         [
@@ -82,8 +84,9 @@ def test_the_feed_supports_post_comment_like_repost_quote_and_follow():
 
 def test_everything_seen_on_one_channel_in_one_tick_is_one_impression():
     _, first, _, _ = drive_feed()
-    assert len(first.presentations) == 4
-    for presentation in first.presentations:
+    feed = on_channel(first.presentations, Channel.SOCIAL_FEED)
+    assert len(feed) == 4
+    for presentation in feed:
         assert presentation.impression.channel is Channel.SOCIAL_FEED
         assert len(presentation.impression.exposures) > 1
         assert set(presentation.view.contexts) == set(presentation.impression.stimulus_ids)
@@ -92,13 +95,14 @@ def test_everything_seen_on_one_channel_in_one_tick_is_one_impression():
 def test_a_view_carries_counts_ancestry_tie_and_community_and_nothing_else():
     world, first, _, third = drive_feed()
     shown_at = {
-        p.impression.persona_id: p.impression.exposures[0].stimulus_id for p in first.presentations
+        p.impression.persona_id: p.impression.exposures[0].stimulus_id
+        for p in on_channel(first.presentations, Channel.SOCIAL_FEED)
     }
     liked, commented = shown_at["p-000003"], shown_at["p-000002"]
     rows = world._store.stimuli_published_before(4)
     post_id = next(s["stimulus_id"] for s in rows if s["kind"] == "peer_post")
     reply_id = next(s["stimulus_id"] for s in rows if s["kind"] == "peer_reply")
-    for presentation in third.presentations:
+    for presentation in on_channel(third.presentations, Channel.SOCIAL_FEED):
         viewer = presentation.impression.persona_id
         assert presentation.view.contexts[liked].likes == 1
         assert presentation.view.contexts[commented].replies == 1
@@ -160,22 +164,24 @@ def test_engagement_counts_include_only_engagement_from_earlier_ticks():
     world = make_world(config=FEED, population=population, scenario=WIDE)
     world.reset()
     first = world.step(1, [])
-    by_persona = {p.impression.persona_id: p for p in first.presentations}
+    by_persona = {p.impression.persona_id: p for p in on_channel(first.presentations, Channel.SOCIAL_FEED)}
     second = world.step(2, [act_turn(by_persona["p-000001"], 1, "post", "tried it after the gym")])
     post = next(s for s in second.published if s.kind.value == "peer_post")
-    for presentation in second.presentations:
+    for presentation in on_channel(second.presentations, Channel.SOCIAL_FEED):
         assert post.stimulus_id not in presentation.view.contexts
     third = world.step(3, [])
-    assert third.presentations[0].view.contexts[post.stimulus_id].likes == 0
-    visible = [p for p in third.presentations if post.stimulus_id in p.impression.stimulus_ids]
+    feed3 = on_channel(third.presentations, Channel.SOCIAL_FEED)
+    assert feed3[0].view.contexts[post.stimulus_id].likes == 0
+    visible = [p for p in feed3 if post.stimulus_id in p.impression.stimulus_ids]
     assert visible, "the peer post is shown from the tick after it is published"
     fourth = world.step(4, [act_turn(visible[0], 20, "like", subject_id=post.stimulus_id)])
+    feed4 = on_channel(fourth.presentations, Channel.SOCIAL_FEED)
     # Within-tick independence is structural: every presentation of one tick shares one count snapshot.
     def counts(presentation):
         context = presentation.view.contexts[post.stimulus_id]
         return (context.likes, context.reposts, context.replies, context.upvotes, context.downvotes)
 
-    assert {counts(p) for p in fourth.presentations} == {counts(fourth.presentations[0])}
-    assert fourth.presentations[0].view.contexts[post.stimulus_id].likes == 1
+    assert {counts(p) for p in feed4} == {counts(feed4[0])}
+    assert feed4[0].view.contexts[post.stimulus_id].likes == 1
     fifth = world.step(5, [])
-    assert fifth.presentations[0].view.contexts[post.stimulus_id].likes == 1
+    assert on_channel(fifth.presentations, Channel.SOCIAL_FEED)[0].view.contexts[post.stimulus_id].likes == 1

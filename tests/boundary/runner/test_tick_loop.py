@@ -45,11 +45,12 @@ def _population(n: int = 4):
 class FakeWorld:
     """Survey-room-like world: tick 0 publishes, later ticks present one exposure each."""
 
-    def __init__(self, header, stimulus_text: str = "Clear protein water"):
+    def __init__(self, header, stimulus_text: str = "Clear protein water", channel: str = "survey_room"):
         from simcore.schemas import Exposure, ExposureReason, Impression, Presentation, Stimulus, View, WorldDelta
 
         self._header = header
         self._world_id = header.world_id
+        self._channel = channel
         self._personas = list(header.population.persona_ids)
         self._concept = Stimulus.model_validate(
             {
@@ -78,7 +79,7 @@ class FakeWorld:
                 {
                     "impression_id": f"im-{ulid(500 + tick * 100 + idx)}",
                     "persona_id": pid,
-                    "channel": "survey_room",
+                    "channel": self._channel,
                     "tick": tick,
                     "exposures": [{"stimulus_id": self._concept.stimulus_id, "reason": "interest", "attention": 1.0}],
                 }
@@ -318,16 +319,15 @@ def test_a_completed_world_is_finalized_so_its_record_becomes_the_lasting_one():
     assert sorted(trace.finalized) == sorted(outcome.world_id for outcome in result.outcomes)
 
 
-def test_a_scenario_says_what_its_personas_are_asked():
-    """A study exists to ask purchase intent, and nothing in a run configuration could ask for it:
-    the runner named the task itself, so every turn was a reaction and adoption was unreachable
-    even with anchors that pass. Found by the first real study, which produced 400 verbatims and
-    no intent at all."""
-    from simcore.schemas import Scenario, TurnTask
+def test_a_turns_task_comes_from_its_impressions_channel():
+    """A survey wave asks purchase intent and any other channel asks for a reaction: intent has
+    one source, one schedule and one respondent set in every study (ADR 0048). The old per-run
+    `elicits` asked every turn of every tick the same thing, so a reaction study measured no
+    intent at all and a purchase study measured whoever a channel happened to activate."""
+    from simcore.schemas import Scenario
 
-    assert "elicits" in Scenario.model_fields
-    assert Scenario.model_validate({**scenario_payload(), "elicits": "purchase"}).elicits is TurnTask.PURCHASE
-    assert Scenario.model_validate(scenario_payload()).elicits is TurnTask.REACTION
+    assert "elicits" not in Scenario.model_fields
+    assert set(Scenario.model_validate(scenario_payload()).channels) == set()
 
     from simcore.schemas import canonical_hash
 
@@ -339,7 +339,7 @@ def test_a_scenario_says_what_its_personas_are_asked():
 
     trace, registry = InMemoryTraceSink(), InMemoryRegistry()
     pack, population = _pack(), _population(4)
-    scenario = {**scenario_payload(horizon_ticks=3, interventions=[]), "elicits": "purchase"}
+    scenario = {**scenario_payload(horizon_ticks=3, interventions=[])}
     config = RunConfig.model_validate(
         {**_config(horizon=3).model_dump(mode="json"), "scenarios": [scenario],
          "brief_hash": canonical_hash(pack.brief), "ontology_hash": canonical_hash(pack.ontology),
@@ -347,4 +347,13 @@ def test_a_scenario_says_what_its_personas_are_asked():
     )
     run(config, pack=pack, population=population, trace=trace, registry=registry,
         world_factory=lambda header: FakeWorld(header), agent_fn=agent_fn)
-    assert asked and set(asked) == {"purchase"}, f"the scenario asked for purchase intent and got {set(asked)}"
+    assert asked and set(asked) == {"purchase"}, f"a survey wave asks purchase intent, got {set(asked)}"
+
+    asked.clear()
+    forum_trace, forum_registry = InMemoryTraceSink(), InMemoryRegistry()
+    run(
+        RunConfig.model_validate({**config.model_dump(mode="json"), "seeds": [917731]}),
+        pack=pack, population=population, trace=forum_trace, registry=forum_registry,
+        world_factory=lambda header: FakeWorld(header, channel="forum"), agent_fn=agent_fn,
+    )
+    assert asked and set(asked) == {"reaction"}, f"a channel turn asks for a reaction, got {set(asked)}"

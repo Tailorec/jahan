@@ -127,7 +127,10 @@ def test_an_exhausted_budget_exits_3_and_keeps_the_completed_worlds_artefacts(tm
     monkeypatch.setattr(_fake.RoleFakeChat, "_one", pricey)
     monkeypatch.chdir(tmp_path)
     out = tmp_path / "runs"
-    code, output = run_command(*fake_args(out, RUN_ID, horizon="3", budget="1000", seeds="4021,917731"))
+    # A wave costs a turn per persona per tick, tick 0 included: 24 personas × 3 ticks × $50
+    # is $3600 a world, so the first world completes inside $3000 and the second pauses in its
+    # second tick, leaving one completed world and one partial one.
+    code, output = run_command(*fake_args(out, RUN_ID, horizon="3", budget="3000", seeds="4021,917731"))
     assert code == 3, output
     assert "paused" in output
     run_dir = out / RUN_ID

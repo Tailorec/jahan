@@ -163,7 +163,8 @@ def test_subsample_plan_reaches_real_world_activation():
     seen_rates: list[float] = []
 
     def world_factory(header):
-        world = World(header, population=population, config=WorldConfig())
+        # A ticked channel, so activation draws happen: the survey wave surveys everyone, never gated.
+        world = World(header, population=population, config=WorldConfig(platform="social_feed"))
         orig_activated = world._activated
 
         def recording(tick):

@@ -25,7 +25,7 @@ def test_render_returns_both_formats_from_one_intermediate():
 def test_json_records_the_contract_version_it_was_rendered_under():
     report = render([finding_payload()], digests(), pack())
     assert report.data["contract_version"] == REPORT_CONTRACT_VERSION == SCHEMA_VERSION
-    assert "1.0.0" in report.markdown
+    assert SCHEMA_VERSION in report.markdown
     json.dumps(report.data)
 
 

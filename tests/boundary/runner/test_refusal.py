@@ -184,6 +184,30 @@ def test_engine_version_read_from_registry_not_process():
             world_factory=lambda header: FakeWorld(header), agent_fn=_agent, engine_version="other")
 
 
+def test_a_run_recorded_before_channels_were_scenario_content_refuses_naming_it():
+    """ADR 0048 moved channels, survey waves and launch reach into the scenario: a record whose
+    scenarios still name `elicits` no longer parses, so its resume is refused as a moved scenario
+    input — naming the decision — rather than failing on a schema error."""
+    from simcore.schemas import Scenario
+
+    config, pack, population, trace, registry = _started_run()
+    with pytest.raises(ValueError, match="elicits"):
+        Scenario.model_validate({**scenario_payload(), "elicits": "reaction"})
+
+    class LegacyRegistry:
+        def entry(self, run_id):
+            raise ValueError(
+                "1 validation error for RunRegistryEntry:\n"
+                "config.scenarios.0.elicits\n Extra inputs are not permitted"
+            )
+
+    with pytest.raises(ResumeRefused, match="scenario") as refused:
+        run(config, pack=pack, population=population, trace=trace, registry=LegacyRegistry(),
+            world_factory=lambda header: FakeWorld(header), agent_fn=_agent)
+    assert refused.value.name == "scenario"
+    assert "ADR 0048" in str(refused.value)
+
+
 def test_every_input_inside_the_configuration_hash_refuses_by_name():
     """The named checks covered brief, ontology, graph, population, scenarios, pins and engine —
     but a run's configuration also pins its templates, its anchor sets, its elicitation

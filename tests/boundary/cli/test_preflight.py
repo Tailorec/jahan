@@ -203,20 +203,30 @@ def test_a_study_says_which_persona_sources_it_admits(tmp_path):
         sources_from(types.SimpleNamespace(sources=" "))
 
 
-def test_a_study_says_what_it_asks_its_personas(tmp_path, monkeypatch):
-    """`Scenario.elicits` decides whether a turn is asked for a reaction or for purchase intent,
-    and the CLI never set it: the first real study pinned a passing purchase-intent scale and
-    then asked 897 personas for reactions, so not one turn was scored."""
-    from simcore.cli._study import assemble_scenario
+def test_a_study_says_which_channels_spread_and_when_it_surveys(tmp_path, monkeypatch):
+    """Channels, survey waves and launch reach are scenario content (ADR 0048): a study says
+    which channels spread information and when purchase intent is measured, and the engine
+    refuses a launch reach on anything but word of mouth alone."""
+    from simcore.cli._study import assemble_scenario, parse_channels
     from simcore.brief import load_brief
 
     pack = load_brief(BRIEF, ONTOLOGIES)
     default = assemble_scenario(pack, variant_id="v1", name="n", description="d")
-    assert default.elicits.value == "reaction"
-    asked = assemble_scenario(pack, variant_id="v1", name="n", description="d", elicits="purchase")
-    assert asked.elicits.value == "purchase"
+    assert set(default.channels) == set() and default.survey_every == 1 and default.launch_reach == 0.10
+    spread = assemble_scenario(
+        pack, variant_id="v1", name="n", description="d",
+        channels=["social_feed", "forum"], survey_every=2,
+    )
+    assert {channel.value for channel in spread.channels} == {"social_feed", "forum"}
+    assert spread.survey_every == 2
+    assert parse_channels("") == [] and parse_channels("social_feed,wom") == ["social_feed", "wom"]
     with pytest.raises((GateFailure, ValueError)):
-        assemble_scenario(pack, variant_id="v1", name="n", description="d", elicits="nonsense")
+        parse_channels("carrier_pigeon")
+    with pytest.raises((GateFailure, ValueError)):
+        assemble_scenario(
+            pack, variant_id="v1", name="n", description="d",
+            channels=["social_feed"], launch_reach=0.2,
+        )
 
 
 def test_a_pinned_scale_can_actually_be_scored_with():

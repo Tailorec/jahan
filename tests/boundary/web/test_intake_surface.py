@@ -31,7 +31,7 @@ def test_assumption_ledger_assembled_before_a_run():
 
 def test_study_states_task_and_scale():
     text = (FRONTEND / "app" / "intake" / "page.tsx").read_text()
-    for marker in ("what personas answer", "purchase intent", "Anchor version"):
+    for marker in ("Channels — what spreads information", "purchase-intent question", "Survey every k ticks", "Anchor version"):
         assert marker in text, f"intake lacks {marker!r}"
     # The request that carries them is built in one plain module the unit tests exercise, and the page must
     # go through it: a page that writes its own body can drift from the one that is tested.

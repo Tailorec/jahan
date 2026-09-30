@@ -1,40 +1,77 @@
-"""A study is run on an environment that presents a stimulus. `wom` is a channel a message is delivered on, beside
-another environment's own presentation; asking for it as the environment used to fail on the first tick, after the
-population had been drawn."""
+"""A study ticks any combination of feed, forum and word of mouth — or none, the concept test.
 
-import json
-from pathlib import Path
+Channels, survey waves and launch reach are scenario content (ADR 0048): two studies over one
+population and seed that differ only in their channels are different worlds, and the survey
+room is a wave's internal channel, never a choice.
+"""
 
 import pytest
 
-from simcore.schemas import STUDY_CHANNELS, Channel
+from pathlib import Path
+
+from simcore.schemas import Channel, Scenario, canonical_hash, derive_world_id, wave_ticks
 from tests.boundary.cli.support import fake_args, run_command
+from tests.study_builders import scenario_payload
 
 FRONTEND = Path(__file__).resolve().parents[3] / "frontend"
 
 
-def test_wom_is_a_delivery_channel_and_not_an_environment_a_study_runs_on():
-    assert Channel.WOM in set(Channel)
-    assert [channel.value for channel in STUDY_CHANNELS] == ["survey_room", "social_feed", "forum"]
+def test_the_survey_room_is_internal_and_never_a_study_choice():
+    assert Channel.SURVEY_ROOM in set(Channel)
+    assert {c.value for c in Channel} == {"survey_room", "social_feed", "forum", "wom"}
+    text = (FRONTEND / "lib" / "study.ts").read_text()
+    line = next(line for line in text.splitlines() if line.startswith("export const CHANNELS"))
+    assert "survey_room" not in line
 
 
-def test_the_command_refuses_wom_before_it_draws_anything(tmp_path):
+def test_channels_hash_with_the_scenario_but_share_the_seed():
+    plain = Scenario.model_validate(scenario_payload())
+    fed = Scenario.model_validate(scenario_payload(channels=["social_feed"]))
+    assert canonical_hash(plain) != canonical_hash(fed)
+    assert derive_world_id(plain, 4021, "ab12" * 16) != derive_world_id(fed, 4021, "ab12" * 16)
+    from simcore.schemas import derive_world_seed
+
+    assert derive_world_seed(4021, "v1baseline") == derive_world_seed(4021, "v1baseline")
+
+
+def test_launch_reach_is_only_for_word_of_mouth_alone():
+    Scenario.model_validate(scenario_payload(channels=["wom"], launch_reach=0.2))
+    with pytest.raises(ValueError, match="launch_reach"):
+        Scenario.model_validate(scenario_payload(channels=["social_feed"], launch_reach=0.2))
+    with pytest.raises(ValueError, match="launch_reach"):
+        Scenario.model_validate(scenario_payload(channels=[], launch_reach=0.2))
+
+
+def test_wave_ticks_always_open_and_close_a_study():
+    assert wave_ticks(2, 7) == (0, 2, 4, 6)
+    assert wave_ticks(3, 5) == (0, 3, 4)
+    assert wave_ticks(9, 5) == (0, 4)
+    assert wave_ticks(1, 1) == (0,)
+
+
+def test_an_unknown_channel_is_refused_before_it_draws_anything(tmp_path):
     out = tmp_path / "runs"
-    code, output = run_command(*fake_args(out, "run-" + "0" * 24 + "88", channel="wom"))
+    code, output = run_command(*fake_args(out, "run-" + "0" * 24 + "88", channels="carrier_pigeon"))
     assert code != 0
-    assert "survey_room" in output and "social_feed" in output and "forum" in output
+    assert "social_feed" in output and "forum" in output and "wom" in output
     assert not out.exists() or not any(out.iterdir()), "a refused channel left a run behind"
 
 
-def test_the_interface_offers_exactly_the_environments_a_study_can_run_on():
+def test_the_interface_offers_exactly_the_channels_a_study_can_tick():
+    import json
+
     text = (FRONTEND / "lib" / "study.ts").read_text()
     line = next(line for line in text.splitlines() if line.startswith("export const CHANNELS"))
     offered = json.loads(line[line.index("["): line.index("]") + 1])
-    assert offered == [channel.value for channel in STUDY_CHANNELS]
+    assert offered == ["social_feed", "forum", "wom"]
 
 
-@pytest.mark.parametrize("channel", [c.value for c in STUDY_CHANNELS])
-def test_every_environment_a_study_can_run_on_runs_a_fake_study(tmp_path, channel):
+@pytest.mark.parametrize(
+    "channels",
+    ["", "social_feed", "forum", "wom", "social_feed,forum", "social_feed,wom", "forum,wom",
+     "social_feed,forum,wom"],
+)
+def test_every_channel_combination_runs_a_fake_study(tmp_path, channels):
     out = tmp_path / "runs"
-    code, output = run_command(*fake_args(out, "run-" + "0" * 24 + "89", horizon=2, channel=channel))
+    code, output = run_command(*fake_args(out, "run-" + "0" * 24 + "89", horizon=2, channels=channels))
     assert code == 0, output[-1500:]

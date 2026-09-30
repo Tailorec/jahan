@@ -312,4 +312,4 @@ def test_retry_counts_and_backoff_appear_in_no_hashed_contract():
     assert not hasattr(loose, "model_dump")  # execution settings are not a contract model at all
     import simcore.schemas.base as base
 
-    assert SCHEMA_VERSION == "1.0.0"
+    assert SCHEMA_VERSION == "1.1.0"

@@ -51,14 +51,16 @@ def test_an_invalid_brief_is_refused_before_anything_runs(tmp_path):
     assert [child for child in (tmp_path / "runs").iterdir() if (child / "trace").exists()] == []
 
 
-def test_a_study_states_what_is_asked_and_which_scale_scores_it(tmp_path):
+def test_a_study_states_which_channels_spread_and_when_it_surveys(tmp_path):
     client = _client(tmp_path)
     run_id = client.post("/api/runs", json={
         "brief_yaml": BRIEF, "evidence_json": EVIDENCE, "fake": True,
-        "n": 8, "horizon": 1, "elicits": "purchase", "anchor_versions": ["purchase_intent=v1"],
+        "n": 8, "horizon": 1, "channels": ["social_feed", "wom"], "survey_every": 1,
+        "launch_reach": 0.10, "anchor_versions": ["purchase_intent=v1"],
     }).json()["run_id"]
     launch = json.loads((tmp_path / "runs" / run_id / "launch.json").read_text())
-    assert "--elicits" in launch["argv"] and "purchase" in launch["argv"]
+    assert "--channels" in launch["argv"] and "social_feed,wom" in launch["argv"]
+    assert "--survey-every" in launch["argv"]
     assert "--anchor-version" in launch["argv"] and "purchase_intent=v1" in launch["argv"]
 
 

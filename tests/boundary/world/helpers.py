@@ -1,6 +1,7 @@
 """Shared builders for world boundary tests: headers, worlds and turns."""
 
 from simcore.schemas import (
+    Channel,
     Exposure,
     Impression,
     PartitionHeader,
@@ -13,6 +14,13 @@ from simcore.schemas import (
 )
 from simcore.world import World, WorldConfig
 from tests.study_builders import partition_header_payload, population_payload, ulid
+
+
+def on_channel(presentations, channel: str | Channel) -> list[Presentation]:
+    """One tick's presentations on one channel: a delta holds one impression per ticked
+    platform per persona, word of mouth when told, and the survey wave last."""
+    wanted = Channel(channel)
+    return [p for p in presentations if p.impression.channel is wanted]
 
 
 def make_header(**overrides):

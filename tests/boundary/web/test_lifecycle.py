@@ -42,7 +42,8 @@ def _start(client, **overrides):
         "horizon": 1,
         "tick_unit": "day",
         "budget": 20.0,
-        "channel": "survey_room",
+        "channels": [],
+        "survey_every": 1,
         "seeds": "4021",
     }
     body.update(overrides)

@@ -9,10 +9,15 @@ from simcore.schemas import Channel
 from simcore.world import Forum, RecsysMode, WorldConfig, exposure_concentration, hot_score
 from tests.study_builders import PERSONA_IDS, scenario_payload
 
-from .helpers import act_turn, answer_turn, make_population, make_world, targeted_turn
+from .helpers import act_turn, answer_turn, make_population, make_world, on_channel, targeted_turn
 
 FORUM = WorldConfig(platform="forum")
 WIDE = scenario_payload(exposure_budget=6)
+
+
+def forum_only(delta):
+    """This suite's subject is the forum: the wave rides along but is never what is asserted."""
+    return on_channel(delta.presentations, Channel.FORUM)
 
 
 def test_the_hot_score_is_copied_verbatim():
@@ -29,7 +34,7 @@ def test_the_global_forum_supports_create_post_reply_and_vote_on_open_threads():
     world = make_world(config=FORUM, population=population, scenario=WIDE)
     world.reset()
     first = world.step(1, [])
-    by_persona = {p.impression.persona_id: p for p in first.presentations}
+    by_persona = {p.impression.persona_id: p for p in forum_only(first)}
     second = world.step(
         2,
         [
@@ -44,8 +49,8 @@ def test_the_global_forum_supports_create_post_reply_and_vote_on_open_threads():
     by_second = {p.impression.persona_id: p for p in second.presentations}
     assert post_id not in {s for p in second.presentations for s in p.impression.stimulus_ids}
     third = world.step(3, [answer_turn(p, 10 + n, action="ignore") for n, p in enumerate(second.presentations)])
-    by_third = {p.impression.persona_id: p for p in third.presentations}
-    assert all(post_id in p.impression.stimulus_ids for p in third.presentations)
+    by_third = {p.impression.persona_id: p for p in forum_only(third)}
+    assert all(post_id in p.impression.stimulus_ids for p in forum_only(third))
     fourth = world.step(
         4,
         [
@@ -60,9 +65,9 @@ def test_the_global_forum_supports_create_post_reply_and_vote_on_open_threads():
     dump = world.state_dump()
     assert "upvote" in dump and "downvote" in dump
     fifth = world.step(5, [])
-    shown_sets = [set(p.impression.stimulus_ids) for p in fifth.presentations]
+    shown_sets = [set(p.impression.stimulus_ids) for p in forum_only(fifth)]
     assert shown_sets[0] == shown_sets[1] == shown_sets[2] == shown_sets[3]
-    for presentation in fifth.presentations:
+    for presentation in forum_only(fifth):
         assert presentation.impression.channel is Channel.FORUM
         assert all(e.reason.value == "forum" for e in presentation.impression.exposures)
 
@@ -72,7 +77,7 @@ def test_votes_affect_ranking_only_through_the_upstream_score():
     world = make_world(config=FORUM, population=population, scenario=WIDE)
     world.reset()
     first = world.step(1, [])
-    by_persona = {p.impression.persona_id: p for p in first.presentations}
+    by_persona = {p.impression.persona_id: p for p in forum_only(first)}
     second = world.step(
         2,
         [
@@ -92,7 +97,7 @@ def test_votes_affect_ranking_only_through_the_upstream_score():
         ],
     )
     fourth = world.step(4, [])
-    for presentation in fourth.presentations:
+    for presentation in forum_only(fourth):
         shown = [e.stimulus_id for e in presentation.impression.exposures]
         assert shown.index(older) < shown.index(newer)
     assert hot_score(2, 0, 3600) > hot_score(0, 0, 3600)
@@ -124,8 +129,9 @@ def test_reddit_hot_concentrates_exposure_against_random_on_the_same_fixture():
     for world in (random_world, hot_world):
         world.reset()
         first = world.step(1, [])
-        actors = sorted(p.impression.persona_id for p in first.presentations)
-        by_persona = {p.impression.persona_id: p for p in first.presentations}
+        feed_first = on_channel(first.presentations, Channel.SOCIAL_FEED)
+        actors = sorted(p.impression.persona_id for p in feed_first)
+        by_persona = {p.impression.persona_id: p for p in feed_first}
         poster = next(pid for pid in PERSONA_IDS if pid in by_persona)
         second = world.step(
             2,
@@ -133,7 +139,8 @@ def test_reddit_hot_concentrates_exposure_against_random_on_the_same_fixture():
             + [answer_turn(by_persona[pid], 2 + n, action="ignore") for n, pid in enumerate(actors) if pid != poster],
         )
         early = next(s for s in second.published if s.kind.value == "peer_post")
-        by_second = {p.impression.persona_id: p for p in second.presentations}
+        feed_second = on_channel(second.presentations, Channel.SOCIAL_FEED)
+        by_second = {p.impression.persona_id: p for p in feed_second}
         actors2 = sorted(by_second)
         late_poster = next(pid for pid in PERSONA_IDS if pid in by_second and pid != poster)
         third = world.step(
@@ -150,11 +157,13 @@ def test_reddit_hot_concentrates_exposure_against_random_on_the_same_fixture():
         world._late_post = late.stimulus_id
     random_fifth = random_world.step(5, [])
     hot_fifth = hot_world.step(5, [])
-    assert exposure_concentration([hot_fifth]) == 1.0
-    assert {e.stimulus_id for p in hot_fifth.presentations for e in p.impression.exposures} == {
+    hot_feed = hot_fifth.model_copy(update={"presentations": tuple(on_channel(hot_fifth.presentations, Channel.SOCIAL_FEED))})
+    random_feed = random_fifth.model_copy(update={"presentations": tuple(on_channel(random_fifth.presentations, Channel.SOCIAL_FEED))})
+    assert exposure_concentration([hot_feed]) == 1.0
+    assert {e.stimulus_id for p in hot_feed.presentations for e in p.impression.exposures} == {
         hot_world._late_post
     }
-    assert exposure_concentration([random_fifth]) < exposure_concentration([hot_fifth])
+    assert exposure_concentration([random_feed]) < exposure_concentration([hot_feed])
     assert isinstance(Forum("reddit_global"), Forum)
 
 
@@ -184,13 +193,13 @@ def test_a_fresh_upvoted_post_outranks_an_old_silent_one_in_a_world():
     world = make_world(config=FORUM, population=population, scenario=WIDE)
     world.reset()
     first = world.step(1, [])
-    by_persona = {p.impression.persona_id: p for p in first.presentations}
+    by_persona = {p.impression.persona_id: p for p in forum_only(first)}
     # p-000001 opens a thread at tick 1; the study's own stimuli are older by two ticks
     second = world.step(2, [act_turn(by_persona["p-000001"], 1, "post", "brand new thread about flavour")]
                         + [answer_turn(by_persona[pid], 5 + n, action="ignore")
                            for n, pid in enumerate(sorted(by_persona)) if pid != "p-000001"])
     fresh = second.published[0].stimulus_id
-    third = world.step(3, [answer_turn(p, 10 + n, action="ignore") for n, p in enumerate(second.presentations)])
-    for presentation in third.presentations:
+    third = world.step(3, [answer_turn(p, 10 + n, action="ignore") for n, p in enumerate(forum_only(second))])
+    for presentation in forum_only(third):
         shown = [exposure.stimulus_id for exposure in presentation.impression.exposures]
         assert shown[0] == fresh, f"the oldest stimulus led the ranking instead of the newest: {shown[0]}"

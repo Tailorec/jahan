@@ -82,8 +82,8 @@ def test_the_contract_version_is_written_once_into_metadata_and_registry(tmp_pat
     header, entry, _ = seed_store(store)
     store.finalize(header.world_id)
     metadata = pq.read_table(str(store._world_dir(entry.config.run_id, header.world_id) / "events.parquet")).schema.metadata
-    assert metadata[b"contract_version"].decode() == SCHEMA_VERSION == header.contract_version
-    assert store.registry.entry(entry.config.run_id).contract_version == SCHEMA_VERSION
+    assert metadata[b"contract_version"].decode() == header.contract_version
+    assert store.registry.entry(entry.config.run_id).contract_version == header.contract_version
 
 
 def test_parquet_columns_are_typed_per_payload_kind(tmp_path):

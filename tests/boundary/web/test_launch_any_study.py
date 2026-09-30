@@ -61,11 +61,16 @@ def _flag(argv: list[str], name: str) -> str:
 
 def test_a_real_study_carries_its_corpus_seed_and_prices_to_the_command(tmp_path, endpoint, launched):
     response = _client(tmp_path).post("/api/runs", json={
-        **REAL, "n": 500, "horizon": 3, "elicits": "purchase", "anchor_versions": ["purchase_intent=v2"],
+        **REAL, "n": 500, "horizon": 3, "channels": ["social_feed", "forum"], "survey_every": 2,
+        "anchor_versions": ["purchase_intent=v2"],
         "shards": ["0000", "0004", "0005"], "sources": ["wiki", "gss", "amazon", "stackoverflow"],
         "population_seed": 4022, "price_chat_in": 0.035, "price_chat_out": 0.14, "price_embed_in": 0.02,
         "validation": "Interview 20 parents before building anything.",
     })
+    assert response.status_code == 202, response.text
+    (argv,) = launched
+    assert _flag(argv, "--channels") == "forum,social_feed"
+    assert _flag(argv, "--survey-every") == "2"
     assert response.status_code == 202, response.text
     (argv,) = launched
     assert _flag(argv, "--shards") == "0000,0004,0005"
@@ -110,7 +115,10 @@ def test_a_study_that_names_none_of_them_launches_exactly_as_before(tmp_path, la
         ({"price_chat_out": 0.14}, "price"),
         ({"price_chat_in": -1.0, "price_chat_out": 0.14}, "price"),
         ({"price_embed_in": -0.02}, "price"),
-        ({"channel": "carrier_pigeon"}, "channel"),
+        ({"channels": ["carrier_pigeon"]}, "channel"),
+        ({"channels": ["survey_room"]}, "channel"),
+        ({"survey_every": 0}, "survey"),
+        ({"channels": ["social_feed"], "launch_reach": 0.5}, "launch_reach"),
     ],
 )
 def test_a_wrong_input_is_refused_before_a_process_starts(tmp_path, endpoint, launched, override, mentions):
@@ -121,20 +129,21 @@ def test_a_wrong_input_is_refused_before_a_process_starts(tmp_path, endpoint, la
     assert [c for c in (tmp_path / "runs").glob("run-*") if (c / "trace").exists()] == []
 
 
-def test_every_environment_a_study_runs_on_can_be_named(tmp_path, endpoint, launched):
-    from simcore.schemas import STUDY_CHANNELS
+def test_every_channel_combination_a_study_ticks_can_be_named(tmp_path, endpoint, launched):
+    from itertools import chain, combinations
 
     client = _client(tmp_path)
-    for channel in STUDY_CHANNELS:
-        assert client.post("/api/runs", json={**REAL, "channel": channel.value}).status_code == 202
-    assert len(launched) == len(STUDY_CHANNELS)
+    combos = [list(c) for r in range(4) for c in combinations(["social_feed", "forum", "wom"], r)]
+    for channels in combos:
+        assert client.post("/api/runs", json={**REAL, "channels": channels}).status_code == 202
+    assert len(launched) == len(combos)
 
 
-def test_wom_is_refused_as_an_environment_before_anything_starts(tmp_path, endpoint, launched):
-    response = _client(tmp_path).post("/api/runs", json={**REAL, "channel": "wom"})
-    assert response.status_code == 422
-    assert "survey_room" in response.text and "wom" in response.text
-    assert launched == []
+def test_a_launch_reach_travels_only_with_word_of_mouth_alone(tmp_path, endpoint, launched):
+    client = _client(tmp_path)
+    assert client.post("/api/runs", json={**REAL, "channels": ["wom"], "launch_reach": 0.2}).status_code == 202
+    assert client.post("/api/runs", json={**REAL, "channels": ["social_feed"], "launch_reach": 0.2}).status_code == 422
+    assert launched != []
 
 
 # --- the population gate can reach a real corpus ---------------------------------------------------
@@ -278,7 +287,9 @@ def test_a_version_edited_after_its_check_passed_is_not_offered_as_a_default(tmp
 
 
 def test_a_launch_that_names_no_scale_uses_the_default_that_passed(tmp_path, endpoint, launched):
-    _client(tmp_path).post("/api/runs", json={**REAL, "elicits": "purchase"})
+    _client(tmp_path).post("/api/runs", json={**REAL, "channels": ["social_feed"]})
+    (argv,) = launched
+    assert "purchase_intent=v2" in argv and "purchase_intent=v1" not in argv
     (argv,) = launched
     assert "purchase_intent=v2" in argv and "purchase_intent=v1" not in argv
 

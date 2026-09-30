@@ -150,7 +150,7 @@ def test_looking_at_a_finished_run_writes_nothing_to_it(tmp_path):
         {"seeds": ","},
         {"seeds": []},
         {"tick_unit": "fortnight"},
-        {"elicits": "purchase_intent"},
+        {"channels": ["carrier_pigeon"]},
         {"api_key": "sk-nope"},
         {"base_url": "http://elsewhere"},
         {"brief_yaml": "   "},

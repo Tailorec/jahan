@@ -23,7 +23,7 @@ def _run(tmp_path, monkeypatch, run_id=RUN_ID, out="runs", **overrides):
 def test_fake_writes_both_report_formats_into_a_run_named_directory(tmp_path, monkeypatch):
     run_dir, _ = _run(tmp_path, monkeypatch)
     assert (run_dir / "report.md").read_text().strip()
-    assert json.loads((run_dir / "report.json").read_text())["contract_version"] == "1.0.0"
+    assert json.loads((run_dir / "report.json").read_text())["contract_version"] == "1.1.0"
     assert run_dir.parent.name == "runs" and run_dir.name == RUN_ID
 
 

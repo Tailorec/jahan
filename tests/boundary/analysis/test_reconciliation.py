@@ -16,10 +16,10 @@ from simcore.schemas import (
     EventFilter,
     Population,
     Report,
-    TracePartition,
     derive_world_id,
 )
 from simcore.trace import derive_beliefs, derive_edges, derive_verbatims, filter_events, resolve_events
+from simcore.trace.migrations import load_partition_data
 
 EVAL = Path(__file__).resolve().parents[3] / "docs" / "evaluations" / "m10-analysis"
 
@@ -49,8 +49,17 @@ class PartitionView:
 def _load():
     partitions = {}
     for path in sorted((EVAL / "partitions").glob("world-*.json")):
-        partition = TracePartition.model_validate(json.loads(path.read_text()))
-        assert partition.header.world_id == path.stem.removeprefix("world-")
+        # Committed under contract 1.0.0, read through the version-aware path: the 1.1.0
+        # migration (ADR 0048) rewrites their `elicits` scenarios on the way in, and the
+        # record on disk never changes.
+        partition = load_partition_data(json.loads(path.read_text()))
+        # ADR 0048 moved world identity with the scenario: the migrated id derives from the
+        # migrated scenario, and every recorded event follows the header — the filename keeps
+        # the identity the run recorded under.
+        assert partition.header.world_id == derive_world_id(
+            partition.header.scenario, partition.header.replicate_seed,
+            partition.header.population.population_hash)
+        assert {event.world_id for event in partition.events} == {partition.header.world_id}
         partitions[partition.header.world_id] = partition
     assert len(partitions) == 2
     population = Population.model_validate(json.loads((EVAL / "population.json").read_text()))

@@ -7,15 +7,21 @@ score, so consensus hardens slowly where the global preset herds quickly.
 
 from pathlib import Path
 
+from simcore.schemas import Channel
 from simcore.world import Forum, WorldConfig, exposure_concentration
 from simcore.world import recsys
 from tests.study_builders import PERSONA_IDS, scenario_payload
 
-from .helpers import act_turn, answer_turn, make_population, make_world, targeted_turn
+from .helpers import act_turn, answer_turn, make_population, make_world, on_channel, targeted_turn
 
 SCOPED = WorldConfig(platform="forum", forum_preset="community_scoped", involvement_default=100.0)
 GLOBAL = WorldConfig(platform="forum", forum_preset="reddit_global", involvement_default=100.0)
 HOURLY_ONE = scenario_payload(tick_unit="hour", exposure_budget=1)
+
+
+def forum_only(delta):
+    """This suite's subject is the forum: the wave rides along but is never what is asserted."""
+    return on_channel(delta.presentations, Channel.FORUM)
 
 
 def drive_split(config):
@@ -26,7 +32,7 @@ def drive_split(config):
     world = make_world(config=config, population=make_population(), scenario=dict(HOURLY_ONE))
     world.reset()
     first = world.step(1, [])
-    by_persona = {p.impression.persona_id: p for p in first.presentations}
+    by_persona = {p.impression.persona_id: p for p in forum_only(first)}
     second = world.step(
         2,
         [
@@ -70,7 +76,7 @@ def test_threads_are_scoped_to_communities_and_ranked_without_hot(monkeypatch):
     monkeypatch.setattr(recsys, "hot_score", lambda *args: (_ for _ in ()).throw(AssertionError("hot in scoped")))
     world, third, posts = drive_split(SCOPED)
     shown = {
-        p.impression.persona_id: {e.stimulus_id for e in p.impression.exposures} for p in third.presentations
+        p.impression.persona_id: {e.stimulus_id for e in p.impression.exposures} for p in forum_only(third)
     }
     assert shown["p-000001"] == {posts["p-000001"]}
     assert shown["p-000002"] == {posts["p-000001"]}
@@ -96,8 +102,12 @@ def test_the_two_presets_produce_measurably_different_concentration_and_divergen
     global_world, global_third, global_posts = drive_split(GLOBAL)
     scoped_world, scoped_third, scoped_posts = drive_split(SCOPED)
     assert global_posts.keys() == scoped_posts.keys() == {"p-000001", "p-000003"}
-    global_concentration = exposure_concentration([global_third])
-    scoped_concentration = exposure_concentration([scoped_third])
+    global_concentration = exposure_concentration(
+        [global_third.model_copy(update={"presentations": tuple(forum_only(global_third))})]
+    )
+    scoped_concentration = exposure_concentration(
+        [scoped_third.model_copy(update={"presentations": tuple(forum_only(scoped_third))})]
+    )
     assert global_concentration == 1.0
     assert scoped_concentration == 0.5
     assert global_concentration != scoped_concentration
@@ -109,7 +119,7 @@ def test_a_persona_with_no_community_keeps_study_and_own_posts():
     world = make_world(config=SCOPED)
     world.reset()
     first = world.step(1, [])
-    by_persona = {p.impression.persona_id: p for p in first.presentations}
+    by_persona = {p.impression.persona_id: p for p in forum_only(first)}
     second = world.step(
         2, [act_turn(by_persona[pid], n, "post", f"post from {pid}") for n, pid in enumerate(sorted(by_persona))]
     )

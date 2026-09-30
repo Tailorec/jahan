@@ -30,7 +30,7 @@
     }
   },
   "demo_run_config": {
-    "hash": "3f248975437cc25442ea22ad150630daeb80b9470e7bc9b3680f5c74354151ac",
+    "hash": "66dd46c3cdfbe7118bfbd3f3d7ed2dceef4e79287a017b42ff16cf4bfefa97a0",
     "payload": {
       "brief": {
         "audience_mix": {
@@ -76,6 +76,19 @@
         "5193663bf1d3",
         "b09d36163243",
         "efbb6b957f8b"
+      ]
+    },
+    "1.1.0": {
+      "population_hash": "0b70694f8eb686e60a401a674980e289a123477a10ea10f29631dbe554f48bfb",
+      "graph_hash": "94dad3d334867e6cdb8756cf09d829da55ed94ece7dc850ad94b50a0e9515e59",
+      "config_hash": "c6fa7f3db3be554ba8301a193e614847764b209f2341e98abd51c3536ad6a588",
+      "world_ids": [
+        "4c2c08014af9",
+        "5532e2d37725",
+        "af0ee47d9053",
+        "e17a0f805eee",
+        "e8954fb48b84",
+        "e89ecb8aa6eb"
       ]
     }
   }

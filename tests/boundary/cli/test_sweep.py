@@ -89,7 +89,9 @@ def test_a_cell_that_ran_degraded_is_marked_in_the_output(tmp_path, monkeypatch)
     monkeypatch.chdir(tmp_path)
     grid = write_grid(tmp_path, horizon=3, prices=(2.49,), name="single.yaml")
     out = tmp_path / "runs"
-    code, output = run_command(*sweep_args(grid, out, RUN_ID, budget="1000"))
+    # $2000 lands the single world on the subsample rung exactly: the first two ticks stay
+    # below it and the last tick crosses it, so the world completes thinned and nothing pauses.
+    code, output = run_command(*sweep_args(grid, out, RUN_ID, budget="2000"))
     assert code == 0, output
     run_dir = out / RUN_ID
     result = json.loads((run_dir / "result.json").read_text())
@@ -103,7 +105,9 @@ def test_a_budget_exhausted_mid_sweep_exits_3_and_keeps_completed_cells(tmp_path
     monkeypatch.chdir(tmp_path)
     grid = write_grid(tmp_path, horizon=3)
     out = tmp_path / "runs"
-    code, output = run_command(*sweep_args(grid, out, RUN_ID, budget="1000"))
+    # As in the concepts budget test: the first cell completes inside $3000 and the second
+    # pauses, so the completed cell keeps its summary and the interrupted one keeps none.
+    code, output = run_command(*sweep_args(grid, out, RUN_ID, budget="3000"))
     assert code == 3, output
     assert "paused" in output
     run_dir = out / RUN_ID
