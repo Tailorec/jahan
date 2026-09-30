@@ -26,7 +26,7 @@ from .enums import ActionKind, Channel, CostSource, DegradationRung, DropReason,
 from .errors import SchemaVersionError
 from .population import Population, PopulationManifest
 from .run import PinnedModelId, RunConfig, Scenario, WorldId, check_scenario_against_brief, derive_world_id
-from .sim import BeliefChange, Beliefs, Impression, MemoryEvent, MemoryId, ProbeResult, Stimulus, Turn, View, action_lands, check_view_covers_impression
+from .sim import BeliefChange, Beliefs, Impression, MemoryEvent, MemoryId, ProbeResult, Stimulus, StimulusContext, Turn, View, action_lands, check_view_covers_impression
 
 ContractVersion = Annotated[str, StringConstraints(pattern=r"^\d+\.\d+\.\d+$")]
 
@@ -546,7 +546,12 @@ class TracePartition(SimBaseModel):
                     pending.setdefault(stimulus.in_reply_to, Counter())["replies"] += 1
             elif (presented := _presented(payload)) is not None:
                 impression, view = presented
-                _check_view(view, impression.persona_id, authors, parents, visible, f"event {event.seq} ({payload.kind})")
+                if impression.channel is Channel.SURVEY_ROOM:
+                    # A survey wave shows the concept alone (ADR 0048): no counts, no thread, no tie,
+                    # whatever the channels have piled onto it by then.
+                    _check_bare_view(view, f"event {event.seq} ({payload.kind})")
+                else:
+                    _check_view(view, impression.persona_id, authors, parents, visible, f"event {event.seq} ({payload.kind})")
                 if isinstance(payload, TurnRecorded):
                     counted = _ENGAGEMENT.get(payload.turn.reaction.action)
                     # Only where the channel affords it: a feed has no votes, so an upvote there
@@ -567,6 +572,13 @@ _ENGAGEMENT: dict[ActionKind, str] = {
     ActionKind.DOWNVOTE: "downvotes",
 }
 _COUNTS = ("likes", "reposts", "replies", "upvotes", "downvotes")
+
+
+def _check_bare_view(view: View, where: str) -> None:
+    """A survey wave's view: the concept with no social signal at all."""
+    for stimulus_id, context in view.contexts.items():
+        if context != StimulusContext():
+            raise ValueError(f"{where} is a survey wave, which shows {stimulus_id} alone, but its view carries {context}")
 
 
 def _check_view(

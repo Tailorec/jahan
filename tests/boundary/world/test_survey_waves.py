@@ -65,3 +65,29 @@ def test_a_wave_only_reads_even_where_a_channel_would_write():
     world.step(2, [answer_turn(p, n) for n, p in enumerate(first.presentations)])
     assert world.state_dump() == before
     assert world.rejected_actions() == ()
+
+
+def test_a_wave_shows_the_concept_alone_even_after_word_of_mouth_replied_to_it():
+    """Word of mouth can reply to the concept itself; a later wave still shows it bare, and the
+    record accepts exactly that — a wave that shows any social signal is refused."""
+    import pytest
+
+    from simcore.schemas import TracePartition
+    from tests.study_builders import R, as_survey_answers, event, partition_payload, resequence, stimulus_id
+
+    def with_reply_to_concept():
+        payload = as_survey_answers(partition_payload())
+        reply = event(0, 0, {"kind": "stimulus_published", "stimulus": {
+            "stimulus_id": stimulus_id(9), "tick": 0, "author": "p-000002", "kind": "peer_reply",
+            "text": "my sister uses this", "in_reply_to": stimulus_id(1)}})
+        payload["events"].insert(R["close_0"], reply)
+        return resequence(payload)
+
+    TracePartition.model_validate(with_reply_to_concept())
+    shown = with_reply_to_concept()
+    for record in shown["events"]:
+        turn = (record.get("payload") or {}).get("turn")
+        if turn is not None and turn["impression"]["channel"] == "survey_room":
+            turn["view"]["contexts"][stimulus_id(1)]["replies"] = 1
+    with pytest.raises(ValueError, match="survey wave, which shows"):
+        TracePartition.model_validate(shown)
