@@ -44,12 +44,12 @@ Durable across every phase:
 
 ### Acceptance criteria
 
-- [ ] The three fields hash with the scenario: two scenarios differing only in `channels` have different world ids and config hashes, and the same world seed (ADR 0005)
-- [ ] `launch_reach` with any channel besides word of mouth is refused, and so is a horizon with no wave
-- [ ] `wave_ticks(2, 7) == (0, 2, 4, 6)` and `wave_ticks(3, 5) == (0, 3, 4)`; `survey_every ≥ horizon` gives `(0, horizon − 1)`, and a horizon of 1 gives `(0,)`
-- [ ] Resuming a run recorded before the change is refused, naming the moved input
-- [ ] `STUDY_CHANNELS`, `--channel`, `--elicits` and `Scenario.elicits` are gone; a grep over `simcore`, `tests` and `frontend` finds none
-- [ ] `study --channels ""` on the fake study runs end to end, and every persona answers once per wave tick
+- [x] The three fields hash with the scenario: two scenarios differing only in `channels` have different world ids and config hashes, and the same world seed (ADR 0005)
+- [x] `launch_reach` with any channel besides word of mouth is refused, and so is a horizon with no wave
+- [x] `wave_ticks(2, 7) == (0, 2, 4, 6)` and `wave_ticks(3, 5) == (0, 3, 4)`; `survey_every ≥ horizon` gives `(0, horizon − 1)`, and a horizon of 1 gives `(0,)`
+- [x] Resuming a run recorded before the change is refused, naming the moved input
+- [x] `STUDY_CHANNELS`, `--channel`, `--elicits` and `Scenario.elicits` are gone; a grep over `simcore`, `tests` and `frontend` finds none
+- [x] `study --channels ""` on the fake study runs end to end, and every persona answers once per wave tick
 
 ---
 
@@ -69,13 +69,13 @@ Durable across every phase:
 
 ### Acceptance criteria
 
-- [ ] Every persona has exactly one survey turn per wave tick, including personas never activated and never reached
-- [ ] A survey turn changes nothing: the persona's state after a tick with a wave equals its state after the same tick without one, field by field, and `rebuild_state` agrees with the runner's carried state
-- [ ] Channel turns are identical with and without waves over the same draws — a property test over random seeds and schedules
-- [ ] A survey turn sparks no word of mouth and writes no engagement
-- [ ] The wave's turn comes after the same persona's channel turn in the same tick, by sequence number
-- [ ] At the `thin` rung, activation falls and waves stay whole; with a budget short of one wave, the run pauses before it, `wave_unaffordable` is recorded, and no partial wave exists in the trace
-- [ ] A channel turn whose reaction is a purchase is recorded as an action and never scored as intent
+- [x] Every persona has exactly one survey turn per wave tick, including personas never activated and never reached
+- [x] A survey turn changes nothing: the persona's state after a tick with a wave equals its state after the same tick without one, field by field, and `rebuild_state` agrees with the runner's carried state
+- [x] Channel turns are identical with and without waves over the same draws — a property test over random seeds and schedules
+- [x] A survey turn sparks no word of mouth and writes no engagement
+- [x] The wave's turn comes after the same persona's channel turn in the same tick, by sequence number
+- [x] At the `thin` rung, activation falls and waves stay whole; with a budget short of one wave, the run pauses before it, `wave_unaffordable` is recorded, and no partial wave exists in the trace
+- [x] A channel turn whose reaction is a purchase is recorded as an action and never scored as intent
 
 ---
 
@@ -93,12 +93,12 @@ Durable across every phase:
 
 ### Acceptance criteria
 
-- [ ] With feed and forum ticked, an active persona has one feed and one forum turn in the tick; with only one ticked, none on the other
-- [ ] A post authored on the forum never appears in a feed, and the reverse
-- [ ] With word of mouth off, no `wom` impression exists in the whole run; with it on beside a platform, deliveries match today's behaviour for the same draws
-- [ ] Word of mouth alone runs to the horizon with no crash, with `round(launch_reach × n)` personas reached at tick 0, chosen by the world seed (two seeds give different sets, and one seed gives the same set)
-- [ ] All eight combinations of the three checkboxes run on the fake study, and each passes the trace validator
-- [ ] Two runs over one population and seed, differing only in channels, have the same population hash and the same tick-0 activation draws
+- [x] With feed and forum ticked, an active persona has one feed and one forum turn in the tick; with only one ticked, none on the other
+- [x] A post authored on the forum never appears in a feed, and the reverse
+- [x] With word of mouth off, no `wom` impression exists in the whole run; with it on beside a platform, deliveries match today's behaviour for the same draws
+- [x] Word of mouth alone runs to the horizon with no crash, with `round(launch_reach × n)` personas reached at tick 0, chosen by the world seed (two seeds give different sets, and one seed gives the same set)
+- [x] All eight combinations of the three checkboxes run on the fake study, and each passes the trace validator
+- [x] Two runs over one population and seed, differing only in channels, have the same population hash and the same tick-0 activation draws
 
 ---
 
@@ -112,8 +112,8 @@ The forum's recsys mode becomes `reddit_hot`, the ranking already ported verbati
 
 ### Acceptance criteria
 
-- [ ] A forum study orders threads by hot score: a newer thread with equal votes outranks an older one, and a heavily upvoted older one outranks a new one, matching `rec_sys_reddit` on the same numbers
-- [ ] In a world with both platforms, the feed's mode and the forum's mode are recorded separately in the trace's exposure reasons
+- [x] A forum study orders threads by hot score: a newer thread with equal votes outranks an older one, and a heavily upvoted older one outranks a new one, matching `rec_sys_reddit` on the same numbers
+- [x] In a world with both platforms, the feed's mode and the forum's mode are recorded separately in the trace's exposure reasons
 
 ---
 
