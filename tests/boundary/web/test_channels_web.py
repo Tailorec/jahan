@@ -20,7 +20,8 @@ def test_the_engine_lists_the_waves_and_the_answers_they_take(tmp_path):
 
 def test_a_real_feed_study_names_its_ranking_model_and_it_travels_to_the_command(tmp_path, endpoint, launched):
     client = _client(tmp_path)
-    refused = client.post("/api/runs", json={**REAL, "channels": ["social_feed"]})
+    unranked = {key: value for key, value in REAL.items() if key != "recsys_embed_model"}
+    refused = client.post("/api/runs", json={**unranked, "channels": ["social_feed"]})
     assert refused.status_code == 422 and "recsys_embed_model" in refused.text
     started = client.post("/api/runs", json={**REAL, "channels": ["social_feed", "wom"], "recsys_embed_model": "twhin-bert-base"})
     assert started.status_code == 202, started.text
@@ -30,7 +31,8 @@ def test_a_real_feed_study_names_its_ranking_model_and_it_travels_to_the_command
 
 
 def test_a_forum_study_needs_no_ranking_model(tmp_path, endpoint, launched):
-    started = _client(tmp_path).post("/api/runs", json={**REAL, "channels": ["forum"]})
+    unranked = {key: value for key, value in REAL.items() if key != "recsys_embed_model"}
+    started = _client(tmp_path).post("/api/runs", json={**unranked, "channels": ["forum"]})
     assert started.status_code == 202, started.text
     assert "--recsys-embed-model" not in launched[0]
 

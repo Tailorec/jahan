@@ -25,6 +25,7 @@ EVIDENCE = json.loads((REPO / "examples" / "protein_water.yaml.evidence.json").r
 REAL = {
     "brief_yaml": BRIEF, "evidence_json": EVIDENCE, "fake": False,
     "model": "amazon.nova-micro-v1:0", "embed_model": "amazon.titan-embed-text-v2:0",
+    "recsys_embed_model": "twhin-bert-base",
 }
 
 
