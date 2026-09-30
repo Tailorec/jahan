@@ -113,7 +113,7 @@ A recorded loosening of an audience's filter, made because too few conditionable
 _Avoid_: degradation (that word belongs to the budget), fallback, compromise, best effort
 
 **Degradation**:
-A budget-driven reduction in how fully a world is simulated — optional reflections frozen, fewer personas activated per tick, or the world paused. A degraded world is not comparable to one that ran in full, so degradation is recorded where it happens.
+A budget-driven reduction in how fully a world is simulated — optional reflections frozen, fewer personas activated per tick, or the world paused. A degraded world is not comparable to one that ran in full, so degradation is recorded where it happens. A survey wave is never thinned: a world pauses before a wave it cannot afford, so every wave it recorded was answered by everyone.
 _Avoid_: throttling, fallback, downgrade
 
 **Rung**:
@@ -196,6 +196,18 @@ _Avoid_: event (an event is a trace record), trigger, shock
 
 ### What personas see and do
 
+**Channel**:
+A way information about the product reaches a persona from outside the study's own survey: a social feed, a forum, or word of mouth along the social graph. A study runs any combination of channels, including none; with none, nothing spreads and each persona only ever sees the concept.
+_Avoid_: environment, platform (a platform is one kind of channel), survey room
+
+**Launch Reach**:
+The share of personas who hear of the product first-hand at launch, chosen at random, when word of mouth is the only channel — without them nobody has anything to pass on. Feeds and forums need none: their own launch posts reach whoever is active.
+_Avoid_: seeding, seed share, initial exposure
+
+**Survey Wave**:
+The purchase-intent question put to every persona at a scheduled tick, apart from anything they do on a channel. It only reads: a persona answers from what it remembers, and answering changes nothing about it. Every study has at least one wave; repeated waves turn intent into a trajectory over ticks. A survey wave is neither a channel nor an environment.
+_Avoid_: survey room, poll, check-in
+
 **Stimulus**:
 Something a persona can be shown — a concept, a claim rendered as a post, another persona's post or reply, or a message passed along by word of mouth. Brand-authored and persona-authored stimuli are the same kind of thing seen from different sides.
 _Avoid_: content, post (a post is one kind of stimulus), item, ad
@@ -205,7 +217,7 @@ One stimulus shown to one persona, with the reason it got through and how much a
 _Avoid_: impression (an impression is the whole set), view, delivery
 
 **Impression**:
-Everything one persona is shown on one channel in one tick. Personas react to an impression rather than to each stimulus separately, because seeing two things side by side is not the same as seeing each alone. A survey room impression holds exactly one exposure.
+Everything one persona is shown on one channel, or in one survey wave, in one tick. Personas react to an impression rather than to each stimulus separately, because seeing two things side by side is not the same as seeing each alone. A survey wave's impression holds exactly one exposure: the concept.
 _Avoid_: batch, feed, screen, exposure set
 
 **View**:
@@ -253,7 +265,7 @@ A persona answering less like itself the longer a study runs. The probe measures
 _Avoid_: degradation, hallucination, decay
 
 **Affordance**:
-What a channel allows a persona to do — a forum has votes, a survey room has only an answer. A persona may attempt anything; the channel decides what lands.
+What a channel allows a persona to do — a forum has votes, a survey wave has only an answer. A persona may attempt anything; the channel decides what lands.
 _Avoid_: permission, capability, validation rule
 
 **Activation**:
@@ -331,7 +343,7 @@ The part of a report that says how the numbers were produced: which models answe
 _Avoid_: appendix, footnote, metadata
 
 **Adoption**:
-The probability that a respondent answers 4 or 5 on the five-point purchase-intent scale, weighted across audiences by their share — the headline measure of whether a variant would be bought.
+The probability that a respondent answers 4 or 5 on the five-point purchase-intent scale, weighted across audiences by their share — the headline measure of whether a variant would be bought. It is measured in survey waves only, so a study with several waves has an adoption per wave; a purchase a persona makes on a channel is behaviour, not adoption.
 _Avoid_: purchase rate, conversion, mean intent, score
 
 **Polarization**:
