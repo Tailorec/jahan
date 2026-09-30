@@ -45,7 +45,7 @@ def drive_modes():
     for mode in ("random", "reddit_hot", "twitter", "twhin"):
         config = WorldConfig(
             platform="social_feed",
-            recsys_mode=mode,
+            feed_recsys_mode=mode,
             involvement_default=100.0,
             profile_vectors=PROFILES,
             embed_texts=embed,
@@ -122,10 +122,10 @@ def test_all_four_modes_are_selectable_and_differ_on_one_fixture():
 
 
 def test_a_mode_whose_signal_is_missing_fails_at_reset_not_mid_run():
-    twitter = make_world(config=WorldConfig(platform="social_feed", recsys_mode="twitter"))
+    twitter = make_world(config=WorldConfig(platform="social_feed", feed_recsys_mode="twitter"))
     with pytest.raises(ValueError, match="profile embeddings"):
         twitter.reset()
-    twhin = make_world(config=WorldConfig(platform="social_feed", recsys_mode="twhin"))
+    twhin = make_world(config=WorldConfig(platform="social_feed", feed_recsys_mode="twhin"))
     with pytest.raises(ValueError, match="degree centralities"):
         twhin.reset()
 
@@ -135,7 +135,7 @@ def test_every_mode_remains_deterministic_under_a_fixed_seed():
     for mode in ("random", "reddit_hot", "twitter", "twhin"):
         config = WorldConfig(
             platform="social_feed",
-            recsys_mode=mode,
+            feed_recsys_mode=mode,
             involvement_default=100.0,
             profile_vectors=PROFILES,
             embed_texts=FakeEmbedder(),

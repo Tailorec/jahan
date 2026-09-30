@@ -117,12 +117,12 @@ def test_ranking_ties_break_from_a_derived_seed_reproducibly():
 def test_reddit_hot_concentrates_exposure_against_random_on_the_same_fixture():
     hourly = scenario_payload(tick_unit="hour", exposure_budget=1)
     random_world = make_world(
-        config=WorldConfig(platform="social_feed", recsys_mode="random", involvement_default=100.0),
+        config=WorldConfig(platform="social_feed", feed_recsys_mode="random", involvement_default=100.0),
         population=make_population(),
         scenario=hourly,
     )
     hot_world = make_world(
-        config=WorldConfig(platform="social_feed", recsys_mode="reddit_hot", involvement_default=100.0),
+        config=WorldConfig(platform="social_feed", feed_recsys_mode="reddit_hot", involvement_default=100.0),
         population=make_population(),
         scenario=dict(hourly),
     )
@@ -203,3 +203,81 @@ def test_a_fresh_upvoted_post_outranks_an_old_silent_one_in_a_world():
     for presentation in forum_only(third):
         shown = [exposure.stimulus_id for exposure in presentation.impression.exposures]
         assert shown[0] == fresh, f"the oldest stimulus led the ranking instead of the newest: {shown[0]}"
+
+
+def test_a_forum_study_orders_threads_by_hot_score_matching_upstream_on_the_same_numbers():
+    """The forum ranks like Reddit: the world's order equals the ported `rec_sys_reddit`
+    formula run on the same votes and publication ticks — a newer thread with equal votes
+    outranks an older one, and a heavily upvoted older one outranks a new one."""
+    from simcore.world import recsys as _recsys
+
+    hourly = scenario_payload(tick_unit="hour", exposure_budget=6)
+    population = make_population()
+    world = make_world(
+        config=WorldConfig(platform="forum", involvement_default=100.0),
+        population=population,
+        scenario=hourly,
+    )
+    world.reset()
+    first = world.step(1, [])
+    by_persona = {p.impression.persona_id: p for p in forum_only(first)}
+    second = world.step(2, [act_turn(by_persona["p-000001"], 1, "post", "older thread, loved")])
+    older = next(s.stimulus_id for s in second.published if s.kind.value == "peer_post")
+    third = world.step(
+        3,
+        [act_turn(by_persona["p-000003"], 10, "post", "newer thread, silent")]
+        + [targeted_turn(pid, 2, older, 11 + n, "upvote", channel="forum") for n, pid in enumerate(PERSONA_IDS)],
+    )
+    newer = next(s.stimulus_id for s in third.published if s.kind.value == "peer_post")
+    fourth = world.step(4, [])
+    counts = world._store.counts_visible_at(4)
+    rows = world._store.stimuli_published_before(4)
+    ups = {row["stimulus_id"]: counts.get(row["stimulus_id"], {}).get("upvotes", 0) for row in rows}
+    downs = {row["stimulus_id"]: counts.get(row["stimulus_id"], {}).get("downvotes", 0) for row in rows}
+    published = {row["stimulus_id"]: row["tick"] for row in rows}
+    ids = [row["stimulus_id"] for row in rows]
+    expected = _recsys.hot_order(
+        ids, ups, downs, published, world.world_seed, 4, _recsys.UNIT_SECONDS["hour"]
+    )
+    for presentation in forum_only(fourth):
+        shown = [exposure.stimulus_id for exposure in presentation.impression.exposures]
+        assert shown == expected[: len(shown)], f"the forum did not rank hot: {shown} vs {expected}"
+    assert expected.index(older) < expected.index(newer), "four upvotes should outweigh one hour"
+
+
+def test_random_stays_the_forum_control_arm():
+    """`random` ranks the forum without reference to votes: the same fixture under hot herds,
+    under random it does not — and the trace says which mode ranked each exposure."""
+    from simcore.world import WorldConfig as _Config
+
+    control = make_world(
+        config=_Config(platform="forum", forum_recsys_mode="random"),
+        population=make_population(),
+        scenario=WIDE,
+    )
+    control.reset()
+    first = control.step(1, [])
+    by_persona = {p.impression.persona_id: p for p in forum_only(first)}
+    second = control.step(2, [act_turn(by_persona["p-000001"], 1, "post", "loved thread")])
+    loved = next(s.stimulus_id for s in second.published if s.kind.value == "peer_post")
+    control.step(
+        3, [targeted_turn(pid, 2, loved, 11 + n, "upvote", channel="forum") for n, pid in enumerate(PERSONA_IDS)]
+    )
+    fourth = control.step(4, [])
+    reasons = {e.reason.value for p in forum_only(fourth) for e in p.impression.exposures}
+    assert reasons == {"random"}
+
+
+
+def test_feed_and_forum_modes_are_recorded_separately_in_exposure_reasons():
+    """In a world with both platforms, feed exposures carry the feed mode's reason and forum
+    exposures the forum's — the two rankings never collapse into one field."""
+    world = make_world(
+        config=WorldConfig(channels=frozenset({"social_feed", "forum"})),
+        population=make_population(),
+    )
+    world.reset()
+    delta = world.step(1, [])
+    feed_reasons = {e.reason.value for p in on_channel(delta.presentations, Channel.SOCIAL_FEED) for e in p.impression.exposures}
+    forum_reasons = {e.reason.value for p in forum_only(delta) for e in p.impression.exposures}
+    assert feed_reasons == {"random"} and forum_reasons == {"forum"}
