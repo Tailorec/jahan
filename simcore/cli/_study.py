@@ -719,7 +719,10 @@ def check_budget(result: RunResult) -> None:
     siblings' artefacts are already in place, so raising keeps nothing back. Worlds that
     stopped any other way are a defect, not a verdict.
     """
-    paused = sorted(outcome.world_id for outcome in result.outcomes if DegradationRung.PAUSE in outcome.rungs)
+    paused = sorted(
+        outcome.world_id for outcome in result.outcomes
+        if DegradationRung.PAUSE in outcome.rungs or DegradationRung.WAVE_UNAFFORDABLE in outcome.rungs
+    )
     if paused:
         raise BudgetExhausted(f"the budget ran out with worlds paused: {', '.join(paused)}")
     failed = sorted(
