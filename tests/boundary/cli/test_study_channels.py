@@ -7,10 +7,11 @@ room is a wave's internal channel, never a choice.
 
 import pytest
 
+import json
 from pathlib import Path
 
 from simcore.schemas import Channel, Scenario, canonical_hash, derive_world_id, wave_ticks
-from tests.boundary.cli.support import fake_args, run_command
+from tests.boundary.cli.support import fake_args, run_command, run_id_from
 from tests.study_builders import scenario_payload
 
 FRONTEND = Path(__file__).resolve().parents[3] / "frontend"
@@ -75,3 +76,6 @@ def test_every_channel_combination_runs_a_fake_study(tmp_path, channels):
     out = tmp_path / "runs"
     code, output = run_command(*fake_args(out, "run-" + "0" * 24 + "89", horizon=2, channels=channels))
     assert code == 0, output[-1500:]
+    run_id = run_id_from(output)
+    # The trace summary joins the run's whole record: writing it validates every world it read.
+    assert json.loads((out / run_id / "trace-summary.json").read_text())["run_id"] == run_id
