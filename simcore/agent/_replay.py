@@ -63,6 +63,10 @@ def rebuild_state(
         elif isinstance(payload, BeliefSnapshot):
             beliefs = payload.beliefs
         elif isinstance(payload, TurnRecorded):
+            if payload.turn.impression.channel == "survey_room":
+                # A wave only reads: answering changes nothing, so the turn moves no belief
+                # and counts no reflection cadence.
+                continue
             beliefs = apply_change(beliefs, payload.turn.reaction.belief_change)
             turns_since_reflection += 1
         elif isinstance(payload, ReflectionRecorded):

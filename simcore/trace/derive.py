@@ -40,6 +40,9 @@ def apply_change(beliefs: Beliefs, change: BeliefChange) -> Beliefs:
 def _change_of(event: TraceEvent) -> BeliefChange | None:
     kind = event.payload.kind
     if kind == "turn":
+        if event.payload.turn.impression.channel == "survey_room":  # type: ignore[union-attr]
+            # A wave only reads: answering moves no belief, so histories skip it like state does.
+            return None
         return event.payload.turn.reaction.belief_change  # type: ignore[union-attr]
     if kind == "reflection":
         return event.payload.change  # type: ignore[union-attr]

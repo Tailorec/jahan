@@ -272,6 +272,9 @@ class DegradationRung(StrEnum):
     FREEZE_OPTIONAL_TIER_B = "freeze_optional_tier_b"
     SUBSAMPLE_ACTIVATION = "subsample_activation"
     PAUSE = "pause"
+    # Not a ladder step: a world pauses before a survey wave it cannot afford, so every wave
+    # it recorded was answered by everyone. Recorded where a rung is recorded (ADR 0048).
+    WAVE_UNAFFORDABLE = "wave_unaffordable"
 
 
 # Rungs are declared in escalation order, and degradation only ever climbs them.

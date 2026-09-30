@@ -369,6 +369,10 @@ class World:
                     written_tick=tick,
                 )
                 continue
+            if channel is Channel.SURVEY_ROOM:
+                # A wave only reads: a supported survey answer changes no platform state.
+                # (An action its channel does not support is still recorded as rejected above.)
+                continue
             subject = turn.reaction.subject_stimulus_id
             if action in (ActionKind.LIKE, ActionKind.REPOST, ActionKind.QUOTE, ActionKind.UPVOTE, ActionKind.DOWNVOTE):
                 self._store.record_engagement(

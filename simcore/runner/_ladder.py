@@ -29,6 +29,9 @@ def rung_for(ratio: float, ladder: LadderConfig) -> DegradationRung | None:
 
 def plan_for(rung: DegradationRung | None, ladder: LadderConfig) -> TickPlan:
     """The frozen per-tick plan for a rung: activation, tier-B freeze, rung."""
+    if rung is DegradationRung.WAVE_UNAFFORDABLE:
+        # A world paused before its wave runs nothing after: no activation, tier B frozen.
+        return TickPlan(activation_rate=0.0, tier_b_frozen=True, rung=rung)
     if rung is DegradationRung.SUBSAMPLE_ACTIVATION or rung is DegradationRung.PAUSE:
         return TickPlan(activation_rate=ladder.subsample_rate, tier_b_frozen=True, rung=rung)
     if rung is DegradationRung.FREEZE_OPTIONAL_TIER_B:

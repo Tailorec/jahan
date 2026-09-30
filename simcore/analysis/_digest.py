@@ -84,6 +84,9 @@ def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
     movement: dict[str, list[float]] = {dim.value: [] for dim in BeliefDim}
     absolute: dict[str, list[float]] = {dim.value: [] for dim in BeliefDim}
     for event in turns:
+        if event.payload.turn.impression.channel == "survey_room":
+            # A wave only reads: answering moves no belief, so movement skips it like state does.
+            continue
         change = event.payload.turn.reaction.belief_change
         for dim in BeliefDim:
             delta = float(change.dimensions.get(dim, 0.0))

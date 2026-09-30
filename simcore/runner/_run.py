@@ -37,9 +37,10 @@ from simcore.schemas import (
     BriefPack,
     CostRecorded,
     derive_world_id,
+    wave_ticks,
 )
 from simcore.schemas.base import canonical_hash
-from simcore.schemas.enums import Channel, LifecyclePhase, TurnTask
+from simcore.schemas.enums import Channel, DegradationRung, LifecyclePhase, TurnTask
 from simcore.schemas.trace import (
     BeliefSnapshot,
     ExposureDropped,
@@ -141,6 +142,12 @@ def _turn_events(
             ),
             persona_id,
         )
+        if presentation.impression.channel is Channel.SURVEY_ROOM:
+            # A wave only reads: the turn and what it billed are recorded, and the persona
+            # carries on unchanged — no memory, no belief change, no snapshot.
+            for cost in outcome.costs:
+                _next(cost, persona_id)
+            return events, state
         for memory in outcome.memories:
             _next(MemoryRecorded(kind="memory", memory=memory.model_copy(update={"embedding": None, "embed_model_id": None}) if memory.embedding is not None else memory), persona_id)
         new_state = advance_state(state, outcome, tick, memory_cap=memory_cap)
@@ -310,11 +317,12 @@ def run_world(
             return meter.unpriceable()  # type: ignore[attr-defined]
         return unpriceable(_all_recorded())
 
-    # What a turn asks is its impression's channel's to say: a survey wave asks purchase
-    # intent, and any other channel asks for a reaction (ADR 0048). The old per-run `elicits`
-    # is gone: intent has one source, one schedule and one respondent set in every study.
+    # A turn's task is its impression's channel's to say: a survey wave asks purchase intent,
+    # any other channel asks for a reaction (ADR 0048) — and the header carries the scenario.
     previous: list[Turn] = list(previous_turns) if previous_turns is not None else []
-    paused = bool(current is not None and getattr(current, "value", None) == "pause")
+    waves = set(wave_ticks(header.scenario.survey_every, horizon))
+    survey_total, survey_count, channel_total, channel_count = _prime_wave_tallies(trace, world_id, from_tick)
+    paused = bool(current is not None and current in (DegradationRung.PAUSE, DegradationRung.WAVE_UNAFFORDABLE))
     if paused:
         return tuple(written), states, seq, current, True
     for tick in range(from_tick + 1, horizon):
@@ -324,7 +332,7 @@ def run_world(
         # enforce a ceiling against. A budget measured against invented prices is not a budget,
         # so the run stops rather than spending blind.
         if budget_max and _unpriceable():
-            candidate = RUNG_ORDER[-1]
+            candidate = DegradationRung.PAUSE
         # Escalation only; a replay applies the recorded rung rather than
         # recomputing a lower one from the ledger.
         effective = candidate
@@ -333,6 +341,27 @@ def run_world(
                 effective = current
             elif RUNG_ORDER.index(effective) < RUNG_ORDER.index(current):
                 effective = current
+        if tick in waves and budget_max:
+            # The degrade ladder thins channel activation only; a wave is never thinned. Before
+            # a wave tick, the wave's cost is projected as every persona times the mean cost of
+            # recorded survey turns (channel turns stand in until the first wave calibrates it).
+            # A wave the remaining budget cannot cover pauses the world before the tick, so every
+            # recorded wave was answered by everyone and no partial wave exists in the trace.
+            # This check runs before the ladder's own pause: at a wave tick the wave's reason wins.
+            mean = survey_total / survey_count if survey_count else (
+                channel_total / channel_count if channel_count else None
+            )
+            if mean is not None and len(states) * mean > budget_max - _figure():
+                batch = [
+                    _make_event(world_id, tick, seq, Degraded(kind="degraded", rung=DegradationRung.WAVE_UNAFFORDABLE, activation_rate=0.0, tier_b_frozen=True)),
+                    _make_event(world_id, tick, seq + 1, LifecycleRecorded(kind="lifecycle", phase=LifecyclePhase.PAUSED)),
+                ]
+                seq += 2
+                _record(batch)
+                written.extend(batch)
+                current = DegradationRung.WAVE_UNAFFORDABLE
+                paused = True
+                break
         if effective is not None and effective.value == "pause" and effective != current:
             batch: list[TraceEvent] = []
             tick_plan = plan_for(effective, ladder_cfg)
@@ -418,7 +447,17 @@ def run_world(
                 batch.append(event)
                 seq += 1
             if isinstance(outcome, CompletedTurn):
-                next_turns.append(outcome.turn)
+                known = [cost.cost for cost in outcome.costs if cost.cost is not None]
+                if known:
+                    if presentation.impression.channel is Channel.SURVEY_ROOM:
+                        survey_total += sum(known)
+                        survey_count += 1
+                    else:
+                        channel_total += sum(known)
+                        channel_count += 1
+                # Survey turns never reach the world: a wave only reads, so there is nothing to ingest.
+                if presentation.impression.channel is not Channel.SURVEY_ROOM:
+                    next_turns.append(outcome.turn)
         _emit(TickClosed(kind="tick_closed"))
         _record(batch)
         written.extend(batch)
@@ -442,6 +481,42 @@ def _finalize(trace, world_id: str) -> None:
     if finalize is None:
         return
     finalize(world_id)
+
+
+def _prime_wave_tallies(trace: object, world_id: str, from_tick: int) -> tuple[float, int, float, int]:
+    """The wave-cost tallies a resume inherits: (survey_total, survey_count, channel_total, channel_count).
+
+    Derived from the record the way the live loop keeps them — known costs summed per turn,
+    a turn's costs split evenly when several of one persona's turns share a tick — so a resumed
+    world projects the wave it wakes up to from the same numbers. Never fails a run: without a
+    record there is nothing to inherit, and the first wave calibrates the estimate.
+    """
+    try:
+        if from_tick < 0 or not hasattr(trace, "events_for"):
+            return 0.0, 0, 0.0, 0
+        existing = tuple(trace.events_for(world_id))  # type: ignore[attr-defined]
+    except Exception:
+        return 0.0, 0, 0.0, 0
+    turns: dict[tuple[int, str], list[bool]] = {}
+    costs: dict[tuple[int, str], float] = {}
+    for event in existing:
+        if event.payload.kind == "turn":
+            key = (event.tick, event.persona_id or "")
+            turns.setdefault(key, []).append(event.payload.turn.impression.channel == "survey_room")
+        elif event.payload.kind == "cost" and event.payload.cost is not None:
+            key = (event.tick, event.persona_id or "")
+            costs[key] = costs.get(key, 0.0) + event.payload.cost
+    survey_total = survey_count = channel_total = channel_count = 0
+    for key, flags in turns.items():
+        share = costs.get(key, 0.0) / len(flags)
+        for is_survey in flags:
+            if is_survey:
+                survey_total += share
+                survey_count += 1
+            else:
+                channel_total += share
+                channel_count += 1
+    return survey_total, survey_count, channel_total, channel_count
 
 
 def _recorded_entry(registry: object, run_id: str) -> object | None:

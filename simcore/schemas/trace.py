@@ -460,8 +460,12 @@ class TracePartition(SimBaseModel):
                 allowed = _LIFECYCLE_TRANSITIONS[lifecycle]
                 if payload.phase not in allowed:
                     raise ValueError(f"{where} moves the world from {lifecycle.value if lifecycle else 'nothing'} to {payload.phase.value}")
-                if payload.phase is LifecyclePhase.PAUSED and (last_degradation is None or last_degradation.rung is not DegradationRung.PAUSE):
-                    raise ValueError(f"{where} pauses the world, which only follows the budget's pause rung")
+                if payload.phase is LifecyclePhase.PAUSED and (
+                    last_degradation is None
+                    or last_degradation.rung
+                    not in (DegradationRung.PAUSE, DegradationRung.WAVE_UNAFFORDABLE)
+                ):
+                    raise ValueError(f"{where} pauses the world, which only follows a pause rung: the budget's, or a wave it cannot afford")
                 lifecycle = payload.phase
                 continue
             if lifecycle is not LifecyclePhase.STARTED:

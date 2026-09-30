@@ -16,6 +16,10 @@ def signed_moves(events: Sequence) -> list[tuple[int, str, float]]:
     for event in events:
         kind = event.payload.kind
         if kind == "turn":
+            impression = getattr(event.payload.turn, "impression", None)
+            if getattr(impression, "channel", None) == "survey_room":
+                # A wave only reads: answering moves no belief, so moves skip it like state does.
+                continue
             change = event.payload.turn.reaction.belief_change
         elif kind == "reflection":
             change = event.payload.change
