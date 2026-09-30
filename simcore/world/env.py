@@ -102,13 +102,13 @@ class WorldConfig:
     wom_sentiment_threshold: float = 0.6
     wom_tie_threshold: float = 0.3
     wom_cap_per_tick: int = 2
-    # Profile vectors for the `twitter` mode, keyed by persona id; computed once
-    # at population build and carried in, never recomputed per tick.
+    # Fixed profile vectors for the `twitter` mode, keyed by persona id. Carried in, they are
+    # used as they are; left empty, the world embeds each persona's profile at reset and again
+    # when the persona posts on the feed, as upstream appends "Recent post" to the profile.
     profile_vectors: tuple[tuple[str, tuple[float, ...]], ...] = ()
     embedding_model_id: str | None = None
-    # Batch text embedder for stimulus arrival under the `twitter` mode. Called
-    # at most once per stimulus text and cached by stimulus id, so ranking
-    # never embeds; tests pass a fake, production the run's pinned embed model.
+    # The feed's ranking embedder (the run's `recsys_embed` pin, TwHIN-BERT). Called once per
+    # profile update and once per feed-visible stimulus, cached, so ranking never embeds.
     embed_texts: Callable[[list[str]], list[list[float]]] | None = field(default=None, compare=False)
 
     def __post_init__(self) -> None:
@@ -125,10 +125,6 @@ class WorldConfig:
     def involvement_for(self, persona_id: str) -> float:
         """This persona's involvement: its named value, else the study default."""
         return dict(self.involvement).get(persona_id, self.involvement_default)
-
-    def profile_vector_for(self, persona_id: str) -> tuple[float, ...] | None:
-        """This persona's profile vector for interest matching, if the study carried one."""
-        return dict(self.profile_vectors).get(persona_id)
 
 
 class World:
@@ -167,6 +163,7 @@ class World:
             else list(header.population.persona_ids)
         )
         self._personas = sorted(set(members))
+        self._persona_by_id = {persona.persona_id: persona for persona in population.personas} if population is not None else {}
         self._store = Store(store_path)
         self._ties: dict[frozenset[str], float] = {}
         self._community_of: dict[str, str] = {}
@@ -190,6 +187,9 @@ class World:
         # Stimulus vectors for the `twitter` mode, cached by stimulus id at
         # arrival and read by ranking — ranking itself never embeds.
         self._stimulus_vectors: dict[str, tuple[float, ...]] = {}
+        # Profiles for the `twitter` mode: the persona's attributes, plus its latest feed post.
+        self._profile_vectors: dict[str, tuple[float, ...]] = dict(self._config.profile_vectors)
+        self._latest_post: dict[str, str] = {}
         self._concept_id: str | None = None
         self._opened = False
         self._last_tick = -1
@@ -226,12 +226,17 @@ class World:
         if self._opened:
             raise ValueError("a world opens once; resume by replaying turns through a fresh instance")
         mode = self._config.feed_recsys_mode
-        if mode is RecsysMode.TWITTER and not self._config.profile_vectors:
-            raise ValueError("the twitter mode reads profile embeddings from the manifest: none were carried in")
+        if mode is RecsysMode.TWITTER and Channel.SOCIAL_FEED in self._channels and not self._config.profile_vectors:
+            if self._population is None or self._config.embed_texts is None:
+                raise ValueError(
+                    "the twitter mode ranks by profile embeddings: carry them in, or give the world "
+                    "its population and the feed's embedder (the recsys_embed pin)"
+                )
         if mode is RecsysMode.TWHIN and not self._centralities:
             raise ValueError("the twhin mode reads degree centralities from the generated graph: no graph was carried in")
         self._opened = True
         self._last_tick = 0
+        self._embed_profiles(self._personas)
         published = self._publish_study_stimuli()
         return WorldDelta(
             tick=0,
@@ -320,7 +325,11 @@ class World:
         here at all: they arrive computed once at population build.
         """
         embed = self._config.embed_texts
-        if embed is None or self._config.feed_recsys_mode is not RecsysMode.TWITTER:
+        if (
+            embed is None
+            or self._config.feed_recsys_mode is not RecsysMode.TWITTER
+            or Channel.SOCIAL_FEED not in self._channels
+        ):
             return
         fresh = [(sid, text) for sid, text in zip(stimulus_ids, texts) if sid not in self._stimulus_vectors]
         if not fresh:
@@ -437,8 +446,36 @@ class World:
                 written_tick=tick,
             )
             stimuli.append(stimulus)
-        self._vectorize([stimulus.stimulus_id for stimulus in stimuli], [stimulus.text for stimulus in stimuli])
+        feed = [s for s in stimuli if self._store.platform_of(s.stimulus_id) == Channel.SOCIAL_FEED.value]
+        self._vectorize([s.stimulus_id for s in feed], [s.text for s in feed])
+        for stimulus in feed:
+            self._latest_post[stimulus.author] = stimulus.text
+        self._embed_profiles(sorted({stimulus.author for stimulus in feed if stimulus.author}))
         return stimuli
+
+    def _profile_text(self, persona_id: str) -> str:
+        """A persona's profile as the feed's ranker reads it: its attributes, as upstream reads a
+        bio, then `# Recent post:` and its latest feed post, exactly as upstream appends it."""
+        persona = self._persona_by_id.get(persona_id)
+        values = {**persona.conditioning, **persona.attributes} if persona is not None else {}
+        text = "; ".join(f"{name}: {values[name]}" for name in sorted(values)) or "This user does not have profile"
+        latest = self._latest_post.get(persona_id)
+        return text if latest is None else f"{text} # Recent post:{latest}"
+
+    def _embed_profiles(self, persona_ids: list[str]) -> None:
+        """Embed these personas' profiles in one call: at reset, and after a persona posts on the
+        feed. Carried-in vectors are fixed and never re-embedded; ranking never embeds."""
+        embed = self._config.embed_texts
+        if (
+            embed is None
+            or self._config.profile_vectors
+            or self._config.feed_recsys_mode is not RecsysMode.TWITTER
+            or Channel.SOCIAL_FEED not in self._channels
+            or not persona_ids
+        ):
+            return
+        for persona_id, vector in zip(persona_ids, embed([self._profile_text(pid) for pid in persona_ids])):
+            self._profile_vectors[persona_id] = tuple(vector)
 
     def _platform_for(self, turn: Turn) -> str:
         """The platform a turn's authored stimulus is published on: its impression channel for
@@ -740,8 +777,17 @@ class World:
         for persona_id in self._activated(tick):
             ordered = self._rank_feed(persona_id, tick, candidates, counts)[: self._candidate_window()]
             shown = ordered[:budget]
+            network = (
+                self._in_network(persona_id, candidates)
+                if self._config.feed_recsys_mode is RecsysMode.TWITTER
+                else frozenset()
+            )
             exposures = tuple(
-                Exposure(stimulus_id=stimulus_id, reason=reason, attention=self._attention_at(rank, len(shown)))
+                Exposure(
+                    stimulus_id=stimulus_id,
+                    reason=ExposureReason.NETWORK if stimulus_id in network else reason,
+                    attention=self._attention_at(rank, len(shown)),
+                )
                 for rank, stimulus_id in enumerate(shown)
             )
             impression = Impression(
@@ -784,10 +830,13 @@ class World:
         if mode is RecsysMode.REDDIT_HOT:
             return self._hot_rank(ids, rows, counts, feed_votes=True, tick=tick)
         if mode is RecsysMode.TWITTER:
-            return recsys.interest_order(
+            return recsys.x_order(
                 ids,
-                self._config.profile_vector_for(persona_id),
+                self._in_network(persona_id, rows),
+                {sid: entry.get("likes", 0) for sid, entry in counts.items()},
+                self._profile_vectors.get(persona_id),
                 self._stimulus_vectors,
+                {row["stimulus_id"]: tick - row["tick"] for row in rows},
                 self._world_seed,
                 tick,
                 persona_id,
@@ -797,6 +846,12 @@ class World:
             ages = {row["stimulus_id"]: tick - row["tick"] for row in rows}
             return recsys.hub_order(ids, self._centralities, authors, ages, self._world_seed, tick)
         raise ValueError(f"unknown recsys mode {mode}")
+
+    def _in_network(self, persona_id: str, rows: list[dict]) -> frozenset[str]:
+        """Feed posts by anyone the persona is tied to in the social graph or follows."""
+        network = {other for pair in self._ties if persona_id in pair for other in pair - {persona_id}}
+        network |= self._store.followees(persona_id)
+        return frozenset(row["stimulus_id"] for row in rows if row["author"] in network)
 
     def _rank_forum(
         self, persona_id: str, ids: list[str], rows: list[dict], counts: dict[str, dict[str, int]], *, tick: int
@@ -983,7 +1038,22 @@ class World:
         world._last_tick = snapshot["last_tick"]
         world._concept_id = snapshot["concept_id"]
         world._store.import_data(snapshot["store"])
+        world._revectorize()
         return world
+
+    def _revectorize(self) -> None:
+        """After a restore, re-embed what the cache lacks in one call each: feed-visible stimuli,
+        then profiles with each persona's latest feed post, oldest to newest as published."""
+        rows = [
+            row
+            for row in self._store.stimuli_published_before(self._last_tick + 1)
+            if row.get("platform") in ("study", Channel.SOCIAL_FEED.value)
+        ]
+        for row in rows:
+            if row.get("platform") == Channel.SOCIAL_FEED.value and row["author"]:
+                self._latest_post[row["author"]] = row["text"]
+        self._vectorize([row["stimulus_id"] for row in rows], [row["text"] for row in rows])
+        self._embed_profiles(self._personas)
 
     def concept_id(self) -> str:
         """The study's concept stimulus, the survey room's single exposure."""

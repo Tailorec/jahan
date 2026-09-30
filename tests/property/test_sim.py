@@ -73,7 +73,7 @@ def test_pmf_accepts_a_strictly_positive_mass_and_refuses_wrong_arity():
 
 
 def test_exposure_reason_is_a_closed_set():
-    assert {r.value for r in ExposureReason} == {"interest", "social_proof", "random", "wom", "forum", "launch"}
+    assert {r.value for r in ExposureReason} == {"interest", "social_proof", "random", "wom", "forum", "launch", "network"}
     with pytest.raises(ValidationError):
         Exposure.model_validate(exposure(reason="intrest"))
 

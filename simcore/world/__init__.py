@@ -19,7 +19,7 @@ from .env import ForumPreset, RecsysMode, World, WorldConfig, forget, reset, ste
 from .platform import AFFORDANCES, Forum, is_supported
 from .recsys import UNIT_SECONDS, exposure_concentration, hot_order, hot_score, random_order, reason_for, scoped_order
 from .recsys import cosine as cosine_similarity
-from .recsys import hub_order, interest_order
+from .recsys import hub_order, x_order
 from .wom import (
     DEFAULT_CAP_PER_TICK,
     DEFAULT_SENTIMENT_THRESHOLD,
@@ -55,7 +55,7 @@ __all__ = [
     "hot_score",
     "hub_order",
     "is_supported",
-    "interest_order",
+    "x_order",
     "exposure_concentration",
     "random_order",
     "reason_for",

@@ -194,6 +194,11 @@ class Store:
         ).fetchone()
         return row[0] if row is not None else None
 
+    def followees(self, follower: str) -> set[str]:
+        """Everyone this persona has followed during the study."""
+        rows = self._db.execute("SELECT followee FROM follows WHERE follower = ?", (follower,)).fetchall()
+        return {row[0] for row in rows}
+
     def platform_of(self, stimulus_id: str) -> str | None:
         """The platform a stimulus was published on: `study` for the study's own stimuli,
         else the impression channel it was authored from."""

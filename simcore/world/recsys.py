@@ -9,14 +9,14 @@
 """Who sees what, and the baseline every ranking mode is measured against.
 
 `random` is the control arm: blind to engagement, deterministic under a seed.
-`reddit_hot` copies the upstream score verbatim. `twitter` reads interest
-match against profile vectors computed once at population build, carried in
-beside the manifest and never recomputed per tick. `twhin` reads degree
+`reddit_hot` copies the upstream score verbatim. `twitter` ports X's refresh:
+in-network posts first, then interest × recency against profile vectors the
+world embeds once and refreshes only when a persona posts. `twhin` reads degree
 centralities from the generated graph, computed once when the world is built.
 Neither recomputes its signal per tick.
 """
 
-from math import log10
+from math import log, log10
 from collections.abc import Mapping, Sequence
 
 from simcore.schemas import ExposureReason
@@ -161,30 +161,52 @@ def cosine(left: Sequence[float], right: Sequence[float]) -> float:
     return sum(a * b for a, b in zip(left, right)) / denom
 
 
-def interest_order(
+def recency_score(age_ticks: int) -> float:
+    """OASIS's recency weight, verbatim but for its clock: `log((271.8 − age) / 100)`.
+
+    Upstream counts age in its own time steps and notes the formula holds for at most ~170
+    of them; a post older than that can no longer be recommended, so it scores minus infinity.
+    """
+    remaining = 271.8 - age_ticks
+    if remaining <= 0:
+        return float("-inf")
+    return log(remaining / 100)
+
+
+def x_order(
     candidate_ids: list[str],
+    network: frozenset[str],
+    likes: Mapping[str, int],
     profile_vector: Sequence[float] | None,
     stimulus_vectors: Mapping[str, Sequence[float]],
+    age_ticks: Mapping[str, int],
     world_seed: int,
     tick: int,
     persona_id: str,
 ) -> list[str]:
-    """The `twitter` mode: interest match of each stimulus against the persona's profile vector.
+    """The `twitter` mode, ported from OASIS's X refresh (`rec_sys_personalized_twh` + `refresh`).
 
-    The profile vector arrives computed once at population build, carried in
-    beside the manifest — ranking never embeds it. A persona without one
-    matches nothing. Ties break from a derived per-persona seed.
+    In-network first — posts by the persona's ties and follows, most liked first, as upstream
+    prepends following posts ordered by `num_likes`. Then everything else, ordered by
+    `cosine(profile, post) × log((271.8 − age) / 100)`. Vectors arrive cached, so ranking never
+    embeds; a missing vector matches nothing. Ties break from a derived per-persona seed.
+    Departures (stated in the report): upstream samples its refresh at random from the top of
+    the rec table and pre-filters to 4,000 posts; a study's feed is small, so it is ordered whole.
     """
     rng = rng_for(world_seed, tick, f"recsys:twitter:{persona_id}")
     tiebreak = {stimulus_id: rng.random() for stimulus_id in sorted(candidate_ids)}
-    scores: dict[str, float] = {}
-    for stimulus_id in candidate_ids:
+    inside = [stimulus_id for stimulus_id in candidate_ids if stimulus_id in network]
+    outside = [stimulus_id for stimulus_id in candidate_ids if stimulus_id not in network]
+
+    def interest(stimulus_id: str) -> float:
         vector = stimulus_vectors.get(stimulus_id)
         if profile_vector is None or vector is None:
-            scores[stimulus_id] = 0.0
-        else:
-            scores[stimulus_id] = cosine(profile_vector, vector)
-    return sorted(candidate_ids, key=lambda stimulus_id: (-scores[stimulus_id], tiebreak[stimulus_id]))
+            return 0.0
+        return cosine(profile_vector, vector) * recency_score(age_ticks.get(stimulus_id, 0))
+
+    return sorted(inside, key=lambda sid: (-likes.get(sid, 0), tiebreak[sid])) + sorted(
+        outside, key=lambda sid: (-interest(sid), tiebreak[sid])
+    )
 
 
 def hub_order(
@@ -222,8 +244,9 @@ __all__ = [
     "hot_order",
     "hot_score",
     "hub_order",
-    "interest_order",
     "random_order",
     "reason_for",
+    "recency_score",
     "scoped_order",
+    "x_order",
 ]
