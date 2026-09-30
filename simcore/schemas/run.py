@@ -27,7 +27,7 @@ from .base import (
     proportions_sum_to_one,
 )
 from .brief import BriefPack, ClaimId, CurrencyCode, Price, ProductBrief
-from .enums import TurnTask, InferenceRole, InterventionKind, TickUnit
+from .enums import Channel, InferenceRole, InterventionKind, TickUnit
 
 VariantId = Identifier
 WorldId = Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{12}$")]
@@ -138,6 +138,19 @@ class Intervention(SimBaseModel):
     kind: InterventionKind
 
 
+def wave_ticks(survey_every: int, horizon_ticks: int) -> tuple[int, ...]:
+    """The ticks a survey wave is put to every persona: `{0, k, 2k, …} ∪ {horizon − 1}`.
+
+    One pure function every layer calls — the world, the runner, analysis and the
+    interface — so a wave lands on the same ticks everywhere. Tick 0 is always a wave
+    (the post-launch baseline) and so is the last tick (the endpoint)."""
+    if survey_every < 1:
+        raise ValueError(f"survey_every counts ticks between waves, so it is positive, not {survey_every}")
+    if horizon_ticks < 1:
+        raise ValueError(f"a horizon counts ticks, so it is positive, not {horizon_ticks}")
+    return tuple(sorted(set(range(0, horizon_ticks, survey_every)) | {horizon_ticks - 1}))
+
+
 class Scenario(SimBaseModel):
     """One variant together with the conditions it faces; it describes no random draw."""
 
@@ -150,15 +163,38 @@ class Scenario(SimBaseModel):
     interventions: tuple[Intervention, ...] = ()
     # Stimuli one persona can be shown per channel per tick; the survey room always shows exactly one.
     exposure_budget: PositiveInt = 3
-    # What an activated persona is asked. A study exists to ask purchase intent, and until this
-    # was a scenario's to say, the runner named the task itself and adoption was unreachable from
-    # any configuration — 400 real turns produced verbatims and no intent at all.
-    elicits: TurnTask = TurnTask.REACTION
+    # Which channels spread information: any combination of feed, forum and word of mouth,
+    # including none. With none, nothing spreads and each persona only ever sees the concept.
+    channels: frozenset[Channel] = frozenset()
+    # Ticks between survey waves; tick 0 and the last tick always wave (see `wave_ticks`).
+    survey_every: PositiveInt = 1
+    # The share of personas who hear of the product first-hand at launch, chosen at random.
+    # Only meaningful when word of mouth is the only channel — without them nobody has
+    # anything to pass on — so any other combination refuses a non-default value (ADR 0048).
+    launch_reach: UnitInterval = 0.10
 
     @model_validator(mode="after")
     def _audience_weights_sum_to_one(self) -> Self:
         if self.audience_weights is not None:
             proportions_sum_to_one(self.audience_weights)
+        return self
+
+    @model_validator(mode="after")
+    def _launch_reach_needs_wom_alone(self) -> Self:
+        if self.channels != frozenset({Channel.WOM}) and self.launch_reach != 0.10:
+            raise ValueError(
+                "launch_reach is only meaningful when channels is exactly [wom]: "
+                f"got channels {[c.value for c in sorted(self.channels)]} with launch_reach {self.launch_reach}"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _horizon_holds_a_wave(self) -> Self:
+        if not wave_ticks(self.survey_every, self.horizon_ticks):
+            raise ValueError(
+                f"a study holds at least one survey wave: survey_every {self.survey_every} "
+                f"leaves no wave in a horizon of {self.horizon_ticks}"
+            )
         return self
 
     @model_validator(mode="after")

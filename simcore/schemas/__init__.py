@@ -64,7 +64,6 @@ from .enums import (
     TurnFailureKind,
     TurnTask,
     Channel,
-    STUDY_CHANNELS,
     ClaimSource,
     Confidence,
     CostSource,
@@ -149,6 +148,7 @@ from .run import (
     derive_world_id,
     derive_world_seed,
     resolve_audience_weights,
+    wave_ticks,
 )
 from .sim import (
     AnchorSimplex5,
@@ -243,7 +243,6 @@ __all__ = [
     "CategoryOntology",
     "CategoryTargets",
     "Channel",
-    "STUDY_CHANNELS",
     "Claim",
     "ClaimId",
     "ClaimSource",
@@ -408,6 +407,7 @@ __all__ = [
     "CompletedTurn",
     "CostByRole",
     "UnitInterval",
+    "wave_ticks",
     "Variant",
     "VariantId",
     "View",

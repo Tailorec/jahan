@@ -87,18 +87,15 @@ class InferenceRole(StrEnum):
 
 
 class Channel(StrEnum):
-    """The environment a persona is reached through; each has an exposure budget."""
+    """How information about the product reaches a persona: a social feed, a forum, or word
+    of mouth along the social graph. A study runs any combination of these, including none;
+    with none, nothing spreads and each persona only ever sees the concept. The survey room
+    is not a study choice: it is the internal channel of a survey wave's impression."""
 
     SURVEY_ROOM = "survey_room"
     SOCIAL_FEED = "social_feed"
     FORUM = "forum"
     WOM = "wom"
-
-
-# The environments a study can be run on. `wom` is a channel a message is delivered on, beside another
-# environment's own presentation (a feed or a forum delivers word of mouth); it presents nothing itself, so a study
-# is never run on it.
-STUDY_CHANNELS = (Channel.SURVEY_ROOM, Channel.SOCIAL_FEED, Channel.FORUM)
 
 
 class StimulusKind(StrEnum):

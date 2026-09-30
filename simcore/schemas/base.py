@@ -21,7 +21,7 @@ from typing import Annotated, Any, ClassVar, Literal, Self, get_args, get_origin
 from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, StringConstraints, model_validator
 from pydantic_core import CoreSchema, core_schema, to_jsonable_python
 
-SCHEMA_VERSION = "1.0.0"
+SCHEMA_VERSION = "1.1.0"
 
 # Pydantic refuses field names with a leading underscore, so no field can collide with this key.
 _VERSION_KEY = "_schema_version"

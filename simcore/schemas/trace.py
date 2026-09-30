@@ -672,9 +672,85 @@ class ContractMigration(NamedTuple):
     migrate: Callable[[dict[str, Any]], dict[str, Any]]
 
 
-# Contract 1.0.0 is the first released contract, so no migration exists yet. Each later contract that
-# changes the partition's shape registers the step that rewrites the previous shape into its own.
-CONTRACT_MIGRATIONS: tuple[ContractMigration, ...] = ()
+# Contract 1.0.0 is the first released contract. Contract 1.1.0 carries ADR 0048: scenarios
+# state which channels spread information and when purchase intent is measured, and the per-run
+# `elicits` is gone. Each later contract that changes the partition's shape registers the step
+# that rewrites the previous shape into its own.
+def _migrate_1_1_0_scenario_channels(raw: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite 1.0.0 scenarios into 1.1.0 ones, and remap the world identity they imply.
+
+    Only a scenario that still names `elicits` is genuinely old: the old channel lived
+    outside it, so it is recovered from what the partition recorded — every non-survey
+    impression channel in its turns becomes a ticked channel, and word of mouth rides
+    along exactly where the old world delivered it. The per-run `elicits` asked every
+    turn of every tick, so the wave schedule defaults to every tick. World ids derive
+    from the scenario, so they move with it (ADR 0048); every event follows the header.
+    A payload already in the new shape passes through with defaults, its identity stable.
+    """
+    header = raw.get("header")
+    if not isinstance(header, dict):
+        return raw
+    candidates: list[Any] = []
+    if isinstance(header.get("scenario"), dict):
+        candidates.append(header["scenario"])
+    config = header.get("config")
+    if isinstance(config, dict) and isinstance(config.get("scenarios"), list):
+        candidates.extend(candidate for candidate in config["scenarios"] if isinstance(candidate, dict))
+    legacy = any("elicits" in candidate for candidate in candidates)
+    ticked: list[str] = []
+    if legacy:
+        seen: set[str] = set()
+        events = raw.get("events")
+        if isinstance(events, list):
+            for event in events:
+                if not isinstance(event, dict):
+                    continue
+                payload = event.get("payload")
+                if not isinstance(payload, dict):
+                    continue
+                turn = payload.get("turn")
+                impression = turn.get("impression") if isinstance(turn, dict) else None
+                if not isinstance(impression, dict):
+                    impression = payload.get("impression")
+                if isinstance(impression, dict) and isinstance(impression.get("channel"), str):
+                    seen.add(impression["channel"])
+        ticked = sorted(channel for channel in seen if channel in ("social_feed", "forum", "wom"))
+    for candidate in candidates:
+        candidate.pop("elicits", None)
+        candidate.setdefault("channels", ticked)
+        candidate.setdefault("survey_every", 1)
+        candidate.setdefault("launch_reach", 0.10)
+    try:
+        scenario = Scenario.model_validate(header["scenario"])
+        population = header["population"]
+        new_id = derive_world_id(scenario, int(header["replicate_seed"]), str(population["population_hash"]))
+    except Exception:
+        return raw  # leave the strict read to fail loudly on what is actually broken
+    events = raw.get("events")
+    event_ids = (
+        {event.get("world_id") for event in events if isinstance(event, dict)} - {None}
+        if isinstance(events, list)
+        else set()
+    )
+    stated = header.get("world_id")
+    if stated is not None:
+        targets = {stated}
+    elif len(event_ids) == 1:
+        # Hand-built fixtures omit the computed world id: the events' own uniform id is the old one.
+        targets = set(event_ids)
+    else:
+        return raw  # strangers stay strangers; the strict read refuses them
+    header["world_id"] = new_id
+    if isinstance(events, list):
+        for event in events:
+            if isinstance(event, dict) and event.get("world_id") in targets:
+                event["world_id"] = new_id
+    return raw
+
+
+CONTRACT_MIGRATIONS: tuple[ContractMigration, ...] = (
+    ContractMigration(introduced_in="1.1.0", migrate=_migrate_1_1_0_scenario_channels),
+)
 
 
 def _parse_contract_version(text: Any) -> tuple[int, int, int]:
