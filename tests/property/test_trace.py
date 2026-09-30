@@ -305,7 +305,7 @@ def test_current_contract_partition_loads_unchanged():
     assert read_partition(dumped_partition()) == TracePartition.model_validate(partition_payload())
 
 
-@pytest.mark.parametrize("version", ["1.0.1", "2.0.0"])
+@pytest.mark.parametrize("version", ["1.1.1", "2.0.0"])
 def test_partition_from_a_newer_contract_is_refused_not_guessed_at(version):
     with pytest.raises(SchemaVersionError, match="newer than this engine"):
         read_partition(dumped_partition(version))

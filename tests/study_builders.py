@@ -364,12 +364,14 @@ def resequence(data: dict) -> dict:
 def partition_header_payload(scenario: dict | None = None, persona_ids: list[str] | None = None) -> dict:
     """A header whose run configuration pins exactly the pack, population and scenario it carries. Given persona
     ids, it describes a stand-in population of those personas instead of the representative one."""
+    from simcore.schemas import SCHEMA_VERSION
+
     scenario = scenario or scenario_payload()
     manifest = population_manifest_payload()
     if persona_ids is not None:
         manifest = {**manifest, "persona_ids": list(persona_ids), "population_hash": "99" * 32, "graph_hash": None}
     config = partition_run_config(scenario, population_hash=manifest["population_hash"], graph_hash=manifest["graph_hash"])
-    return {"contract_version": "1.0.0", "config": config, "pack": pack_payload(), "population": manifest,
+    return {"contract_version": SCHEMA_VERSION, "config": config, "pack": pack_payload(), "population": manifest,
             "scenario": scenario, "replicate_seed": 4021}
 
 
