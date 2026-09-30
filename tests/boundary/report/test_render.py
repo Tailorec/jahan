@@ -94,3 +94,10 @@ def test_waves_render_as_intent_over_time_with_the_reached_split_and_the_repeate
     assert "one-shot survey" in report.markdown
     (first, _) = [d for d in report.data["digests"] if d["waves"]][0]["waves"]
     assert first["adoption"] == pytest.approx(0.6)
+
+
+def test_the_json_carries_each_digests_audience_masses_the_digests_tab_draws():
+    report = render([], digests(), pack())
+    for rendered in report.data["digests"]:
+        assert isinstance(rendered["audience_pmfs"], dict)
+    assert any(rendered["audience_pmfs"] for rendered in report.data["digests"])

@@ -90,6 +90,8 @@ class _DigestSection:
     # Intent over time (ADR 0048): the survey waves as the digest holds them, and what each
     # channel showed and reached.
     waves: tuple = ()
+    # The headline masses per audience, as the digest holds them: the page draws them.
+    audience_pmfs: tuple[tuple[str, tuple[float, ...]], ...] = ()
     exposures_by_channel: tuple[tuple[str, int], ...] = ()
     reached_by_channel: tuple[tuple[str, int], ...] = ()
 
@@ -225,6 +227,7 @@ def _build(findings: tuple[Finding, ...], digests: tuple[OutcomeDigest, ...], pa
             wom_reach=digest.wom_reach,
             rungs=tuple(rung.value for rung in digest.rungs),
             waves=tuple(digest.waves),
+            audience_pmfs=tuple(sorted((name, tuple(pmf)) for name, pmf in digest.audience_pmfs.items())),
             exposures_by_channel=tuple(sorted((c.value, n) for c, n in digest.exposures_by_channel.items())),
             reached_by_channel=tuple(sorted((c.value, reach[-1]) for c, reach in digest.reach_by_tick.items() if reach)),
         )
@@ -461,6 +464,7 @@ def _to_data(doc: _Document) -> dict:
                 "wom_reach": digest.wom_reach,
                 "rungs": list(digest.rungs),
                 "waves": [wave.model_dump(mode="json") for wave in digest.waves],
+                "audience_pmfs": {name: list(pmf) for name, pmf in digest.audience_pmfs},
                 "exposures_by_channel": dict(digest.exposures_by_channel),
                 "reached_by_channel": dict(digest.reached_by_channel),
             }
