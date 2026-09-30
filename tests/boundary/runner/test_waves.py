@@ -122,7 +122,10 @@ def _run_waves(survey=True, survey_every=1, horizon=5, max_cost=20.0, amount=Non
 
     def agent_fn(jobs):
         for job in jobs:
-            carried[(job.presentation.impression.tick, job.persona.persona_id)] = job.state.model_copy(deep=True)
+            # The state carried into the tick: what its channel turn started from. A wave's job sees
+            # the state that turn left, so it is not the tick's carried state.
+            if job.presentation.impression.channel.value != "survey_room":
+                carried[(job.presentation.impression.tick, job.persona.persona_id)] = job.state.model_copy(deep=True)
         return tuple(_completed(j, i, amount) for i, j in enumerate(jobs))
 
     result = run(config, pack=pack, population=population, trace=trace, registry=registry,
@@ -207,3 +210,26 @@ def test_a_wave_the_budget_cannot_cover_pauses_before_it_wholly():
     paused_at = degraded[-1].tick
     assert [kind for tick, kind in kinds if tick == paused_at] == ["degraded", "lifecycle"]
     assert not [kind for tick, kind in kinds if tick > paused_at]
+
+
+def test_a_wave_answers_from_the_state_its_own_ticks_channel_turn_left():
+    """The wave comes last in its tick: a persona that reacted on a channel this tick answers the
+    survey remembering it, not from the state the tick opened with."""
+    pack, population = _pack(), _population()
+    config = _repinned(_config(horizon=3, survey_every=1), pack, population)
+    states: dict = {}
+
+    def agent_fn(jobs):
+        for job in jobs:
+            key = (job.presentation.impression.tick, job.persona.persona_id, job.presentation.impression.channel.value)
+            states[key] = job.state.model_copy(deep=True)
+        return tuple(_completed(j, i) for i, j in enumerate(jobs))
+
+    run(config, pack=pack, population=population, trace=InMemoryTraceSink(), registry=InMemoryRegistry(),
+        world_factory=lambda header: WaveWorld(header), agent_fn=agent_fn, ladder=LadderConfig())
+    for tick in (1, 2):
+        for pid in population.manifest.persona_ids:
+            before, answered = states[(tick, pid, "forum")], states[(tick, pid, "survey_room")]
+            value = next(dim for dim in answered.beliefs.dimensions if str(dim) == "value")
+            assert answered.beliefs.dimensions[value] == pytest.approx(min(1.0, before.beliefs.dimensions[value] + 0.05))
+            assert answered.turns_since_reflection == before.turns_since_reflection + 1

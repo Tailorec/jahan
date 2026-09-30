@@ -384,28 +384,33 @@ def run_world(
         else:
             delta = _call_step(world, tick, previous, tick_plan)
         _note_published(trace, delta.published)
-        jobs: list[TurnJob] = []
-        order: list[Presentation] = list(delta.presentations)
-        for presentation in order:
-            pid = presentation.impression.persona_id
-            persona = personas[pid]
-            jobs.append(
-                TurnJob.model_validate(
-                    {
-                        "persona": persona.model_dump(mode="json"),
-                        "state": states[pid].model_dump(mode="json"),
-                        "presentation": presentation.model_dump(mode="json"),
-                        "task": (
-                            TurnTask.PURCHASE.value
-                            if presentation.impression.channel is Channel.SURVEY_ROOM
-                            else TurnTask.REACTION.value
-                        ),
-                    }
-                )
-            )
-        outcomes = _call_agent(agent_fn, jobs, tick_plan)
-        if len(outcomes) != len(jobs):
-            raise ValueError(f"agent returned {len(outcomes)} outcomes for {len(jobs)} jobs")
+        # A wave comes last in its tick and answers from everything up to it (ADR 0048): the channel
+        # turns are taken and applied first, and only then are survey jobs built from the states they
+        # left — built together, a persona would answer the wave from before its own tick.
+        order: list[Presentation] = [p for p in delta.presentations if p.impression.channel is not Channel.SURVEY_ROOM]
+        wave: list[Presentation] = [p for p in delta.presentations if p.impression.channel is Channel.SURVEY_ROOM]
+
+        def _jobs(presentations: list[Presentation], task: TurnTask) -> list[TurnJob]:
+            return [
+                TurnJob.model_validate({
+                    "persona": personas[p.impression.persona_id].model_dump(mode="json"),
+                    "state": states[p.impression.persona_id].model_dump(mode="json"),
+                    "presentation": p.model_dump(mode="json"),
+                    "task": task.value,
+                })
+                for p in presentations
+            ]
+
+        def _answers(presentations: list[Presentation], task: TurnTask) -> list:
+            jobs = _jobs(presentations, task)
+            if not jobs:
+                return []  # nothing presented, nothing to ask
+            outcomes = _call_agent(agent_fn, jobs, tick_plan)
+            if len(outcomes) != len(jobs):
+                raise ValueError(f"agent returned {len(outcomes)} outcomes for {len(jobs)} jobs")
+            return list(outcomes)
+
+        outcomes = _answers(order, TurnTask.REACTION)
         batch = []
 
         def _emit(payload: object, pid: str | None = None, at_tick: int = tick) -> None:
@@ -438,26 +443,33 @@ def run_world(
                 dropped.persona_id,
             )
         next_turns: list[Turn] = []
-        for presentation, outcome in zip(order, outcomes, strict=True):
-            pid = presentation.impression.persona_id
-            tick_events, new_state = _turn_events(world_id, tick, seq, presentation, outcome, states[pid], memory_cap)
-            states[pid] = new_state
-            for event in tick_events:
-                assert event.seq == seq
-                batch.append(event)
-                seq += 1
-            if isinstance(outcome, CompletedTurn):
-                known = [cost.cost for cost in outcome.costs if cost.cost is not None]
-                if known:
-                    if presentation.impression.channel is Channel.SURVEY_ROOM:
-                        survey_total += sum(known)
-                        survey_count += 1
-                    else:
-                        channel_total += sum(known)
-                        channel_count += 1
-                # Survey turns never reach the world: a wave only reads, so there is nothing to ingest.
-                if presentation.impression.channel is not Channel.SURVEY_ROOM:
-                    next_turns.append(outcome.turn)
+
+        def _apply(presentations: list[Presentation], answered: list) -> None:
+            nonlocal seq, survey_total, survey_count, channel_total, channel_count
+            for presentation, outcome in zip(presentations, answered, strict=True):
+                pid = presentation.impression.persona_id
+                tick_events, new_state = _turn_events(world_id, tick, seq, presentation, outcome, states[pid], memory_cap)
+                states[pid] = new_state
+                for event in tick_events:
+                    assert event.seq == seq
+                    batch.append(event)
+                    seq += 1
+                if isinstance(outcome, CompletedTurn):
+                    known = [cost.cost for cost in outcome.costs if cost.cost is not None]
+                    if known:
+                        if presentation.impression.channel is Channel.SURVEY_ROOM:
+                            survey_total += sum(known)
+                            survey_count += 1
+                        else:
+                            channel_total += sum(known)
+                            channel_count += 1
+                    # Survey turns never reach the world: a wave only reads, so there is nothing to ingest.
+                    if presentation.impression.channel is not Channel.SURVEY_ROOM:
+                        next_turns.append(outcome.turn)
+
+        _apply(order, outcomes)
+        if wave:
+            _apply(wave, _answers(wave, TurnTask.PURCHASE))
         _emit(TickClosed(kind="tick_closed"))
         _record(batch)
         written.extend(batch)
