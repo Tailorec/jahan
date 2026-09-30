@@ -166,3 +166,21 @@ def test_a_single_wave_authors_no_trajectory():
     view, scenario, population = world([(0, "p-000001", A)])
     result = digest(view, scenario=scenario, population=population, seed=4021)
     assert _intent_trajectory_findings(view, result) == []
+
+
+def test_progress_counts_turns_per_channel_and_the_waves_answered():
+    from simcore.analysis import world_progress
+
+    view, _, _ = world(
+        [(0, "p-000001", A), (0, "p-000002", A), (2, "p-000001", A)],
+        channel_turns=[(1, "p-000001", "like", None), (2, "p-000002", "buy", None)],
+    )
+
+    class Filtered(View):
+        def events(self, event_filter):
+            kinds = set(event_filter.kinds or ())
+            return [event for event in self._events if not kinds or event.payload.kind in kinds]
+
+    progress = world_progress(Filtered(view._events), "w1")
+    assert dict(progress.turns_by_channel) == {"social_feed": 2, "survey_room": 3}
+    assert progress.waves_answered == (0, 2)
