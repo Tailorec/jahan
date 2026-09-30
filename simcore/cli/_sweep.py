@@ -151,4 +151,9 @@ def _pins_for_grid(args) -> dict:
         "tier_a": {"model_id": args.model, "serves": [args.model]},
         "tier_b": {"model_id": args.model, "serves": [args.model]},
         "embed": {"model_id": args.embed_model, "serves": [args.embed_model]},
+        **(
+            {"recsys_embed": {"model_id": args.recsys_embed_model, "serves": [args.recsys_embed_model]}}
+            if getattr(args, "recsys_embed_model", None)
+            else {}
+        ),
     }

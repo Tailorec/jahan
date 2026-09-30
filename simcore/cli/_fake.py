@@ -19,6 +19,7 @@ from simcore.schemas import BriefPack, Completion
 FAKE_TIER_A = "fake/tier-a-1"
 FAKE_TIER_B = "fake/tier-b-1"
 FAKE_EMBED = "fake/embed-1"
+FAKE_RECSYS_EMBED = "fake/recsys-embed-1"
 FAKE_ROWS = 4000
 
 
@@ -45,7 +46,7 @@ class RoleFakeChat(FakeChat):
 
 def fake_pins() -> dict:
     """The model pins a fake study runs under, fixed so two fake runs agree."""
-    return {"tier_a": FAKE_TIER_A, "tier_b": FAKE_TIER_B, "embed": FAKE_EMBED}
+    return {"tier_a": FAKE_TIER_A, "tier_b": FAKE_TIER_B, "embed": FAKE_EMBED, "recsys_embed": FAKE_RECSYS_EMBED}
 
 
 def synthetic_shape(pack: BriefPack, rows: int = FAKE_ROWS) -> SyntheticShape:

@@ -34,6 +34,7 @@ from simcore.schemas import (
     BudgetExhausted,
     DegradationRung,
     GateFailure,
+    InferenceRole,
     OutcomeDigest,
     Population,
     RunConfig,
@@ -47,7 +48,7 @@ from simcore.schemas.base import canonical_hash
 from simcore.schemas.errors import SimError
 from simcore.trace import TraceStore, UnknownWorldError
 from simcore.trace.finalize import read_finalized_events
-from simcore.world import World
+from simcore.world import RecsysMode, World, WorldConfig
 
 from ._fake import FAKE_EMBED, fake_backend, fake_pins
 from ._ids import mint_run_id
@@ -301,6 +302,9 @@ def assemble_backend(pack: BriefPack, args) -> tuple:
         "tier_b": _pin(args.model, chat_price),
         "embed": _pin(args.embed_model, embed_price),
     }
+    if getattr(args, "recsys_embed_model", None):
+        # Served locally, so it bills nothing: the gateway reports no price and none is invented.
+        pins["recsys_embed"] = _pin(args.recsys_embed_model, None)
     client = InferenceClient(ModelPins.model_validate(pins), ExecutionSettings.from_environment())
     cache = args.cache or default_cache_dir()
     manifest_path = cache / "manifest.json"
@@ -527,10 +531,18 @@ def run_study(handles: StudyHandles, *, max_workers: int = 1, force: bool = Fals
     trace.prime_published()
     blocks = PersonaBlockCache()
 
+    feed = None
+    if handles.config.pins.recsys_embed is not None:
+        # The feed ranks like X, by the run's pinned ranking model; its vectors never enter SSR.
+        feed = WorldConfig(
+            feed_recsys_mode=RecsysMode.TWITTER,
+            embed_texts=lambda texts: handles.embed.embed(texts, role=InferenceRole.RECSYS_EMBED).vectors.tolist(),
+        )
+
     def world_factory(header):
         store.create_world(handles.run_id, header)
         # A world's channels come from its scenario, never beside it (ADR 0048).
-        return World(header, population=handles.population)
+        return World(header, population=handles.population, config=feed)
 
     def agent_fn(jobs):
         return agent_turns(

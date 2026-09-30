@@ -199,6 +199,7 @@ def run_config_payload(**overrides) -> dict:
             "tier_a": "openrouter/camel-ai/persona-8b",
             "tier_b": "anthropic/claude-sonnet-4-5-20250929",
             "embed": "openai/text-embedding-3-small",
+            "recsys_embed": "openai/twhin-bert-base",
             "fallbacks": {"tier_a": TIER_A_FALLBACK},
         },
         "budget": {"max_cost": 20.0, "currency": "USD"},

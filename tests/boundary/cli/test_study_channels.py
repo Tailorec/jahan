@@ -79,3 +79,16 @@ def test_every_channel_combination_runs_a_fake_study(tmp_path, channels):
     run_id = run_id_from(output)
     # The trace summary joins the run's whole record: writing it validates every world it read.
     assert json.loads((out / run_id / "trace-summary.json").read_text())["run_id"] == run_id
+
+
+def test_a_feed_study_without_its_ranking_model_is_refused_naming_the_pin():
+    from simcore.schemas import RunConfig
+    from tests.study_builders import run_config_payload
+
+    payload = run_config_payload()
+    payload["pins"] = {key: value for key, value in payload["pins"].items() if key != "recsys_embed"}
+    payload["scenarios"] = [scenario_payload(channels=["social_feed"])]
+    with pytest.raises(ValueError, match="recsys_embed"):
+        RunConfig.model_validate(payload)
+    payload["scenarios"] = [scenario_payload(channels=["forum", "wom"])]
+    RunConfig.model_validate(payload)  # no feed, no ranking model needed

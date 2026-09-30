@@ -28,6 +28,8 @@ def add_backend_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--run-id", default=None, help="name the run (default: mint one); reusing it resumes the run")
     parser.add_argument("--model", default=None, help="the chat model to pin (real studies)")
     parser.add_argument("--embed-model", default=None, help="the embedding model to pin (real studies)")
+    parser.add_argument("--recsys-embed-model", default=None,
+                        help="the feed's ranking model to pin, TwHIN-BERT through the gateway (real feed studies)")
     parser.add_argument("--price-chat-in", type=float, default=None, help="chat input price per million tokens")
     parser.add_argument("--price-chat-out", type=float, default=None, help="chat output price per million tokens")
     parser.add_argument("--price-embed-in", type=float, default=None, help="embed input price per million tokens")

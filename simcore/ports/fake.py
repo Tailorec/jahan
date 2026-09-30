@@ -129,7 +129,7 @@ class FakeEmbed:
         self.model_id = model_id
         self._dim = dim
 
-    def embed(self, texts: Sequence[str]):
+    def embed(self, texts: Sequence[str], *, role=None):
         from simcore.schemas import CostRecorded, InferenceRole, InferenceRoute
 
         from .embed import EmbedResult
@@ -137,7 +137,7 @@ class FakeEmbed:
         vectors = np.asarray([self._vector(text) for text in texts], dtype=np.float32)
         cost = CostRecorded(
             kind="cost",
-            role=InferenceRole.EMBED,
+            role=role or InferenceRole.EMBED,
             model_id=self.model_id,
             served_model_id=self.model_id,
             cost_source="gateway",
