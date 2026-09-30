@@ -216,8 +216,16 @@ Each run is small (≤ 200 personas, a 6-tick horizon, a survey every 2 ticks) a
 
 ### Acceptance criteria
 
-- [ ] All five runs complete, or pause for a recorded reason, and each passes the trace validator
-- [ ] The five runs share one population hash and five distinct world ids
-- [ ] With no channels, intent is flat across waves up to scoring noise, which checks that waves only read
-- [ ] The evaluation states the measured cost per wave, beside the estimate New Study showed
-- [ ] RUN.md starts the TwHIN server, the gateway and a study with `--channels`, and was followed once, from a clean shell
+- [x] All five runs complete, or pause for a recorded reason, and each passes the trace validator
+- [x] The five runs share one population hash and five distinct world ids
+- [x] With no channels, intent is flat across waves up to scoring noise, which checks that waves only read (identical to the last digit: an unchanged persona sends an identical prompt, answered from the cache)
+- [x] The evaluation states the measured cost per wave, beside the estimate New Study showed
+- [x] RUN.md starts the TwHIN server, the gateway and a study with `--channels`, and was followed once, from a clean shell (gateway on port 4010 and the NestEgg Kids brief rather than 4000 and the removed example brief)
+
+### What phase 8 found
+
+Recorded in `docs/evaluations/2026-10-01-m15-channels/README.md`. Four defects the fakes could not show, each fixed and
+tested: a wave answered from its tick's opening state rather than after the tick's channel turns (`682ae86`, the four
+channel studies re-run on it); the validator refused a wave once word of mouth had replied to the concept
+(`47b3f63`); survey answers were read as belief-shift evidence (`a9c3f62`); feed edges were counted as word of mouth
+(`f0b5ef8`). TwHIN-BERT needs transformers below 5 and a seeded pooler (`4605b91`).
