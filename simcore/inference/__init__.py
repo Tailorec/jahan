@@ -6,6 +6,7 @@ the replicate-safe cache, seeds and structured output, embedding batching, and O
 never the scientific record (ADR 0021, 0022, 0023, 0024, 0025)."""
 
 from ._client import EmbeddingFailure, EmbeddingResult, InferenceClient, UnpinnedRoleError
+from ._probe import probe_embeddings
 from ._settings import ExecutionSettings
 
-__all__ = ["EmbeddingFailure", "EmbeddingResult", "ExecutionSettings", "InferenceClient", "UnpinnedRoleError"]
+__all__ = ["EmbeddingFailure", "EmbeddingResult", "ExecutionSettings", "InferenceClient", "UnpinnedRoleError", "probe_embeddings"]

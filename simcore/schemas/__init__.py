@@ -149,6 +149,7 @@ from .run import (
     derive_world_id,
     derive_world_seed,
     resolve_audience_weights,
+    wave_plan,
     wave_ticks,
 )
 from .sim import (
@@ -409,6 +410,7 @@ __all__ = [
     "CompletedTurn",
     "CostByRole",
     "UnitInterval",
+    "wave_plan",
     "wave_ticks",
     "Variant",
     "VariantId",

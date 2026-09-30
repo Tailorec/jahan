@@ -119,6 +119,8 @@ class StudyRequest(_CorpusChoices):
     fake: bool = True
     model: str | None = None
     embed_model: str | None = None
+    # The feed's ranking model (TwHIN-BERT through the gateway): required when the feed is ticked.
+    recsys_embed_model: str | None = None
     n: int = Field(default=24, ge=1)
     horizon: int = Field(default=2, ge=1)
     tick_unit: Literal["hour", "day", "week"] = "day"
@@ -354,6 +356,21 @@ def _load_pack(brief_path: Path, ontology_dir: str | None):
         raise ValueError(str(exc).replace(str(brief_path), "brief.yaml").replace(str(ontology_dir), "ontologies"))
 
 
+class WavesRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    survey_every: int = Field(ge=1)
+    horizon: int = Field(ge=1)
+    n: int = Field(ge=1)
+    replicates: int = Field(default=1, ge=1)
+
+
+class RecsysCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    model: str = Field(min_length=1)
+
+
 def _study_argv(request: Request, run_id: str, body: StudyRequest) -> list[str]:
     """The subprocess command a start runs: the CLI with study inputs as flags.
 
@@ -387,6 +404,8 @@ def _study_argv(request: Request, run_id: str, body: StudyRequest) -> list[str]:
         argv.append("--fake")
     else:
         argv.extend(["--model", str(body.model), "--embed-model", str(body.embed_model)])
+        if body.recsys_embed_model:
+            argv.extend(["--recsys-embed-model", str(body.recsys_embed_model)])
     versions = body.anchor_versions or _default_anchor_versions(_anchors_root(request))
     for version in versions:
         argv.extend(["--anchor-version", str(version)])
@@ -654,6 +673,11 @@ def create_app(
 
         if not body.fake and (not body.model or not body.embed_model):
             raise HTTPException(status_code=422, detail="a real study pins its models: model and embed_model")
+        if not body.fake and "social_feed" in body.channels and not body.recsys_embed_model:
+            raise HTTPException(
+                status_code=422,
+                detail="a study that ticks the social feed pins its ranking model: recsys_embed_model (TwHIN-BERT)",
+            )
         if not body.fake and not _endpoint_configured():
             raise HTTPException(
                 status_code=409,
@@ -688,6 +712,24 @@ def create_app(
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         return {"run_id": run_id}
+
+    @app.post("/api/waves")
+    def waves(body: WavesRequest) -> dict[str, Any]:
+        """The survey waves a study will run and how many answers they take, before it launches."""
+        from simcore.schemas import wave_plan
+
+        return wave_plan(body.survey_every, body.horizon, body.n, body.replicates)
+
+    @app.post("/api/recsys/check")
+    def recsys_check(body: RecsysCheck) -> dict[str, Any]:
+        """Whether the feed's ranking model answers at the server's endpoint. Never the key."""
+        from simcore.inference import probe_embeddings
+
+        if not _endpoint_configured():
+            return {"model": body.model, "reachable": False,
+                    "detail": "no inference endpoint is configured in the server's environment"}
+        detail = probe_embeddings(body.model)
+        return {"model": body.model, "reachable": detail is None, "detail": detail}
 
     @app.post("/api/gate")
     def gate_brief(request: Request, body: GateRequest) -> dict[str, Any]:

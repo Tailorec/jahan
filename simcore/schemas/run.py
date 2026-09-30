@@ -155,6 +155,14 @@ def wave_ticks(survey_every: int, horizon_ticks: int) -> tuple[int, ...]:
     return tuple(sorted(set(range(0, horizon_ticks, survey_every)) | {horizon_ticks - 1}))
 
 
+def wave_plan(survey_every: int, horizon_ticks: int, personas: int, replicates: int = 1) -> dict:
+    """What a study's waves will ask before it launches: the wave ticks, and how many answers they
+    take — every persona, every wave, every replicate. Each answer is one chat call and one
+    embedding, and the budget never thins a wave (ADR 0048)."""
+    ticks = wave_ticks(survey_every, horizon_ticks)
+    return {"ticks": list(ticks), "answers": personas * len(ticks) * replicates}
+
+
 class Scenario(SimBaseModel):
     """One variant together with the conditions it faces; it describes no random draw."""
 
