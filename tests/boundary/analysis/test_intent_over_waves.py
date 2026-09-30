@@ -184,3 +184,12 @@ def test_progress_counts_turns_per_channel_and_the_waves_answered():
     progress = world_progress(Filtered(view._events), "w1")
     assert dict(progress.turns_by_channel) == {"social_feed": 2, "survey_room": 3}
     assert progress.waves_answered == (0, 2)
+
+
+def test_survey_answers_are_never_evidence_of_a_belief_shift():
+    from simcore.analysis._findings import _belief_shift_findings
+
+    view, _, _ = world([(tick, pid, A) for tick in (0, 2) for pid in ("p-000001", "p-000002", "p-000003", "p-000004")])
+    for event in view._events:
+        object.__setattr__(event.payload.turn.reaction.belief_change, "dimensions", {"value": 0.5})
+    assert _belief_shift_findings(view) == []

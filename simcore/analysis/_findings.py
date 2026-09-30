@@ -98,7 +98,13 @@ def _objection_findings(view, *, embed, threshold: float, seed: int,
 
 
 def _belief_shift_findings(view, *, world_id: str | None = None) -> list[Finding]:
-    events = [event for event in view.events(EventFilter()) if event.payload.kind in ("turn", "reflection")]
+    # A survey wave only reads: its answer moves no belief, so it is no evidence of a shift.
+    events = [
+        event for event in view.events(EventFilter())
+        if event.payload.kind == "reflection"
+        or (event.payload.kind == "turn"
+            and getattr(getattr(event.payload.turn, "impression", None), "channel", None) != "survey_room")
+    ]
     events.sort(key=lambda event: event.seq)
     moves: dict[str, list[tuple[str, float]]] = {}
     for event in events:
