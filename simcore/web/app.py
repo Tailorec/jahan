@@ -1978,7 +1978,7 @@ def _run_gate(request: Request, body: GateRequest) -> dict[str, Any]:
         except subprocess.TimeoutExpired:
             why = "the population gate took longer than four minutes and was stopped"
             if Path(_runs_dir(request), run_id).is_dir():
-                Path(_runs_dir(request), run_id, "build-refusal.txt").write_text(why + "\n", encoding="utf-8")
+                Path(_runs_dir(request), run_id, "build-refusal.txt").write_text(f"{why}\n", encoding="utf-8")
             raise HTTPException(status_code=504, detail=why)
     run_dir = Path(_runs_dir(request), run_id)
     gate = _read_json_silent(Path(run_dir, "gate-report.json"))
