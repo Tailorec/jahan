@@ -85,7 +85,11 @@ class WorldConfig:
     # Which channels spread information in this world. Explicit always wins over `platform`;
     # the world factory builds this from the scenario, never beside it (ADR 0048).
     channels: frozenset[Channel] | None = None
-    recsys_mode: RecsysMode = RecsysMode.RANDOM
+    # How each platform ranks, independently: the feed defaults to the random control arm and
+    # the forum to Reddit's hot score, verbatim. `random` stays available to tests as the forum's
+    # control arm; the scoped forum preset ranks by recency and agreement, never by a mode.
+    feed_recsys_mode: RecsysMode = RecsysMode.RANDOM
+    forum_recsys_mode: RecsysMode = RecsysMode.REDDIT_HOT
     forum_preset: ForumPreset = ForumPreset.REDDIT_GLOBAL
     # None inherits the scenario's exposure budget; the survey room always shows exactly one.
     exposure_budget: int | None = None
@@ -124,7 +128,8 @@ class WorldConfig:
     def __post_init__(self) -> None:
         """Coerce plain strings to their channels and modes, so scenario files read naturally."""
         object.__setattr__(self, "platform", Channel(self.platform))
-        object.__setattr__(self, "recsys_mode", RecsysMode(self.recsys_mode))
+        object.__setattr__(self, "feed_recsys_mode", RecsysMode(self.feed_recsys_mode))
+        object.__setattr__(self, "forum_recsys_mode", RecsysMode(self.forum_recsys_mode))
         object.__setattr__(self, "forum_preset", ForumPreset(self.forum_preset))
         if self.channels is not None:
             named = frozenset(Channel(channel) for channel in self.channels)
@@ -240,7 +245,7 @@ class World:
         """
         if self._opened:
             raise ValueError("a world opens once; resume by replaying turns through a fresh instance")
-        mode = self._config.recsys_mode
+        mode = self._config.feed_recsys_mode
         if mode is RecsysMode.TWITTER and not self._config.profile_vectors:
             raise ValueError("the twitter mode reads profile embeddings from the manifest: none were carried in")
         if mode is RecsysMode.TWHIN and not self._centralities:
@@ -335,7 +340,7 @@ class World:
         here at all: they arrive computed once at population build.
         """
         embed = self._config.embed_texts
-        if embed is None or self._config.recsys_mode is not RecsysMode.TWITTER:
+        if embed is None or self._config.feed_recsys_mode is not RecsysMode.TWITTER:
             return
         fresh = [(sid, text) for sid, text in zip(stimulus_ids, texts) if sid not in self._stimulus_vectors]
         if not fresh:
@@ -749,7 +754,7 @@ class World:
         counts = self._store.counts_visible_at(tick)
         authors = {row["stimulus_id"]: row["author"] for row in candidates}
         candidate_ids = [row["stimulus_id"] for row in candidates]
-        reason = recsys.reason_for(self._config.recsys_mode.value)
+        reason = recsys.reason_for(self._config.feed_recsys_mode.value)
         presentations: list[Presentation] = []
         dropped: list[DroppedExposure] = []
         for persona_id in self._activated(tick):
@@ -791,9 +796,9 @@ class World:
     def _rank_feed(
         self, persona_id: str, tick: int, rows: list[dict], counts: dict[str, dict[str, int]]
     ) -> list[str]:
-        """Order feed candidates for one persona under the world's recsys mode."""
+        """Order feed candidates for one persona under the world's feed recsys mode."""
         ids = [row["stimulus_id"] for row in rows]
-        mode = self._config.recsys_mode
+        mode = self._config.feed_recsys_mode
         if mode is RecsysMode.RANDOM:
             return recsys.random_order(ids, self._world_seed, tick, persona_id)
         if mode is RecsysMode.REDDIT_HOT:
@@ -812,6 +817,17 @@ class World:
             ages = {row["stimulus_id"]: tick - row["tick"] for row in rows}
             return recsys.hub_order(ids, self._centralities, authors, ages, self._world_seed, tick)
         raise ValueError(f"unknown recsys mode {mode}")
+
+    def _rank_forum(
+        self, persona_id: str, ids: list[str], rows: list[dict], counts: dict[str, dict[str, int]], *, tick: int
+    ) -> tuple[list[str], ExposureReason]:
+        """Order forum threads under the global preset by the forum's own recsys mode."""
+        mode = self._config.forum_recsys_mode
+        if mode is RecsysMode.REDDIT_HOT:
+            return self._hot_rank(ids, rows, counts, feed_votes=False, tick=tick), ExposureReason.FORUM
+        if mode is RecsysMode.RANDOM:
+            return recsys.random_order(ids, self._world_seed, tick, persona_id), ExposureReason.RANDOM
+        raise ValueError(f"the forum ranks hot or at random, not {mode.value}")
 
     def _hot_rank(
         self, ids: list[str], rows: list[dict], counts: dict[str, dict[str, int]], *, feed_votes: bool, tick: int
@@ -889,9 +905,11 @@ class World:
     def _forum_presentations(self, tick: int) -> tuple[list[Presentation], list[DroppedExposure]]:
         """The forum: threads any persona may reach under the global preset, ranked by hot score.
 
-        Actions are create_post, reply and vote. Ranking comes from the
-        preset — the global preset ranks by the upstream hot score — never
-        from the feed's recsys mode, so the comparison stays a study variable.
+        Actions are create_post, reply and vote. Under the global preset the forum ranks by
+        its own recsys mode — Reddit's hot score in every study, `random` as the tests' control
+        arm — independently of how the feed ranks, so the two platforms' modes are recorded
+        separately in the trace's exposure reasons. The scoped preset ranks by recency and
+        agreement, never by a mode.
         """
         forum = Forum(self._config.forum_preset)
         rows = [
@@ -909,13 +927,13 @@ class World:
             threads = forum.threads_for(persona_id, rows, self._community_of)
             ids = [row["stimulus_id"] for row in threads]
             if forum.preset is ForumPreset.REDDIT_GLOBAL:
-                ordered = self._hot_rank(ids, threads, counts, feed_votes=False, tick=tick)
+                ordered, reason = self._rank_forum(persona_id, ids, threads, counts, tick=tick)
             else:
-                ordered = self._scoped_rank(ids, threads, counts, tick=tick)
+                ordered, reason = self._scoped_rank(ids, threads, counts, tick=tick), ExposureReason.FORUM
             ordered = ordered[: self._candidate_window()]
             shown = ordered[:budget]
             exposures = tuple(
-                Exposure(stimulus_id=stimulus_id, reason=ExposureReason.FORUM, attention=self._attention_at(rank, len(shown)))
+                Exposure(stimulus_id=stimulus_id, reason=reason, attention=self._attention_at(rank, len(shown)))
                 for rank, stimulus_id in enumerate(shown)
             )
             impression = Impression(
