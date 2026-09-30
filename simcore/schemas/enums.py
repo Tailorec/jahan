@@ -172,6 +172,9 @@ class ExposureReason(StrEnum):
     RANDOM = "random"
     WOM = "wom"
     FORUM = "forum"
+    # First-hand exposure at launch, when word of mouth is the only channel: the seed a study
+    # passes on, told apart from the organic word of mouth it starts (ADR 0048).
+    LAUNCH = "launch"
 
 
 class VerbatimGrouping(StrEnum):

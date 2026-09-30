@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS stimuli (
     text TEXT NOT NULL,
     claim_id TEXT,
     parent_id TEXT,
+    platform TEXT NOT NULL,
     world_id TEXT NOT NULL,
     written_tick INTEGER NOT NULL
 );
@@ -75,12 +76,13 @@ class Store:
         text: str,
         claim_id: str | None,
         parent_id: str | None,
+        platform: str,
         world_id: str,
         written_tick: int,
     ) -> None:
         self._db.execute(
-            "INSERT INTO stimuli VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (stimulus_id, tick, author, kind, text, claim_id, parent_id, world_id, written_tick),
+            "INSERT INTO stimuli VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (stimulus_id, tick, author, kind, text, claim_id, parent_id, platform, world_id, written_tick),
         )
         self._db.commit()
 
@@ -127,11 +129,11 @@ class Store:
     def stimuli_published_before(self, tick: int) -> list[dict]:
         """Every stimulus published strictly before `tick`, oldest first, id-stable."""
         rows = self._db.execute(
-            "SELECT stimulus_id, tick, author, kind, text, claim_id, parent_id"
+            "SELECT stimulus_id, tick, author, kind, text, claim_id, parent_id, platform"
             " FROM stimuli WHERE tick < ? ORDER BY tick, stimulus_id",
             (tick,),
         ).fetchall()
-        keys = ("stimulus_id", "tick", "author", "kind", "text", "claim_id", "parent_id")
+        keys = ("stimulus_id", "tick", "author", "kind", "text", "claim_id", "parent_id", "platform")
         return [dict(zip(keys, row, strict=True)) for row in rows]
 
     def counts_visible_at(self, tick: int) -> dict[str, dict[str, int]]:
@@ -192,6 +194,14 @@ class Store:
         ).fetchone()
         return row[0] if row is not None else None
 
+    def platform_of(self, stimulus_id: str) -> str | None:
+        """The platform a stimulus was published on: `study` for the study's own stimuli,
+        else the impression channel it was authored from."""
+        row = self._db.execute(
+            "SELECT platform FROM stimuli WHERE stimulus_id = ?", (stimulus_id,)
+        ).fetchone()
+        return row[0] if row is not None else None
+
     def thread_root(self, stimulus_id: str) -> str:
         """The thread a stimulus belongs to: the oldest ancestor, or itself for top-level posts."""
         chain = self.ancestry(stimulus_id)
@@ -210,7 +220,7 @@ class Store:
     def export(self) -> dict:
         """All rows for a checkpoint: every table in stable order."""
         stimuli = self._db.execute(
-            "SELECT stimulus_id, tick, author, kind, text, claim_id, parent_id, world_id, written_tick"
+            "SELECT stimulus_id, tick, author, kind, text, claim_id, parent_id, platform, world_id, written_tick"
             " FROM stimuli ORDER BY stimulus_id"
         ).fetchall()
         engagements = self._db.execute(
@@ -227,7 +237,7 @@ class Store:
 
     def import_data(self, data: dict) -> None:
         """Restore rows exported by `export`; provenance travels with them."""
-        self._db.executemany("INSERT INTO stimuli VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", data["stimuli"])
+        self._db.executemany("INSERT INTO stimuli VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", data["stimuli"])
         self._db.executemany(
             "INSERT INTO engagements (stimulus_id, action, persona_id, tick, world_id, written_tick)"
             " VALUES (?, ?, ?, ?, ?, ?)",
@@ -245,7 +255,7 @@ class Store:
         """The canonical logical state: ordered rows, comparable across processes."""
         parts = []
         for row in self._db.execute(
-            "SELECT stimulus_id, tick, author, kind, text, claim_id, parent_id, world_id, written_tick"
+            "SELECT stimulus_id, tick, author, kind, text, claim_id, parent_id, platform, world_id, written_tick"
             " FROM stimuli ORDER BY stimulus_id"
         ).fetchall():
             parts.append("stimulus:" + "|".join("" if item is None else str(item) for item in row))

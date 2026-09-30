@@ -41,6 +41,7 @@ from simcore.schemas import (
 )
 
 from . import _ids, recsys, wom
+from ._seeds import rng_for
 from .clock import activated_personas, activation_probability
 from .platform import Forum, ForumPreset, is_supported
 from .store import Store
@@ -233,8 +234,9 @@ class World:
     def reset(self) -> WorldDelta:
         """Open the world: publish the study's stimuli as the delta for tick zero.
 
-        The delta also carries the tick-0 survey wave, so the baseline wave is taken after
-        launch: every wave tick's answers reflect everything up to and including their tick.
+        The delta also carries the launch-reach impressions (word of mouth alone) and the
+        tick-0 survey wave, so the baseline wave is taken after launch: every wave tick's
+        answers reflect everything up to and including their tick.
         """
         if self._opened:
             raise ValueError("a world opens once; resume by replaying turns through a fresh instance")
@@ -251,7 +253,7 @@ class World:
             published=tuple(published),
             interventions=self._interventions_at(0),
             dropped=(),
-            presentations=tuple(self._survey_presentations(0)),
+            presentations=tuple(self._launch_presentations() + self._survey_presentations(0)),
         )
 
     def step(self, tick: int, turns: list[Turn] | tuple[Turn, ...]) -> WorldDelta:
@@ -317,6 +319,7 @@ class World:
                 text=stimulus.text,
                 claim_id=stimulus.claim_id,
                 parent_id=None,
+                platform="study",
                 world_id=self._world_id,
                 written_tick=0,
             )
@@ -403,6 +406,9 @@ class World:
         Turns publish in persona order so stimulus identifiers are stable
         whatever order the runner hands turns in. What a persona authors this
         tick becomes visible from the next tick onward, never within this one.
+        Each stimulus is keyed to the platform it was authored on — the impression
+        channel for feed and forum turns, the subject's platform otherwise — so a post
+        authored on one platform never appears on the other.
         """
         ordered = sorted(
             turns,
@@ -441,12 +447,24 @@ class World:
                 text=stimulus.text,
                 claim_id=None,
                 parent_id=parent,
+                platform=self._platform_for(turn),
                 world_id=self._world_id,
                 written_tick=tick,
             )
             stimuli.append(stimulus)
         self._vectorize([stimulus.stimulus_id for stimulus in stimuli], [stimulus.text for stimulus in stimuli])
         return stimuli
+
+    def _platform_for(self, turn: Turn) -> str:
+        """The platform a turn's authored stimulus is published on: its impression channel for
+        feed and forum turns, else the subject's platform — a conversation lives where its post
+        does, and the study's own stimuli live everywhere."""
+        channel = turn.impression.channel
+        if channel is Channel.SOCIAL_FEED:
+            return Channel.SOCIAL_FEED.value
+        if channel is Channel.FORUM:
+            return Channel.FORUM.value
+        return self._store.platform_of(turn.reaction.subject_stimulus_id) or "study"
 
     def _activated(self, tick: int) -> list[str]:
         """Personas taking a turn this tick: involvement × rhythm × the runner's plan, one seeded draw each."""
@@ -617,6 +635,35 @@ class World:
             return None
         return recipient_community == teller_community
 
+    def _launch_presentations(self) -> list[Presentation]:
+        """The launch reach, when word of mouth is the only channel: a seeded random share of
+        personas hears of the product first-hand on the word-of-mouth channel, with reason
+        launch — without them nobody has anything to pass on. Feeds and forums need none:
+        their own launch posts reach whoever is active."""
+        assert self._concept_id is not None
+        if self._config.resolved_channels() != frozenset({Channel.WOM}):
+            return []
+        count = round(self._scenario.launch_reach * len(self._personas))
+        if count <= 0:
+            return []
+        rng = rng_for(self._world_seed, 0, "launch")
+        presentations = []
+        for persona_id in rng.sample(sorted(self._personas), min(count, len(self._personas))):
+            exposure = Exposure(stimulus_id=self._concept_id, reason=ExposureReason.LAUNCH, attention=1.0)
+            impression = Impression(
+                impression_id=_ids.impression_id(self._world_seed, 0, persona_id, Channel.WOM.value),
+                persona_id=persona_id,
+                channel=Channel.WOM,
+                tick=0,
+                exposures=(exposure,),
+            )
+            view = View(
+                impression_id=impression.impression_id,
+                contexts={self._concept_id: StimulusContext()},
+            )
+            presentations.append(Presentation(impression=impression, view=view))
+        return presentations
+
     def _survey_presentations(self, tick: int) -> list[Presentation]:
         """The survey wave: every persona sees the concept stimulus alone — never gated by
         activation, so a change between waves is movement, not sampling.
@@ -696,6 +743,7 @@ class World:
             row
             for row in self._store.stimuli_published_before(tick)
             if row["kind"] in self._FEED_KINDS
+            and row.get("platform", "study") in ("study", Channel.SOCIAL_FEED.value)
         ]
         budget = self._budget()
         counts = self._store.counts_visible_at(tick)
@@ -850,6 +898,7 @@ class World:
             row
             for row in self._store.stimuli_published_before(tick)
             if row["kind"] in self._FEED_KINDS
+            and row.get("platform", "study") in ("study", Channel.FORUM.value)
         ]
         budget = self._budget()
         counts = self._store.counts_visible_at(tick)
