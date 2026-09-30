@@ -186,15 +186,16 @@ The forum's recsys mode becomes `reddit_hot`, the ranking already ported verbati
 - **Run page:** turns per channel and waves completed.
 - **Report page:** intent over waves by audience.
 - **Session state:** every new input is kept with `useSessionState`.
+- **Checked in headless Chrome over the DevTools protocol**: all eight combinations launched with exactly their channels; an unreachable ranking model blocked launch; a reload kept every input. The same check found the digests tab had crashed on every report — `report.json` never carried `audience_pmfs` — now fixed.
 
 ### Acceptance criteria
 
-- [ ] In headless Chrome, every checkbox combination launches, and the launch body carries exactly the ticked channels
-- [ ] Launch reach appears only for word of mouth alone and is sent only then
-- [ ] Changing the interval updates the listed wave ticks and the stated cost from the engine
-- [ ] Reloading keeps the checkboxes, interval and launch reach
-- [ ] `tests/test_interface.py` passes, and a grep of the frontend finds no `elicits`, `channel:` launch field or `ONE_ENVIRONMENT_NOTE`
-- [ ] The report page draws one intent line per audience across the waves of a real fake-run record
+- [x] In headless Chrome, every checkbox combination launches, and the launch body carries exactly the ticked channels
+- [x] Launch reach appears only for word of mouth alone and is sent only then
+- [x] Changing the interval updates the listed wave ticks and the stated cost from the engine
+- [x] Reloading keeps the checkboxes, interval and launch reach
+- [x] `tests/test_interface.py` passes, and a grep of the frontend finds no `elicits`, `channel:` launch field or `ONE_ENVIRONMENT_NOTE`
+- [x] The report page draws one intent line per audience across the waves of a real fake-run record (a fake study scores no intent — its anchors were never checked under the fake embedder — so the record's report carried waves written in the engine's own shape; phase 8 draws them from real answers)
 
 ---
 
