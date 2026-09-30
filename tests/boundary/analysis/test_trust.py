@@ -11,14 +11,14 @@ from simcore.ports.fake import FakeEmbed
 from simcore.schemas import Finding, TraceEvent, TrustLevel
 from simcore.trace import TraceStore
 from tests.boundary.trace.support import seed_header_and_entry, write_by_tick
-from tests.study_builders import partition_payload, population_payload, ssr_payload
+from tests.study_builders import as_survey_answers, partition_payload, population_payload, ssr_payload
 
 from simcore.schemas import Population
 
 
 def _seeded_view(store: TraceStore):
     header, entry = seed_header_and_entry(store)
-    events = [TraceEvent.model_validate(record) for record in partition_payload()["events"]]
+    events = [TraceEvent.model_validate(record) for record in as_survey_answers(partition_payload())["events"]]
     write_by_tick(store, events)
     return header, store.view(entry.config.run_id, header.world_id)
 

@@ -20,7 +20,7 @@ from .base import (
     canonical_hash,
     proportions_sum_to_one,
 )
-from .enums import ActionKind, AnomalyKind, BeliefDim, Confidence, DegradationRung, FindingKind, TickUnit, TrustLevel
+from .enums import ActionKind, AnomalyKind, BeliefDim, Channel, Confidence, DegradationRung, FindingKind, TickUnit, TrustLevel
 from .run import PinnedModelId, RunConfig, WorldId
 from .sim import PMF5
 from .trace import EventId
@@ -191,6 +191,67 @@ def _normalized_divergence(masses: list[tuple[float, ...]], weights: list[float]
     return min(1.0, max(0.0, divergence / math.log2(len(masses))))
 
 
+def _top_two_box(pmfs, shares) -> float | None:
+    """Share-weighted probability of answering 4 or 5: adoption over audiences (ADR 0007)."""
+    if not pmfs:
+        return None
+    names = sorted(pmfs)
+    total = sum(shares[name] for name in names)
+    weighted = sum(shares[name] * (pmfs[name][3] + pmfs[name][4]) for name in names)
+    return min(1.0, max(0.0, weighted / total))
+
+
+class WaveDigest(SimBaseModel):
+    """One survey wave: every persona's purchase intent at one tick, per audience, and split by
+    whether any channel had reached the persona by then (ADR 0048). Adoption is computed."""
+
+    tick: NonNegativeInt
+    respondents: PositiveInt
+    audience_pmfs: FrozenDict[Identifier, PMF5] = FrozenDict({})
+    audience_shares: FrozenDict[Identifier, UnitInterval] = FrozenDict({})
+    # Respondents a channel had reached by this tick, and the mean mass of each side of the split.
+    reached: NonNegativeInt = 0
+    reached_pmf: PMF5 | None = None
+    unreached_pmf: PMF5 | None = None
+
+    @model_validator(mode="after")
+    def _weights_cover_exactly_the_masses(self) -> Self:
+        if set(self.audience_shares) != set(self.audience_pmfs):
+            raise ValueError("every audience with a response mass needs a share, and only those")
+        if self.audience_pmfs:
+            proportions_sum_to_one(self.audience_shares)
+        if self.reached > self.respondents:
+            raise ValueError(f"{self.reached} reached of {self.respondents} respondents")
+        return self
+
+    @computed_field
+    @property
+    def adoption(self) -> float | None:
+        """Share-weighted top-two-box purchase intent at this wave; not measurable without masses."""
+        return _top_two_box(self.audience_pmfs, self.audience_shares)
+
+    @computed_field
+    @property
+    def reached_adoption(self) -> float | None:
+        return None if self.reached_pmf is None else self.reached_pmf[3] + self.reached_pmf[4]
+
+    @computed_field
+    @property
+    def unreached(self) -> int:
+        return self.respondents - self.reached
+
+    @computed_field
+    @property
+    def audience_adoption(self) -> dict[str, float]:
+        """Each audience's top-two box at this wave, unweighted."""
+        return {name: pmf[3] + pmf[4] for name, pmf in sorted(self.audience_pmfs.items())}
+
+    @computed_field
+    @property
+    def unreached_adoption(self) -> float | None:
+        return None if self.unreached_pmf is None else self.unreached_pmf[3] + self.unreached_pmf[4]
+
+
 class OutcomeDigest(SimBaseModel):
     """What happened in one world's run. It carries response masses per audience with each audience's
     share, and per community with each community's size, when the run scored intent; adoption,
@@ -230,6 +291,12 @@ class OutcomeDigest(SimBaseModel):
     wom_reach: NonNegativeInt = 0
     # The budget rungs this world ran under, so a scenario can mark worlds that ran degraded.
     rungs: tuple[DegradationRung, ...] = ()
+    # Intent over time: one entry per survey wave, oldest first. The headline masses above are the
+    # last wave's — where intent stood when the study ended (ADR 0048).
+    waves: tuple[WaveDigest, ...] = ()
+    # Spread per channel: exposures shown, and distinct personas reached by the end of each tick.
+    exposures_by_channel: FrozenDict[Channel, NonNegativeInt] = FrozenDict({})
+    reach_by_tick: FrozenDict[Channel, tuple[NonNegativeInt, ...]] = FrozenDict({})
 
     @model_validator(mode="after")
     def _weights_cover_exactly_the_masses(self) -> Self:
@@ -271,12 +338,7 @@ class OutcomeDigest(SimBaseModel):
     def adoption(self) -> float | None:
         """Share-weighted top-two-box purchase intent: the probability of answering 4 or 5 on the five-point scale.
         Not measurable when the run scored no intent, never zero."""
-        if not self.audience_pmfs:
-            return None
-        names = sorted(self.audience_pmfs)
-        total = sum(self.audience_shares[name] for name in names)
-        weighted = sum(self.audience_shares[name] * (self.audience_pmfs[name][3] + self.audience_pmfs[name][4]) for name in names)
-        return min(1.0, max(0.0, weighted / total))
+        return _top_two_box(self.audience_pmfs, self.audience_shares)
 
     @computed_field
     @property

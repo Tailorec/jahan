@@ -276,6 +276,22 @@ def turn_payload(
     }
 
 
+def as_survey_answers(payload: dict) -> dict:
+    """The partition with every scored turn as a survey-wave answer: intent comes from waves only
+    (ADR 0048). Each becomes the concept alone on the survey room, answered, moving no belief."""
+    for record in payload["events"]:
+        turn = (record.get("payload") or {}).get("turn")
+        if turn is None or turn["reaction"].get("intent") is None:
+            continue
+        concept = stimulus_id(1)
+        turn["impression"]["channel"] = "survey_room"
+        turn["impression"]["exposures"] = [{"stimulus_id": concept, "reason": "interest", "attention": 1.0}]
+        turn["view"]["contexts"] = {concept: {"likes": 0, "reposts": 0, "replies": 0, "upvotes": 0, "downvotes": 0, "ancestry": []}}
+        turn["reaction"].update({"subject_stimulus_id": concept, "action": "answer", "belief_change": {}})
+        turn["reaction"].setdefault("verbatim", "I would probably buy it")
+    return payload
+
+
 def world_id_for(scenario: dict | None = None, seed: int = 4021) -> str:
     from simcore.schemas import Scenario, derive_world_id
 

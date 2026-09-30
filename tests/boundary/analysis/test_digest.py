@@ -13,6 +13,7 @@ from simcore.schemas import (
 from simcore.trace import TraceStore
 from tests.boundary.trace.support import seed_header_and_entry, write_by_tick
 from tests.study_builders import (
+    as_survey_answers,
     partition_payload,
     population_payload,
     scenario_payload,
@@ -31,7 +32,7 @@ def _scenario(**overrides):
 def _seed_world(store: TraceStore, *, payload=None):
     from simcore.schemas import TraceEvent
 
-    payload = payload or partition_payload()
+    payload = payload or as_survey_answers(partition_payload())
     header, entry = seed_header_and_entry(store)
     events = [TraceEvent.model_validate(record) for record in payload["events"]]
     write_by_tick(store, events)
@@ -73,19 +74,21 @@ def test_world_with_scored_intent_reports_masses_with_shares_and_sizes(tmp_path)
     assert abs(sum(result.audience_shares.values()) - 1.0) < 1e-3
     assert set(result.community_pmfs) == set(result.community_sizes)
     assert result.unmeasured_reason is None
-    assert result.turns_without_intent == 2
+    # The one survey answer was scored; the channel turns were never asked intent.
+    assert result.turns_without_intent == 0
 
 
 def test_world_with_no_scored_intent_reports_unmeasured_with_the_count(tmp_path):
     store = TraceStore(tmp_path)
-    header, _, _ = _seed_world(store, payload=_strip_intent(partition_payload()))
+    header, _, _ = _seed_world(store, payload=_strip_intent(as_survey_answers(partition_payload())))
     view = store.view(header.config.run_id, header.world_id)
     result = digest(view, scenario=header.scenario, population=_population(), seed=header.replicate_seed)
     assert result.adoption is None
     assert result.polarization is None
     assert result.audience_divergence is None
     assert result.unmeasured_reason is not None
-    assert result.turns_without_intent == result.turn_count == 3
+    # One survey answer went unscored; the other turns were channel behaviour, never asked intent.
+    assert result.turns_without_intent == 1 and result.turn_count == 3
 
 
 def test_action_mix_belief_movement_and_wom_match_recomputation(tmp_path):
@@ -99,8 +102,9 @@ def test_action_mix_belief_movement_and_wom_match_recomputation(tmp_path):
     assert dict(result.action_mix) == dict(Counter(turn.reaction.action.value for turn in (t.payload.turn for t in turns)))
     assert result.turn_count == len(turns)
 
+    channel_turns = [turn for turn in turns if turn.payload.turn.impression.channel != "survey_room"]
     for dim in BeliefDim:
-        deltas = [float(turn.payload.turn.reaction.belief_change.dimensions.get(dim, 0.0)) for turn in turns]
+        deltas = [float(turn.payload.turn.reaction.belief_change.dimensions.get(dim, 0.0)) for turn in channel_turns]
         assert result.belief_movement_mean[dim] == sum(deltas) / len(deltas)
         assert result.belief_movement_abs[dim] == sum(abs(d) for d in deltas) / len(deltas)
 
@@ -143,6 +147,7 @@ def test_persona_counted_in_exactly_one_audience(tmp_path):
         turn = (record.get("payload") or {}).get("turn")
         if turn is not None and turn["impression"]["persona_id"] == "p-000003":
             turn["reaction"]["intent"] = ssr_payload()
+    as_survey_answers(payload)
     scenario_dict = scenario_payload()
     header_dict = partition_header_payload(scenario_dict)
     header_dict["population"] = manifest.model_dump(mode="json")
@@ -157,8 +162,11 @@ def test_persona_counted_in_exactly_one_audience(tmp_path):
     write_by_tick(store, events)
     view = store.view(header.config.run_id, header.world_id)
     result = digest(view, scenario=_scenario(), population=population, seed=header.replicate_seed)
-    assert set(result.audience_pmfs) == {"gym_regulars", "protein_dieters"}
-    assert set(result.community_pmfs) == {"community-1", "community-2"}
+    # p-000001 answered the tick-1 wave and p-000003 the tick-4 wave: each is counted in its own
+    # audience at its own wave, and the headline is the last wave's.
+    assert [set(wave.audience_pmfs) for wave in result.waves] == [{"gym_regulars"}, {"protein_dieters"}]
+    assert set(result.audience_pmfs) == {"protein_dieters"}
+    assert set(result.community_pmfs) == {"community-2"}
 
 
 def test_digesting_the_same_view_twice_is_identical(tmp_path):
@@ -181,7 +189,7 @@ def test_scored_intent_outside_every_weighted_audience_reports_unmeasured(tmp_pa
     store = TraceStore(tmp_path)
     scenario_dict = scenario_payload(audience_weights={"protein_dieters": 1.0})
     header, _ = seed_header_and_entry(store, scenario=scenario_dict)
-    payload = partition_payload()
+    payload = as_survey_answers(partition_payload())
     events = [TraceEvent.model_validate({**record, "world_id": header.world_id}) for record in payload["events"]]
     write_by_tick(store, events)
     view = store.view(header.config.run_id, header.world_id)

@@ -127,6 +127,7 @@ from .report import (
     ScenarioWorldEntry,
     TrustStatement,
     UnmeasuredAnomaly,
+    WaveDigest,
     ensure_same_tick_unit,
 )
 from .run import (
@@ -328,6 +329,7 @@ __all__ = [
     "OrdinalGateResult",
     "OrdinalScale",
     "OutcomeDigest",
+    "WaveDigest",
     "PMF5",
     "PartitionHeader",
     "ScenarioSummary",

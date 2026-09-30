@@ -1,8 +1,9 @@
 """A digest of one world: everything derived from a single world's trace view.
 
 Reads turns for the action mix and belief movement, edges for word-of-mouth reach, and
-intent where any exists — masses per audience and per community with their shares and
-sizes when it does, the unmeasured reason when it does not. Pure function of the view
+intent from survey waves only (ADR 0048) — per wave, per audience, and split by whether a
+channel had reached the persona; the headline masses are the last wave's. Channel turns are
+behaviour: counted in the action mix, never scored as intent. Pure function of the view
 plus the scenario it ran and the population it ran over; no model calls.
 """
 
@@ -55,11 +56,12 @@ def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
     for persona in population.personas:
         audience_of[persona.persona_id] = audience_of_persona(persona, audiences, population.pack.ontology)
 
-    # Intent: one mean mass per scored turn, grouped; unscored turns are counted, never zeroed.
-    scored: list[tuple[str, tuple[float, ...]]] = []
-    audience_turns: dict[str, list[tuple[float, ...]]] = {}
-    community_turns: dict[str, list[tuple[float, ...]]] = {}
-    for event in turns:
+    # Intent comes from survey waves only: one mass per scored survey answer, grouped by wave.
+    # Unscored answers are counted, never zeroed; channel turns are behaviour, never intent.
+    survey = [event for event in turns if event.payload.turn.impression.channel == "survey_room"]
+    channel_turns = [event for event in turns if event.payload.turn.impression.channel != "survey_room"]
+    by_wave: dict[int, list[tuple[str, tuple[float, ...]]]] = {}
+    for event in survey:
         reaction = event.payload.turn.reaction
         if reaction.intent is None:
             continue
@@ -68,17 +70,56 @@ def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
                 f"a turn scored in {reaction.intent.embed_model_id}, "
                 f"but the run pins {pinned_embed_model} for every embedding"
             )
-        mass = tuple(reaction.intent.pmf)
-        scored.append((event.persona_id, mass))
-        audience = audience_of.get(event.persona_id)
+        by_wave.setdefault(event.tick, []).append((event.persona_id, tuple(reaction.intent.pmf)))
+
+    # Spread per channel: what each channel showed, and who it had reached by each tick.
+    first_reached: dict[str, int] = {}
+    exposures_by_channel: Counter = Counter()
+    reached_on: dict[str, dict[str, int]] = {}
+    for event in channel_turns:
+        impression = event.payload.turn.impression
+        if not impression.exposures:
+            continue
+        channel = impression.channel.value if hasattr(impression.channel, "value") else str(impression.channel)
+        exposures_by_channel[channel] += len(impression.exposures)
+        first = reached_on.setdefault(channel, {})
+        first[event.persona_id] = min(first.get(event.persona_id, event.tick), event.tick)
+        first_reached[event.persona_id] = min(first_reached.get(event.persona_id, event.tick), event.tick)
+    last_tick = max((event.tick for event in turns), default=0)
+    reach_by_tick = {
+        channel: tuple(sum(1 for tick in first.values() if tick <= t) for t in range(last_tick + 1))
+        for channel, first in sorted(reached_on.items())
+    }
+
+    waves = []
+    for tick in sorted(by_wave):
+        answers = by_wave[tick]
+        pmfs, shares = _audience_masses(answers, audience_of, weights)
+        reached = [mass for pid, mass in answers if first_reached.get(pid, tick + 1) <= tick]
+        unreached = [mass for pid, mass in answers if first_reached.get(pid, tick + 1) > tick]
+        waves.append({
+            "tick": tick,
+            "respondents": len(answers),
+            "audience_pmfs": pmfs,
+            "audience_shares": shares,
+            "reached": len(reached),
+            "reached_pmf": _mean(reached) if reached else None,
+            "unreached_pmf": _mean(unreached) if unreached else None,
+        })
+    # The headline is where intent stood when the study ended: the last wave's answers.
+    scored = by_wave[max(by_wave)] if by_wave else []
+    audience_turns: dict[str, list[tuple[float, ...]]] = {}
+    community_turns: dict[str, list[tuple[float, ...]]] = {}
+    for persona_id, mass in scored:
+        audience = audience_of.get(persona_id)
         if audience is not None and audience in weights:
             audience_turns.setdefault(audience, []).append(mass)
-        community = communities.get(event.persona_id)
+        community = communities.get(persona_id)
         if community is not None:
             community_turns.setdefault(community, []).append(mass)
 
     turn_count = len(turns)
-    unscored = turn_count - len(scored)
+    unscored = len(survey) - sum(len(answers) for answers in by_wave.values())
     action_mix = Counter(event.payload.turn.reaction.action.value for event in turns)
 
     movement: dict[str, list[float]] = {dim.value: [] for dim in BeliefDim}
@@ -121,7 +162,7 @@ def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
             named = ", ".join(sorted(weights)) or "none declared"
             audience_pmfs, audience_shares = {}, {}
             unmeasured_reason = (
-                f"{len(scored)} turns scored purchase intent, but no persona answering fell in an "
+                f"{len(scored)} survey answers scored purchase intent, but no persona answering fell in an "
                 f"audience this scenario weights ({named}); adoption is share-weighted over audiences"
             )
     else:
@@ -130,11 +171,15 @@ def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
         failure_kinds = Counter(
             (event.payload.turn.reaction.elicitation_failure.kind.value
              if event.payload.turn.reaction.elicitation_failure is not None else "unscored")
-            for event in turns
+            for event in survey
         )
         leading = ", ".join(f"{kind} {count}" for kind, count in sorted(failure_kinds.items()))
         detail = f" ({leading})" if leading else ""
-        unmeasured_reason = f"no turn carried purchase intent; {unscored} of {turn_count} turns went unscored{detail}"
+        unmeasured_reason = (
+            f"no survey answer carried purchase intent; {unscored} of {len(survey)} survey answers went unscored{detail}"
+            if survey
+            else f"no survey wave was answered in this world's {turn_count} turns"
+        )
 
     return OutcomeDigest.model_validate({
         "scenario_hash": scenario_hash,
@@ -156,7 +201,24 @@ def digest(view, *, scenario: Scenario, population: PopulationModel, seed: int,
         "wom_deliveries": wom_deliveries,
         "wom_reach": wom_reach,
         "rungs": [rung.value for rung in rungs],
+        "waves": waves,
+        "exposures_by_channel": dict(sorted(exposures_by_channel.items())),
+        "reach_by_tick": reach_by_tick,
     })
+
+
+def _audience_masses(answers, audience_of: dict, weights: dict) -> tuple[dict, dict]:
+    """Mean mass per weighted audience, and each one's share renormalised over those present."""
+    grouped: dict[str, list[tuple[float, ...]]] = {}
+    for persona_id, mass in answers:
+        audience = audience_of.get(persona_id)
+        if audience is not None and audience in weights:
+            grouped.setdefault(audience, []).append(mass)
+    pmfs = {name: _mean(masses) for name, masses in sorted(grouped.items())}
+    weighted = sum(weights[name] for name in pmfs)
+    if not pmfs or weighted <= 0.0:
+        return {}, {}
+    return pmfs, {name: weights[name] / weighted for name in pmfs}
 
 
 def _polarization_reason(community_pmfs: dict, population) -> str | None:
