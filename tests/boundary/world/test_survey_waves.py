@@ -31,7 +31,7 @@ def test_a_wave_surveys_every_persona_on_wave_ticks_and_none_otherwise():
 
 
 def test_the_wave_comes_after_the_channels_turns_in_its_tick():
-    world = make_world(config=WorldConfig(platform="social_feed"), population=make_population())
+    world = make_world(config=WorldConfig(channels={"social_feed", "wom"}), population=make_population())
     world.reset()
     delta = world.step(1, [])
     positions: dict[tuple[str, Channel], int] = {}
@@ -44,7 +44,7 @@ def test_the_wave_comes_after_the_channels_turns_in_its_tick():
 
 
 def test_a_survey_answer_sparks_no_word_of_mouth_and_writes_no_engagement():
-    world = make_world(config=WorldConfig(platform="social_feed"), population=make_population())
+    world = make_world(config=WorldConfig(channels={"social_feed", "wom"}), population=make_population())
     world.reset()
     first = world.step(1, [])
     survey_turns = [

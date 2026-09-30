@@ -14,8 +14,8 @@ from tests.study_builders import PERSONA_IDS, scenario_payload
 
 from .helpers import act_turn, answer_turn, make_population, make_world, on_channel, targeted_turn
 
-SCOPED = WorldConfig(platform="forum", forum_preset="community_scoped", involvement_default=100.0)
-GLOBAL = WorldConfig(platform="forum", forum_preset="reddit_global", involvement_default=100.0)
+SCOPED = WorldConfig(channels={"forum", "wom"}, forum_preset="community_scoped", involvement_default=100.0)
+GLOBAL = WorldConfig(channels={"forum", "wom"}, forum_preset="reddit_global", involvement_default=100.0)
 HOURLY_ONE = scenario_payload(tick_unit="hour", exposure_budget=1)
 
 

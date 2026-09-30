@@ -47,7 +47,7 @@ from simcore.schemas.base import canonical_hash
 from simcore.schemas.errors import SimError
 from simcore.trace import TraceStore, UnknownWorldError
 from simcore.trace.finalize import read_finalized_events
-from simcore.world import World, WorldConfig
+from simcore.world import World
 
 from ._fake import FAKE_EMBED, fake_backend, fake_pins
 from ._ids import mint_run_id
@@ -530,8 +530,7 @@ def run_study(handles: StudyHandles, *, max_workers: int = 1, force: bool = Fals
     def world_factory(header):
         store.create_world(handles.run_id, header)
         # A world's channels come from its scenario, never beside it (ADR 0048).
-        return World(header, population=handles.population,
-                     config=WorldConfig(channels=frozenset(header.scenario.channels)))
+        return World(header, population=handles.population)
 
     def agent_fn(jobs):
         return agent_turns(

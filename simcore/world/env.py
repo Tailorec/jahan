@@ -60,30 +60,16 @@ class RecsysMode(StrEnum):
     TWHIN = "twhin"
 
 
-# What the legacy single platform meant as channels: a feed or a forum study ran with word of
-# mouth riding beside it, and the survey room ran alone. Explicit `channels` never consult this.
-_PLATFORM_CHANNELS: dict[Channel, frozenset[Channel]] = {
-    Channel.SURVEY_ROOM: frozenset(),
-    Channel.SOCIAL_FEED: frozenset({Channel.SOCIAL_FEED, Channel.WOM}),
-    Channel.FORUM: frozenset({Channel.FORUM, Channel.WOM}),
-    Channel.WOM: frozenset({Channel.WOM}),
-}
-
-
 @dataclass(frozen=True)
 class WorldConfig:
     """How this world behaves, chosen per scenario so mechanics stay study variables.
 
-    Defaults run the survey-room baseline under the random control arm: every
-    persona sees the stimulus alone, with no social signal and no ranking.
+    Defaults run the scenario's own channels, the feed under the random control arm; with no
+    channels every persona sees the stimulus alone, with no social signal and no ranking.
     """
 
-    # The legacy single platform, kept so existing constructions keep meaning: it derives
-    # `channels` when none are named explicitly (survey room → none, feed/forum → itself
-    # with word of mouth riding beside it, as it always did). New studies name `channels`.
-    platform: Channel = Channel.SURVEY_ROOM
-    # Which channels spread information in this world. Explicit always wins over `platform`;
-    # the world factory builds this from the scenario, never beside it (ADR 0048).
+    # Which channels spread information in this world. None reads the scenario's, the hashed
+    # truth (ADR 0048); tests name a set to drive a world without rebuilding its scenario.
     channels: frozenset[Channel] | None = None
     # How each platform ranks, independently: the feed defaults to the random control arm and
     # the forum to Reddit's hot score, verbatim. `random` stays available to tests as the forum's
@@ -127,7 +113,6 @@ class WorldConfig:
 
     def __post_init__(self) -> None:
         """Coerce plain strings to their channels and modes, so scenario files read naturally."""
-        object.__setattr__(self, "platform", Channel(self.platform))
         object.__setattr__(self, "feed_recsys_mode", RecsysMode(self.feed_recsys_mode))
         object.__setattr__(self, "forum_recsys_mode", RecsysMode(self.forum_recsys_mode))
         object.__setattr__(self, "forum_preset", ForumPreset(self.forum_preset))
@@ -136,14 +121,6 @@ class WorldConfig:
             if Channel.SURVEY_ROOM in named:
                 raise ValueError("the survey room is a wave's internal channel, never a study choice")
             object.__setattr__(self, "channels", named)
-
-    def resolved_channels(self) -> frozenset[Channel]:
-        """The channels spreading information here: the explicit set, else the legacy platform's."""
-        if self.channels is not None:
-            return self.channels
-        # The legacy mapping keeps old constructions meaning what they always did: a feed or a
-        # forum study ran with word of mouth riding beside it, and the survey room ran alone.
-        return _PLATFORM_CHANNELS[self.platform]
 
     def involvement_for(self, persona_id: str) -> float:
         """This persona's involvement: its named value, else the study default."""
@@ -179,6 +156,9 @@ class World:
         self._population = population
         self._config = config or WorldConfig()
         self._scenario = header.scenario
+        self._channels = frozenset(
+            header.scenario.channels if self._config.channels is None else self._config.channels
+        )
         self._world_seed = derive_world_seed(header.replicate_seed, header.scenario.variant.variant_id)
         self._world_id = header.world_id
         members = (
@@ -501,7 +481,7 @@ class World:
         """
         if self._concept_id is None:
             raise ValueError("presentations before the study stimuli were published")
-        channels = self._config.resolved_channels()
+        channels = self._channels
         presentations: list[Presentation] = []
         dropped: list[DroppedExposure] = []
         if Channel.SOCIAL_FEED in channels:
@@ -531,7 +511,7 @@ class World:
         room's answers spark nothing.
         """
         deliveries: dict[str, list[tuple[str, str, float]]] = {}
-        if Channel.WOM not in self._config.resolved_channels():
+        if Channel.WOM not in self._channels:
             return deliveries
         for turn in turns:
             if turn.impression.channel is Channel.SURVEY_ROOM:
@@ -646,7 +626,7 @@ class World:
         launch — without them nobody has anything to pass on. Feeds and forums need none:
         their own launch posts reach whoever is active."""
         assert self._concept_id is not None
-        if self._config.resolved_channels() != frozenset({Channel.WOM}):
+        if self._channels != frozenset({Channel.WOM}):
             return []
         count = round(self._scenario.launch_reach * len(self._personas))
         if count <= 0:

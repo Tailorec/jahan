@@ -11,7 +11,7 @@ from tests.study_builders import PERSONA_IDS, scenario_payload
 
 from .helpers import act_turn, answer_turn, make_population, make_world, on_channel, targeted_turn
 
-FORUM = WorldConfig(platform="forum")
+FORUM = WorldConfig(channels={"forum", "wom"})
 WIDE = scenario_payload(exposure_budget=6)
 
 
@@ -117,12 +117,12 @@ def test_ranking_ties_break_from_a_derived_seed_reproducibly():
 def test_reddit_hot_concentrates_exposure_against_random_on_the_same_fixture():
     hourly = scenario_payload(tick_unit="hour", exposure_budget=1)
     random_world = make_world(
-        config=WorldConfig(platform="social_feed", feed_recsys_mode="random", involvement_default=100.0),
+        config=WorldConfig(channels={"social_feed", "wom"}, feed_recsys_mode="random", involvement_default=100.0),
         population=make_population(),
         scenario=hourly,
     )
     hot_world = make_world(
-        config=WorldConfig(platform="social_feed", feed_recsys_mode="reddit_hot", involvement_default=100.0),
+        config=WorldConfig(channels={"social_feed", "wom"}, feed_recsys_mode="reddit_hot", involvement_default=100.0),
         population=make_population(),
         scenario=dict(hourly),
     )
@@ -214,7 +214,7 @@ def test_a_forum_study_orders_threads_by_hot_score_matching_upstream_on_the_same
     hourly = scenario_payload(tick_unit="hour", exposure_budget=6)
     population = make_population()
     world = make_world(
-        config=WorldConfig(platform="forum", involvement_default=100.0),
+        config=WorldConfig(channels={"forum", "wom"}, involvement_default=100.0),
         population=population,
         scenario=hourly,
     )
@@ -251,7 +251,7 @@ def test_random_stays_the_forum_control_arm():
     from simcore.world import WorldConfig as _Config
 
     control = make_world(
-        config=_Config(platform="forum", forum_recsys_mode="random"),
+        config=_Config(channels={"forum", "wom"}, forum_recsys_mode="random"),
         population=make_population(),
         scenario=WIDE,
     )

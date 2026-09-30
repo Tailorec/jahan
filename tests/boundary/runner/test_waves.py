@@ -180,7 +180,7 @@ def test_thinning_thins_channels_and_never_waves():
         return tuple(_completed(j, i) for i, j in enumerate(jobs))
 
     run(config, pack=pack, population=population, trace=trace, registry=registry,
-        world_factory=lambda header: World(header, population=population, config=WorldConfig(platform="social_feed")),
+        world_factory=lambda header: World(header, population=population, config=WorldConfig(channels={"social_feed", "wom"})),
         agent_fn=agent_fn, ladder=thin)
     per_tick: dict[int, dict[str, int]] = {}
     for event in trace.all_events():

@@ -13,7 +13,7 @@ from tests.study_builders import PERSONA_IDS, scenario_payload
 
 from .helpers import act_turn, answer_turn, drive, make_population, make_world, on_channel
 
-FEED = WorldConfig(platform="social_feed")
+FEED = WorldConfig(channels={"social_feed", "wom"})
 
 
 def feed_only(delta):
@@ -146,7 +146,7 @@ def test_a_drop_is_a_near_miss_not_the_whole_corpus():
     thousand personas would write millions per tick, none of them read by anything.
     """
     population = make_population()
-    world = make_world(config=WorldConfig(platform="social_feed", candidate_window=6), population=population)
+    world = make_world(config=WorldConfig(channels={"social_feed", "wom"}, candidate_window=6), population=population)
     world.reset()
     turns = []
     counts = []
@@ -165,16 +165,16 @@ def test_a_drop_is_a_near_miss_not_the_whole_corpus():
 
 
 def test_the_candidate_window_defaults_to_a_multiple_of_the_budget_and_is_recorded():
-    world = make_world(config=WorldConfig(platform="social_feed"), population=make_population())
+    world = make_world(config=WorldConfig(channels={"social_feed", "wom"}), population=make_population())
     assert world._candidate_window() >= world._budget()
-    narrow = make_world(config=WorldConfig(platform="social_feed", candidate_window=3), population=make_population())
+    narrow = make_world(config=WorldConfig(channels={"social_feed", "wom"}, candidate_window=3), population=make_population())
     assert narrow._candidate_window() == 3
 
 
 def test_a_stimulus_outside_the_window_is_not_shown_and_not_recorded_as_dropped():
     """The window bounds what is recorded, never what the budget shows."""
     population = make_population()
-    world = make_world(config=WorldConfig(platform="social_feed", candidate_window=4), population=population)
+    world = make_world(config=WorldConfig(channels={"social_feed", "wom"}, candidate_window=4), population=population)
     world.reset()
     first = world.step(1, [])
     shown = {
@@ -210,7 +210,7 @@ def test_a_study_may_declare_the_floor_below_which_a_shown_stimulus_goes_unnotic
     """A stimulus can be shown without being noticed; whether a study models that is its call,
     and the default leaves every shown stimulus noticed."""
     population = make_population()
-    world = make_world(config=WorldConfig(platform="social_feed", attention_floor=0.6), population=population)
+    world = make_world(config=WorldConfig(channels={"social_feed", "wom"}, attention_floor=0.6), population=population)
     world.reset()
     world.step(1, [])
     first = world.step(2, [])

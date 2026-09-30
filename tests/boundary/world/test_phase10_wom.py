@@ -13,7 +13,7 @@ from tests.study_builders import PERSONA_IDS
 
 from .helpers import answer_turn, felt_turn, make_population, make_world, on_channel
 
-FEED = WorldConfig(platform="social_feed", exposure_budget=6)
+FEED = WorldConfig(channels={"social_feed", "wom"}, exposure_budget=6)
 
 
 def feed_only(delta):
@@ -68,9 +68,9 @@ def test_both_gates_are_configurable_with_documented_defaults():
     from simcore.world import DEFAULT_SENTIMENT_THRESHOLD, DEFAULT_TIE_THRESHOLD
 
     assert (DEFAULT_SENTIMENT_THRESHOLD, DEFAULT_TIE_THRESHOLD) == (0.6, 0.3)
-    _, _, _, gated = drive_talk(config=WorldConfig(platform="social_feed", exposure_budget=6, wom_sentiment_threshold=0.95))
+    _, _, _, gated = drive_talk(config=WorldConfig(channels={"social_feed", "wom"}, exposure_budget=6, wom_sentiment_threshold=0.95))
     assert gated.presentations and not [p for p in gated.presentations if p.impression.channel is Channel.WOM]
-    _, _, _, tied = drive_talk(config=WorldConfig(platform="social_feed", exposure_budget=6, wom_tie_threshold=0.9))
+    _, _, _, tied = drive_talk(config=WorldConfig(channels={"social_feed", "wom"}, exposure_budget=6, wom_tie_threshold=0.9))
     assert tied.presentations and not [p for p in tied.presentations if p.impression.channel is Channel.WOM]
 
 

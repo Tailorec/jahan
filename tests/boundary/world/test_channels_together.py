@@ -75,18 +75,14 @@ def test_word_of_mouth_off_means_no_wom_impression_in_the_whole_run():
         assert not [p for p in delta.presentations if p.impression.channel is Channel.WOM]
 
 
-def test_word_of_mouth_beside_a_platform_matches_the_legacy_behaviour():
-    """Explicit `{feed, wom}` delivers exactly what the legacy feed platform delivered."""
+def test_a_world_reads_its_channels_from_the_scenario():
+    """No channels in the config means the scenario's: the hashed truth drives the world (ADR 0048)."""
     from .helpers import felt_turn
 
     scenario = scenario_payload(channels=["social_feed", "wom"])
-    legacy = make_world(config=WorldConfig(platform="social_feed"), population=make_population())
-    explicit = make_world(
-        config=WorldConfig(channels=frozenset({"social_feed", "wom"})),
-        population=make_population(),
-        scenario=scenario,
-    )
-    assert legacy._config.resolved_channels() == explicit._config.resolved_channels()
+    legacy = make_world(config=WorldConfig(channels={"social_feed", "wom"}), population=make_population())
+    explicit = make_world(population=make_population(), scenario=scenario)
+    assert legacy._channels == explicit._channels == {Channel.SOCIAL_FEED, Channel.WOM}
     legacy.reset()
     explicit.reset()
     first = legacy.step(1, [])

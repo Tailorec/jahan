@@ -15,7 +15,7 @@ from tests.study_builders import scenario_payload
 
 from .helpers import act_turn, answer_turn, make_population, make_world, on_channel
 
-FEED = WorldConfig(platform="social_feed")
+FEED = WorldConfig(channels={"social_feed", "wom"})
 WIDE = scenario_payload(exposure_budget=6)
 
 PLAN = {
