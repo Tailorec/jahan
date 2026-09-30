@@ -184,7 +184,8 @@ class InferenceClient:
         self._consecutive_fatals: dict[int, int] = {}
         self._circuit_detail: str | None = None
         # One embedding space per run: every vector's dimension is checked against the first the run received.
-        self._embedding_dim: int | None = None
+        # One dimension per embedding role: SSR's space and the feed's ranking space differ.
+        self._embedding_dims: dict[InferenceRole, int] = {}
         # Which models actually answered this client, per pinned name: the evidence a holdout report
         # carries, because a study's results are a property of the models that produced them.
         self.served_models: dict[str, set[str]] = {}
@@ -213,7 +214,7 @@ class InferenceClient:
         resolved first, so an unpinned role is refused before any request is sent."""
         pins = [self.resolve(request.role) for request in requests]
         for request, pin in zip(requests, pins, strict=True):
-            if request.role is InferenceRole.EMBED:
+            if request.role in (InferenceRole.EMBED, InferenceRole.RECSYS_EMBED):
                 raise ValueError("embeddings are not chat: they go through the embedding endpoint, never complete()")
         if not requests:
             return ()
@@ -247,22 +248,23 @@ class InferenceClient:
         )
         return self.complete((request,))[0]
 
-    def embed(self, texts: Sequence[str]) -> "EmbeddingResult":
+    def embed(self, texts: Sequence[str], *, role: InferenceRole = InferenceRole.EMBED) -> "EmbeddingResult":
         """Capped batches to the one pinned embedding model, through the same endpoint, queue, ceiling
         and limiter as every chat call. Embedding never falls back: anchors and vectors scored in
         different embedding spaces are not comparable (ADR 0012), so an exhausted batch fails the call
-        rather than quietly changing the space.
+        rather than quietly changing the space. `role` picks which embedding pin answers: SSR's
+        `embed`, or the feed's `recsys_embed`.
 
         A chat failure is an outcome because a caller can act on some and not others; a failed batch of
         vectors has no partially-usable form, so it raises — with the recorded failure in hand."""
-        pin = self.resolve(InferenceRole.EMBED)
+        pin = self.resolve(role)
         if not texts:
-            return EmbeddingResult(vectors=np.zeros((0, self._embedding_dim or 0), dtype=np.float32), model_id=pin.model_id, served_model_id=None, normalization=EMBEDDING_NORMALIZATION, dim=self._embedding_dim or 0, costs=())
+            return EmbeddingResult(vectors=np.zeros((0, self._embedding_dims.get(role, 0)), dtype=np.float32), model_id=pin.model_id, served_model_id=None, normalization=EMBEDDING_NORMALIZATION, dim=self._embedding_dims.get(role, 0), costs=())
         cap = max(1, self.settings.embeddings_batch_size)
         batches = [list(texts[start : start + cap]) for start in range(0, len(texts), cap)]
         batch, batch_context = start_span("inference.embeddings.batch", {SIMCORE_BATCH_SIZE: len(texts), GEN_AI_REQUEST_MODEL: pin.model_id}, operation="embeddings", provider=self._tracer_provider)
         try:
-            results = run(self._embed_all(batches, batch_context))
+            results = run(self._embed_all(batches, batch_context, role))
         finally:
             finish(batch, ok=True)
         vectors = np.concatenate([result.vectors for result in results], axis=0)
@@ -270,18 +272,18 @@ class InferenceClient:
         first = next((result.served_model_id for result in results if result.served_model_id), None)
         return EmbeddingResult(
             vectors=vectors,
-            model_id=self.resolve(InferenceRole.EMBED).model_id,
+            model_id=self.resolve(role).model_id,
             served_model_id=first,
             normalization=EMBEDDING_NORMALIZATION,
             dim=int(vectors.shape[1]),
             costs=costs,
         )
 
-    async def _embed_all(self, batches: list[list[str]], batch_context) -> list:
-        return list(await asyncio.gather(*(self._embed_batch(batch, batch_context) for batch in batches)))
+    async def _embed_all(self, batches: list[list[str]], batch_context, role: InferenceRole) -> list:
+        return list(await asyncio.gather(*(self._embed_batch(batch, batch_context, role) for batch in batches)))
 
-    async def _embed_batch(self, batch: list[str], batch_context) -> "EmbeddingResult":
-        pin = self.resolve(InferenceRole.EMBED)
+    async def _embed_batch(self, batch: list[str], batch_context, role: InferenceRole) -> "EmbeddingResult":
+        pin = self.resolve(role)
         span, call_context = start_span("inference.embeddings", {GEN_AI_REQUEST_MODEL: pin.model_id, SIMCORE_BATCH_SIZE: len(batch)}, parent=batch_context, operation="embeddings", provider=self._tracer_provider)
         data = body_bytes(embeddings_body(batch, pin))
         key = self._cache.key(pin, template_id=EMBEDDINGS_TEMPLATE, request_bytes=data) if self._cache else None
@@ -289,7 +291,7 @@ class InferenceClient:
             self.stats.cache_hits += 1
             vectors = np.asarray(entry["vectors"], dtype=np.float32)
             cost = CostRecorded(
-                kind="cost", role=InferenceRole.EMBED, model_id=pin.model_id, served_model_id=entry.get("served_model_id"),
+                kind="cost", role=role, model_id=pin.model_id, served_model_id=entry.get("served_model_id"),
                 cost_source=CostSource.CACHE, route=InferenceRoute.CACHE,
                 input_tokens=entry.get("input_tokens", 0), output_tokens=0, cost=0.0,
             )
@@ -324,16 +326,15 @@ class InferenceClient:
                 self._consecutive_fatals.clear()
                 vectors = _normalised(reply.outcome.vectors)
                 dimension = int(vectors.shape[1])
-                if self._embedding_dim is None:
-                    self._embedding_dim = dimension
-                elif dimension != self._embedding_dim:
+                known = self._embedding_dims.setdefault(role, dimension)
+                if dimension != known:
                     finish(span, ok=False, attributes={SIMCORE_FAILURE_DETAIL: "embedding dimension changed mid run"})
                     raise ValueError(
                         f"the pinned embedding model answered with {dimension} dimensions, but this run's "
-                        f"first vectors had {self._embedding_dim}; vectors from two spaces are not comparable"
+                        f"first vectors had {known}; vectors from two spaces are not comparable"
                     )
                 cost = CostRecorded(
-                    kind="cost", role=InferenceRole.EMBED, model_id=pin.model_id, served_model_id=reply.outcome.served_model_id,
+                    kind="cost", role=role, model_id=pin.model_id, served_model_id=reply.outcome.served_model_id,
                     route=InferenceRoute.PRIMARY, input_tokens=reply.outcome.input_tokens, output_tokens=0,
                     **self._cost_fields(pin, reply.outcome.payload, reply.outcome.headers, reply.outcome.input_tokens, 0, usage_reported=not reply.outcome.payload.get("_usage_estimated", False)),
                 )
@@ -452,7 +453,7 @@ class InferenceClient:
         )
         routes = [(InferenceRoute.PRIMARY, pin)]
         fallback = self.pins.fallbacks.get(request.role)
-        if request.role is not InferenceRole.EMBED and fallback is not None:
+        if request.role not in (InferenceRole.EMBED, InferenceRole.RECSYS_EMBED) and fallback is not None:
             routes.append((InferenceRoute.FALLBACK, fallback))
         last: ChatOutcome | None = None
         for index, (route, route_pin) in enumerate(routes):

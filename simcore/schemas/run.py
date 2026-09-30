@@ -95,13 +95,17 @@ class ModelPins(SimBaseModel):
     tier_a: ModelPin
     tier_b: ModelPin
     embed: ModelPin
+    # The feed's ranking model, when a study ticks the feed: TwHIN-BERT through the gateway, in its
+    # own space. SSR keeps `embed`; a survey turn scored in the recsys space is refused as unmeasured.
+    recsys_embed: ModelPin | None = None
     safety: ModelPin | None = None
     fallbacks: FrozenDict[InferenceRole, ModelPin] = FrozenDict({})
 
     @model_validator(mode="after")
     def _fallbacks_are_real_alternatives(self) -> Self:
-        if InferenceRole.EMBED in self.fallbacks:
-            raise ValueError("the embedding role never falls back: responses must be scored in the anchors' embedding space")
+        for role in (InferenceRole.EMBED, InferenceRole.RECSYS_EMBED):
+            if role in self.fallbacks:
+                raise ValueError(f"{role.value} never falls back: a vector is only comparable within one model's space")
         for role, fallback in self.fallbacks.items():
             primary = getattr(self, role.value)
             if primary is None:
@@ -263,6 +267,17 @@ class RunConfig(SimBaseModel):
             raise ValueError(
                 f"scenarios carry no audience weights and a run configuration cannot inherit them: {unresolved}; "
                 "resolve them against the brief before configuring the run"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _a_feed_pins_its_ranking_model(self) -> Self:
+        """The feed ranks like X, by TwHIN-BERT through the gateway: a study that ticks it pins the
+        model, so the ranking is as recorded as every other model call (ADR 0021)."""
+        if self.pins.recsys_embed is None and any(Channel.SOCIAL_FEED in s.channels for s in self.scenarios):
+            raise ValueError(
+                "a study that ticks the social feed pins recsys_embed, the feed's ranking model "
+                "(TwHIN-BERT through the gateway): pass --recsys-embed-model"
             )
         return self
 

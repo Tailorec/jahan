@@ -109,7 +109,7 @@ def test_a_vector_outside_the_dimension_the_run_opened_with_is_refused():
     client, _ = client_for(recorder, embeddings_batch_size=1)
     with pytest.raises(ValueError, match="dimensions"):
         client.embed(["first", "second"])
-    assert client._embedding_dim == 4  # the run's first vectors fixed the space; the second batch broke it
+    assert client._embedding_dims[InferenceRole.EMBED] == 4  # the run's first vectors fixed the space; the second batch broke it
 
 
 def test_the_normalisation_applied_is_recorded_and_the_rows_unit_length():
@@ -158,3 +158,28 @@ def test_embeddings_are_billed_without_a_completion_and_replay_from_the_cache(tm
     replay = cold.embed(["a", "b"])
     assert np.allclose(replay.vectors, result.vectors)
     assert replay.costs[0].route is InferenceRoute.CACHE and replay.costs[0].cost == 0.0
+
+
+def test_the_feeds_ranking_model_embeds_under_its_own_pin_and_its_own_dimension():
+    """TwHIN-BERT ranks the feed through the same endpoint, in its own space: its vectors never
+    fix or break SSR's dimension, and an unpinned ranking role is refused before any request."""
+    twhin = "openai/twhin-bert-base"
+
+    def build(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        return embed_reply(model=body["model"], dim=768 if body["model"] == twhin else 4)(request)
+
+    recorder = Recorder(build)
+    time = FakeTime()
+    pins = ModelPins.model_validate({"tier_a": PINS.tier_a, "tier_b": PINS.tier_b, "embed": EMBED, "recsys_embed": twhin})
+    client = InferenceClient(pins, ExecutionSettings(base_url="http://gateway.test/v1"), transport=recorder.transport(), clock=time.clock, sleep=time.sleep)
+    ranking = client.embed(["a post"], role=InferenceRole.RECSYS_EMBED)
+    scoring = client.embed(["an answer"])
+    assert (ranking.model_id, ranking.dim, scoring.model_id, scoring.dim) == (twhin, 768, EMBED, 4)
+    assert [body["model"] for body in recorder.bodies] == [twhin, EMBED]
+    assert all(cost.role is InferenceRole.RECSYS_EMBED for cost in ranking.costs)
+    unpinned, _ = client_for(Recorder(embed_reply()))
+    with pytest.raises(Exception, match="recsys_embed"):
+        unpinned.embed(["a post"], role=InferenceRole.RECSYS_EMBED)
+    with pytest.raises(ValueError, match="never falls back"):
+        ModelPins.model_validate({**pins.model_dump(mode="json"), "fallbacks": {"recsys_embed": "openai/other"}})

@@ -83,6 +83,9 @@ class InferenceRole(StrEnum):
     TIER_A = "tier_a"
     TIER_B = "tier_b"
     EMBED = "embed"
+    # The feed's ranking model (TwHIN-BERT through the gateway): its own embedding space,
+    # never SSR's, so it never substitutes for it and never falls back (ADR 0012).
+    RECSYS_EMBED = "recsys_embed"
     SAFETY = "safety"
 
 
@@ -175,6 +178,9 @@ class ExposureReason(StrEnum):
     # First-hand exposure at launch, when word of mouth is the only channel: the seed a study
     # passes on, told apart from the organic word of mouth it starts (ADR 0048).
     LAUNCH = "launch"
+    # In-network on the X-like feed: posted by someone the persona is tied to in the social
+    # graph or followed during the study, shown before any recommendation (OASIS `refresh`).
+    NETWORK = "network"
 
 
 class VerbatimGrouping(StrEnum):
