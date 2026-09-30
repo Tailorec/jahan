@@ -46,13 +46,13 @@ export const CHANNEL_GUIDE: Record<ChannelName, { summary: string; use: string }
   },
 };
 
-/* The wave ticks for a survey interval and horizon: {0, k, 2k, …} ∪ {horizon − 1}. */
-export function waveTicks(surveyEvery: number, horizon: number): number[] {
-  const ticks = new Set<number>();
-  for (let t = 0; t < horizon; t += surveyEvery) ticks.add(t);
-  ticks.add(horizon - 1);
-  return [...ticks].sort((a, b) => a - b);
+/* Word of mouth alone is the one combination that needs a launch reach: nobody else starts it. */
+export function womAlone(channels: readonly ChannelName[]): boolean {
+  return channels.length === 1 && channels[0] === "wom";
 }
+
+/* The feed's ranking model as the gateway serves it (tools/twhin_server.py behind LiteLLM). */
+export const DEFAULT_RECSYS_MODEL = "twhin-bert-base";
 
 export interface StudyForm {
   n: string;
@@ -63,6 +63,7 @@ export interface StudyForm {
   channels: ChannelName[];
   surveyEvery: string;
   launchReach: string;
+  recsysEmbedModel: string;
   anchorVersion: string;
   model: string;
   embedModel: string;
@@ -142,11 +143,11 @@ export function problems(form: StudyForm): string[] {
     found.push("Survey waves come every k ticks, k a whole number of one or more.");
   }
   const reach = number(form.launchReach);
-  if (reach !== undefined && (reach < 0 || reach > 1)) {
+  if (womAlone(form.channels) && reach !== undefined && (reach < 0 || reach > 1)) {
     found.push("The launch reach is a share, between zero and one.");
   }
-  if ((reach ?? 0.10) !== 0.10 && !(form.channels.length === 1 && form.channels[0] === "wom")) {
-    found.push("The launch reach is only meaningful with word of mouth alone.");
+  if (form.channels.includes("social_feed") && !form.recsysEmbedModel.trim()) {
+    found.push("The social feed ranks by its own model: name it (twhin-bert-base, served beside the gateway).");
   }
   return found;
 }
@@ -163,8 +164,10 @@ export function studyRequest(form: StudyForm, briefYaml: string, evidence: unkno
   if (form.anchorVersion.trim()) body.anchor_versions = [form.anchorVersion.trim()];
   const every = number(form.surveyEvery);
   if (every !== undefined) body.survey_every = every;
+  // Only word of mouth alone has a launch reach; any other combination sends none.
   const reach = number(form.launchReach);
-  if (reach !== undefined) body.launch_reach = reach;
+  if (womAlone(form.channels) && reach !== undefined) body.launch_reach = reach;
+  if (form.channels.includes("social_feed")) body.recsys_embed_model = form.recsysEmbedModel.trim();
   if (form.validation.trim()) body.validation = form.validation.trim();
   const seed = number(form.populationSeed);
   if (seed !== undefined) body.population_seed = seed;

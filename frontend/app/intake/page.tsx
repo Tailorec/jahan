@@ -9,7 +9,7 @@ import { api, useApi, whyNot } from "@/lib/api";
 import { briefToYaml, type BriefForm } from "@/lib/briefYaml";
 import type { AudienceSet, CategoryOntology, ClaimSource } from "@/lib/engine";
 import {
-  CHANNELS, CHANNEL_GUIDE, defaultAnchor, defaultSources, gateRequest, leftOut, problems, shardsFor, studyRequest, waveTicks,
+  CHANNELS, CHANNEL_GUIDE, defaultAnchor, defaultSources, gateRequest, leftOut, problems, shardsFor, studyRequest, womAlone, DEFAULT_RECSYS_MODEL,
   type AnchorCatalogue, type ChannelName, type CorpusInfo, type StudyForm,
 } from "@/lib/study";
 import { TEXT_SOURCES } from "@/lib/sources";
@@ -66,6 +66,8 @@ export default function IntakePage() {
   const [channels, setChannels] = useSessionState<ChannelName[]>("intake:channels", []);
   const [surveyEvery, setSurveyEvery] = useSessionState("intake:surveyEvery", "1");
   const [launchReach, setLaunchReach] = useSessionState("intake:launchReach", "0.10");
+  // The feed ranks like X by its own model, TwHIN-BERT served beside the gateway.
+  const [recsysEmbedModel, setRecsysEmbedModel] = useSessionState("intake:recsysEmbedModel", DEFAULT_RECSYS_MODEL);
   const [populationSeed, setPopulationSeed] = useSessionState("intake:populationSeed", "4021");
   const [shards, setShards] = useSessionState<string[]>("intake:shards", []);
   const [sources, setSources] = useSessionState<string[]>("intake:sources", []);
@@ -142,23 +144,47 @@ export default function IntakePage() {
   const briefYaml = React.useMemo(() => briefToYaml(form), [form]);
   const realNeedsEndpoint = endpoint?.endpoint_configured === false;
   const studyForm: StudyForm = {
-    n, horizon, tickUnit, seeds, budget, channels, surveyEvery, launchReach, anchorVersion, model, embedModel,
+    n, horizon, tickUnit, seeds, budget, channels, surveyEvery, launchReach, recsysEmbedModel, anchorVersion, model, embedModel,
     populationSeed, shards, sources, priceChatIn, priceChatOut, priceEmbedIn, validation,
   };
-  const womAlone = channels.length === 1 && channels[0] === "wom";
-  const horizonTicks = Number(horizon);
-  const everyTicks = Number(surveyEvery);
-  const listedWaves = Number.isFinite(horizonTicks) && Number.isFinite(everyTicks) && everyTicks >= 1 && horizonTicks >= 1
-    ? waveTicks(everyTicks, horizonTicks)
-    : [];
+  const wordOfMouthAlone = womAlone(channels);
+  const feedTicked = channels.includes("social_feed");
+  // The wave ticks and the answers they take are the engine's to derive (ADR 0045); the page asks.
+  const [wavePlan, setWavePlan] = React.useState<{ ticks: number[]; answers: number } | null>(null);
+  React.useEffect(() => {
+    const body = { survey_every: Number(surveyEvery), horizon: Number(horizon), n: Number(n), replicates: seeds.split(",").filter((x) => x.trim()).length || 1 };
+    let live = true;
+    setWavePlan(null);
+    api<{ ticks: number[]; answers: number }>("/api/waves", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+      .then((plan) => { if (live) setWavePlan(plan); })
+      .catch(() => { if (live) setWavePlan(null); });
+    return () => { live = false; };
+  }, [surveyEvery, horizon, n, seeds]);
+  // Whether the feed's ranking model answers — asked of the engine, which holds the key.
+  const [recsysCheck, setRecsysCheck] = React.useState<{ model: string; reachable: boolean; detail: string | null } | null>(null);
+  React.useEffect(() => {
+    const model = recsysEmbedModel.trim();
+    setRecsysCheck(null);
+    if (!feedTicked || !model) return;
+    let live = true;
+    const timer = setTimeout(() => {
+      api<{ model: string; reachable: boolean; detail: string | null }>("/api/recsys/check", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ model }) })
+        .then((result) => { if (live) setRecsysCheck(result); })
+        .catch((e) => { if (live) setRecsysCheck({ model, reachable: false, detail: whyNot(e) }); });
+    }, 400);
+    return () => { live = false; clearTimeout(timer); };
+  }, [feedTicked, recsysEmbedModel]);
   // Who is studied comes only from Who you study: without its audiences there is nothing to draw.
   const mistakes = [
     ...(form.audiences.length ? [] : ["Choose an audience set — Who you study saves them."]),
     ...problems(studyForm),
+    ...(feedTicked && recsysCheck && !recsysCheck.reachable
+      ? [`The feed's ranking model ${recsysCheck.model} does not answer: ${recsysCheck.detail} — start tools/twhin_server.py and its gateway entry (RUN.md), or untick the feed.`]
+      : []),
   ];
   const chosenAnchor = anchors?.anchors.find((a) => `${a.construct}=${a.version}` === anchorVersion);
   const anchorMismatch = !!chosenAnchor?.embed_model_id && !!embedModel.trim() && chosenAnchor.embed_model_id !== embedModel.trim();
-  const toggle = (list: string[], set: (v: string[]) => void, value: string) =>
+  const toggle = <T extends string,>(list: T[], set: (v: T[]) => void, value: T) =>
     set(list.includes(value) ? list.filter((x) => x !== value) : [...list, value].sort());
 
   const post = <T,>(path: string, body: unknown) => api<T>(path, {
@@ -450,13 +476,20 @@ export default function IntakePage() {
                         ? "Concept test — every persona sees the concept alone."
                         : channels.map((c) => CHANNEL_GUIDE[c].use).join(" ")}</div></div>
                   </div>
+                  {feedTicked && (
+                    <div className="field" style={{ margin: 0 }}><label>Feed ranking model</label>
+                      <input className="input mono" value={recsysEmbedModel} onChange={(e) => setRecsysEmbedModel(e.target.value)} />
+                      <div className="help">The feed ranks like X — posts from ties and follows first, then interest × recency — with TwHIN-BERT, served on this machine beside the gateway. {recsysCheck === null
+                        ? "Checking it answers…"
+                        : recsysCheck.reachable ? <b>It answers.</b> : <b>It does not answer: {recsysCheck.detail}</b>}</div></div>
+                  )}
                   <div className="grid g2">
                     <div className="field" style={{ margin: 0 }}><label>Survey every k ticks</label>
                       <input className="input mono" value={surveyEvery} onChange={(e) => setSurveyEvery(e.target.value)} />
-                      <div className="help">{listedWaves.length
-                        ? <>Waves at ticks <span className="mono">{listedWaves.join(", ")}</span> — every persona answers the purchase-intent question.</>
+                      <div className="help">{wavePlan
+                        ? <>Waves at ticks <span className="mono">{wavePlan.ticks.join(", ")}</span> — every persona answers the purchase-intent question: <b>{wavePlan.answers.toLocaleString()} answers</b>, one chat call and one embedding each. The budget never thins a wave; a study pauses before one it cannot afford.</>
                         : "How often every persona is surveyed for purchase intent."}</div></div>
-                    {womAlone && (
+                    {wordOfMouthAlone && (
                       <div className="field" style={{ margin: 0 }}><label>Launch reach</label>
                         <input className="input mono" value={launchReach} onChange={(e) => setLaunchReach(e.target.value)} />
                         <div className="help">The share of personas who hear first-hand at launch, chosen at random — without them nobody has anything to pass on.</div></div>

@@ -108,15 +108,17 @@ export default function RunPage() {
               {!watching && s.status !== "completed" && movedInputRefusal(s.launch_error) && <button className="btn sm" onClick={() => resume(true)} disabled={busy !== null}>Force resume…</button>}
             </div></div>
           <div className="panel-body tight"><table className="tbl">
-            <thead><tr><th>World</th><th className="num">Last closed tick</th><th className="num">Turns landed</th><th>Rung in force</th></tr></thead>
+            <thead><tr><th>World</th><th className="num">Last closed tick</th><th className="num">Turns landed</th><th>Turns by channel</th><th>Waves answered</th><th>Rung in force</th></tr></thead>
             <tbody>
               {(s.progress ?? []).map((p) => (
                 <tr key={p.world_id}><td className="mono">{p.world_id}</td>
                   <td className="num">{p.last_closed_tick ?? "—"}</td>
                   <td className="num">{p.turns ?? "—"}</td>
+                  <td className="mono sub">{Object.entries(p.turns_by_channel ?? {}).map(([c, k]) => `${c === "survey_room" ? "survey" : c} ${k}`).join(" · ") || "—"}</td>
+                  <td className="mono sub">{(p.waves_answered ?? []).length ? `ticks ${p.waves_answered!.join(", ")}` : "none yet"}</td>
                   <td className="mono sub">{(p.rungs ?? []).length ? p.rungs!.join(", ") : "full fidelity"}</td></tr>
               ))}
-              {!(s.progress ?? []).length && <tr><td colSpan={4} className="sub" style={{ textAlign: "center" }}>starting — the registry write comes after the build</td></tr>}
+              {!(s.progress ?? []).length && <tr><td colSpan={6} className="sub" style={{ textAlign: "center" }}>starting — the registry write comes after the build</td></tr>}
             </tbody>
           </table></div>
         </div>

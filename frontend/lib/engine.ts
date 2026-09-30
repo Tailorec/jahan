@@ -166,6 +166,9 @@ export interface WorldProgress {
   last_closed_tick?: number | null;
   turns?: number;
   rungs?: string[];
+  /* Turns per channel — survey_room is the waves' own — and the ticks whose wave was answered. */
+  turns_by_channel?: Record<string, number>;
+  waves_answered?: number[];
 }
 export interface RunSummary {
   run_id: string;
@@ -216,6 +219,22 @@ export interface OutcomeDigest {
   wom_deliveries: number;
   wom_reach: number;
   rungs: DegradationRung[];
+  /* Intent over time (ADR 0048): one entry per survey wave; the headline is the last wave's. */
+  waves?: WaveDigest[];
+  exposures_by_channel?: Record<string, number>;
+  reached_by_channel?: Record<string, number>;
+}
+export interface WaveDigest {
+  tick: number;
+  respondents: number;
+  audience_pmfs: Record<string, number[]>;
+  audience_shares: Record<string, number>;
+  audience_adoption: Record<string, number>;
+  adoption?: number | null;
+  reached: number;
+  unreached: number;
+  reached_adoption?: number | null;
+  unreached_adoption?: number | null;
 }
 export interface ScenarioSummary {
   scenario_hash: string;
@@ -246,7 +265,16 @@ export interface ObjectionCluster {
   embed_model_id: string;
   world_id?: string | null;
 }
+export interface ScenarioMethod {
+  variant_id: string;
+  channels: string[];
+  survey_every: number;
+  horizon_ticks: number;
+  launch_reach?: number | null;
+}
 export interface MethodDisclosure {
+  scenarios?: ScenarioMethod[];
+  departures?: string[];
   pins: ModelPinRef[];
   fallbacks: ModelPinRef[];
   seeds: number[];
