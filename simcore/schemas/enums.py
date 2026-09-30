@@ -263,6 +263,8 @@ class FindingKind(StrEnum):
     OBJECTION = "objection"
     BELIEF_SHIFT = "belief_shift"
     WOM_PATH = "wom_path"
+    # Purchase intent across survey waves, by audience, and reached against unreached (ADR 0048).
+    INTENT_TRAJECTORY = "intent_trajectory"
     RECOMMENDATION = "recommendation"
 
 

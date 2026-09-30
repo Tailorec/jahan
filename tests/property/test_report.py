@@ -103,7 +103,7 @@ def test_finding_carries_only_what_varies_per_finding():
 
 
 def test_finding_kinds_include_rankings_and_risks():
-    assert {k.value for k in FindingKind} == {"ranking", "risk", "objection", "belief_shift", "wom_path", "recommendation"}
+    assert {k.value for k in FindingKind} == {"ranking", "risk", "objection", "belief_shift", "wom_path", "intent_trajectory", "recommendation"}
 
 
 def test_ranking_orders_at_least_two_distinct_scenarios_and_nothing_else_orders_any():

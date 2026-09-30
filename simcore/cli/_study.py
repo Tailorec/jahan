@@ -651,7 +651,7 @@ def analyze_study(handles: StudyHandles, result: RunResult) -> dict:
         clusters = cluster_objections(cell["view"], embed=handles.embed, pinned_embed_model=handles.embed_pin,
                                       world_id=world_id)
         found = findings(cell["view"], embed=handles.embed, pinned_embed_model=handles.embed_pin,
-                         seed=cell["seed"], world_id=world_id, clusters=clusters)
+                         seed=cell["seed"], world_id=world_id, clusters=clusters, digest=cell["digest"])
         detected = detect_anomalies(cell["view"], digest=cell["digest"], replicate_spread=summary.belief_move_spread)
         worlds[world_id] = {
             "scenario": cell["scenario"],

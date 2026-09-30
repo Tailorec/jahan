@@ -24,13 +24,15 @@ _BELIEF_STATED_DECIMALS = 2
 def findings(view, *, embed, threshold: float = 0.75, seed: int = 0,
              pinned_embed_model: str | None = None, world_id: str | None = None,
              clusters: tuple | None = None,
-             anomalies: Sequence[Anomaly] | None = None) -> tuple[Finding, ...]:
+             anomalies: Sequence[Anomaly] | None = None,
+             digest=None) -> tuple[Finding, ...]:
     """Author every finding the trace supports, oldest evidence first within each kind.
 
     `world_id` names the world the view reads, and enters every finding id: a study runs one
     scenario under several seeds, and findings numbered within a world alone collide across
     them. `clusters`, when given, are this view's objection clusters already computed, so a
-    caller that needs them too does not embed the same verbatims twice.
+    caller that needs them too does not embed the same verbatims twice. `digest`, when given, is
+    this world's digest, and its survey waves become the intent-trajectory finding.
     """
     authored: list[Finding] = []
     authored.extend(_objection_findings(view, embed=embed, threshold=threshold, seed=seed,
@@ -38,6 +40,8 @@ def findings(view, *, embed, threshold: float = 0.75, seed: int = 0,
                                         clusters=clusters))
     authored.extend(_belief_shift_findings(view, world_id=world_id))
     authored.extend(_wom_path_findings(view, world_id=world_id))
+    if digest is not None:
+        authored.extend(_intent_trajectory_findings(view, digest, world_id=world_id))
     if anomalies:
         authored.extend(risk_findings(anomalies, world_id=world_id))
     return tuple(authored)
@@ -132,6 +136,46 @@ def _belief_shift_findings(view, *, world_id: str | None = None) -> list[Finding
             "confidence": confidence,
         }))
     return out
+
+
+def _intent_trajectory_findings(view, digest, *, world_id: str | None = None) -> list[Finding]:
+    """How purchase intent moved from the first survey wave to the last, by audience, and how the
+    personas a channel reached compared with those it did not. Cited by the waves' answers."""
+    waves = [wave for wave in digest.waves if wave.adoption is not None]
+    if len(waves) < 2:
+        return []
+    first, last = waves[0], waves[-1]
+    audiences = "; ".join(
+        f"{name} {first.audience_adoption[name]:.2f} → {last.audience_adoption[name]:.2f}"
+        for name in sorted(set(first.audience_adoption) & set(last.audience_adoption))
+    )
+    split = ""
+    if last.reached_adoption is not None and last.unreached_adoption is not None:
+        split = (f"; at tick {last.tick}, the {last.reached} personas a channel reached stood at "
+                 f"{last.reached_adoption:.2f} and the {last.unreached} it did not at "
+                 f"{last.unreached_adoption:.2f}")
+    answers = [
+        event.event_id for event in view.events(EventFilter())
+        if event.payload.kind == "turn" and event.payload.turn.impression.channel == "survey_room"
+        and event.tick in (first.tick, last.tick) and event.payload.turn.reaction.intent is not None
+    ]
+    evidence = _resolve(view, tuple(sorted(answers)))
+    direction = "rose" if last.adoption > first.adoption else "fell" if last.adoption < first.adoption else "held"
+    return [Finding.model_validate({
+        "finding_id": _finding_id(world_id, "intent", 1),
+        "kind": "intent_trajectory",
+        "statement": (
+            f"purchase intent (top-two box) {direction} from {first.adoption:.2f} at tick {first.tick} to "
+            f"{last.adoption:.2f} at tick {last.tick} over {len(waves)} survey waves"
+            + (f" ({audiences})" if audiences else "") + split
+        ),
+        "evidence_trace_ids": list(evidence),
+        "disconfirming_test": (
+            f"survey a fresh panel at launch and again after {last.tick - first.tick} ticks of real exposure; "
+            f"if top-two-box intent does not move the same way, the trajectory is an artefact"
+        ),
+        "confidence": "medium" if last.respondents >= 30 else "low",
+    })]
 
 
 def _wom_path_findings(view, *, world_id: str | None = None) -> list[Finding]:
