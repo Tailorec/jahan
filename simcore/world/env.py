@@ -37,6 +37,7 @@ from simcore.schemas import (
     View,
     WorldDelta,
     derive_world_seed,
+    wave_ticks,
 )
 
 from . import _ids, recsys, wom
@@ -58,6 +59,16 @@ class RecsysMode(StrEnum):
     TWHIN = "twhin"
 
 
+# What the legacy single platform meant as channels: a feed or a forum study ran with word of
+# mouth riding beside it, and the survey room ran alone. Explicit `channels` never consult this.
+_PLATFORM_CHANNELS: dict[Channel, frozenset[Channel]] = {
+    Channel.SURVEY_ROOM: frozenset(),
+    Channel.SOCIAL_FEED: frozenset({Channel.SOCIAL_FEED, Channel.WOM}),
+    Channel.FORUM: frozenset({Channel.FORUM, Channel.WOM}),
+    Channel.WOM: frozenset({Channel.WOM}),
+}
+
+
 @dataclass(frozen=True)
 class WorldConfig:
     """How this world behaves, chosen per scenario so mechanics stay study variables.
@@ -66,7 +77,13 @@ class WorldConfig:
     persona sees the stimulus alone, with no social signal and no ranking.
     """
 
+    # The legacy single platform, kept so existing constructions keep meaning: it derives
+    # `channels` when none are named explicitly (survey room → none, feed/forum → itself
+    # with word of mouth riding beside it, as it always did). New studies name `channels`.
     platform: Channel = Channel.SURVEY_ROOM
+    # Which channels spread information in this world. Explicit always wins over `platform`;
+    # the world factory builds this from the scenario, never beside it (ADR 0048).
+    channels: frozenset[Channel] | None = None
     recsys_mode: RecsysMode = RecsysMode.RANDOM
     forum_preset: ForumPreset = ForumPreset.REDDIT_GLOBAL
     # None inherits the scenario's exposure budget; the survey room always shows exactly one.
@@ -108,6 +125,19 @@ class WorldConfig:
         object.__setattr__(self, "platform", Channel(self.platform))
         object.__setattr__(self, "recsys_mode", RecsysMode(self.recsys_mode))
         object.__setattr__(self, "forum_preset", ForumPreset(self.forum_preset))
+        if self.channels is not None:
+            named = frozenset(Channel(channel) for channel in self.channels)
+            if Channel.SURVEY_ROOM in named:
+                raise ValueError("the survey room is a wave's internal channel, never a study choice")
+            object.__setattr__(self, "channels", named)
+
+    def resolved_channels(self) -> frozenset[Channel]:
+        """The channels spreading information here: the explicit set, else the legacy platform's."""
+        if self.channels is not None:
+            return self.channels
+        # The legacy mapping keeps old constructions meaning what they always did: a feed or a
+        # forum study ran with word of mouth riding beside it, and the survey room ran alone.
+        return _PLATFORM_CHANNELS[self.platform]
 
     def involvement_for(self, persona_id: str) -> float:
         """This persona's involvement: its named value, else the study default."""
@@ -201,7 +231,11 @@ class World:
     # -- the port -----------------------------------------------------------------
 
     def reset(self) -> WorldDelta:
-        """Open the world: publish the study's stimuli as the delta for tick zero."""
+        """Open the world: publish the study's stimuli as the delta for tick zero.
+
+        The delta also carries the tick-0 survey wave, so the baseline wave is taken after
+        launch: every wave tick's answers reflect everything up to and including their tick.
+        """
         if self._opened:
             raise ValueError("a world opens once; resume by replaying turns through a fresh instance")
         mode = self._config.recsys_mode
@@ -217,7 +251,7 @@ class World:
             published=tuple(published),
             interventions=self._interventions_at(0),
             dropped=(),
-            presentations=(),
+            presentations=tuple(self._survey_presentations(0)),
         )
 
     def step(self, tick: int, turns: list[Turn] | tuple[Turn, ...]) -> WorldDelta:
@@ -423,28 +457,41 @@ class World:
         }
         return activated_personas(self._personas, probabilities, self._world_seed, tick)
 
+    def _is_wave_tick(self, tick: int) -> bool:
+        """Whether this tick surveys every persona: `{0, k, 2k, …} ∪ {horizon − 1}` (ADR 0048)."""
+        return tick in wave_ticks(self._scenario.survey_every, self._scenario.horizon_ticks)
+
     def _presentations(
         self, tick: int, deliveries: dict[str, list[tuple[str, str, float]]]
     ) -> tuple[list[Presentation], list[DroppedExposure]]:
-        """One presentation per activated persona on the world's channel, plus what missed the budget.
+        """One presentation per activated persona on every ticked platform, plus what missed the budget.
 
-        Word-of-mouth deliveries ride a second impression on the wom channel —
-        except in the survey room, which neither delivers nor sparks word of
-        mouth, keeping the baseline the stimulus alone.
+        Channel presentations come first, then word of mouth, then the wave last, so a wave
+        tick's answers reflect everything up to and including their own tick. Word-of-mouth
+        deliveries ride a second impression on the wom channel — except when word of mouth
+        is not ticked, and except in a world with no channels, which neither delivers nor
+        sparks word of mouth, keeping the baseline the stimulus alone.
         """
         if self._concept_id is None:
             raise ValueError("presentations before the study stimuli were published")
-        if self._config.platform is Channel.SOCIAL_FEED:
-            presentations, dropped = self._feed_presentations(tick)
+        channels = self._config.resolved_channels()
+        presentations: list[Presentation] = []
+        dropped: list[DroppedExposure] = []
+        if Channel.SOCIAL_FEED in channels:
+            feed, feed_drops = self._feed_presentations(tick)
+            presentations.extend(feed)
+            dropped.extend(feed_drops)
+        if Channel.FORUM in channels:
+            forum, forum_drops = self._forum_presentations(tick)
+            presentations.extend(forum)
+            dropped.extend(forum_drops)
+        if Channel.WOM in channels:
             extra, extra_drops = self._wom_presentations(tick, deliveries)
-            return presentations + extra, dropped + extra_drops
-        if self._config.platform is Channel.SURVEY_ROOM:
-            return self._survey_presentations(tick), []
-        if self._config.platform is Channel.FORUM:
-            presentations, dropped = self._forum_presentations(tick)
-            extra, extra_drops = self._wom_presentations(tick, deliveries)
-            return presentations + extra, dropped + extra_drops
-        raise ValueError(f"the {self._config.platform.value} channel is delivered, not presented")
+            presentations.extend(extra)
+            dropped.extend(extra_drops)
+        if self._is_wave_tick(tick):
+            presentations.extend(self._survey_presentations(tick))
+        return presentations, dropped
 
     def _wom_deliveries(
         self, tick: int, turns: tuple[Turn, ...]
@@ -457,6 +504,8 @@ class World:
         room's answers spark nothing.
         """
         deliveries: dict[str, list[tuple[str, str, float]]] = {}
+        if Channel.WOM not in self._config.resolved_channels():
+            return deliveries
         for turn in turns:
             if turn.impression.channel is Channel.SURVEY_ROOM:
                 continue
@@ -565,10 +614,14 @@ class World:
         return recipient_community == teller_community
 
     def _survey_presentations(self, tick: int) -> list[Presentation]:
-        """The baseline: every activated persona sees the concept stimulus alone."""
+        """The survey wave: every persona sees the concept stimulus alone — never gated by
+        activation, so a change between waves is movement, not sampling.
+
+        One exposure, on the survey room's internal channel, after the tick's channel
+        presentations — so the wave reflects everything up to and including its own tick."""
         assert self._concept_id is not None
         presentations = []
-        for persona_id in self._activated(tick):
+        for persona_id in self._personas:
             exposure = Exposure(stimulus_id=self._concept_id, reason=ExposureReason.INTEREST, attention=1.0)
             impression = Impression(
                 impression_id=_ids.impression_id(
