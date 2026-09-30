@@ -21,7 +21,9 @@ from tests.study_builders import partition_payload
 
 @pytest.fixture()
 def raw_partition():
+    """A partition as the first released contract wrote it: every migration since runs on it."""
     payload = partition_payload()
+    payload["header"]["contract_version"] = "1.0.0"
     return {"header": payload["header"], "events": payload["events"]}
 
 
@@ -47,7 +49,7 @@ def test_a_1_0_partition_loads_under_a_synthetic_1_2(raw_partition, synthetic_ne
     assert len(partition.events) == len(raw_partition["events"])
     assert synthetic_next_version == ["1.2.0"]
     # Without the engine moving past the synthetic version, no synthetic migration runs.
-    assert load_partition_data(raw_partition).header.contract_version == "1.0.0"
+    assert load_partition_data(raw_partition).header.contract_version == raw_partition["header"]["contract_version"]
 
 
 def test_a_newer_contract_is_refused_naming_both_versions(raw_partition):

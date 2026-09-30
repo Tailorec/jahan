@@ -92,3 +92,27 @@ def test_a_feed_study_without_its_ranking_model_is_refused_naming_the_pin():
         RunConfig.model_validate(payload)
     payload["scenarios"] = [scenario_payload(channels=["forum", "wom"])]
     RunConfig.model_validate(payload)  # no feed, no ranking model needed
+
+
+def test_the_report_states_the_channels_waves_and_both_embedding_models(tmp_path):
+    out = tmp_path / "runs"
+    code, output = run_command(*fake_args(out, "run-" + "0" * 24 + "91", horizon=3, channels="social_feed,wom", survey_every=1))
+    assert code == 0, output[-1500:]
+    run_dir = out / run_id_from(output)
+    markdown = (run_dir / "report.md").read_text()
+    data = json.loads((run_dir / "report.json").read_text())
+    assert "channels social_feed, wom; a survey wave every 1 ticks" in markdown
+    assert "- recsys_embed: fake/recsys-embed-1" in markdown and "- embed: fake/embed-1" in markdown
+    assert "no 4,000-post pre-filter" in markdown
+    assert "Channels: social_feed" in markdown
+    assert data["method"]["scenarios"][0]["channels"] == ["social_feed", "wom"]
+    assert data["method"]["departures"]
+
+
+def test_a_concept_test_report_says_it_is_one(tmp_path):
+    out = tmp_path / "runs"
+    code, output = run_command(*fake_args(out, "run-" + "0" * 24 + "92", horizon=1, channels=""))
+    assert code == 0, output[-1500:]
+    markdown = (out / run_id_from(output) / "report.md").read_text()
+    assert "channels none (a concept test" in markdown
+    assert "no 4,000-post pre-filter" not in markdown and "one-shot survey" not in markdown

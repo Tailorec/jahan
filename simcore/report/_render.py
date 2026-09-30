@@ -87,6 +87,36 @@ class _DigestSection:
     wom_deliveries: int
     wom_reach: int
     rungs: tuple[str, ...]
+    # Intent over time (ADR 0048): the survey waves as the digest holds them, and what each
+    # channel showed and reached.
+    waves: tuple = ()
+    exposures_by_channel: tuple[tuple[str, int], ...] = ()
+    reached_by_channel: tuple[tuple[str, int], ...] = ()
+
+
+@dataclass(frozen=True)
+class _ScenarioSection:
+    """What a scenario chose: which channels spread information and when intent was measured."""
+
+    variant_id: str
+    channels: tuple[str, ...]
+    survey_every: int
+    horizon_ticks: int
+    launch_reach: float | None
+
+
+# Where the ports depart from their sources, stated wherever they ran (PRD M15).
+OASIS_DEPARTURES = (
+    "Feed and forum port OASIS (camel-ai/oasis): follows start from the generated social graph rather "
+    "than an imported follow list; a profile is a persona's rendered attributes, not a user bio; recency "
+    "is counted in ticks; there is no 4,000-post pre-filter, since a study has far fewer posts; and the "
+    "feed's ranking model is reached through the gateway rather than loaded in-process."
+)
+REPEATED_SSR = (
+    "Purchase intent is scored by semantic similarity rating (arXiv 2510.08338), whose evidence is for a "
+    "one-shot survey of a concept; asking the same personas again in later waves is an extension of that "
+    "evidence, not part of it."
+)
 
 
 @dataclass(frozen=True)
@@ -117,6 +147,7 @@ class _Document:
     template_hashes: tuple[tuple[str, str], ...]
     anchor_set_hashes: tuple[tuple[str, str], ...]
     validation: str
+    scenarios: tuple[_ScenarioSection, ...] = ()
 
 
 # How many evidence ids a page prints before eliding. Every turn of every persona can be
@@ -193,12 +224,15 @@ def _build(findings: tuple[Finding, ...], digests: tuple[OutcomeDigest, ...], pa
             wom_deliveries=digest.wom_deliveries,
             wom_reach=digest.wom_reach,
             rungs=tuple(rung.value for rung in digest.rungs),
+            waves=tuple(digest.waves),
+            exposures_by_channel=tuple(sorted((c.value, n) for c, n in digest.exposures_by_channel.items())),
+            reached_by_channel=tuple(sorted((c.value, reach[-1]) for c, reach in digest.reach_by_tick.items() if reach)),
         )
         for digest in sorted(digests, key=_digest_key)
     )
     ledger = assumptions_of(pack.brief_pack)
     pins = pack.config.pins
-    roles = ("tier_a", "tier_b", "embed", "safety")
+    roles = ("tier_a", "tier_b", "embed", "recsys_embed", "safety")
     ordered_pins = tuple(
         (role, getattr(pins, role).model_id) for role in roles if getattr(pins, role) is not None
     )
@@ -221,6 +255,16 @@ def _build(findings: tuple[Finding, ...], digests: tuple[OutcomeDigest, ...], pa
         template_hashes=tuple(sorted(pack.config.template_hashes.items())),
         anchor_set_hashes=tuple(sorted(pack.config.anchor_set_hashes.items())),
         validation=pack.validation.strip(),
+        scenarios=tuple(
+            _ScenarioSection(
+                variant_id=scenario.variant.variant_id,
+                channels=tuple(sorted(channel.value for channel in scenario.channels)),
+                survey_every=scenario.survey_every,
+                horizon_ticks=scenario.horizon_ticks,
+                launch_reach=scenario.launch_reach if {c.value for c in scenario.channels} == {"wom"} else None,
+            )
+            for scenario in pack.config.scenarios
+        ),
     )
 
 
@@ -289,6 +333,28 @@ def _to_markdown(doc: _Document) -> str:
             + repr(digest.wom_reach) + " personas",
             "",
         ])
+        if digest.exposures_by_channel:
+            reached = dict(digest.reached_by_channel)
+            lines.extend([
+                "Channels: " + ", ".join(
+                    channel + " " + repr(count) + " exposures reaching " + repr(reached.get(channel, 0)) + " personas"
+                    for channel, count in digest.exposures_by_channel),
+                "",
+            ])
+        if digest.waves:
+            lines.extend(["Intent over survey waves:", ""])
+            for wave in digest.waves:
+                line = "- tick " + repr(wave.tick) + ": " + repr(wave.respondents) + " answered, adoption " + (
+                    _number(wave.adoption) if wave.adoption is not None else "unmeasured")
+                if wave.audience_adoption:
+                    line += " (" + ", ".join(
+                        name + " " + _number(value) for name, value in wave.audience_adoption.items()) + ")"
+                if wave.reached_adoption is not None:
+                    line += "; reached " + repr(wave.reached) + " at " + _number(wave.reached_adoption)
+                if wave.unreached_adoption is not None:
+                    line += "; unreached " + repr(wave.unreached) + " at " + _number(wave.unreached_adoption)
+                lines.append(line)
+            lines.append("")
         if digest.rungs:
             lines.extend(["Ran degraded: " + ", ".join(digest.rungs), ""])
     lines.extend(["## Assumption ledger", ""])
@@ -297,6 +363,19 @@ def _to_markdown(doc: _Document) -> str:
     for assumption in doc.assumptions:
         lines.extend(["- " + _inline(assumption.text) + " (" + assumption.source + ")", ""])
     lines.extend(["## Method disclosure", ""])
+    for scenario in doc.scenarios:
+        lines.extend([
+            "Scenario " + scenario.variant_id + ": channels "
+            + (", ".join(scenario.channels) if scenario.channels else "none (a concept test: every persona sees the concept alone)")
+            + "; a survey wave every " + repr(scenario.survey_every) + " ticks, at tick 0 and the last tick of "
+            + repr(scenario.horizon_ticks)
+            + ("; launch reach " + _number(scenario.launch_reach) if scenario.launch_reach is not None else ""),
+            "",
+        ])
+    if any({"social_feed", "forum"} & set(scenario.channels) for scenario in doc.scenarios):
+        lines.extend([OASIS_DEPARTURES, ""])
+    if any(len(digest.waves) > 1 for digest in doc.digests):
+        lines.extend([REPEATED_SSR, ""])
     for role, model_id in doc.pins:
         lines.extend(["- " + role + ": " + model_id, ""])
     for role, model_id in doc.fallbacks:
@@ -381,6 +460,9 @@ def _to_data(doc: _Document) -> dict:
                 "wom_deliveries": digest.wom_deliveries,
                 "wom_reach": digest.wom_reach,
                 "rungs": list(digest.rungs),
+                "waves": [wave.model_dump(mode="json") for wave in digest.waves],
+                "exposures_by_channel": dict(digest.exposures_by_channel),
+                "reached_by_channel": dict(digest.reached_by_channel),
             }
             for digest in doc.digests
         ],
@@ -388,6 +470,13 @@ def _to_data(doc: _Document) -> dict:
             {"text": assumption.text, "source": assumption.source} for assumption in doc.assumptions
         ],
         "method": {
+            "scenarios": [
+                {"variant_id": scenario.variant_id, "channels": list(scenario.channels),
+                 "survey_every": scenario.survey_every, "horizon_ticks": scenario.horizon_ticks,
+                 "launch_reach": scenario.launch_reach}
+                for scenario in doc.scenarios
+            ],
+            "departures": [OASIS_DEPARTURES] if any({"social_feed", "forum"} & set(s.channels) for s in doc.scenarios) else [],
             "pins": [{"role": role, "model_id": model_id} for role, model_id in doc.pins],
             "fallbacks": [{"role": role, "model_id": model_id} for role, model_id in doc.fallbacks],
             "seeds": list(doc.seeds),

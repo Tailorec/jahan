@@ -67,7 +67,7 @@ def test_the_method_disclosure_names_pins_seeds_and_engine_commit(tmp_path, monk
     assert code == 0
     data = json.loads((out / RUN_ID / "report.json").read_text())
     pins = {entry["role"]: entry["model_id"] for entry in data["method"]["pins"]}
-    assert pins == {"tier_a": "fake/tier-a-1", "tier_b": "fake/tier-b-1", "embed": "fake/embed-1"}
+    assert pins == {"tier_a": "fake/tier-a-1", "tier_b": "fake/tier-b-1", "embed": "fake/embed-1", "recsys_embed": "fake/recsys-embed-1"}
     assert data["method"]["seeds"] == [4021, 917731]
     assert data["engine_commit"] == ENGINE_VERSION
     markdown = (out / RUN_ID / "report.md").read_text()

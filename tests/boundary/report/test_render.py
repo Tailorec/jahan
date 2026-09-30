@@ -76,3 +76,21 @@ def test_the_rendering_carries_the_validated_report_it_was_built_from():
     assert [digest.world_id for digest in report.report.digests] == [
         entry["world_id"] for entry in report.data["digests"]
     ]
+
+
+def test_waves_render_as_intent_over_time_with_the_reached_split_and_the_repeated_ssr_caveat():
+    worlds = digests()
+    worlds[0]["waves"] = [
+        {"tick": 0, "respondents": 4, "audience_pmfs": {"gym_regulars": (0.1, 0.1, 0.2, 0.3, 0.3)},
+         "audience_shares": {"gym_regulars": 1.0}, "reached": 0, "unreached_pmf": (0.1, 0.1, 0.2, 0.3, 0.3)},
+        {"tick": 2, "respondents": 4, "audience_pmfs": {"gym_regulars": (0.0, 0.1, 0.1, 0.4, 0.4)},
+         "audience_shares": {"gym_regulars": 1.0}, "reached": 3,
+         "reached_pmf": (0.0, 0.0, 0.2, 0.4, 0.4), "unreached_pmf": (0.2, 0.2, 0.2, 0.2, 0.2)},
+    ]
+    report = render([], worlds, pack())
+    assert "Intent over survey waves:" in report.markdown
+    assert "- tick 0: 4 answered, adoption 0.6 (gym_regulars 0.6); unreached 4 at 0.6" in report.markdown
+    assert "; reached 3 at 0.8; unreached 1 at 0.4" in report.markdown
+    assert "one-shot survey" in report.markdown
+    (first, _) = [d for d in report.data["digests"] if d["waves"]][0]["waves"]
+    assert first["adoption"] == pytest.approx(0.6)
