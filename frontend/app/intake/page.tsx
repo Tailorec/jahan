@@ -4,7 +4,7 @@ import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
 import { useSessionState } from "@/lib/session";
-import { PageHead, Callout, ICONS, Tip } from "@/components/ui";
+import { PageHead, Callout, ICONS, Tip, Section, Field } from "@/components/ui";
 import { api, useApi, whyNot } from "@/lib/api";
 import { briefToYaml, type BriefForm } from "@/lib/briefYaml";
 import type { AudienceSet, CategoryOntology, ClaimSource } from "@/lib/engine";
@@ -586,37 +586,6 @@ const CHANNEL_CARD: Record<ChannelName, { title: string; icon: keyof typeof ICON
   forum: { title: "Forum (Reddit-like)", icon: "forum" },
   wom: { title: "Word of mouth (person to person)", icon: "wom" },
 };
-
-/* One numbered step of the study, with its icon and a tip in place of a paragraph. */
-function Section({ step, icon, title, tip, done, children }: {
-  step: number; icon: keyof typeof ICONS; title: string; tip: React.ReactNode; done?: boolean; children: React.ReactNode;
-}) {
-  return (
-    <div className="panel">
-      <div className="panel-head">
-        <div className="sec-head">
-          <span className="sec-icon">{ICONS[icon]}</span>
-          <span className="sec-step">{step}</span>
-          <h2>{title}</h2>
-          <Tip>{tip}</Tip>
-          {done && <span className="sec-done" title="filled in">{ICONS.check}</span>}
-        </div>
-      </div>
-      <div className="panel-body">{children}</div>
-    </div>
-  );
-}
-
-/* A field's label with its icon, and a tip when it needs explaining. */
-function Field({ icon, label, tip, children }: { icon: keyof typeof ICONS; label: string; tip?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <div className="field">
-      <div className="lbl">{ICONS[icon]}{label}{tip && <Tip>{tip}</Tip>}</div>
-      {children}
-    </div>
-  );
-}
-
 
 /* Each shard as the people in it, not a file number: which sources it holds and how many, whether they were
    surveyed, read from text by a model, or synthetic and never drawn. */

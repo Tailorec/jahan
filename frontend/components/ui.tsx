@@ -86,6 +86,27 @@ export const ICONS = {
   bulb: (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" /><path d="M9 18h6" /><path d="M10 22h4" /></svg>
   ),
+  share: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" /><circle cx="18" cy="19" r="3" /><path d="m8.59 13.51 6.83 3.98" /><path d="m15.41 6.51-6.82 3.98" /></svg>
+  ),
+  network: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="16" y="16" width="6" height="6" rx="1" /><rect x="2" y="16" width="6" height="6" rx="1" /><rect x="9" y="2" width="6" height="6" rx="1" /><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3" /><path d="M12 12V8" /></svg>
+  ),
+  pie: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21.21 15.89A10 10 0 1 1 8 2.83" /><path d="M22 12A10 10 0 0 0 12 2v10z" /></svg>
+  ),
+  sparkles: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" /></svg>
+  ),
+  table: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v18" /><rect width="18" height="18" x="3" y="3" rx="2" /><path d="M3 9h18" /><path d="M3 15h18" /></svg>
+  ),
+  fork: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="18" r="3" /><circle cx="6" cy="6" r="3" /><circle cx="18" cy="6" r="3" /><path d="M18 9v2c0 .6-.4 1-1 1H7c-.6 0-1-.4-1-1V9" /><path d="M12 12v3" /></svg>
+  ),
+  layers: (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z" /><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65" /><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65" /></svg>
+  ),
 };
 
 /* A small help button: the explanation shows on hover and on keyboard focus. Panels clip their
@@ -222,5 +243,35 @@ export function TrustLine({ level, runId }: {
       {level !== "uncalibrated" ? null : <> — results have not been checked against real human data</>}
       <> · <a href={runId ? `/calibration?run=${runId}` : "/calibration"}>what would earn the next rung →</a></>
     </p>
+  );
+}
+
+/* One section of a page: its icon, an optional step number, and a tip in place of a paragraph. */
+export function Section({ step, icon, title, tip, done, children }: {
+  step?: number; icon: keyof typeof ICONS; title: string; tip: React.ReactNode; done?: boolean; children: React.ReactNode;
+}) {
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <div className="sec-head">
+          <span className="sec-icon">{ICONS[icon]}</span>
+          {step !== undefined && <span className="sec-step">{step}</span>}
+          <h2>{title}</h2>
+          <Tip>{tip}</Tip>
+          {done && <span className="sec-done" title="filled in">{ICONS.check}</span>}
+        </div>
+      </div>
+      <div className="panel-body">{children}</div>
+    </div>
+  );
+}
+
+/* A field's label with its icon, and a tip when it needs explaining. */
+export function Field({ icon, label, tip, children }: { icon: keyof typeof ICONS; label: string; tip?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <div className="field">
+      <div className="lbl">{ICONS[icon]}{label}{tip && <Tip>{tip}</Tip>}</div>
+      {children}
+    </div>
   );
 }
