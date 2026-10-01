@@ -391,13 +391,12 @@ def run_world(
         wave: list[Presentation] = [p for p in delta.presentations if p.impression.channel is Channel.SURVEY_ROOM]
 
         def _jobs(presentations: list[Presentation], task: TurnTask) -> list[TurnJob]:
+            # Jobs share the live persona, state and presentation rather than copying them: every model
+            # is frozen, and a turn replaces a persona's state rather than changing it, so a job keeps
+            # exactly what it was given. Copied, a tick held each persona's memories once per job.
             return [
-                TurnJob.model_validate({
-                    "persona": personas[p.impression.persona_id].model_dump(mode="json"),
-                    "state": states[p.impression.persona_id].model_dump(mode="json"),
-                    "presentation": p.model_dump(mode="json"),
-                    "task": task.value,
-                })
+                TurnJob(persona=personas[p.impression.persona_id], state=states[p.impression.persona_id],
+                        presentation=p, task=task)
                 for p in presentations
             ]
 

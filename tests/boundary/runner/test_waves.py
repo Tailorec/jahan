@@ -233,3 +233,27 @@ def test_a_wave_answers_from_the_state_its_own_ticks_channel_turn_left():
             value = next(dim for dim in answered.beliefs.dimensions if str(dim) == "value")
             assert answered.beliefs.dimensions[value] == pytest.approx(min(1.0, before.beliefs.dimensions[value] + 0.05))
             assert answered.turns_since_reflection == before.turns_since_reflection + 1
+
+
+def test_jobs_share_the_live_persona_and_state_rather_than_copying_them():
+    """A tick holds each persona's memories once, however many jobs it makes for that persona."""
+    pack, population = _pack(), _population()
+    config = _repinned(_config(horizon=2, survey_every=1), pack, population)
+    held: dict = {}
+
+    def agent_fn(jobs):
+        for job in jobs:
+            held.setdefault((job.presentation.impression.tick, job.persona.persona_id), []).append(job)
+        return tuple(_completed(j, i) for i, j in enumerate(jobs))
+
+    run(config, pack=pack, population=population, trace=InMemoryTraceSink(), registry=InMemoryRegistry(),
+        world_factory=lambda header: WaveWorld(header), agent_fn=agent_fn, ladder=LadderConfig())
+    personas = {persona.persona_id: persona for persona in population.personas}
+    for (tick, pid), jobs in held.items():
+        assert all(job.persona is personas[pid] for job in jobs)
+    # The wave at tick 0 changes nothing, so the forum job at tick 1 starts from the very state the
+    # wave was given — the same object, not an equal copy.
+    for pid in personas:
+        wave = next(j for j in held[(0, pid)] if j.presentation.impression.channel.value == "survey_room")
+        forum = next(j for j in held[(1, pid)] if j.presentation.impression.channel.value == "forum")
+        assert wave.state is forum.state
