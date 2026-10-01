@@ -937,6 +937,13 @@ def create_app(
             "rejected_verified": rebuilt.rejected_verified,
         }
 
+    @app.get("/api/runs/{run_id}/live")
+    def run_live(request: Request, run_id: str) -> dict[str, Any]:
+        """Each world's digest as of its last closed tick, written by the study as it runs."""
+        live = Path(_run_dir(request, run_id), "live")
+        worlds = [_read_json_silent(path) for path in sorted(live.glob("*.json"))] if live.is_dir() else []
+        return {"worlds": [world for world in worlds if isinstance(world, dict)]}
+
     @app.get("/api/runs/{run_id}/digest")
     def run_digest(request: Request, run_id: str) -> dict[str, Any]:
         return _read_json(Path(_run_dir(request, run_id), "digest.json"))
