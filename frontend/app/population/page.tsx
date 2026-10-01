@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Shell from "@/components/shell";
-import { PageHead, Chip, Callout, TrustLine } from "@/components/ui";
+import { PageHead, Chip, Callout, TrustLine, ICONS, Section, Tip } from "@/components/ui";
 import React from "react";
 import { useApi, useRunId } from "@/lib/api";
 import { PALETTE, SocialGraph } from "./social-graph";
@@ -61,14 +61,9 @@ function SourceMix({ mix }: { mix: Record<string, number> }) {
   );
 }
 
-/* A small "?" that explains a term on hover, and to a screen reader. */
-function Tip({ text }: { text: string }) {
-  return (
-    <span title={text} aria-label={text} role="note" style={{
-      display: "inline-grid", placeItems: "center", width: 15, height: 15, marginLeft: 5, borderRadius: "50%",
-      border: "1px solid var(--line-2)", fontSize: 10, color: "var(--ink-3)", cursor: "help", verticalAlign: 1,
-    }}>?</span>
-  );
+/* The social graph takes its tip as a prop of text; this hands it the shared one. */
+function TextTip({ text }: { text: string }) {
+  return <Tip>{text}</Tip>;
 }
 
 export default function PopulationPage() {
@@ -85,16 +80,14 @@ export default function PopulationPage() {
   return (
     <Shell crumbs={<><Link href="/">Workspace</Link> / Population / <b>Population</b></>}>
       <PageHead
-        title="Population — who is in this study"
+        title="Population"
         sub={runId ? <>
-          Run <span className="mono">{runId}</span>{manifest && <> · population hash <span className="mono">{manifest.population_hash.slice(0, 12)}…</span> · draw seed <span className="mono">{manifest.population_seed}</span></>}
-          <br />The <b>population gate</b> draws the personas and checks them before anything is simulated. If the draw fails, the study stops here and nothing is spent on it.
+          <span className="mono">{runId}</span>{manifest && <> · seed <span className="mono">{manifest.population_seed}</span> · hash <span className="mono">{manifest.population_hash.slice(0, 12)}…</span></>}
+          {" "}<Tip>The <b>population gate</b> draws the personas and checks them before anything is simulated. If the draw fails, the study stops here and nothing is spent on it.</Tip>
         </> : "Pick a run."}
         actions={gate && <>
           {gate.overall ? <Chip className="ok">gate passed</Chip> : <Chip className="risk">gate failed</Chip>}
-          <span title="The weakest source behind the checked attributes. A pass is never read as stronger than its weakest evidence: measured (surveyed) is strongest, then calibrated, extracted (read from text), synthesized (invented)." style={{ cursor: "help" }}>
-            <Chip className="tier-explo">evidence: weakest {gate.evidence}</Chip>
-          </span>
+          <Chip className="tier-explo" title="The weakest source behind the checked attributes. A pass is never read as stronger than its weakest evidence: measured (surveyed) is strongest, then calibrated, extracted (read from text), synthesized (invented).">evidence: weakest {gate.evidence}</Chip>
         </>}
       />
       {error && <Callout icon="alert"><div>{error}</div></Callout>}
@@ -120,31 +113,32 @@ export default function PopulationPage() {
       )}
       {gate && (
         <>
-          <div className="stat-strip" style={{ marginBottom: 20 }}>
-            <div className="stat"><div className="k">Personas<Tip text="How many personas were drawn and kept for this study." /></div><div className="v">{manifest ? manifest.persona_ids.length.toLocaleString() : "none built"}</div><div className="d">{manifest ? "drawn to the audience shares" : gate.overall ? "the build stopped after the gate, so none were kept" : "the draw failed its gates, so no population was kept"}</div></div>
-            <div className="stat" style={{ gridColumn: "span 2" }}><div className="k">Source mix<Tip text="Which dataset each drawn persona came from. If one survey dominates, the personas are mostly that survey's kind of people." /></div><SourceMix mix={gate.source_mix} /></div>
-            <div className="stat"><div className="k">Synthesized<Tip text="The share of persona fields a model filled in because the person never answered them. Only money, media and decision fields may be filled; who people are and how they think never are." /></div><div className="v">{manifest ? <>{(manifest.synthesized_share * 100).toFixed(1)}<small>%</small></> : "—"}</div><div className="d">{manifest ? "of fields filled in by a model" : "no manifest to state it"}</div></div>
-            <div className="stat"><div className="k">Relaxations<Tip text="How many times an audience's filters had to be loosened because too few people matched them exactly." /></div><div className="v">{gate.relaxations.length}</div><div className="d">{gate.relaxations.length ? "filters loosened to fill audiences" : "every audience filled as declared"}</div></div>
-            <div className="stat"><div className="k">Judged against<Tip text={REFERENCE_WORDS[gate.reference]} /></div><div className="v" style={{ fontSize: 16 }}>{gate.reference === "design" ? "the study's design" : "category targets"}</div><div className="d">what the checks compare the draw with</div></div>
+          <div className="kpis" style={{ marginBottom: 16 }}>
+            <Kpi icon="users" label="Personas" tip="How many personas were drawn and kept for this study."
+              value={manifest ? manifest.persona_ids.length.toLocaleString() : "none"}
+              note={manifest ? undefined : gate.overall ? "build stopped" : "draw failed"} />
+            <Kpi icon="shield" label="Checks passed" tip="Distribution gates: does the draw look like the people it was drawn from?"
+              value={`${gate.results.length - failures.length}/${gate.results.length}`} tone={failures.length ? "no" : "ok"} />
+            <Kpi icon="sparkles" label="Synthesized" tip="The share of persona fields a model filled in because the person never answered them. Only money, media and decision fields may be filled; who people are and how they think never are."
+              value={manifest ? `${(manifest.synthesized_share * 100).toFixed(1)}%` : "—"} />
+            <Kpi icon="sliders" label="Relaxations" tip="How many times an audience's filters had to be loosened because too few people matched them exactly."
+              value={String(gate.relaxations.length)} tone={gate.relaxations.length ? "warn" : undefined} />
+            <Kpi icon="target" label="Judged against" tip={REFERENCE_WORDS[gate.reference]}
+              value={gate.reference === "design" ? "design" : "category"} />
           </div>
 
           <div className="grid g2">
             <div>
-              <div className="panel">
-                <div className="panel-head"><h2>Audience mix</h2><span className="hint">the shares you asked for, and what the draw reached</span></div>
-                <div className="panel-body"><AudienceMix asked={manifest?.requested_mix ?? null} reached={gate.achieved_mix} people={manifest?.persona_ids.length ?? null} relaxations={gate.relaxations} Tip={Tip} /></div>
-              </div>
-              <div className="panel">
-                <div className="panel-head"><h2>Distribution gates</h2><span className="hint">does the draw look like the people it was drawn from?</span></div>
-                <div className="panel-body" style={{ display: "grid", gap: 12 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <b style={{ fontSize: 15, color: failures.length ? "var(--risk)" : undefined }}>{gate.results.length - failures.length} of {gate.results.length} checks passed</b>
-                    <Tip text={`Each check compares one attribute of the drawn personas with the same attribute among the people they could have been drawn from. A random draw is never a perfect copy, so a check fails only when the gap is bigger than chance explains. ${REFERENCE_WORDS[gate.reference]}`} />
-                    <span className="sub" style={{ marginLeft: "auto", fontSize: 11.5, display: "flex", gap: 10, alignItems: "center" }}>
-                      <span><span style={{ display: "inline-block", width: 14, height: 7, background: "var(--risk-soft)", border: "1px solid var(--line-2)", verticalAlign: 0 }} /> fails here</span>
-                      <span><span style={{ display: "inline-block", width: 2, height: 11, background: "var(--ink-3)", verticalAlign: -1 }} /> pass line</span>
-                      <span><span style={{ display: "inline-block", width: 9, height: 9, borderRadius: "50%", background: "var(--ok)", verticalAlign: 0 }} /> this draw</span>
-                    </span>
+              <Section icon="users" title="Audience mix" tip="The shares you asked for, and what the draw reached. The dark tick is the share asked for; the bar is the share reached.">
+                <AudienceMix asked={manifest?.requested_mix ?? null} reached={gate.achieved_mix} people={manifest?.persona_ids.length ?? null} relaxations={gate.relaxations} />
+              </Section>
+              <Section icon="shield" title="Distribution gates" done={!failures.length}
+                tip={`Does the draw look like the people it was drawn from? Each check compares one attribute of the drawn personas with the same attribute among the people they could have been drawn from. A random draw is never a perfect copy, so a check fails only when the gap is bigger than chance explains. ${REFERENCE_WORDS[gate.reference]}`}>
+                <div style={{ display: "grid", gap: 10 }}>
+                  <div className="row sub" style={{ fontSize: 11.5, gap: 12, flexWrap: "wrap" }}>
+                    <span><span style={{ display: "inline-block", width: 14, height: 7, background: "var(--risk-soft)", border: "1px solid var(--line-2)", verticalAlign: 0 }} /> fails</span>
+                    <span><span style={{ display: "inline-block", width: 2, height: 11, background: "var(--ink-3)", verticalAlign: -1 }} /> pass line</span>
+                    <span><span style={{ display: "inline-block", width: 9, height: 9, borderRadius: "50%", background: "var(--ok)", verticalAlign: 0 }} /> this draw</span>
                   </div>
                   <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", overflow: "hidden" }}>
                     {gate.results.map((r, i) => {
@@ -152,28 +146,28 @@ export default function PopulationPage() {
                       const meter = gateMeter(r);
                       return (
                         <details key={i} open={!r.passed} style={{ borderTop: i ? "1px solid var(--line)" : 0, boxShadow: r.passed ? undefined : "inset 3px 0 0 var(--risk)" }}>
-                          <summary style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(140px, 1.2fr) 64px", gap: 14, alignItems: "center", padding: "10px 12px", cursor: "pointer", listStyle: "none" }}>
+                          <summary style={{ display: "grid", gridTemplateColumns: "20px minmax(0, 1fr) minmax(120px, 1.2fr)", gap: 12, alignItems: "center", padding: "10px 12px", cursor: "pointer", listStyle: "none" }}>
+                            <span style={{ color: r.passed ? "var(--ok)" : "var(--risk)", display: "inline-flex" }} aria-label={r.passed ? "pass" : "fail"}>{r.passed ? ICONS.check : ICONS.x}</span>
                             <span>
                               <b style={{ textTransform: "capitalize" }}>{words.title}</b>
-                              <div className="sub" style={{ fontSize: 11 }}>{r.kind === "categorical" ? "categories" : r.kind === "ordinal" ? "ordered scale" : "network"} · details ▾</div>
+                              <div className="sub" style={{ fontSize: 11 }}>{r.kind === "categorical" ? "categories" : r.kind === "ordinal" ? "ordered scale" : "network"}</div>
                             </span>
                             <span>
                               <Meter meter={meter} passed={r.passed} />
                               <div className="mono sub" style={{ fontSize: 11, marginTop: 7 }}>{meter.short}</div>
                             </span>
-                            <span style={{ justifySelf: "end" }}>{r.passed ? <Chip className="ok">pass</Chip> : <Chip className="risk">fail</Chip>}</span>
                           </summary>
-                          <div style={{ padding: "0 12px 12px", fontSize: 12.5, display: "grid", gap: 4 }}>
+                          <div style={{ padding: "0 12px 12px 44px", fontSize: 12.5, display: "grid", gap: 4 }}>
                             <div className="sub">{words.question}</div>
                             <div>{words.result} <span className="sub">{words.rule}</span></div>
                             {!r.passed && words.failed && <div style={{ color: "var(--risk)" }}>{words.failed}</div>}
                             <div className="mono sub" style={{ fontSize: 11 }}>
-                              {words.raw}
-                              <Tip text={r.kind === "categorical"
+                              {words.raw}{" "}
+                              <Tip>{r.kind === "categorical"
                                 ? "Chi-square test. χ² measures how far the drawn counts are from the expected counts; dof is the number of categories minus one; p is the chance of a gap at least this big if the draw were fair. Pass when p is above the significance level."
                                 : r.kind === "ordinal"
                                   ? "Kolmogorov–Smirnov test. D is the largest gap between the two cumulative spreads across the ordered bands; similarity is 1 − D. Pass when similarity reaches the threshold."
-                                  : "A structural measure of the generated social network, with the floor it must reach."} />
+                                  : "A structural measure of the generated social network, with the floor it must reach."}</Tip>
                             </div>
                           </div>
                         </details>
@@ -181,17 +175,18 @@ export default function PopulationPage() {
                     })}
                   </div>
                 </div>
-              </div>
-              <div className="panel">
-                <div className="panel-head"><h2>Completion</h2><span className="hint">fields a model may fill when a person never answered them</span></div>
-                <div className="panel-body"><Completion ontology={onto} origins={gate.attribute_origins} synthesized={manifest?.synthesized_share ?? null} model={manifest?.completion?.model_id ?? null} Tip={Tip} /></div>
-              </div>
+              </Section>
+              <Section icon="sparkles" title="Completion" tip="Fields a model may fill when a person never answered them — and the ones it never may.">
+                <Completion ontology={onto} origins={gate.attribute_origins} synthesized={manifest?.synthesized_share ?? null} model={manifest?.completion?.model_id ?? null} />
+              </Section>
             </div>
             <div>
-              <div className="panel">
-                <div className="panel-head"><h2>Audiences vs communities</h2><span className="hint">the groups you declared, against the groups the network formed</span></div>
-                <div className="panel-body" style={{ display: "grid", gap: 8 }}>
-                  <p className="sub" style={{ fontSize: 12.5 }}>Audiences are the groups you declared. Communities are groups of personas who ended up closely tied in the social network; they often cut across audiences, and that is a finding, not a defect.</p>
+              <Section icon="pie" title="Source mix" tip="Which dataset each drawn persona came from. If one survey dominates, the personas are mostly that survey's kind of people.">
+                <SourceMix mix={gate.source_mix} />
+              </Section>
+              <Section icon="fork" title="Audiences vs communities"
+                tip="Audiences are the groups you declared. Communities are groups of personas who ended up closely tied in the social network; they often cut across audiences, and that is a finding, not a defect.">
+                <div style={{ display: "grid", gap: 8 }}>
                   {digest && Object.keys(digest.community_sizes ?? {}).length > 0 ? (
                     <table className="tbl"><thead><tr><th>Community</th><th className="num">Share of personas</th></tr></thead><tbody>
                       {Object.entries(digest.community_sizes).map(([c, s]) => (
@@ -199,41 +194,56 @@ export default function PopulationPage() {
                       ))}
                     </tbody></table>
                   ) : !digest ? (
-                    <div className="empty"><b>Not yet — the study has not run.</b>Communities are found in the social network as the study runs: who talks to whom, and which groups form. A gate run builds the network but runs nothing, so there is nothing to show until the study is launched.</div>
+                    <div className="empty" style={{ padding: 20 }}><b>{ICONS.clock} Not yet — the study has not run.</b>Communities form as the study runs. <Tip>Communities are found in the social network as the study runs: who talks to whom, and which groups form. A gate run builds the network but runs nothing, so there is nothing to show until the study is launched.</Tip></div>
                   ) : (
-                    <div className="empty"><b>No communities formed.</b>{digest.polarization_reason ? <> {digest.polarization_reason}</> : " The network formed no clear groups, so polarization is unmeasured rather than zero."}</div>
+                    <div className="empty" style={{ padding: 20 }}><b>No communities formed.</b>{digest.polarization_reason ? <> {digest.polarization_reason}</> : " The network formed no clear groups, so polarization is unmeasured rather than zero."}</div>
                   )}
-                  {digest && <p className="sub" style={{ fontSize: 12 }}>
-                    <span className="mono">world {digest.world_id}</span> · audience divergence <b>{digest.audience_divergence != null ? digest.audience_divergence.toFixed(3) : "—"}</b>
-                    <Tip text="How differently the audiences ended up responding: 0 means they answered alike, higher means further apart." />
-                    {" "}· polarization <b>{digest.polarization != null ? digest.polarization.toFixed(3) : "unmeasured"}</b>
-                    <Tip text="How far the communities split into opposing views: 0 means none. Unmeasured when the network formed no communities to compare." />
-                  </p>}
+                  {digest && <div className="row sub" style={{ fontSize: 12, flexWrap: "wrap" }}>
+                    <span className="mono">world {digest.world_id}</span>
+                    <span>audience divergence <b>{digest.audience_divergence != null ? digest.audience_divergence.toFixed(3) : "—"}</b></span>
+                    <Tip>How differently the audiences ended up responding: 0 means they answered alike, higher means further apart.</Tip>
+                    <span>polarization <b>{digest.polarization != null ? digest.polarization.toFixed(3) : "unmeasured"}</b></span>
+                    <Tip>How far the communities split into opposing views: 0 means none. Unmeasured when the network formed no communities to compare.</Tip>
+                  </div>}
                 </div>
-              </div>
+              </Section>
             </div>
           </div>
           {manifest && runId && (
-            <div className="panel" style={{ marginTop: 16 }}>
-              <div className="panel-head"><h2>Social network</h2><span className="hint">who knows whom among the personas — word of mouth, feeds and forums travel along these ties</span></div>
-              <div className="panel-body"><SocialGraph runId={runId} Meter={Meter} Tip={Tip} /></div>
-            </div>
+            <Section icon="network" title="Social network" tip="Who knows whom among the personas — word of mouth, feeds and forums travel along these ties.">
+              <SocialGraph runId={runId} Meter={Meter} Tip={TextTip} />
+            </Section>
           )}
-          <div className="panel" style={{ marginTop: 16 }}>
-                <div className="panel-head"><h2>Personas</h2><span className="hint">all {(data?.personaTotal ?? 0).toLocaleString()} in this study — each value coloured by where it came from</span></div>
-                <div className="panel-body" style={{ display: "grid", gap: 8 }}>
-                  <div className="sub" style={{ fontSize: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {(["measured", "extracted", "synthesized"] as FieldOrigin[]).map((o) => <span key={o}><b style={{ color: ORIGIN_COLOR[o] }}>{o}</b>: {ORIGIN_WORDS[o].split(" — ")[1]}</span>)}
-                  </div>
-                  {!personas && (manifest
-                    ? <div className="empty"><b>No persona records.</b>Runs recorded before personas.json need a re-run — the manifest alone cannot say where a field came from.</div>
-                    : <div className="empty"><b>No personas were built.</b>{gate?.overall ? "The draw passed its gates, but building the population stopped — see the note above." : "The draw failed its gates before any persona was kept, so there is no record to sample."}</div>)}
-                  {personas && runId && <PersonaTable runId={runId} total={data?.personaTotal ?? 0} order={onto?.relevance_order ?? []} />}
-                </div>
+          <Section icon="table" title={`Personas · ${(data?.personaTotal ?? 0).toLocaleString()}`}
+            tip="All the personas in this study, read from its personas.json — each value coloured by where it came from. Hover a value for its origin.">
+            <div style={{ display: "grid", gap: 8 }}>
+              <div className="row" style={{ fontSize: 12, flexWrap: "wrap", gap: 12 }}>
+                {(["measured", "extracted", "synthesized"] as FieldOrigin[]).map((o) => (
+                  <span key={o} className="row" style={{ gap: 4 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: ORIGIN_COLOR[o] }} /><b style={{ color: ORIGIN_COLOR[o] }}>{o}</b><Tip>{ORIGIN_WORDS[o]}</Tip></span>
+                ))}
               </div>
+              {!personas && (manifest
+                ? <div className="empty"><b>No persona records.</b>Runs recorded before personas.json need a re-run — the manifest alone cannot say where a field came from.</div>
+                : <div className="empty"><b>No personas were built.</b>{gate?.overall ? "The draw passed its gates, but building the population stopped — see the note above." : "The draw failed its gates before any persona was kept, so there is no record to sample."}</div>)}
+              {personas && runId && <PersonaTable runId={runId} total={data?.personaTotal ?? 0} order={onto?.relevance_order ?? []} />}
+            </div>
+          </Section>
         </>
       )}
     </Shell>
+  );
+}
+
+/* One number at the top of the page, with its icon and what it means on hover. */
+function Kpi({ icon, label, value, tip, note, tone }: {
+  icon: keyof typeof ICONS; label: string; value: string; tip: React.ReactNode; note?: string; tone?: "ok" | "no" | "warn";
+}) {
+  return (
+    <div className={`kpi${tone ? ` ${tone}` : ""}`}>
+      <div className="k">{ICONS[icon]}{label}<Tip>{tip}</Tip></div>
+      <div className="v">{value}</div>
+      {note && <div className="d">{note}</div>}
+    </div>
   );
 }
 
@@ -284,9 +294,9 @@ function PersonaTable({ runId, total, order }: { runId: string; total: number; o
 
 /* Each audience as a row: the share asked for as a tick, the share reached as a bar, how many people that is,
    and anything that had to be loosened to reach it. Colours match the social network's. */
-function AudienceMix({ asked, reached, people, relaxations, Tip }: {
+function AudienceMix({ asked, reached, people, relaxations }: {
   asked: Record<string, number> | null; reached: Record<string, number>; people: number | null;
-  relaxations: GateReport["relaxations"]; Tip: (p: { text: string }) => React.ReactElement;
+  relaxations: GateReport["relaxations"];
 }) {
   const names = Object.keys(asked ?? reached);
   const colour = (name: string) => PALETTE[[...names].sort().indexOf(name) % PALETTE.length];
@@ -322,17 +332,18 @@ function AudienceMix({ asked, reached, people, relaxations, Tip }: {
           </div>
         );
       })}
-      <div className="sub" style={{ fontSize: 11.5 }}>
-        The dark tick is the share asked for; the bar is the share reached.<Tip text="Reached below asked means the audience's pool held too few people. Filters loosened to reach a share are listed under its audience, and the audience is then no longer exactly what was declared." />
+      <div className="row sub" style={{ fontSize: 11.5, gap: 10 }}>
+        <span><span style={{ display: "inline-block", width: 2, height: 11, background: "var(--ink)", verticalAlign: -1 }} /> asked for</span>
+        <span><span style={{ display: "inline-block", width: 14, height: 7, borderRadius: 3, background: "var(--ink-3)", verticalAlign: 0 }} /> reached</span>
+        <Tip>Reached below asked means the audience&apos;s pool held too few people. Filters loosened to reach a share are listed under its audience, and the audience is then no longer exactly what was declared.</Tip>
       </div>
     </div>
   );
 }
 
 /* What a model was allowed to fill, what it did fill, and which of this study's attributes each rule covers. */
-function Completion({ ontology, origins, synthesized, model, Tip }: {
+function Completion({ ontology, origins, synthesized, model }: {
   ontology: CategoryOntology | null; origins: Record<string, FieldOrigin>; synthesized: number | null; model: string | null;
-  Tip: (p: { text: string }) => React.ReactElement;
 }) {
   const allowed = new Set<string>((ontology?.completion_policy?.completable_domains ?? []) as string[]);
   const words = Object.fromEntries(DOMAIN_WORDS) as Record<string, string>;
@@ -355,17 +366,17 @@ function Completion({ ontology, origins, synthesized, model, Tip }: {
         <span style={{ fontSize: 26, fontWeight: 650, fontVariantNumeric: "tabular-nums" }}>{synthesized === null ? "—" : `${(synthesized * 100).toFixed(1)}%`}</span>
         <span className="sub" style={{ fontSize: 12.5 }}>
           {synthesized === null ? "no population was built, so nothing was filled"
-            : synthesized === 0 ? "of persona fields were filled in by a model — every value came from the people themselves"
-              : <>of persona fields were filled in by a model{model && <>, <span className="mono">{model}</span></>}</>}
+            : synthesized === 0 ? "filled by a model — every value came from the people themselves"
+              : <>filled by a model{model && <> · <span className="mono">{model}</span></>}</>}
         </span>
       </div>
       <div style={{ display: "grid", gap: 6 }}>
         <div style={{ fontSize: 12.5 }}>
-          <b>May be filled in</b> when a person left them blank<Tip text="The category's ontology lists the kinds of field a model may complete. Only these, and only for a persona who never answered." />
+          <b>May be filled in</b> <Tip>When a person left them blank. The category&apos;s ontology lists the kinds of field a model may complete. Only these, and only for a persona who never answered.</Tip>
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>{[...allowed].map((d) => chip(words[d] ?? d, true))}{!allowed.size && <span className="sub">{ontology ? "nothing — this category lets no field be filled" : "not recorded with this run — its ontology was not kept"}</span>}</div>
         </div>
         <div style={{ fontSize: 12.5 }}>
-          <b>Never filled in</b><Tip text="Who a person is and how they think are only ever what they said. A persona missing a required one is not drawn at all; a missing optional one stays missing." />
+          <b>Never filled in</b> <Tip>Who a person is and how they think are only ever what they said. A persona missing a required one is not drawn at all; a missing optional one stays missing.</Tip>
           <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>{(ontology ? DOMAIN_WORDS.filter(([d]) => !allowed.has(d)) : DOMAIN_WORDS.slice(0, 2)).map(([, w]) => chip(w, false))}</div>
         </div>
       </div>
