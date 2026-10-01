@@ -1,9 +1,11 @@
 """The simulation domain: stimuli, exposures, impressions, reactions, turns, beliefs, memory and elicitation."""
 
+from array import array
 from collections import Counter
+from collections.abc import Sequence
 from typing import Annotated, Self
 
-from pydantic import AfterValidator, Field, StringConstraints, computed_field, model_validator
+from pydantic import AfterValidator, BeforeValidator, Field, PlainSerializer, StringConstraints, computed_field, model_validator
 
 from .base import (
     ULID_PATTERN,
@@ -220,6 +222,39 @@ class MemoryView(SimBaseModel):
         return self
 
 
+def pack_vector(values: Sequence[float]) -> bytes:
+    """An embedding as packed float32. Embedding endpoints answer in float32, so this keeps every bit
+    they sent while a Python float tuple of the same vector costs eight times the memory."""
+    return array("f", values).tobytes()
+
+
+def unpack_vector(packed: bytes) -> list[float]:
+    """The packed embedding's values, exactly as the endpoint sent them."""
+    values = array("f")
+    values.frombytes(packed)
+    return values.tolist()
+
+
+def _packed(value: object) -> object:
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        packed = bytes(value)
+        if len(packed) % 4:
+            raise ValueError(f"a packed float32 embedding has a multiple of 4 bytes, not {len(packed)}")
+        return packed
+    if isinstance(value, (list, tuple)):
+        return pack_vector(value)
+    return value
+
+
+# A live embedding, held as packed float32 bytes: a run carries one per memory per persona, so the
+# representation decides how many personas fit in memory. JSON writes it as a list of floats.
+Float32Vector = Annotated[
+    bytes,
+    BeforeValidator(_packed),
+    PlainSerializer(lambda packed: unpack_vector(packed), return_type=list[float], when_used="json"),
+]
+
+
 class MemoryEvent(SimBaseModel):
     """One thing that happened to one persona, as that persona would recall it.
 
@@ -232,7 +267,7 @@ class MemoryEvent(SimBaseModel):
     description: NonEmptyStr
     importance: UnitInterval
     source: MemorySource
-    embedding: tuple[float, ...] | None = None
+    embedding: Float32Vector | None = None
     embed_model_id: PinnedModelId | None = None
 
     @model_validator(mode="after")

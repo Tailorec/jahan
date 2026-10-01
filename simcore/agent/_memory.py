@@ -75,13 +75,13 @@ def write_memory(
 
     `costs` collects what the embedding billed, so the turn that wrote the memory carries it.
     """
-    embedding: tuple[float, ...] | None = None
+    embedding: bytes | None = None
     model_id: str | None = None
     if embed is not None:
         result = embed.embed([description])
         if costs is not None:
             costs.extend(result.costs)
-        embedding = tuple(float(value) for value in np.asarray(result.vectors[0], dtype=np.float64))
+        embedding = np.asarray(result.vectors[0], dtype=np.float32).tobytes()
         model_id = result.served_model_id or result.model_id
     return MemoryEvent(
         memory_id=memory_uid,
@@ -107,7 +107,7 @@ def score_memory(memory: MemoryEvent, *, stimulus_vector: np.ndarray | None, tic
     recency = math.exp(-age / tau_r) if tau_r > 0 else 1.0
     relevance = 1.0
     if stimulus_vector is not None and memory.embedding is not None:
-        relevance = cosine(np.asarray(memory.embedding, dtype=np.float64), stimulus_vector)
+        relevance = cosine(np.frombuffer(memory.embedding, dtype=np.float32).astype(np.float64), stimulus_vector)
     return recency * memory.importance * relevance
 
 

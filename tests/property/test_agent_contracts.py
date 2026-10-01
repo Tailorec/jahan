@@ -21,6 +21,7 @@ from simcore.schemas import (
     TurnTask,
 )
 from tests.study_builders import beliefs_payload, persona_payload, stimulus_id, turn_payload, ulid
+from simcore.schemas.sim import unpack_vector
 
 
 def memory(n: int = 1, **overrides) -> dict:
@@ -82,7 +83,7 @@ def test_a_memory_carries_what_it_was_and_how_it_is_retrieved():
     remembered = MemoryEvent.model_validate(memory())
     assert remembered.source is MemorySource.TURN
     assert remembered.importance == 0.6
-    assert remembered.embedding == (0.1, 0.2, 0.3)
+    assert unpack_vector(remembered.embedding) == pytest.approx([0.1, 0.2, 0.3], rel=1e-7)
     assert MemoryEvent.model_validate_json(remembered.model_dump_json()) == remembered
 
 

@@ -20,6 +20,7 @@ from simcore.schemas import (
 )
 
 from .support import DictEmbed, answering, job_payload, make_job, memory_dict
+from simcore.schemas.sim import unpack_vector
 
 
 def state_with_memories(payload: dict, memories: list[dict]) -> dict:
@@ -37,7 +38,7 @@ def test_a_turn_writes_a_memory_carrying_tick_description_importance_source_and_
     assert remembered.description.startswith("comment on ")
     assert 0.0 < remembered.importance <= 1.0
     assert remembered.source.value == "turn"
-    assert remembered.embedding is not None and len(remembered.embedding) == 8
+    assert remembered.embedding is not None and len(unpack_vector(remembered.embedding)) == 8
     assert remembered.embed_model_id == embed.model_id
 
 
@@ -244,3 +245,30 @@ def test_one_persona_reacting_on_two_channels_in_a_tick_writes_distinct_memories
     for outcome in outcomes:
         state = append_memories(state, outcome.memories)
     assert len(state.memories) == len(written)
+
+
+def test_a_memory_embedding_is_packed_float32_and_returns_every_bit_the_endpoint_sent():
+    """Embedding endpoints answer in float32: packed, the vector costs 4 bytes a value instead of a
+    Python float's 32, and recall scores exactly as it did over the tuple of floats."""
+    import numpy as np
+    import pytest
+
+    from simcore.agent._memory import cosine, score_memory
+    from simcore.schemas import MemoryEvent
+
+    sent = np.random.default_rng(7).standard_normal(1024).astype(np.float32)
+    sent /= np.linalg.norm(sent)
+    stimulus = np.random.default_rng(8).standard_normal(1024)
+    memory = MemoryEvent(memory_id=f"me-{'0' * 26}", tick=1, description="saw a post", importance=0.5,
+                         source="turn", embedding=sent.tobytes(), embed_model_id="fake-embed")
+    assert len(memory.embedding) == 1024 * 4
+    assert unpack_vector(memory.embedding) == sent.tolist()
+    as_before = cosine(np.asarray(tuple(float(v) for v in sent.astype(np.float64)), dtype=np.float64), stimulus)
+    assert score_memory(memory, stimulus_vector=stimulus, tick=1, tau_r=4.0) == 0.5 * as_before
+    dumped = memory.model_dump(mode="json")
+    assert dumped["embedding"] == sent.tolist()
+    assert MemoryEvent.model_validate(dumped) == memory
+    with pytest.raises(ValueError, match="multiple of 4 bytes"):
+        MemoryEvent.model_validate({**dumped, "embedding": b"\x00\x00\x00"})
+    with pytest.raises(ValueError, match="no dimensions"):
+        MemoryEvent.model_validate({**dumped, "embedding": []})

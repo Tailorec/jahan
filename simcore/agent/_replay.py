@@ -93,7 +93,7 @@ def _reindex(remembered: MemoryEvent, embed) -> MemoryEvent:
     result = embed.embed([remembered.description])
     return remembered.model_copy(
         update={
-            "embedding": tuple(float(value) for value in np.asarray(result.vectors[0], dtype=np.float64)),
+            "embedding": np.asarray(result.vectors[0], dtype=np.float32).tobytes(),
             "embed_model_id": result.served_model_id or result.model_id,
         }
     )
