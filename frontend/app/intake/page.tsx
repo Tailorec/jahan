@@ -582,9 +582,9 @@ export default function IntakePage() {
 
 /* Each channel as a card: an icon and a short name over the one-line summary. */
 const CHANNEL_CARD: Record<ChannelName, { title: string; icon: keyof typeof ICONS }> = {
-  social_feed: { title: "Social feed", icon: "feed" },
-  forum: { title: "Forum", icon: "forum" },
-  wom: { title: "Word of mouth", icon: "wom" },
+  social_feed: { title: "Social feed (X-like)", icon: "feed" },
+  forum: { title: "Forum (Reddit-like)", icon: "forum" },
+  wom: { title: "Word of mouth (person to person)", icon: "wom" },
 };
 
 /* One numbered step of the study, with its icon and a tip in place of a paragraph. */
