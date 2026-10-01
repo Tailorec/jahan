@@ -4,7 +4,7 @@ import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
 import RunBar from "@/components/runbar";
-import { PageHead, Chip, Callout, PmfBar, PmfLegend, ICONS, TrustLine, Tip } from "@/components/ui";
+import { PageHead, Chip, Callout, ICONS, TrustLine, Tip, Kpi, Section } from "@/components/ui";
 import { useSessionState } from "@/lib/session";
 import WorldGraph from "./world";
 import ActivityStream from "./activity";
@@ -13,7 +13,7 @@ import { CHANNEL_COLOR, useClock, useTicks, type Clock } from "./replay";
 import { useApi, useRunId, api, whyNot } from "@/lib/api";
 import { worldForCell } from "@/lib/worlds";
 import { FORCE_WARNING, movedInputRefusal } from "@/lib/resume";
-import { pmfMean, top2box, type OutcomeDigest, type RunSummary, type ScenarioSummary } from "@/lib/engine";
+import type { OutcomeDigest, RunSummary, ScenarioSummary } from "@/lib/engine";
 
 interface Detail {
   summary: RunSummary | null;
@@ -155,141 +155,163 @@ export default function RunPage() {
           )}
         </>
       )}
-      {s && tab === "details" && (watching || (s.progress ?? []).length > 0 || (s.status !== "completed" && !s.has_report && !s.has_gate_report)) && (
-        <div className="panel" style={{ marginBottom: 20 }}>
-          <div className="panel-head"><h2>{watching ? "Running" : "Stopped"} — live progress</h2><span className="hint">status, recorded cost and ticks closed, published as the run works</span>
-            <div className="tools" style={{ display: "flex", gap: 8 }}>
-              {watching && <button className="btn sm" onClick={cancel} disabled={busy !== null}>{busy === "cancel" ? "Cancelling…" : "Cancel run"}</button>}
-              {!watching && s.status !== "completed" && <button className="btn sm" onClick={() => resume()} disabled={busy !== null}>{busy === "resume" ? "Resuming…" : "Resume run"}</button>}
-              {!watching && s.status !== "completed" && movedInputRefusal(s.launch_error) && <button className="btn sm" onClick={() => resume(true)} disabled={busy !== null}>Force resume…</button>}
-            </div></div>
-          <div className="panel-body tight"><table className="tbl">
-            <thead><tr><th>World</th><th className="num">Last closed tick</th><th className="num">Turns landed</th><th>Turns by channel</th><th>Waves answered</th><th>Rung in force</th></tr></thead>
-            <tbody>
-              {(s.progress ?? []).map((p) => (
-                <tr key={p.world_id}><td className="mono">{p.world_id}</td>
-                  <td className="num">{p.last_closed_tick ?? "—"}</td>
-                  <td className="num">{p.turns ?? "—"}</td>
-                  <td className="mono sub">{Object.entries(p.turns_by_channel ?? {}).map(([c, k]) => `${c === "survey_room" ? "survey" : c} ${k}`).join(" · ") || "—"}</td>
-                  <td className="mono sub">{(p.waves_answered ?? []).length ? `ticks ${p.waves_answered!.join(", ")}` : "none yet"}</td>
-                  <td className="mono sub">{(p.rungs ?? []).length ? p.rungs!.join(", ") : "full fidelity"}</td></tr>
-              ))}
-              {!(s.progress ?? []).length && <tr><td colSpan={6} className="sub" style={{ textAlign: "center" }}>starting — the registry write comes after the build</td></tr>}
-            </tbody>
-          </table></div>
-        </div>
-      )}
       {s && tab === "details" && (
-        <>
-          <div className="stat-strip" style={{ marginBottom: 20 }}>
-            <div className="stat"><div className="k">Worlds</div><div className="v">{s.world_ids.length}</div><div className="d">{s.scenarios.length} scenario(s) × {s.seeds.length} seed(s)</div></div>
-            <div className="stat"><div className="k">Cost ledger</div><div className="v">${s.recorded_cost.toFixed(2)}</div><div className="d">derived from billed calls, never kept separately</div></div>
-            <div className="stat"><div className="k">Discarded ticks</div><div className="v">{s.discarded_ticks}</div><div className="d">{s.discarded_ticks ? "interrupted before tick-closed — spend unknown but not zero" : "every tick recorded whole"}</div></div>
-            <div className="stat"><div className="k">Pins</div><div className="v" style={{ fontSize: 13 }}>{pinned(data?.pins)}</div><div className="d">fixed for the whole run</div></div>
-            <div className="stat"><div className="k">Seeds</div><div className="v" style={{ fontSize: 15 }}>{s.seeds.join(", ") || "—"}</div><div className="d">world ids derived, not chosen</div></div>
-          </div>
-
-          <div className="sect-title">Scenarios × seeds → worlds</div>
-          <div className="panel"><div className="panel-body tight">
-            <table className="tbl">
-              <thead><tr><th>Scenario</th><th>Variant · price</th><th className="num">Horizon</th><th>Tick unit</th><th>Seed</th><th>World</th><th>Status</th><th className="num">Last tick</th><th>Rungs</th></tr></thead>
-              <tbody>
-                {s.scenarios.flatMap((sc, si) => s.seeds.map((seed) => {
-                  const worldId = worldForCell(digests, seed, { worldIds: s.world_ids, scenarios: s.scenarios.length, seeds: s.seeds.length });
-                  const oc = s.outcomes.find((o) => o.world_id === worldId);
+        <div style={{ display: "grid", gap: 16 }}>
+          {(watching || (s.progress ?? []).length > 0 || (s.status !== "completed" && !s.has_report && !s.has_gate_report)) && (
+            <Section icon="play" title={watching ? "Running — live progress" : "Stopped — live progress"}
+              tip="Status, recorded cost and ticks closed, published by the study as it works. A world counts a tick only once all of it is recorded."
+              tools={<>
+                {watching && <button className="btn sm" onClick={cancel} disabled={busy !== null}>{ICONS.x}{busy === "cancel" ? "Cancelling…" : "Cancel run"}</button>}
+                {!watching && s.status !== "completed" && <button className="btn sm" onClick={() => resume()} disabled={busy !== null}>{ICONS.play}{busy === "resume" ? "Resuming…" : "Resume run"}</button>}
+                {!watching && s.status !== "completed" && movedInputRefusal(s.launch_error) && <button className="btn sm" onClick={() => resume(true)} disabled={busy !== null}>Force resume…</button>}
+              </>}>
+              {!(s.progress ?? []).length && <div className="empty"><b>Starting.</b>The registry write comes after the population is built.</div>}
+              <div style={{ display: "grid", gap: 10 }}>
+                {(s.progress ?? []).map((p) => {
+                  // Progress does not name its scenario; the longest horizon bounds every world's.
+                  const horizon = Math.max(1, (p.last_closed_tick ?? 0) + 1, ...s.scenarios.map((x) => x.horizon_ticks));
+                  const done = p.last_closed_tick == null ? 0 : p.last_closed_tick + 1;
                   return (
-                    <tr key={`${si}-${seed}`} onClick={() => worldId && setWorld(worldId)} style={{ cursor: "pointer" }}>
-                      <td className="mono sub">scenario {si + 1}</td>
-                      <td className="strong">{sc.variant.variant_id} · {sc.variant.name} <span className="sub">${sc.price.amount} {sc.price.currency}</span></td>
-                      <td className="num">{sc.horizon_ticks}</td>
-                      <td className="mono">{sc.tick_unit}</td>
-                      <td className="num mono">{seed}</td>
-                      <td className="mono">{worldId?.slice(0, 12) ?? "—"}</td>
-                      <td>{oc ? <Chip className={oc.status === "completed" ? "ok" : "plain"}>{oc.status.replace("_", " ")}</Chip> : "—"}</td>
-                      <td className="num">{oc?.last_closed_tick ?? "—"}</td>
-                      <td className="mono sub">{oc?.rungs.length ? oc.rungs.join(", ") : "full fidelity"}</td>
-                    </tr>
-                  );
-                }))}
-              </tbody>
-            </table>
-          </div></div>
-
-          {active && (
-            <div style={{ marginTop: 24 }}>
-              <div className="sect-title">Digest — world <span className="mono">{active.world_id}</span> (seed {active.seed})</div>
-              <div className="stat-strip" style={{ marginBottom: 16 }}>
-                <div className="stat"><div className="k">Adoption</div><div className="v">{active.adoption != null ? `${(active.adoption * 100).toFixed(1)}%` : "unmeasured"}</div><div className="d">{active.unmeasured_reason ?? "top-2 box, audience-weighted"}</div></div>
-                <div className="stat"><div className="k">Polarization</div><div className="v">{active.polarization != null ? active.polarization.toFixed(3) : "—"}</div><div className="d">{active.polarization_reason ?? "size-weighted community divergence"}</div></div>
-                <div className="stat"><div className="k">Turns</div><div className="v">{active.turn_count}</div><div className="d">{active.turns_without_intent} without intent</div></div>
-                <div className="stat"><div className="k">Word of mouth</div><div className="v">{active.wom_deliveries}</div><div className="d">reach {active.wom_reach}</div></div>
-                <div className="stat"><div className="k">Belief move</div><div className="v">{active.belief_move_mean >= 0 ? "+" : ""}{active.belief_move_mean.toFixed(2)}</div><div className="d">mean across turns</div></div>
-              </div>
-              <div className="grid g2">
-                <div className="panel">
-                  <div className="panel-head"><h2>Audience PMFs</h2><span className="hint">SSR purchase-intent distributions</span></div>
-                  <div className="panel-body" style={{ display: "grid", gap: 12 }}>
-                    {Object.entries(active.audience_pmfs).map(([a, pmf]) => (
-                      <div key={a}>
-                        <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-                          <b className="mono">{a}</b>
-                          <span className="mono sub" style={{ marginLeft: "auto" }}>mean {pmfMean(pmf).toFixed(2)} · top-2 {(top2box(pmf) * 100).toFixed(0)}% · share {((active.audience_shares[a] ?? 0) * 100).toFixed(0)}%</span>
-                        </div>
-                        <PmfBar p={pmf} maxWidth="100%" />
+                    <div key={p.world_id} className="item">
+                      <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                        <b className="mono">world {p.world_id.slice(0, 12)}</b>
+                        <span className="sub" style={{ fontSize: 12 }}>Last closed tick <b className="mono">{p.last_closed_tick ?? "—"}</b> of {horizon - 1}</span>
+                        <span className="sub" style={{ fontSize: 12 }}>Turns landed <b className="mono">{p.turns ?? "—"}</b></span>
+                        <span className="sub" style={{ fontSize: 12, marginLeft: "auto" }}>Rung in force <b className="mono">{(p.rungs ?? []).length ? p.rungs!.join(", ") : "full fidelity"}</b></span>
                       </div>
-                    ))}
-                    <PmfLegend />
-                  </div>
-                </div>
-                <div>
-                  <div className="panel">
-                    <div className="panel-head"><h2>Belief movement</h2><span className="hint">per dimension, mean and absolute</span></div>
-                    <div className="panel-body tight"><table className="tbl">
-                      <thead><tr><th>Dimension</th><th className="num">Mean Δ</th><th className="num">Mean |Δ|</th></tr></thead>
-                      <tbody>
-                        {(["value", "fit", "trust"] as const).map((d) => (
-                          <tr key={d}><td className="mono">{d}</td>
-                            <td className="num" style={{ color: active.belief_movement_mean[d] >= 0 ? "var(--ok)" : "var(--risk)" }}>{active.belief_movement_mean[d] >= 0 ? "+" : ""}{active.belief_movement_mean[d].toFixed(3)}</td>
-                            <td className="num">{active.belief_movement_abs[d].toFixed(3)}</td></tr>
+                      <div className="tickbar" aria-label={`${done} of ${horizon} ticks closed`}>
+                        {Array.from({ length: horizon }, (_, t) => (
+                          <span key={t} className={t < done ? "on" : ""} title={`tick ${t}${(p.waves_answered ?? []).includes(t) ? " · survey wave answered" : ""}`}>
+                            {(p.waves_answered ?? []).includes(t) && <i />}
+                          </span>
                         ))}
-                      </tbody>
-                    </table></div>
-                  </div>
-                  <div className="panel">
-                    <div className="panel-head"><h2>Action mix</h2></div>
-                    <div className="panel-body tight"><table className="tbl"><tbody>
-                      {Object.entries(active.action_mix).map(([a, c]) => (
-                        <tr key={a}><td className="mono">{a}</td><td className="num">{c}</td></tr>
-                      ))}
-                    </tbody></table></div>
-                  </div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-                    <Link className="btn sm" href={`/trace?run=${runId}&world=${active.world_id}`}>Open trace view {ICONS.arrow}</Link>
-                    <Link className="btn sm" href={`/report?run=${runId}`}>Findings citing this world</Link>
-                  </div>
-                </div>
+                      </div>
+                      <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                        {Object.entries(p.turns_by_channel ?? {}).map(([c, k]) => (
+                          <span key={c} className="chip plain" style={{ borderColor: CHANNEL_COLOR[c] }}>{ICONS[CHANNEL_ICON[c] ?? "radio"]} {c === "survey_room" ? "survey" : CHANNEL_LABEL[c] ?? c} · {k}</span>
+                        ))}
+                        <span className="sub" style={{ fontSize: 12 }}>{(p.waves_answered ?? []).length ? `waves answered at ticks ${p.waves_answered!.join(", ")}` : "no wave answered yet"}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
+            </Section>
+          )}
+
+          <div className="kpis">
+            <Kpi icon="layers" label="Worlds" tip="One world per scenario and replicate seed; they share one budget." value={String(s.world_ids.length)} note={`${s.scenarios.length} scenario${s.scenarios.length === 1 ? "" : "s"} × ${s.seeds.length} seed${s.seeds.length === 1 ? "" : "s"}`} />
+            <Kpi icon="dollar" label="Spend" tip="Derived from the calls the run was billed for, never kept as a separate tally." value={`$${s.recorded_cost.toFixed(3)}`}
+              note={s.budget ? `of $${s.budget.max_cost.toFixed(2)} budget` : "no budget set"} />
+            <Kpi icon="clock" label="Discarded ticks" tip="Ticks interrupted before they closed: their spend is unknown but not zero, and nothing they did is in the record." value={String(s.discarded_ticks)} tone={s.discarded_ticks ? "warn" : undefined} note={s.discarded_ticks ? "spend unknown, not zero" : "every tick recorded whole"} />
+            <Kpi icon="shuffle" label="Seeds" tip="Replicate seeds. World ids are derived from scenario, seed and population — never chosen." value={s.seeds.join(", ") || "—"} />
+          </div>
+          {s.budget && (
+            <div className="budget" title={`$${s.recorded_cost.toFixed(3)} of $${s.budget.max_cost.toFixed(2)}`}>
+              <span style={{ width: `${Math.min(100, (s.recorded_cost / Math.max(1e-9, s.budget.max_cost)) * 100)}%` }} />
             </div>
           )}
 
-          {Object.keys(summaries).length > 0 && (
-            <div style={{ marginTop: 24 }}>
-              <div className="sect-title">Replicate spread — the study&apos;s own variance estimate</div>
-              <div className="panel"><div className="panel-body tight"><table className="tbl">
-                <thead><tr><th>Scenario</th><th className="num">Adoption spread</th><th className="num">Polarization spread</th><th className="num">Belief-move spread</th><th>Mixed rungs</th></tr></thead>
+          <Section icon="cpu" title="Models" tip="The model every role was pinned to, fixed for the whole run. A call answered by any other model is a pin failure, never a silent substitute. Roles pinned to nothing are not listed.">
+            <div className="pin-grid">
+              {Object.entries(data?.pins ?? {}).flatMap(([role, pin]) => {
+                const id = pin && typeof pin === "object" ? (pin as { model_id?: unknown }).model_id : undefined;
+                return typeof id === "string" ? [(
+                  <div key={role} className="pin">
+                    <span className="sec-icon">{ICONS[ROLE_ICON[role] ?? "cpu"]}</span>
+                    <div style={{ minWidth: 0 }}>
+                      <b>{ROLE_NAME[role] ?? role}</b> <span className="mono sub" style={{ fontSize: 11 }}>{role}</span>
+                      <div className="mono" style={{ fontSize: 12, overflowWrap: "anywhere" }}>{id}</div>
+                    </div>
+                  </div>
+                )] : [];
+              })}
+            </div>
+          </Section>
+
+          <Section icon="table" title="Scenarios × seeds → worlds" tip="What each scenario changed and the world each replicate seed ran it in. Click a world to show it in the World, Numbers and channel tabs.">
+            <div style={{ display: "grid", gap: 12 }}>
+              {s.scenarios.map((sc, si) => (
+                <div key={si} className="item">
+                  <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                    <b>{sc.variant.name}</b><span className="mono sub">{sc.variant.variant_id}</span>
+                    <span className="mono sub" style={{ marginLeft: "auto", fontSize: 11 }}>scenario {si + 1}</span>
+                  </div>
+                  <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                    <span className="chip plain">{ICONS.dollar} {sc.price.amount} {sc.price.currency}</span>
+                    <span className="chip plain">{ICONS.clock} {sc.horizon_ticks} {sc.tick_unit}s</span>
+                    {(sc.channels ?? []).length === 0
+                      ? <span className="chip plain">{ICONS.survey} concept test</span>
+                      : sc.channels.map((c) => <span key={c} className="chip plain" style={{ borderColor: CHANNEL_COLOR[c] }}>{ICONS[CHANNEL_ICON[c] ?? "radio"]} {CHANNEL_LABEL[c] ?? c}</span>)}
+                    <span className="chip plain">{ICONS.survey} survey every {sc.survey_every}</span>
+                    {/* Launch reach seeds word of mouth only when it is the one channel (ADR 0048); elsewhere it does nothing. */}
+                    {sc.launch_reach > 0 && sc.channels.length === 1 && sc.channels[0] === "wom" && <span className="chip plain">{ICONS.target} launch reach {(sc.launch_reach * 100).toFixed(0)}%</span>}
+                    {(sc.channels ?? []).length > 0 && <span className="chip plain">{ICONS.layers} {sc.exposure_budget} items a turn</span>}
+                    {sc.interventions.map((iv, k) => <span key={k} className="chip plain">{ICONS.sparkles} {iv.kind} at t{iv.tick}</span>)}
+                  </div>
+                  {Object.keys(sc.audience_weights ?? {}).length > 0 && (
+                    <div className="mix">
+                      {Object.entries(sc.audience_weights).map(([a, wgt], k) => (
+                        <span key={a} style={{ width: `${wgt * 100}%`, background: `var(--seg${(k % 5) + 1})` }} title={`${a}: ${(wgt * 100).toFixed(0)}%`} />
+                      ))}
+                    </div>
+                  )}
+                  {Object.keys(sc.audience_weights ?? {}).length > 0 && (
+                    <div className="row sub" style={{ gap: 10, flexWrap: "wrap", fontSize: 11.5 }}>
+                      {Object.entries(sc.audience_weights).map(([a, wgt], k) => <span key={a} className="row" style={{ gap: 4 }}><span className="swatch" style={{ background: `var(--seg${(k % 5) + 1})` }} />{a.replace(/_/g, " ")} {(wgt * 100).toFixed(0)}%</span>)}
+                    </div>
+                  )}
+                  <div style={{ overflowX: "auto" }}>
+                    <table className="tbl tight nowrap">
+                      <thead><tr><th>Seed</th><th>World</th><th>Status</th><th className="num">Last tick</th><th>Rungs</th><th className="num">Adoption</th><th className="num">Polarization</th><th /></tr></thead>
+                      <tbody>
+                        {s.seeds.map((seed) => {
+                          const worldId = worldForCell(digests, seed, { worldIds: s.world_ids, scenarios: s.scenarios.length, seeds: s.seeds.length });
+                          const oc = s.outcomes.find((o) => o.world_id === worldId);
+                          const dg = digests.find((d) => d.world_id === worldId);
+                          return (
+                            <tr key={seed} className={worldId && worldId === shownWorld ? "picked" : ""}>
+                              <td className="num mono">{seed}</td>
+                              <td className="mono">{worldId?.slice(0, 12) ?? "—"}</td>
+                              <td>{oc ? <Chip className={oc.status === "completed" ? "ok" : "plain"}>{oc.status.replace("_", " ")}</Chip> : "—"}</td>
+                              <td className="num">{oc?.last_closed_tick ?? "—"}</td>
+                              <td className="mono sub">{oc?.rungs.length ? oc.rungs.join(", ") : "full fidelity"}</td>
+                              <td className="num">{dg ? (dg.adoption != null ? `${(dg.adoption * 100).toFixed(1)}%` : <span className="sub" title={dg.unmeasured_reason ?? ""}>unmeasured <Tip>{dg.unmeasured_reason ?? "No wave was scored."}</Tip></span>) : "—"}</td>
+                              <td className="num">{dg ? (dg.polarization != null ? dg.polarization.toFixed(3) : <span className="sub">— <Tip>{dg.polarization_reason ?? "Polarization was not measured."}</Tip></span>) : "—"}</td>
+                              <td>{worldId && <button type="button" className="btn btn-secondary sm" onClick={() => { setWorld(worldId); clock.setTick(0); setTab("world"); }}>{ICONS.network} Watch</button>}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Section>
+
+          {Object.keys(summaries).length > 0 && s.seeds.length > 1 && (
+            <Section icon="shuffle" title="Replicate spread" tip="The study's own variance estimate: how far each measure moved between a scenario's seeds. An ordering between scenarios only survives when their gap is bigger than this. Worlds that ran at different degradation rungs are not comparable.">
+              <div style={{ overflowX: "auto" }}><table className="tbl nowrap">
+                <thead><tr><th>Scenario</th><th className="num">Adoption spread</th><th className="num">Polarization spread</th><th className="num">Belief-move spread</th><th>Rungs</th></tr></thead>
                 <tbody>
                   {Object.values(summaries).map((sm) => (
                     <tr key={sm.scenario_hash}><td className="mono sub">{sm.scenario_hash.slice(0, 12)}…</td>
-                      <td className="num">{sm.adoption_spread?.toFixed(3) ?? "no spread — unmeasured"}</td>
+                      <td className="num">{sm.adoption_spread != null ? `±${(sm.adoption_spread * 100).toFixed(1)}%` : "unmeasured"}</td>
                       <td className="num">{sm.polarization_spread?.toFixed(3) ?? "—"}</td>
                       <td className="num">{sm.belief_move_spread?.toFixed(3) ?? "—"}</td>
                       <td>{sm.rung_mixed ? <Chip className="tier-explo">mixed — not comparable</Chip> : <span className="sub">uniform</span>}</td></tr>
                   ))}
                 </tbody>
-              </table></div></div>
-            </div>
+              </table></div>
+            </Section>
           )}
-        </>
+
+          <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+            <Link className="btn sm" href={`/trace?run=${runId}${shownWorld ? `&world=${shownWorld}` : ""}`}>{ICONS.code} Open trace view</Link>
+            <Link className="btn sm" href={`/report?run=${runId}`}>{ICONS.bulb} Findings in the report</Link>
+          </div>
+        </div>
       )}
     </Shell>
   );
@@ -327,3 +349,9 @@ function ClockBar({ clock, watching, loaded }: { clock: Clock; watching: boolean
     </div>
   );
 }
+
+const CHANNEL_ICON: Record<string, keyof typeof ICONS> = { social_feed: "feed", forum: "forum", wom: "wom", survey_room: "survey" };
+const CHANNEL_LABEL: Record<string, string> = { social_feed: "X-like feed", forum: "Reddit-like forum", wom: "word of mouth" };
+const ROLE_ICON: Record<string, keyof typeof ICONS> = { tier_a: "forum", tier_b: "forum", embed: "database", recsys_embed: "feed", safety: "shield" };
+const ROLE_NAME: Record<string, string> = { tier_a: "Chat, tier A", tier_b: "Chat, tier B", embed: "Embeddings (scoring)", recsys_embed: "Feed ranking", safety: "Safety" };
+

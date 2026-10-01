@@ -482,3 +482,13 @@ blockquote.verbatim > span { display: block; font-style: normal; font-size: 11px
 .move-signed { position: absolute; top: 0; bottom: 0; border-radius: 999px; }
 .move-abs { height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
 .move-abs > span { display: block; height: 100%; background: var(--ink-3); }
+.tickbar { display: flex; gap: 3px; }
+.tickbar > span { flex: 1; height: 10px; border-radius: 3px; background: var(--surface-2); border: 1px solid var(--line); position: relative; }
+.tickbar > span.on { background: var(--teal); border-color: var(--teal); }
+.tickbar > span > i { position: absolute; left: 50%; top: 50%; width: 5px; height: 5px; margin: -2.5px; border-radius: 50%; background: #8a55c8; box-shadow: 0 0 0 1.5px var(--surface); }
+.budget { height: 8px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin-top: -8px; }
+.budget > span { display: block; height: 100%; background: var(--primary); }
+.pin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px; }
+.pin { display: flex; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: var(--r-md); padding: 8px 10px; }
+.mix { display: flex; height: 8px; border-radius: 999px; overflow: hidden; }
+.tbl tr.picked td { background: var(--primary-soft); }
