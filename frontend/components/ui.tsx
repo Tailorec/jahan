@@ -275,3 +275,16 @@ export function Field({ icon, label, tip, children }: { icon: keyof typeof ICONS
     </div>
   );
 }
+
+/* One headline number: its icon, what it is, and what it means on hover. */
+export function Kpi({ icon, label, value, tip, note, tone }: {
+  icon: keyof typeof ICONS; label: string; value: React.ReactNode; tip: React.ReactNode; note?: string; tone?: "ok" | "no" | "warn";
+}) {
+  return (
+    <div className={`kpi${tone ? ` ${tone}` : ""}`}>
+      <div className="k">{ICONS[icon]}{label}<Tip>{tip}</Tip></div>
+      <div className="v">{value}</div>
+      {note && <div className="d">{note}</div>}
+    </div>
+  );
+}

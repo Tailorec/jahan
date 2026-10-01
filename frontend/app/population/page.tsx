@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Shell from "@/components/shell";
 import RunBar from "@/components/runbar";
-import { PageHead, Chip, Callout, TrustLine, ICONS, Section, Tip } from "@/components/ui";
+import { PageHead, Chip, Callout, TrustLine, ICONS, Section, Tip, Kpi } from "@/components/ui";
 import React from "react";
 import { useApi, useRunId } from "@/lib/api";
 import { PALETTE, SocialGraph } from "./social-graph";
@@ -233,19 +233,6 @@ export default function PopulationPage() {
         </>
       )}
     </Shell>
-  );
-}
-
-/* One number at the top of the page, with its icon and what it means on hover. */
-function Kpi({ icon, label, value, tip, note, tone }: {
-  icon: keyof typeof ICONS; label: string; value: string; tip: React.ReactNode; note?: string; tone?: "ok" | "no" | "warn";
-}) {
-  return (
-    <div className={`kpi${tone ? ` ${tone}` : ""}`}>
-      <div className="k">{ICONS[icon]}{label}<Tip>{tip}</Tip></div>
-      <div className="v">{value}</div>
-      {note && <div className="d">{note}</div>}
-    </div>
   );
 }
 

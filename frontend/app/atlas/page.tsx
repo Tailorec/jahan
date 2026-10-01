@@ -4,7 +4,7 @@ import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
 import RunBar from "@/components/runbar";
-import { PageHead, Chip, Callout, PmfBar, PmfLegend, TrustLine, ICONS, Section, Tip } from "@/components/ui";
+import { PageHead, Chip, Callout, PmfBar, PmfLegend, TrustLine, ICONS, Section, Tip, Kpi } from "@/components/ui";
 import { IntentOverWaves } from "@/components/charts";
 import { useApi, useRunId } from "@/lib/api";
 import {
@@ -218,16 +218,6 @@ function FindingCard({ f }: { f: Finding }) {
       </div>
       <p style={{ fontWeight: 500 }}>{f.statement}</p>
       <p className="sub" style={{ fontSize: 12 }}><b>Disconfirming test:</b> {f.disconfirming_test}</p>
-    </div>
-  );
-}
-
-/* One number at the top of the page, with its icon and what it means on hover. */
-function Kpi({ icon, label, value, tip }: { icon: keyof typeof ICONS; label: string; value: string; tip: React.ReactNode }) {
-  return (
-    <div className="kpi">
-      <div className="k">{ICONS[icon]}{label}<Tip>{tip}</Tip></div>
-      <div className="v">{value}</div>
     </div>
   );
 }
