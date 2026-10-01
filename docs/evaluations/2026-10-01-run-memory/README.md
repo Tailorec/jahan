@@ -51,4 +51,7 @@ Extrapolated linearly from 400, so an estimate:
   the square — 50 times the personas is 2,500 times the clustering memory. Today no machine runs the analysis of a
   20,000-persona study.
 
+Today's practical ceiling under an 8 GB cap is about 1,000 personas with all three channels: clustering alone is about
+4 GB there (660 MB at 400, times 6.25), and 16 GB at 2,000.
+
 So the next limit is the analysis: reading the record a slice at a time and clustering a sample, not every pair.
