@@ -4,7 +4,12 @@ import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
 import RunBar from "@/components/runbar";
-import { PageHead, Chip, Callout, PmfBar, PmfLegend, ICONS, TrustLine } from "@/components/ui";
+import { PageHead, Chip, Callout, PmfBar, PmfLegend, ICONS, TrustLine, Tip } from "@/components/ui";
+import { useSessionState } from "@/lib/session";
+import WorldGraph from "./world";
+import ActivityStream from "./activity";
+import Numbers from "./numbers";
+import { CHANNEL_COLOR, useClock, useTicks, type Clock } from "./replay";
 import { useApi, useRunId, api, whyNot } from "@/lib/api";
 import { worldForCell } from "@/lib/worlds";
 import { FORCE_WARNING, movedInputRefusal } from "@/lib/resume";
@@ -41,6 +46,20 @@ export default function RunPage() {
   const summaries = data?.digest?.summaries ?? {};
   const active = digests.find((d) => d.world_id === world) ?? digests[0] ?? null;
   const watching = !!s && (s.live || s.status === "running");
+  const [tab, setTab] = useSessionState<string>("run:tab", "world");
+  const { data: live } = useApi<{ worlds: { world_id: string; tick_closed: number; digest: OutcomeDigest | null; reason?: string }[] }>(runId ? `/api/runs/${runId}/live?t=${poll}` : null);
+  // The world on show: the one picked, else the first the run names.
+  const shownWorld = world ?? active?.world_id ?? (s ? worldForCell(digests, s.seeds[0], { worldIds: s.world_ids, scenarios: s.scenarios.length, seeds: s.seeds.length }) : null) ?? null;
+  const lastClosed = (() => {
+    const p = (s?.progress ?? []).find((x) => x.world_id === shownWorld)?.last_closed_tick;
+    const o = (s?.outcomes ?? []).find((x) => x.world_id === shownWorld)?.last_closed_tick;
+    return p ?? o ?? data?.trace?.max_tick[shownWorld ?? ""] ?? null;
+  })();
+  const { acts, posts, failed } = useTicks(runId, shownWorld, lastClosed);
+  const clock = useClock(lastClosed);
+  const channels = new Set((s?.scenarios ?? []).flatMap((sc) => sc.channels ?? []));
+  const liveWorld = (live?.worlds ?? []).find((x) => x.world_id === shownWorld) ?? null;
+  const finalDigest = digests.find((d) => d.world_id === shownWorld) ?? null;
 
   // Progress is polled while the run is going; a tick takes tens of seconds
   // and streaming buys nothing.
@@ -89,7 +108,7 @@ export default function RunPage() {
       <RunBar runId={runId} />
       <PageHead
         title="Run — worlds over the population"
-        sub={s ? <>One run over many worlds — scenarios × seeds sharing one budget. Status <b>{s.status}</b> · engine <span className="mono">{s.engine_version}</span> · config <span className="mono">{s.config_hash?.slice(0, 12)}…</span></>
+        sub={s ? <>One run over many worlds — scenarios × seeds sharing one budget. Status <b>{s.status}</b> · engine <span className="mono">{s.engine_version}</span> · config <span className="mono">{s.config_hash?.slice(0, 12)}…</span><br /><span className="mono" style={{ fontSize: 12 }}>{pinned(data?.pins)}</span></>
           : "A sweep is one run over many worlds sharing one budget."}
         actions={s && <><span className={`chip ${s.status === "completed" ? "ok" : "plain"}`}><span className="dot" />{s.live ? "running" : s.status}</span><span className="chip plain mono">${s.recorded_cost.toFixed(2)}{s.budget ? ` / $${s.budget.max_cost.toFixed(2)}` : ""}</span>{s.fake && <span className="chip tier-explo" title="No key, no corpus, no network">fake study</span>}</>}
       />
@@ -101,7 +120,42 @@ export default function RunPage() {
         <Callout icon="alert"><div><b>This study stopped before it finished.</b> The last thing it said:
           <pre className="mono" style={{ fontSize: 11, whiteSpace: "pre-wrap", marginTop: 6 }}>{s.launch_error}</pre></div></Callout>
       )}
-      {s && (watching || (s.progress ?? []).length > 0 || (s.status !== "completed" && !s.has_report && !s.has_gate_report)) && (
+      {s && (
+        <>
+          <div className="tabs" role="tablist">
+            {TABS.map(([id, label, icon, channel]) => {
+              const off = channel != null && !channels.has(channel as never);
+              return (
+                <button key={id} className={`tab tab-icon${tab === id ? " active" : ""}`} role="tab" aria-selected={tab === id} disabled={off}
+                  title={off ? "This study did not tick this channel" : undefined} onClick={() => setTab(id)}
+                  style={channel ? { color: tab === id ? CHANNEL_COLOR[channel] : undefined } : undefined}>
+                  {ICONS[icon]}{label}
+                </button>
+              );
+            })}
+            {s.world_ids.length > 1 && (
+              <select className="input mono" aria-label="World" value={shownWorld ?? ""} onChange={(e) => { setWorld(e.target.value); clock.setTick(0); }} style={{ marginLeft: "auto", maxWidth: 200 }}>
+                {s.world_ids.map((id) => <option key={id} value={id}>world {id.slice(0, 12)}</option>)}
+              </select>
+            )}
+          </div>
+          {failed && <Callout icon="alert"><div>The record could not be read: {failed}</div></Callout>}
+          {["world", "feed", "forum", "wom"].includes(tab) && <ClockBar clock={clock} watching={watching} loaded={Object.keys(acts).length} />}
+          {tab === "world" && runId && (
+            s.has_gate_report || s.world_ids.length ? <WorldGraph runId={runId} acts={acts} clock={clock} live={watching} />
+              : <div className="empty"><b>No world yet.</b>The population is still being drawn.</div>
+          )}
+          {tab === "feed" && runId && <ActivityStream channel="social_feed" acts={acts} posts={posts} clock={clock} runId={runId} />}
+          {tab === "forum" && runId && <ActivityStream channel="forum" acts={acts} posts={posts} clock={clock} runId={runId} />}
+          {tab === "wom" && runId && <ActivityStream channel="wom" acts={acts} posts={posts} clock={clock} runId={runId} />}
+          {tab === "numbers" && (
+            finalDigest ? <Numbers d={finalDigest} asOf="Final: the digest the report is built on." />
+              : liveWorld?.digest ? <Numbers d={liveWorld.digest} asOf={`Live: as of tick ${liveWorld.tick_closed}, the last the engine closed. Recomputed by the engine after every tick.`} />
+              : <div className="empty"><b>No numbers yet.</b>{liveWorld?.reason ?? "They appear when the first tick closes."}</div>
+          )}
+        </>
+      )}
+      {s && tab === "details" && (watching || (s.progress ?? []).length > 0 || (s.status !== "completed" && !s.has_report && !s.has_gate_report)) && (
         <div className="panel" style={{ marginBottom: 20 }}>
           <div className="panel-head"><h2>{watching ? "Running" : "Stopped"} — live progress</h2><span className="hint">status, recorded cost and ticks closed, published as the run works</span>
             <div className="tools" style={{ display: "flex", gap: 8 }}>
@@ -125,7 +179,7 @@ export default function RunPage() {
           </table></div>
         </div>
       )}
-      {s && (
+      {s && tab === "details" && (
         <>
           <div className="stat-strip" style={{ marginBottom: 20 }}>
             <div className="stat"><div className="k">Worlds</div><div className="v">{s.world_ids.length}</div><div className="d">{s.scenarios.length} scenario(s) × {s.seeds.length} seed(s)</div></div>
@@ -238,5 +292,38 @@ export default function RunPage() {
         </>
       )}
     </Shell>
+  );
+}
+
+const TABS: [string, string, keyof typeof ICONS, string | null][] = [
+  ["world", "World", "network", null],
+  ["numbers", "Numbers", "pie", null],
+  ["feed", "X-like feed", "feed", "social_feed"],
+  ["forum", "Reddit-like forum", "forum", "forum"],
+  ["wom", "Word of mouth", "wom", "wom"],
+  ["details", "Run details", "table", null],
+];
+
+/* The replay clock: the tick on show, play and pause, speed, and a jump to the newest closed tick. */
+function ClockBar({ clock, watching, loaded }: { clock: Clock; watching: boolean; loaded: number }) {
+  const last = clock.lastClosed ?? 0;
+  return (
+    <div className="clockbar">
+      <button type="button" className="btn btn-secondary" aria-label={clock.playing ? "Pause" : "Play"} onClick={() => clock.setPlaying(!clock.playing)}>
+        {clock.playing ? "❚❚ Pause" : <>{ICONS.play} Play</>}
+      </button>
+      <label className="row" style={{ gap: 8, flex: 1, minWidth: 0 }}>
+        <span className="mono" style={{ fontSize: 12, minWidth: 54 }}>tick {clock.tick}</span>
+        <input type="range" min={0} max={Math.max(0, last)} value={Math.min(clock.tick, last)} aria-label="Tick" onChange={(e) => clock.setTick(Number(e.target.value))} style={{ flex: 1, minWidth: 60 }} />
+        <span className="mono sub" style={{ fontSize: 12, whiteSpace: "nowrap" }}>of {last}</span>
+      </label>
+      <select className="input" aria-label="Speed" value={clock.speed} onChange={(e) => clock.setSpeed(Number(e.target.value))} style={{ width: "auto", fontSize: 12, padding: "3px 6px" }}>
+        {[0.5, 1, 2, 4].map((v) => <option key={v} value={v}>{v}×</option>)}
+      </select>
+      <button type="button" className="btn btn-secondary" onClick={() => clock.setTick(last)} disabled={clock.tick >= last}>Newest tick</button>
+      {watching ? <span className="chip ok"><span className="dot" />live · one tick behind</span> : <span className="chip plain">replay</span>}
+      {loaded <= last && <span className="sub" style={{ fontSize: 12 }}>loading ticks {loaded}/{last + 1}…</span>}
+      <Tip>The engine publishes a tick only when all of it is recorded, so the page replays each closed tick&apos;s decisions in the order they happened. A running study is followed one tick behind; a finished one replays the same way. The feed, forum and word-of-mouth tabs show everything up to the tick on show.</Tip>
+    </div>
   );
 }

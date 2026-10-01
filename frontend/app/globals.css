@@ -459,3 +459,26 @@ blockquote.verbatim > span { display: block; font-style: normal; font-size: 11px
 .said { display: grid; gap: 4px; border: 1px solid var(--line); border-radius: var(--r-md); padding: 8px 10px; }
 .said.survey { border-left: 3px solid var(--teal); }
 .panel-head .tools { flex-wrap: wrap; }
+
+/* Run: live view */
+.clockbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px 12px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); margin-bottom: 12px; }
+.clockbar .btn { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 5px 10px; }
+.clockbar .btn svg { width: 13px; height: 13px; }
+.world { border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--surface); overflow: hidden; }
+.world-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.world-bar svg { width: 15px; height: 15px; }
+.world-canvas { position: relative; height: min(68vh, 640px); min-height: 380px; background: var(--bg); }
+.world-tip { position: absolute; z-index: 2; pointer-events: none; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-md); padding: 6px 9px; font-size: 12px; box-shadow: 0 4px 14px rgb(0 0 0 / 0.1); max-width: 280px; }
+.world-legend { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 8px 12px; border-top: 1px solid var(--line); font-size: 12px; }
+.swatch { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.stream { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.stream-item { border: 1px solid var(--line); border-left: 3px solid; border-radius: var(--r-md); padding: 8px 10px; display: grid; gap: 4px; font-size: 13px; }
+.stream-text { margin: 0; overflow-wrap: anywhere; }
+.stream-quote { margin: 0; padding-left: 10px; border-left: 2px solid var(--line-2); color: var(--ink-2); font-size: 12px; overflow-wrap: anywhere; }
+.move-row { display: grid; grid-template-columns: 52px minmax(0, 1fr) 60px 56px; gap: 10px; align-items: center; font-size: 13px; }
+.move-bars { display: grid; gap: 4px; }
+.move-axis { position: relative; height: 10px; background: var(--surface-2); border-radius: 999px; }
+.move-axis::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--ink-3); }
+.move-signed { position: absolute; top: 0; bottom: 0; border-radius: 999px; }
+.move-abs { height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.move-abs > span { display: block; height: 100%; background: var(--ink-3); }

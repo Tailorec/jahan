@@ -17,16 +17,16 @@ intent per wave). Decided 2026-10-02:
 - [x] `GET /api/runs/{id}/live` serves the live digests; the interface proxies it.
 
 ## Phase 2 — tabs and replay clock
-- [ ] Tabs: World, Numbers, X-like feed, Reddit-like forum, Word of mouth, Run details.
-- [ ] One replay clock (tick, play/pause, speed) shared by the activity tabs; follows new ticks while live.
+- [x] Tabs: World, Numbers, X-like feed, Reddit-like forum, Word of mouth, Run details.
+- [x] One replay clock (tick, play/pause, speed) shared by the activity tabs; follows new ticks while live.
 
 ## Phase 3 — world graph
-- [ ] Every persona a dot; an acting persona flashes in its channel's colour with a bubble naming the action.
-- [ ] A word-of-mouth delivery, or a reaction to another persona's post, lights the link between them.
-- [ ] Links that carried something stay drawn: the conversation network forming, tick by tick.
+- [x] Every persona a dot; an acting persona flashes in its channel's colour with a bubble naming the action.
+- [x] A word-of-mouth delivery, or a reaction to another persona's post, lights the link between them.
+- [x] Links that carried something stay drawn: the conversation network forming, tick by tick.
 
 ## Phase 4 — feed, forum, word of mouth
-- [ ] Each channel's turns as a stream: who, what action, on whose post, in their words.
+- [x] Each channel's turns as a stream: who, what action, on whose post, in their words.
 
 ## Phase 5 — numbers
-- [ ] Intent over waves (live), audience PMFs, belief movement mean and absolute, action mix.
+- [x] Intent over waves (live), audience PMFs, belief movement mean and absolute, action mix.
