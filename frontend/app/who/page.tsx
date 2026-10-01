@@ -4,6 +4,7 @@ import Link from "next/link";
 import React from "react";
 import { dump } from "js-yaml";
 import Shell from "@/components/shell";
+import { ICONS, Tip } from "@/components/ui";
 import { useSessionState } from "@/lib/session";
 import { api, ApiError, useApi, whyNot } from "@/lib/api";
 import { DOMAIN_WORDS, type AudienceSet } from "@/lib/engine";
@@ -66,9 +67,16 @@ function SourceBar({ bySource }: { bySource: Record<string, number> }) {
   );
 }
 
+/* What an attribute measures, in one word — fact, feeling or habit — and the whole sentence on hover. */
+const measureWord = (measures?: string) => (!measures ? "" : feels(measures) ? "feeling" : measures.startsWith("what people do") ? "habit" : measures.startsWith("a fact") ? "fact" : measures.split(" ").slice(0, 2).join(" "));
 function Measures({ measures }: { measures?: string }) {
   if (!measures) return null;
-  return <span className={`m${feels(measures) ? " feel" : ""}`}>measures: {measures}</span>;
+  return <span className={`m${feels(measures) ? " feel" : ""}`} title={`measures: ${measures}`}>{measureWord(measures)}</span>;
+}
+
+/* A sidebar heading: its icon, its name, and what it means on hover. */
+function SideHead({ icon, title, tip }: { icon: keyof typeof ICONS; title: string; tip: React.ReactNode }) {
+  return <h3 className="side-h">{ICONS[icon]}<span>{title}</span><Tip>{tip}</Tip></h3>;
 }
 
 export default function WhoPage() {
@@ -477,35 +485,35 @@ export default function WhoPage() {
     <aside className="who-side">
       {category && (
         <div>
-          <h3>Category</h3>
+          <SideHead icon="layers" title="Category" tip={reused ? "Reused — its required set is the category's, and stays as it is. Studies in one category share its ontology, so their results can be compared." : "New — it requires the cross-survey core: what every survey asked most people."} />
           <div className="catchip">{category.id}{category.version ? ` ${category.version}` : ""}</div>
-          <div className="muted">{reused ? "reused — its required set is the category's, and stays as it is" : "new — requires the cross-survey core"}</div>
+          <span className={`chip ${reused ? "plain" : "tier-pros"}`} style={{ marginTop: 6 }}>{reused ? "reused" : "new"}</span>
         </div>
       )}
       <div>
-        <h3>Draw from</h3>
+        <SideHead icon="database" title="Draw from" tip="Which surveys the personas may come from. Each line shows how many people a source holds and how many of the corpus's questions they answered; text sources were read by a model, not surveyed." />
         <div className="presets">{PRESETS.map((p) => <button key={p.label} onClick={() => setSources(p.sources)}>{p.label}</button>)}</div>
         {shown.map((s) => (
           <label key={s} className="src">
             <input type="checkbox" checked={sources.includes(s)} onChange={() => setSources((xs) => (xs.includes(s) ? xs.filter((x) => x !== s) : [...xs, s]))} />
             <span>
               <span className="swatch" style={{ background: COLORS[s] }} />{NAMES[s] ?? s}
-              <small>
-                {corpus ? <>{fmt(corpus.people[s])} people · answered {fmt(corpus.answered[s])} of {fmt(corpus.attributes)} questions</> : null}
-                {TEXT_SOURCES.includes(s) && <>{corpus ? " · " : ""}<b className="text-src">read by a model from text, not surveyed</b></>}
+              <small title={corpus ? `${fmt(corpus.people[s])} people · answered ${fmt(corpus.answered[s])} of ${fmt(corpus.attributes)} questions` : undefined}>
+                {corpus ? <>{ICONS.users}{fmt(corpus.people[s])} · {ICONS.survey}{fmt(corpus.answered[s])}/{fmt(corpus.attributes)}</> : null}
+                {TEXT_SOURCES.includes(s) && <b className="text-src" title="read by a model from text, not surveyed">{ICONS.bulb} read by a model from text, not surveyed</b>}
               </small>
             </span>
           </label>
         ))}
       </div>
       <div>
-        <h3>Study size</h3>
+        <SideHead icon="users" title="Study size" tip="How many personas a study draws. It sets each audience's quota: its share times this size." />
         <label className="size">
-          <input className="input mono" value={studySize} onChange={(e) => { const v = parseInt(e.target.value, 10); setStudySize(v > 0 ? v : 1); }} /> personas <span className="muted">— sets each audience&apos;s quota</span>
+          <input className="input mono" value={studySize} onChange={(e) => { const v = parseInt(e.target.value, 10); setStudySize(v > 0 ? v : 1); }} /> personas
         </label>
       </div>
       <div>
-        <h3>Candidate pool</h3>
+        <SideHead icon="pie" title="Candidate pool" tip="Everyone in your sources who has every required answer — the people any audience can be drawn from. Each requirement below says how many it removes." />
         {pool?.state === "ready" && (
           <>
             <div className="big">{fmt(pool.pool)}</div>
@@ -513,8 +521,8 @@ export default function WhoPage() {
             {pool.pool ? <SourceBar bySource={pool.pool_by_source ?? {}} /> : <div className="note risk">Nobody has every required answer.</div>}
             <div style={{ marginTop: 8 }}>
               {(pool.costs ?? []).filter((c) => c.removes > 0).sort((a, b) => b.removes - a.removes).map((c) => (
-                <div key={c.attribute} className="cost">
-                  Requiring <b>{label(c.attribute)}</b> removes {fmt(c.removes)}
+                <div key={c.attribute} className="cost" title={`Requiring ${label(c.attribute)} removes ${fmt(c.removes)}`}>
+                  <b>{label(c.attribute)}</b> −{fmt(c.removes)}
                   {c.emptied_sources.length > 0 && <> — <span style={{ color: "var(--risk)" }}>all of {c.emptied_sources.join(", ")}</span></>}
                 </div>
               ))}
@@ -526,9 +534,10 @@ export default function WhoPage() {
       </div>
       <div className="continue">
         {turns.length + audiences.length > 0 && (
-          <ul className="blockers">{[...(busy ? ["wait for the draft"] : []), ...(blockers ?? [])].map((b) => <li key={b}>{b}</li>)}</ul>
+          <ul className="blockers">{[...(busy ? ["wait for the draft"] : []), ...(blockers ?? [])].map((b) => <li key={b}>{ICONS.x}<span>{b}</span></li>)}</ul>
         )}
-        <button className="btn primary" disabled={stillBlocked.length > 0 || busy || !!ready} onClick={() => continueIt()}>Continue to study →</button>
+        {turns.length + audiences.length > 0 && stillBlocked.length === 0 && !busy && <div className="ready-line">{ICONS.check} Ready to continue</div>}
+        <button className="btn primary" disabled={stillBlocked.length > 0 || busy || !!ready} onClick={() => continueIt()}>Continue to study {ICONS.arrow}</button>
         {continueError && <div className="note risk">{continueError}</div>}
         {(turns.length > 0 || category) && <button className="btn quiet sm" style={{ width: "100%", justifyContent: "center", marginTop: 6 }} onClick={startOver}>Start over</button>}
       </div>
@@ -577,7 +586,7 @@ export default function WhoPage() {
           {r.everyone.length > 0 && <div>Everyone: {r.everyone.join(", ")}</div>}
           {r.topics.length > 0 && <div>You want to know (describes, excludes no one): {r.topics.join(", ")}</div>}
         </div>
-        <div className="muted" style={{ marginTop: 6 }}>If something you meant is missing here, rephrase before going on — nothing has been drafted yet.</div>
+        <div className="muted" style={{ marginTop: 6 }}>Missing something? Rephrase first <Tip>If something you meant is missing here, rephrase before going on — nothing has been drafted yet.</Tip></div>
         <div style={{ marginTop: 12, fontSize: 13.5 }}>
           {u.match
             ? <>Is it the same kind of product as <b className="catchip">{u.match.id}</b>{u.match.products.length ? ` (${u.match.products.join(", ")})` : ""}? Studies in one category share its ontology, so their results can be compared.</>
@@ -611,8 +620,9 @@ export default function WhoPage() {
     const people = corpus ? Object.values(corpus.people).reduce((t, n) => t + n, 0) : null;
     return (
       <div className="hero">
+        <div className="hero-icon">{ICONS.users}</div>
         <h1>Who do you want to study?</h1>
-        <p>Describe them the way you&apos;d brief a researcher: what you&apos;re testing, one group or several, what makes someone belong, and what you want to know about them.</p>
+        <p>Describe them in your own words. <Tip>Describe them the way you&apos;d brief a researcher: what you&apos;re testing, one group or several, what makes someone belong, and what you want to know about them. Every count you then see is real; nothing is guessed.</Tip></p>
         <div className="composer">
           <textarea rows={3} value={text} autoFocus disabled={noEndpoint} placeholder="e.g. A children's savings app. Parents of young kids in North America, compared with retirees…"
             onChange={(e) => setText(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); readIt(text); } }} />
@@ -620,21 +630,22 @@ export default function WhoPage() {
         </div>
         {noEndpoint
           ? <div className="note plain" style={{ marginTop: 14 }}>Reading a description needs a language-model endpoint, and none is configured — search is by words and nothing is drafted. <button className="btn sm" onClick={startByHand}>Author audiences by hand</button></div>
-          : <div className="examples">{EXAMPLES.map((e) => <button key={e} onClick={() => setText(e)}>{e}</button>)}</div>}
+          : <div className="examples"><div className="ex-label">{ICONS.bulb} Try an example</div>{EXAMPLES.map((e) => <button key={e} onClick={() => setText(e)}>{e}</button>)}</div>}
         {(savedSets?.audience_sets ?? []).length > 0 && (
           <div style={{ marginTop: 18 }}>
-            <div className="muted" style={{ marginBottom: 6 }}>Or open a saved audience set to change it:</div>
-            <div className="examples" style={{ marginTop: 0 }}>
-              {(savedSets?.audience_sets ?? []).slice(0, 5).map((set) => (
+            <div className="ex-label">{ICONS.layers} Or open a saved audience set</div>
+            <div className="saved-sets">
+              {(savedSets?.audience_sets ?? []).slice(0, 6).map((set) => (
                 <button key={set.id} disabled={busy} onClick={() => openSet(`${set.category}/${set.id}`)}>
-                  <b>{set.name}</b> <span className="muted">· {set.category} {set.ontology_version} · {set.created_at.slice(0, 10)}</span>
+                  <span className="sec-icon" style={{ width: 26, height: 26 }}>{ICONS.users}</span>
+                  <span style={{ minWidth: 0 }}><b>{set.name}</b><small>{set.category} {set.ontology_version} · {set.created_at.slice(0, 10)}</small></span>
                 </button>
               ))}
             </div>
           </div>
         )}
         {corpusMissing && <div className="note risk" style={{ marginTop: 14 }}>No corpus cached here, so there is nobody to count: author freely, then continue where the corpus is present.</div>}
-        <div className="fineprint">{corpus && people !== null ? <>Matched against {fmt(corpus.attributes)} attributes answered by {fmt(people)} people. </> : null}Every count you see is real; nothing is guessed.</div>
+        <div className="fineprint">{corpus && people !== null ? <>{ICONS.database} {fmt(corpus.attributes)} attributes · {fmt(people)} people · every count is real</> : "Every count you see is real; nothing is guessed."}</div>
       </div>
     );
   }
@@ -706,6 +717,7 @@ export default function WhoPage() {
     return (
       <div key={ai} className="card">
         <div className="aud-head">
+          <span className="aud-icon" style={{ background: `var(--seg${(ai % 5) + 1})` }}>{ICONS.users}</span>
           <input className="name" size={Math.max(12, a.name.length + 2)} defaultValue={a.name} key={a.name} onBlur={(e) => { if (e.target.value !== a.name) rename(ai, e.target.value); }} />
           <span className="share">
             <input className={`input mono${a.share === null ? " missing" : ""}`} key={`${a.name}-${a.share}`} defaultValue={a.share !== null ? Math.round(a.share * 1000) / 10 : ""} placeholder="?"
@@ -716,7 +728,7 @@ export default function WhoPage() {
             <div className="n">{h ? fmt(n) : "—"}</div>
             <div className="muted">{asked.length ? "match so far — not counting the question below" : "people match"} · needs {fmt(q)}</div>
           </div>
-          <button className="btn quiet sm" title="remove audience" onClick={() => dropAudience(ai)}>✕</button>
+          <button className="icon-btn" aria-label={`remove audience ${a.name}`} title="remove audience" onClick={() => dropAudience(ai)}>{ICONS.x}</button>
         </div>
         <div className="filters">
           {Object.entries(a.filters).map(([id, values]) => (
@@ -735,7 +747,7 @@ export default function WhoPage() {
                 <option value="__search">search for another…</option>
               </select>
             )
-            : <button className="addf" onClick={() => setAddingTo(ai)}>+ filter</button>}
+            : <button className="addf" onClick={() => setAddingTo(ai)}>{ICONS.plus} filter</button>}
         </div>
         {picker?.ai === ai && pickerView(a)}
         {asked.map(({ x, qi }) => (
@@ -781,7 +793,7 @@ export default function WhoPage() {
     return (
       <>
         <div className="onto">
-          <div className="orow headrow"><span title="required for everyone">req</span><span>Attribute</span><span>Role</span><span>Kind</span><span>Ordered</span><span /></div>
+          <div className="orow headrow"><span title="required for everyone">req</span><span>Attribute</span><span>Role</span><span>Kind <Tip>&apos;Who they are&apos; and &apos;How they think&apos; are never filled in by a model when missing.</Tip></span><span>Ordered</span><span /></div>
           {rows.map((r) => {
             const users = usedBy(r.id);
             const origin = r.role === "category" ? "the category's" : r.role === "core" ? "cross-survey core" : "";
@@ -790,7 +802,7 @@ export default function WhoPage() {
               <div key={r.id} className="orow">
                 <input type="checkbox" checked={r.required} disabled={reused} onChange={(e) => updateRow(r.id, { required: e.target.checked })}
                   title={reused ? "The required set belongs to the category. Changing it is a separate new-version action, not part of a study." : "Required: a persona must have answered it to be drawn at all"} />
-                <div><div>{r.label}</div><div className="id">{r.id} · measures {r.measures}{r.phrase ? ` · from “${r.phrase}”` : ""}</div></div>
+                <div><div className="row" style={{ gap: 6 }}>{r.label}<Measures measures={r.measures} /></div><div className="id">{r.id}{r.phrase ? ` · from “${r.phrase}”` : ""}</div></div>
                 <div>{r.required
                   ? <><span className="role req">Required for everyone</span>{origin && <div className="muted" style={{ fontSize: 11 }}>{origin}</div>}</>
                   : users.length ? <span className="role">Defines {users.join(", ")}</span> : <span className="role">Describes everyone</span>}</div>
@@ -800,16 +812,16 @@ export default function WhoPage() {
                 <label className="muted" title={r.guessed ? "guessed from its values — check" : ""}>
                   <input type="checkbox" checked={r.ordered} disabled={own} onChange={(e) => updateRow(r.id, { ordered: e.target.checked, guessed: false })} /> {r.guessed ? "yes?" : ""}
                 </label>
-                <button className="btn quiet sm" disabled={own} onClick={() => removeRow(r)}>✕</button>
+                <button className="icon-btn" aria-label={`remove ${r.label}`} disabled={own} onClick={() => removeRow(r)}>{ICONS.x}</button>
               </div>
             );
           })}
         </div>
-        <div className="muted" style={{ marginTop: 6 }}>
-          {reused
+        <div className="muted row" style={{ marginTop: 6, gap: 6 }}>{reused ? <>{ICONS.shield} the category&apos;s own rows are locked</> : <>{ICONS.info} requires the cross-survey core</>}
+          <Tip>{reused
             ? "This category's own attributes are locked: studies reuse its ontology as it is, and anything you add makes a new version of it. Changing what it requires is a separate decision about the category, not about this study. "
             : <>A new category requires only the <b>cross-survey core</b> — what every survey asked most people — so no survey is shut out of later studies. Require more only if every future study of this category needs it; the sidebar shows what each requirement costs. </>}
-          <b>Describes</b>: shown to the model when a persona has it, never used to exclude anyone.
+          <b>Describes</b>: shown to the model when a persona has it, never used to exclude anyone.</Tip>
         </div>
       </>
     );
@@ -838,8 +850,8 @@ export default function WhoPage() {
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "start" }}>
                 {row(h.id) ? <span className="chip plain">added</span> : <>
-                  <button className="btn sm" onClick={() => declare([{ ...h, role: "added", required: false }])}>+ Describe</button>
-                  {!reused && <button className="btn sm" onClick={() => declare([{ ...h, role: "added", required: true }])}>+ Require</button>}
+                  <button className="btn sm" onClick={() => declare([{ ...h, role: "added", required: false }])}>{ICONS.plus} Describe</button>
+                  {!reused && <button className="btn sm" onClick={() => declare([{ ...h, role: "added", required: true }])}>{ICONS.plus} Require</button>}
                 </>}
               </div>
             </div>
@@ -856,8 +868,9 @@ export default function WhoPage() {
     const download = (content: string, type: string) => `data:${type},${encodeURIComponent(content)}`;
     return (
       <>
-        <div className="head"><h1>Ready for a study</h1></div>
-        <div className="note ok">The engine accepts all of it: the ontology passes its schema and codebook checks, every audience is one a brief can carry, and every assumption is one the ledger records. Save it as an audience set — these audiences, their assumptions, your sources and a study of {fmt(studySize)}, with the ontology they were drafted against — and New study starts from it.</div>
+        <div className="head"><span className="aud-icon" style={{ background: "var(--ok)" }}>{ICONS.check}</span><h1>Ready for a study</h1></div>
+        <div className="note ok row" style={{ gap: 6 }}>{ICONS.shield} The engine accepts all of it. Save it, then start a study from it.
+          <Tip>The ontology passes its schema and codebook checks, every audience is one a brief can carry, and every assumption is one the ledger records. Save it as an audience set — these audiences, their assumptions, your sources and a study of {fmt(studySize)}, with the ontology they were drafted against — and New study starts from it.</Tip></div>
         <div className="note plain">
           {d.action === "reused" && <>Reuses <b className="catchip">{d.ontology.category} {d.ontology.version}</b> exactly as it is — no new version.</>}
           {d.action === "new_version" && <>A new version of <b className="catchip">{d.ontology.category}</b>: {d.from_version} → <b>{d.ontology.version}</b>, adding the attributes this study declares. Its required set is unchanged.</>}
@@ -891,10 +904,10 @@ export default function WhoPage() {
           {savedSet
             ? <span className="chip ok"><span className="dot" />saved “{savedSet.name}” · {savedSet.category} {savedSet.ontology_version}</span>
             : <button className="btn primary" onClick={saveSet}>Save audience set{d.action !== "reused" ? ` and ontology ${d.ontology.version}` : ""}</button>}
-          <button className="btn primary" disabled={!savedSet} onClick={openLaunch}>Open launch form →</button>
+          <button className="btn primary" disabled={!savedSet} onClick={openLaunch}>Open launch form {ICONS.arrow}</button>
           <button className="btn" onClick={() => { setReady(null); setContinueError(null); }}>← Back to editing</button>
         </div>
-        {!savedSet && <div className="muted" style={{ marginTop: 6 }}>New study starts from a saved audience set. Saved sets and ontology versions are never overwritten: editing saves another, so past studies keep resolving to what they ran on.</div>}
+        {!savedSet && <div className="muted row" style={{ marginTop: 6, gap: 6 }}>{ICONS.info} Saving never overwrites <Tip>New study starts from a saved audience set. Saved sets and ontology versions are never overwritten: editing saves another, so past studies keep resolving to what they ran on.</Tip></div>}
       </>
     );
   }
@@ -913,26 +926,27 @@ export default function WhoPage() {
       <>
         <div className="head">
           <h1>{audiences.length} audience{audiences.length === 1 ? "" : "s"}</h1>
-          <span className="muted">{fmt(matching)} matching people · ontology <span className="catchip">{category.id}</span>{reused ? " (reused)" : " (new)"}</span>
+          <span className="chip plain">{ICONS.users} {fmt(matching)} matching</span>
+          <span className="chip plain">{ICONS.layers} {category.id}{reused ? " · reused" : " · new"}</span>
         </div>
         {splits.length > 0 && (
           <div className="note warn" style={{ marginBottom: 14 }}>Your audiences come mostly from different surveys, so a difference between them may be a difference between the surveys. <b>This will be recorded in the brief&apos;s assumptions</b> and stated in every report:
             <ul style={{ margin: "4px 0 0 16px" }}>{splits.map((a) => <li key={a.text}>{a.text}</li>)}</ul></div>
         )}
         <section>
-          <div className="sect"><h2>Audiences</h2>
-            <span className="muted">shares: {shareSum === null ? <b style={{ color: "var(--risk)" }}>not all set</b> : <><b style={{ color: Math.abs(shareSum - 1) > 0.005 ? "var(--risk)" : "inherit" }}>{Math.round(shareSum * 100)}%</b> of 100%</>} · study of {fmt(studySize)}</span>
-            <div className="tools"><button className="btn sm" onClick={addAudience}>+ Add audience</button></div>
+          <div className="sect"><h2 className="row" style={{ gap: 6 }}>{ICONS.users} Audiences <Tip>Named slices of the target market. Each needs a share; the shares add to 100%, and each audience&apos;s quota is its share of the study size. Click a filter to change its values — every count is who exists in the corpus.</Tip></h2>
+            <span className={`chip ${shareSum !== null && Math.abs(shareSum - 1) <= 0.005 ? "ok" : "risk"}`}><span className="dot" />shares {shareSum === null ? "not all set" : `${Math.round(shareSum * 100)}%`}</span>
+            <div className="tools"><button className="btn sm" onClick={addAudience}>{ICONS.plus} Audience</button></div>
           </div>
           {audiences.length ? audiences.map(audienceView) : <div className="note plain">No audiences yet — {noEndpoint ? "add one and give it filters." : "describe one below."}</div>}
         </section>
         <section>
-          <div className="sect"><h2>Ontology</h2><span className="muted">what every persona in this category is described by</span>
-            <div className="tools"><button className="btn sm" onClick={() => setSearchOpen((o) => !o)}>{searchOpen ? "Close search" : "Find more attributes"}</button></div></div>
+          <div className="sect"><h2 className="row" style={{ gap: 6 }}>{ICONS.table} Ontology <Tip>What every persona in this category is described by: the attributes, which are required to be drawn at all, which define an audience, and which only describe.</Tip></h2>
+            <div className="tools"><button className="btn sm" onClick={() => setSearchOpen((o) => !o)}>{searchOpen ? ICONS.x : ICONS.plus} {searchOpen ? "Close search" : "Find more attributes"}</button></div></div>
           {searchOpen && searchView()}
           {ontologyView()}
         </section>
-        {turns.length > 0 && <section><div className="sect"><h2>Conversation</h2></div>{turns.map(turnView)}</section>}
+        {turns.length > 0 && <section><div className="sect"><h2 className="row" style={{ gap: 6 }}>{ICONS.forum} Conversation</h2></div>{turns.map(turnView)}</section>}
         {!noEndpoint && (
           <div className="dock">
             <div className="composer">
