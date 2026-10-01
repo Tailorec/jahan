@@ -7,6 +7,8 @@ entries rather than by walking partitions.
 from __future__ import annotations
 
 from collections.abc import Collection, Sequence
+from datetime import datetime, timezone
+from pathlib import Path
 from simcore.schemas import (
     NonNegativeInt,
     RunRegistryEntry,
@@ -69,3 +71,15 @@ def workspace_summary(
         total_budget=round(total_budget, 4),
         reports_written=reports,
     )
+
+
+def run_started_at(run_dir: Path) -> str | None:
+    """When a run began: the earliest write among its own files, as UTC ISO seconds.
+
+    Run ids are random, so they say nothing of time; a run's first file — its brief or its gate
+    report — is written when it starts and never rewritten.
+    """
+    written = [child.stat().st_mtime for child in Path(run_dir).iterdir() if child.is_file()]
+    if not written:
+        return None
+    return datetime.fromtimestamp(min(written), tz=timezone.utc).isoformat(timespec="seconds")

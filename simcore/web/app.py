@@ -22,7 +22,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, TypeAdapter, field_validator, model_validator
 
-from simcore.analysis import trace_summary, workspace_summary, world_progress
+from simcore.analysis import run_started_at, trace_summary, workspace_summary, world_progress
 from simcore.runner import ENGINE_VERSION
 from simcore.schemas import EventFilter, RunId, VerbatimGrouping
 from simcore.trace import TraceStore
@@ -635,6 +635,8 @@ def create_app(
                 entry = _run_entry(child, request)
                 if entry is not None:
                     runs.append(entry)
+        # Oldest first, by when each run began — not by id, which is random.
+        runs.sort(key=lambda entry: (entry.get("created_at") or "", entry["run_id"]))
         return {"runs": runs}
 
     @app.get("/api/workspace")
@@ -1892,7 +1894,26 @@ def _finished_entry(
         "progress": [],
         "live": lifecycle.is_live(run_dir.name),
         "launch_error": _why_it_stopped(run_dir, hide),
+        **_identity(run_dir),
     }
+
+
+def _identity(run_dir: Path) -> dict[str, Any]:
+    """What lets a person tell one run from another: the product its brief names, its category, and
+    how many personas its population drew — read from the run's own files, never derived."""
+    product = None
+    try:
+        import yaml
+
+        brief = yaml.safe_load(Path(run_dir, "brief.yaml").read_text(encoding="utf-8")) or {}
+        product = ((brief.get("product") or {}).get("name") or None)
+    except Exception:
+        pass
+    manifest = _read_json_silent(Path(run_dir, "manifest.json"))
+    personas = len(manifest.get("persona_ids", [])) if isinstance(manifest, dict) else None
+    ontology = _read_json_silent(Path(run_dir, "ontology.json"))
+    category = ontology.get("category") if isinstance(ontology, dict) else None
+    return {"product": product, "category": category, "personas": personas, "created_at": run_started_at(run_dir)}
 
 
 def _live_entry(run_dir: Path) -> dict[str, Any] | None:
@@ -1945,6 +1966,7 @@ def _running_entry(
         "progress": _live_progress(run_dir, list(live.get("world_ids", []))),
         "live": going,
         "launch_error": _why_it_stopped(run_dir, hide),
+        **_identity(run_dir),
     }
 
 

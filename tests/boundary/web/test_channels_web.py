@@ -64,3 +64,33 @@ def test_without_an_endpoint_the_check_says_so(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
     body = _client(tmp_path).post("/api/recsys/check", json={"model": "twhin-bert-base"}).json()
     assert body["reachable"] is False and "no inference endpoint" in body["detail"]
+
+
+def test_a_run_entry_names_its_product_category_and_population(tmp_path):
+    """Every page says which run it shows; the engine reads that from the run's own files."""
+    import json as j
+
+    run = tmp_path / "runs" / "run-01k6m15aaaaaaaaaaaaaaaaaaa"
+    run.mkdir(parents=True)
+    (run / "brief.yaml").write_text("product:\n  name: NestEgg Kids\n  category: kids_savings\n")
+    (run / "manifest.json").write_text(j.dumps({"persona_ids": ["p-1", "p-2", "p-3"]}))
+    (run / "ontology.json").write_text(j.dumps({"category": "kids_savings"}))
+    (run / "gate-report.json").write_text(j.dumps({"overall": True}))
+    runs = _client(tmp_path).get("/api/runs").json()["runs"]
+    (entry,) = [r for r in runs if r["run_id"] == run.name]
+    assert (entry["product"], entry["category"], entry["personas"]) == ("NestEgg Kids", "kids_savings", 3)
+    assert entry["created_at"].endswith("+00:00")
+
+
+def test_runs_are_listed_by_when_they_began_not_by_their_random_id(tmp_path):
+    import json as j
+    import os
+
+    names = ["run-7zzzzzzzzzzzzzzzzzzzzzzzzz", "run-00000000000000000000000000"]
+    for age, name in zip((300, 100), names):
+        run = tmp_path / "runs" / name
+        run.mkdir(parents=True)
+        (run / "gate-report.json").write_text(j.dumps({"overall": True}))
+        os.utime(run / "gate-report.json", (1_700_000_000 + age, 1_700_000_000 + age))
+    listed = [r["run_id"] for r in _client(tmp_path).get("/api/runs").json()["runs"]]
+    assert listed == ["run-00000000000000000000000000", "run-7zzzzzzzzzzzzzzzzzzzzzzzzz"]
