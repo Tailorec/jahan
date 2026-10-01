@@ -116,3 +116,24 @@ def test_a_concept_test_report_says_it_is_one(tmp_path):
     markdown = (out / run_id_from(output) / "report.md").read_text()
     assert "channels none (a concept test" in markdown
     assert "no 4,000-post pre-filter" not in markdown and "one-shot survey" not in markdown
+
+
+def test_a_running_study_leaves_each_worlds_numbers_as_of_its_last_closed_tick(tmp_path, monkeypatch):
+    """The interface computes nothing, so a run watched live reads its digest from the study:
+    written after every closed tick by the same code as the report's, and equal to it at the end."""
+    from fastapi.testclient import TestClient
+    from simcore.web.app import create_app
+
+    monkeypatch.chdir(tmp_path)
+    out = tmp_path / "runs"
+    run_id = "run-" + "0" * 24 + "89"
+    code, output = run_command(*fake_args(out, run_id, channels="social_feed,wom", survey_every="1"))
+    assert code == 0, output
+    final = json.loads((out / run_id / "digest.json").read_text())["digests"]
+    live = TestClient(create_app(runs_dir=out)).get(f"/api/runs/{run_id}/live").json()["worlds"]
+    assert {world["world_id"] for world in live} == {d["world_id"] for d in final}
+    for world in live:
+        assert world["tick_closed"] == 1 and world["digest"] is not None, world.get("reason")
+        ended = next(d for d in final if d["world_id"] == world["world_id"])
+        assert world["digest"]["waves"] == ended["waves"]
+        assert world["digest"]["audience_pmfs"] == ended["audience_pmfs"]

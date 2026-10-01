@@ -555,6 +555,40 @@ def run_study(handles: StudyHandles, *, max_workers: int = 1, force: bool = Fals
             stimulus_texts=trace.published,
         )
 
+    cells = {
+        derive_world_id(scenario, seed, handles.config.population_hash): (scenario, seed)
+        for scenario in handles.config.scenarios
+        for seed in handles.config.seeds
+    }
+
+    def publish_live_digest(world_id: str, tick: int) -> None:
+        """The world's digest as of its last closed tick, by the same code as the report's.
+
+        The interface computes nothing, so a run watched live reads its numbers from here. A digest that
+        cannot be taken yet is written as the reason; it never stops the run.
+        """
+        # ponytail: one pass over the world's whole record per tick; incremental if huge runs make it slow.
+        live = handles.run_dir / "live"
+        cell = cells.get(world_id)
+        try:
+            if cell is None:
+                raise ValueError(f"world {world_id} is no cell of this configuration")
+            outcome = digest(
+                store.view(handles.run_id, world_id),
+                scenario=cell[0], population=handles.population, seed=cell[1],
+                pinned_embed_model=handles.embed_pin,
+            )
+            body = {"world_id": world_id, "tick_closed": tick, "digest": json.loads(outcome.model_dump_json())}
+        except Exception as error:  # noqa: BLE001 — the numbers wait; the run does not
+            body = {"world_id": world_id, "tick_closed": tick, "digest": None, "reason": f"{type(error).__name__}: {error}"}
+        try:
+            live.mkdir(exist_ok=True)
+            partial = live / f"{world_id}.json.partial"
+            partial.write_text(json.dumps(body) + "\n")
+            partial.replace(live / f"{world_id}.json")
+        except OSError:
+            pass
+
     def publish_progress(world_id: str, tick: int, spent: float | None) -> None:
         """Publish spend while the run is going, not after it.
 
@@ -575,6 +609,7 @@ def run_study(handles: StudyHandles, *, max_workers: int = 1, force: bool = Fals
             }) + "\n")
         except Exception:
             pass
+        publish_live_digest(world_id, tick)
 
     result = run(
         handles.config,
