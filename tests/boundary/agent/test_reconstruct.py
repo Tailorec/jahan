@@ -77,6 +77,37 @@ def test_a_tampered_hash_is_never_shown(tmp_path, monkeypatch):
     assert "hash" in rebuilt.reason
 
 
+def test_a_real_endpoints_hash_of_the_whole_request_verifies(tmp_path, monkeypatch):
+    """A real endpoint records the hash of the bytes it received — model, sampling budget and
+    messages — so the rebuilt messages verify through the run's pins, and only through them."""
+    from simcore.inference import request_hash
+    from simcore.schemas import ChatRequest, InferenceRole, ModelPin
+
+    run_dir = _fake_run(tmp_path, monkeypatch)
+    run_id = run_dir.name
+    view = TraceStore(run_dir / "trace").view(run_id)
+    turn = next(
+        event for event in view.events(EventFilter(kinds=("turn",)))
+        if event.persona_id is not None
+    )
+    _, _, persona, ontology, persona_events, texts = _materials(run_dir, run_id, turn.persona_id)
+    plain = reconstruct_turn(
+        turn.payload, turn, persona=persona, ontology=ontology,
+        persona_events=persona_events, stimulus_texts=texts,
+    )
+    pin = ModelPin(model_id="some-real-model", serves=("some-real-model",))
+
+    def wire(messages):
+        request = ChatRequest(role=InferenceRole.TIER_B, messages=tuple(messages), max_tokens=512, template_id="persona_turn")
+        return {request_hash(request, pin)}
+
+    recorded = turn.payload.model_copy(update={"prompt_hash": next(iter(wire([dict(m) for m in plain.messages])))})
+    kwargs = dict(persona=persona, ontology=ontology, persona_events=persona_events, stimulus_texts=texts)
+    rebuilt = reconstruct_turn(recorded, turn, wire_hashes=wire, **kwargs)
+    assert isinstance(rebuilt, ReconstructedPrompt) and rebuilt.messages == plain.messages
+    assert isinstance(reconstruct_turn(recorded, turn, **kwargs), Unreconstructible)
+
+
 def test_a_moved_persona_is_named_not_approximated(tmp_path, monkeypatch):
     run_dir = _fake_run(tmp_path, monkeypatch)
     run_id = run_dir.name

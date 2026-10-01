@@ -325,6 +325,33 @@ def _ontology_named(raw: Any):
         return None
 
 
+def _wire_hashes(run_dir: Path, template_id: str):
+    """What a turn's request would hash to on each chat pin the run recorded, its fallbacks included:
+    a real endpoint's recorded hash covers the model and sampling budget, not the messages alone."""
+    from simcore.agent import AgentConfig
+    from simcore.inference import request_hash
+    from simcore.schemas import ChatRequest, InferenceRole
+
+    entry = _registry_model(run_dir)
+    if entry is None:
+        return None
+    pins = entry.config.pins
+    chat = [(InferenceRole.TIER_A, pins.tier_a), (InferenceRole.TIER_B, pins.tier_b)]
+    chat += [(role, pin) for role, pin in pins.fallbacks.items() if role in (InferenceRole.TIER_A, InferenceRole.TIER_B)]
+
+    def hashes(messages: list[dict[str, str]]) -> set[str]:
+        return {
+            request_hash(
+                ChatRequest(role=role, messages=tuple(messages), temp=0.0,
+                            max_tokens=AgentConfig.max_tokens, template_id=template_id),
+                pin,
+            )
+            for role, pin in chat
+        }
+
+    return hashes
+
+
 def _stimulus_texts(view) -> dict[str, str]:
     """What each stimulus said, from the stimuli the record published."""
     texts = {}
@@ -899,6 +926,7 @@ def create_app(
         rebuilt = reconstruct_turn(
             event.payload, event, persona=persona, ontology=ontology,
             persona_events=persona_events, stimulus_texts=texts,
+            wire_hashes=_wire_hashes(run_dir, event.payload.template_id),
         )
         if isinstance(rebuilt, Unreconstructible):
             raise HTTPException(status_code=422, detail=rebuilt.reason)

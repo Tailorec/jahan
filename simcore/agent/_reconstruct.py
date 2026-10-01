@@ -12,6 +12,7 @@ approximation.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 
 from simcore.elicitation import question_text
@@ -62,8 +63,14 @@ def reconstruct_turn(
     ontology: CategoryOntology | None,
     persona_events: tuple[TraceEvent, ...] | list[TraceEvent],
     stimulus_texts: dict[str, str],
+    wire_hashes: Callable[[list[dict[str, str]]], Iterable[str]] | None = None,
 ) -> ReconstructedPrompt | Unreconstructible:
-    """Rebuild a turn's prompt from the record and verify it against its hash."""
+    """Rebuild a turn's prompt from the record and verify it against its hash.
+
+    A real endpoint records the hash of the whole request it received — model, sampling budget and
+    messages — so `wire_hashes` names what those would be for the run's pins; the messages-only hash
+    is what the fake port records."""
+    hashes = _hasher(wire_hashes)
     block = _persona_block(record, persona, ontology)
     if block is None:
         return Unreconstructible(
@@ -97,9 +104,9 @@ def reconstruct_turn(
         ("purchase_intent", intent_question(question_text(PURCHASE_CONSTRUCT), channel)),
     )
     if record.rejected_prompt_hashes:
-        outcome = _match_retry(record, block, beliefs_text, memories, shown, bases)
+        outcome = _match_retry(record, block, beliefs_text, memories, shown, bases, hashes)
     else:
-        outcome = _match_first(record, block, beliefs_text, memories, shown, bases)
+        outcome = _match_first(record, block, beliefs_text, memories, shown, bases, hashes)
     if outcome is None:
         return Unreconstructible(
             "no question shape rebuilds the recorded prompt hash: the turn may have run "
@@ -138,13 +145,20 @@ def _beliefs_before(
     """What the persona believed when this turn started: snapshots moved by the
     turns and reflections between, in record order, stopping at this turn."""
     current: Beliefs | None = None
+    # A tick runs its channel turns together from the tick's opening state, then its survey wave
+    # from the state they left: a channel turn starts before any of its tick's turns moved anything.
+    survey = event.payload.turn.impression.channel == "survey_room"
     for other in sorted(persona_events, key=lambda e: (e.tick, e.seq)):
         if (other.tick, other.seq) >= (event.tick, event.seq):
+            break
+        if not survey and other.tick == event.tick and other.payload.kind == "turn":
             break
         kind = other.payload.kind
         if kind == "belief_snapshot":
             current = other.payload.beliefs
         elif kind in ("turn", "reflection") and current is not None:
+            if kind == "turn" and other.payload.turn.impression.channel == "survey_room":
+                continue  # a wave only reads: its answer moved no belief (as `replay` rebuilds state)
             change = _change_of(other)
             if change is not None and (change.dimensions or change.claim_credence):
                 current = apply_change(current, change)
@@ -191,15 +205,23 @@ def _assemble(block: str, beliefs_text: str, memories: tuple[str, ...], shown, q
     )
 
 
-def _match_first(record, block, beliefs_text, memories, shown, bases):
+def _hasher(wire_hashes):
+    def hashes(messages) -> set[str]:
+        listed = [dict(message) for message in messages]
+        return {prompt_hash(listed), *(wire_hashes(listed) if wire_hashes is not None else ())}
+
+    return hashes
+
+
+def _match_first(record, block, beliefs_text, memories, shown, bases, hashes):
     for shape, question in bases:
         messages = _assemble(block, beliefs_text, memories, shown, question).messages
-        if prompt_hash([dict(message) for message in messages]) == record.prompt_hash:
+        if record.prompt_hash in hashes(messages):
             return ReconstructedPrompt(messages=messages, shape=shape, rejected_verified=False)
     return None
 
 
-def _match_retry(record, block, beliefs_text, memories, shown, bases):
+def _match_retry(record, block, beliefs_text, memories, shown, bases, hashes):
     noticed = {
         exposure.stimulus_id for exposure in record.turn.impression.exposures if exposure.seen
     }
@@ -211,10 +233,9 @@ def _match_retry(record, block, beliefs_text, memories, shown, bases):
     for shape, question in bases:
         strict = strict_question(question, allowed)
         messages = _assemble(block, beliefs_text, memories, shown, strict).messages
-        if prompt_hash([dict(message) for message in messages]) == record.prompt_hash:
+        if record.prompt_hash in hashes(messages):
             rejected_verified = any(
-                prompt_hash([dict(m) for m in _assemble(block, beliefs_text, memories, shown, q).messages])
-                == rejected
+                rejected in hashes(_assemble(block, beliefs_text, memories, shown, q).messages)
                 for q in (question for _, question in bases)
                 for rejected in record.rejected_prompt_hashes
             )
