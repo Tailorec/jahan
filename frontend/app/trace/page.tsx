@@ -5,7 +5,7 @@ import React from "react";
 import Shell from "@/components/shell";
 import RunBar from "@/components/runbar";
 import { useSessionState } from "@/lib/session";
-import { PageHead, Chip, Callout, TrustLine } from "@/components/ui";
+import { PageHead, Chip, Callout, TrustLine, ICONS, Section, Tip, Kpi } from "@/components/ui";
 import { useApi, useRunId, whyNot } from "@/lib/api";
 import type { BeliefPoint, TraceEdge, TraceEvent, UITrace } from "@/lib/engine";
 
@@ -29,23 +29,41 @@ const KIND_LABEL: Record<string, string> = {
   degraded: "degraded", tick_closed: "tick closed", lifecycle: "lifecycle",
 };
 
+const KIND_ICON: Record<string, keyof typeof ICONS> = {
+  stimulus_published: "feed", exposure_dropped: "x", turn: "forum", guardrail_violation: "shield",
+  reflection: "bulb", memory: "database", belief_snapshot: "sliders", probe: "target", cost: "dollar",
+  intervention: "sparkles", degraded: "alert", tick_closed: "clock", lifecycle: "play",
+};
+const CHANNEL_ICON: Record<string, keyof typeof ICONS> = { social_feed: "feed", forum: "forum", wom: "wom" };
+const CHANNEL_NAME: Record<string, string> = { social_feed: "X-like feed", forum: "Reddit-like forum", wom: "word of mouth" };
+const DIM_TIP: Record<string, string> = {
+  value: "Whether the product seems worth its price, from 0 to 1.",
+  fit: "Whether the product suits this persona's life, from 0 to 1.",
+  trust: "Whether this persona believes the brand's claims, from 0 to 1.",
+};
+
+/* A channel as its icon and plain name. */
+function ChannelTag({ c }: { c: string }) {
+  return <span className="row" style={{ gap: 4 }}>{ICONS[CHANNEL_ICON[c] ?? "radio"]}{CHANNEL_NAME[c] ?? c}</span>;
+}
+
 function BeliefChart({ history }: { history: BeliefPoint[] }) {
-  const W = 560, H = 180, L = 40, R = 552, T = 14, B = 158;
+  const W = 560, H = 196, L = 40, R = 552, T = 30, B = 174;
   const dims = ["value", "fit", "trust"] as const;
   const colors = ["var(--seg1)", "var(--seg2)", "var(--seg3)"];
   const maxTick = Math.max(...history.map((p) => p.tick), 1);
   const x = (t: number) => L + (t / maxTick) * (R - L);
-  const y = (v: number) => B - ((v - 1) / 4) * (B - T);
+  const y = (v: number) => B - v * (B - T);
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Belief history">
-      {[1, 2, 3, 4, 5].map((g) => (
+      {[0, 0.25, 0.5, 0.75, 1].map((g) => (
         <g key={g}><line className="gridline" x1={L} x2={R} y1={y(g)} y2={y(g)} /><text x={L - 6} y={y(g) + 3} textAnchor="end">{g}</text></g>
       ))}
       {dims.map((d, di) => (
         <polyline key={d} fill="none" stroke={colors[di]} strokeWidth="2"
-          points={history.map((p) => `${x(p.tick).toFixed(1)},${y(p.beliefs[d] ?? 3).toFixed(1)}`).join(" ")} />
+          points={history.map((p) => `${x(p.tick).toFixed(1)},${y(p.beliefs[d] ?? 0.5).toFixed(1)}`).join(" ")} />
       ))}
-      {dims.map((d, di) => <text key={d} x={R} y={14 + di * 13} fill={colors[di]} textAnchor="end" style={{ fontWeight: 600 }}>{d}</text>)}
+      {dims.map((d, di) => <text key={d} x={L + di * 60} y={12} fill={colors[di]} style={{ fontWeight: 600 }}>— {d}</text>)}
     </svg>
   );
 }
@@ -55,12 +73,30 @@ function summarize(ev: TraceEvent): string {
   switch (p.kind) {
     case "lifecycle": return `lifecycle → ${p.phase}`;
     case "tick_closed": return "tick recorded whole";
-    case "turn": return `turn${p.action ? ` · ${String(p.action)}` : ""}${p.text ? ` — “${String(p.text).slice(0, 120)}”` : ""}`;
-    case "belief_snapshot": return `beliefs ${Object.entries((p.beliefs ?? {}) as Record<string, number>).map(([k, v]) => `${k} ${Number(v).toFixed(2)}`).join(" · ")}`;
-    case "memory": return `remembered: “${String(p.text ?? p.memory ?? "").slice(0, 120)}”`;
+    case "turn": {
+      // A turn records its reaction nested; older records kept action and text flat.
+      const r = ((p.turn as { reaction?: Record<string, unknown> } | undefined)?.reaction ?? p) as Record<string, unknown>;
+      const channel = (p.turn as { impression?: { channel?: string } } | undefined)?.impression?.channel;
+      const said = r.verbatim ?? r.text;
+      return `${r.action ? String(r.action) : "turn"}${channel ? ` · ${CHANNEL_NAME[channel] ?? channel.replace("_", " ")}` : ""}${said ? ` — “${String(said).slice(0, 160)}”` : ""}`;
+    }
+    case "belief_snapshot": {
+      const b = (p.beliefs ?? {}) as Record<string, unknown>;
+      const flat = { ...((b.dimensions ?? {}) as Record<string, number>), ...((b.claim_credence ?? {}) as Record<string, number>) };
+      const vals = Object.keys(flat).length ? flat : (b as Record<string, number>);
+      return `beliefs ${Object.entries(vals).map(([k, v]) => `${k} ${Number(v).toFixed(2)}`).join(" · ")}`;
+    }
+    case "memory": {
+      const m = p.memory as { description?: string } | string | undefined;
+      return `remembered: “${String((typeof m === "object" ? m?.description : m) ?? p.text ?? "").slice(0, 160)}”`;
+    }
+    case "exposure_dropped": return `not shown ${String(p.stimulus_id ?? "")}${p.channel ? ` on ${CHANNEL_NAME[String(p.channel)] ?? String(p.channel)}` : ""}${p.reason ? ` · ${String(p.reason).replace(/_/g, " ")}` : ""}`;
     case "reflection": return `reflection (${String(p.trigger ?? "")})`;
     case "cost": return `${String(p.role)} · ${Number(p.input_tokens ?? 0) + Number(p.output_tokens ?? 0)} tokens${p.cost != null ? ` · $${Number(p.cost).toFixed(4)}` : ""}`;
-    case "stimulus_published": return `stimulus ${String(p.stimulus_id ?? (p.stimulus as Record<string, unknown> | undefined)?.id ?? "")}`;
+    case "stimulus_published": {
+      const st = (p.stimulus ?? {}) as Record<string, unknown>;
+      return `published ${String(st.kind ?? "stimulus")} ${String(p.stimulus_id ?? st.stimulus_id ?? "")}${st.text ? ` — “${String(st.text).slice(0, 120)}”` : ""}`;
+    }
     case "probe": return `character probe → ${String(p.result ?? JSON.stringify(p).slice(0, 80))}`;
     case "degraded": return `degraded to rung ${String(p.rung)}`;
     case "intervention": return `intervention ${String(p.intervention_kind ?? "")}`;
@@ -87,6 +123,7 @@ export default function TracePage() {
   // Phase 8: persona events timeline loaded from engine
   const [personaEvents, setPersonaEvents] = React.useState<TraceEvent[]>([]);
   const [personaEventsLoading, setPersonaEventsLoading] = React.useState<boolean>(false);
+  const [tlKind, setTlKind] = React.useState<string>("story");
 
   const t = data?.trace ?? null;
   const worlds = t?.worlds ?? [];
@@ -159,24 +196,70 @@ export default function TracePage() {
   const resolved: TraceEvent | null = (resolveId && t?.resolved[resolveId]) ? t.resolved[resolveId] : null;
   const hist = activePersona ? histories[activePersona] : null;
 
-  // Phase 8: Influence neighbourhood drawn from recorded edges
+  // Influence neighbourhood drawn from recorded edges
   const personaEdges = (t?.edges_top ?? []).filter(
     (e) => activePersona && (e.u === activePersona || e.v === activePersona),
   );
   const heardFrom = personaEdges.filter((e) => e.v === activePersona);
   const heardBy = personaEdges.filter((e) => e.u === activePersona);
 
-  // Phase 8: Belief movement before and after
+  // Belief movement before and after
   const initialBeliefs = hist && hist.length > 0 ? hist[0].beliefs : null;
   const finalBeliefs = hist && hist.length > 0 ? hist[hist.length - 1].beliefs : null;
+
+  const counts = (w ? t?.event_counts[w] : undefined) ?? {};
+  const totalEvents = Object.values(counts).reduce((a, b) => a + b, 0);
+  const maxCount = Math.max(1, ...Object.values(counts));
+  const tlKinds = Array.from(new Set(personaEvents.map((e) => e.payload.kind)));
+  // "story" leaves out the per-call cost records, which outnumber everything else.
+  const shown = tlKind === "all" ? personaEvents : tlKind === "story" ? personaEvents.filter((e) => e.payload.kind !== "cost") : personaEvents.filter((e) => e.payload.kind === tlKind);
+  const openPersona = (p: string) => { setPersona(p); setTlKind("story"); setQ("persona"); };
+
+  const TABS: [typeof q, string, keyof typeof ICONS, number | null][] = [
+    ["persona", "Persona", "users", histPersonas.length],
+    ["events", "Events", "layers", totalEvents],
+    ["beliefs", "Beliefs", "sliders", null],
+    ["edges", "Edges", "network", t?.edges_top.length ?? 0],
+    ["verbatims", "Verbatims", "forum", null],
+    ["resolve", "Resolve", "target", null],
+  ];
+
+  const personaPicker = (
+    <select className="input mono" aria-label="Persona" value={activePersona ?? ""} onChange={(e) => openPersona(e.target.value)} style={{ maxWidth: 260 }}>
+      {histPersonas.map((p) => <option key={p} value={p}>{p}</option>)}
+    </select>
+  );
+
+  const edgeTable = (rows: TraceEdge[], side: "u" | "v", head: string) => (
+    <div style={{ overflowX: "auto" }}><table className="tbl tight nowrap" style={{ marginTop: 8 }}>
+      <thead><tr><th>{head}</th><th>Channel</th><th className="num">Times</th><th className="num">Last tick</th></tr></thead>
+      <tbody>
+        {rows.map((e, idx) => (
+          <tr key={idx}>
+            <td><button type="button" className="linkish mono" onClick={() => openPersona(e[side])}>{e[side]}</button></td>
+            <td><ChannelTag c={e.channel} /></td>
+            <td className="num">{e.count}</td>
+            <td className="num">{e.last_tick}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table></div>
+  );
 
   return (
     <Shell crumbs={<><Link href="/">Workspace</Link> / Study / <b>Trace view</b></>}>
       <RunBar runId={runId} />
       <PageHead
         title="Trace view"
-        sub="The fixed set of questions that can be asked of a run's record — events, beliefs, edges, verbatims, resolve. Nothing that reads it can reach past it."
-        actions={w && <><span className="chip plain mono">world {w}</span><span className="chip plain mono">tick ≤ {t?.max_tick[w]}</span></>}
+        sub={<>Ask the run&apos;s record a fixed set of questions. <Tip>Events, beliefs, edges, verbatims and resolve are the only questions the record answers. Nothing that reads it can reach past it, and prompts are rebuilt on demand, never stored.</Tip></>}
+        actions={t && w && <>
+          {worlds.length > 1
+            ? <select className="input mono" aria-label="World" value={w} onChange={(e) => setWorld(e.target.value)} style={{ maxWidth: 180 }}>
+                {worlds.map((x) => <option key={x} value={x}>world {x}</option>)}
+              </select>
+            : <span className="chip plain mono">{ICONS.layers} world {w}</span>}
+          <span className="chip plain mono">{ICONS.clock} tick ≤ {t.max_tick[w]}</span>
+        </>}
       />
       {error && <Callout icon="alert"><div>{error}</div></Callout>}
       {!data && !error && <div className="empty"><b>Loading trace…</b></div>}
@@ -184,342 +267,266 @@ export default function TracePage() {
       {data && !t && <Callout icon="alert"><div>No trace-summary.json for this run yet — it is written beside report.json at the end of every run, or backfill with <span className="mono">scripts/export_ui_trace.py runs/{runId}</span>.</div></Callout>}
       {t && w && (
         <>
-          <div className="tabs" role="tablist">
-            {[
-              ["persona", "Persona history"],
-              ["events", "Events"],
-              ["beliefs", "Beliefs"],
-              ["edges", "Edges"],
-              ["verbatims", "Verbatims"],
-              ["resolve", "Resolve"],
-            ].map(([id, label]) => (
-              <button
-                key={id}
-                className={`tab${q === id ? " active" : ""}`}
-                role="tab"
-                aria-selected={q === id}
-                onClick={() => setQ(id as typeof q)}
-              >
-                {label}
-              </button>
-            ))}
-            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-              <select className="input" value={w} onChange={(e) => setWorld(e.target.value)} style={{ maxWidth: 160 }}>
-                {worlds.map((x) => <option key={x} value={x}>{x}</option>)}
-              </select>
-            </div>
+          <div className="kpis" style={{ marginBottom: 16 }}>
+            <Kpi icon="layers" label="Events" tip="Every record this world wrote in closed ticks: turns, memories, belief snapshots, costs and the rest." value={totalEvents.toLocaleString()} />
+            <Kpi icon="forum" label="Turns" tip="One persona acting once. The unit of simulation and of spend." value={(counts.turn ?? 0).toLocaleString()} />
+            <Kpi icon="users" label="Personas traced" tip="Personas with a recorded belief history in this world." value={histPersonas.length.toLocaleString()} />
+            <Kpi icon="network" label="Edges" tip="Persona pairs that passed a message, by channel. The busiest are kept here." value={t.edges_top.length.toLocaleString()} />
+            <Kpi icon="clock" label="Last tick" tip="The last tick the record closed whole. Nothing after it is shown." value={String(t.max_tick[w] ?? "—")} />
           </div>
 
-          {/* Phase 8: One persona's whole history */}
+          <div className="tabs" role="tablist">
+            {TABS.map(([id, label, icon, n]) => (
+              <button key={id} className={`tab tab-icon${q === id ? " active" : ""}`} role="tab" aria-selected={q === id} onClick={() => setQ(id)}>
+                {ICONS[icon]}{label}{n ? <span className="count">{n.toLocaleString()}</span> : null}
+              </button>
+            ))}
+          </div>
+
+          {/* One persona's whole history */}
           {q === "persona" && (
             <div style={{ display: "grid", gap: 16 }}>
-              <div className="panel">
-                <div className="panel-head">
-                  <h2>One persona’s whole history</h2>
-                  <span className="hint">Timeline of events, beliefs, verbatims and verified prompts</span>
-                  <div className="tools">
-                    <select
-                      className="input mono"
-                      value={activePersona ?? ""}
-                      onChange={(e) => setPersona(e.target.value)}
-                      style={{ maxWidth: 280 }}
-                    >
-                      {histPersonas.map((p) => <option key={p} value={p}>{p}</option>)}
-                    </select>
+              <Section icon="users" title="One persona’s whole history" tools={personaPicker}
+                tip="Pick a persona: its belief movement, who it heard from and told, and every event it wrote, with each turn's prompt rebuilt on demand.">
+                {!activePersona ? <div className="empty">No persona selected.</div> : (
+                  <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                    <span className="chip plain mono">{ICONS.users} {activePersona}</span>
+                    <span className="chip plain">{ICONS.layers} {personaEvents.length} events</span>
+                    <span className="chip plain">{ICONS.forum} {personaEvents.filter((e) => e.payload.kind === "turn").length} turns</span>
+                    <span className="chip plain">{ICONS.wom} heard from {heardFrom.length} · told {heardBy.length}</span>
                   </div>
-                </div>
-                <div className="panel-body">
-                  {!activePersona ? (
-                    <div className="empty">No persona selected.</div>
-                  ) : (
-                    <div style={{ display: "grid", gap: 20 }}>
-                      {/* Belief movement per dimension and per claim, before and after */}
-                      <div>
-                        <h3>Belief movement</h3>
-                        <p className="sub" style={{ fontSize: 13, marginBottom: 12 }}>
-                          Movement per dimension and per claim, before and after, from recorded snapshots and turns.
-                        </p>
-                        {initialBeliefs && finalBeliefs ? (
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 16 }}>
-                            {["value", "fit", "trust"].map((dim) => {
-                              const before = initialBeliefs[dim] ?? 0;
-                              const after = finalBeliefs[dim] ?? 0;
-                              const delta = after - before;
-                              return (
-                                <div key={dim} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 12 }}>
-                                  <div className="mono sub" style={{ fontSize: 11, textTransform: "uppercase" }}>{dim}</div>
-                                  <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 4 }}>
-                                    <span style={{ fontSize: 18, fontWeight: 600 }}>{before.toFixed(2)} → {after.toFixed(2)}</span>
-                                    <span className="mono" style={{ fontSize: 12, color: delta >= 0 ? "var(--seg1)" : "var(--warn)" }}>
-                                      {delta >= 0 ? `+${delta.toFixed(2)}` : delta.toFixed(2)}
-                                    </span>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : null}
-                        {hist && hist.length > 0 && (
-                          <div className="chart-wrap" style={{ marginTop: 8 }}><BeliefChart history={hist} /></div>
-                        )}
+                )}
+              </Section>
+
+              {activePersona && (
+                <>
+                  <Section icon="sliders" title="Belief movement" tip="Movement per dimension, before and after, from recorded snapshots and turns. Survey waves only read beliefs, so they never move them.">
+                    {initialBeliefs && finalBeliefs ? (
+                      <div className="kpis" style={{ marginBottom: 12 }}>
+                        {["value", "fit", "trust"].map((dim) => {
+                          const before = initialBeliefs[dim] ?? 0;
+                          const after = finalBeliefs[dim] ?? 0;
+                          const delta = after - before;
+                          return (
+                            <Kpi key={dim} icon={dim === "value" ? "dollar" : dim === "fit" ? "target" : "shield"} label={dim} tip={DIM_TIP[dim]}
+                              tone={Math.abs(delta) < 0.005 ? undefined : delta > 0 ? "ok" : "warn"}
+                              value={<>{before.toFixed(2)} → {after.toFixed(2)}</>}
+                              note={delta >= 0 ? `+${delta.toFixed(2)}` : delta.toFixed(2)} />
+                          );
+                        })}
                       </div>
+                    ) : <p className="sub" style={{ fontSize: 12 }}>No belief snapshots for this persona.</p>}
+                    {hist && hist.length > 0 && <div className="chart-wrap"><BeliefChart history={hist} /></div>}
+                  </Section>
 
-                      {/* Influence neighbourhood */}
-                      <div>
-                        <h3>Influence neighbourhood</h3>
-                        <p className="sub" style={{ fontSize: 13, marginBottom: 10 }}>
-                          Recorded edges for this persona naming the channel and how often.
-                        </p>
-                        <div className="grid g2">
-                          <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 12 }}>
-                            <b>Heard from</b> <span className="sub">({heardFrom.length} contacts)</span>
-                            {heardFrom.length === 0 ? (
-                              <p className="sub" style={{ marginTop: 8, fontSize: 12 }}>None — persona received no word-of-mouth edges.</p>
-                            ) : (
-                              <table className="tbl tight" style={{ marginTop: 8 }}>
-                                <thead><tr><th>From</th><th>Channel</th><th className="num">Times</th><th className="num">Last tick</th></tr></thead>
-                                <tbody>
-                                  {heardFrom.map((e, idx) => (
-                                    <tr key={idx}>
-                                      <td className="mono">{e.u}</td>
-                                      <td className="mono">{e.channel}</td>
-                                      <td className="num">{e.count}</td>
-                                      <td className="num">{e.last_tick}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            )}
-                          </div>
-                          <div style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 12 }}>
-                            <b>Heard by</b> <span className="sub">({heardBy.length} contacts)</span>
-                            {heardBy.length === 0 ? (
-                              <p className="sub" style={{ marginTop: 8, fontSize: 12 }}>None — persona delivered no word-of-mouth edges.</p>
-                            ) : (
-                              <table className="tbl tight" style={{ marginTop: 8 }}>
-                                <thead><tr><th>To</th><th>Channel</th><th className="num">Times</th><th className="num">Last tick</th></tr></thead>
-                                <tbody>
-                                  {heardBy.map((e, idx) => (
-                                    <tr key={idx}>
-                                      <td className="mono">{e.v}</td>
-                                      <td className="mono">{e.channel}</td>
-                                      <td className="num">{e.count}</td>
-                                      <td className="num">{e.last_tick}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            )}
-                          </div>
-                        </div>
+                  <Section icon="network" title="Influence neighbourhood" tip="Recorded edges for this persona, naming the channel and how often. Click a persona to open its history.">
+                    <div className="grid g2">
+                      <div className="item">
+                        <div className="row" style={{ gap: 6 }}>{ICONS.arrow}<b>Heard from</b><span className="count-pill">{heardFrom.length}</span></div>
+                        {heardFrom.length === 0
+                          ? <p className="sub" style={{ fontSize: 12 }}>Nobody — no message reached this persona.</p>
+                          : edgeTable(heardFrom, "u", "From")}
                       </div>
-
-                      {/* Timeline */}
-                      <div>
-                        <h3>Timeline</h3>
-                        <p className="sub" style={{ fontSize: 13, marginBottom: 12 }}>
-                          One persona’s timeline — what it was shown, what it said, how its beliefs moved tick by tick, and which memories it wrote. None of another persona’s appear in it.
-                        </p>
-                        {personaEventsLoading && <div className="empty">Loading persona events…</div>}
-                        {!personaEventsLoading && personaEvents.length === 0 && (
-                          <div className="empty">No recorded events for {activePersona} in world {w}.</div>
-                        )}
-                        {!personaEventsLoading && personaEvents.length > 0 && (
-                          <div style={{ display: "grid", gap: 10 }}>
-                            {personaEvents.map((ev) => {
-                              const isTurn = ev.payload.kind === "turn";
-                              const isReconstructed = reconstructedTurnId === ev.event_id && reconstructedPrompt;
-                              const isError = reconstructedTurnId === ev.event_id && promptError;
-                              const isLoadingPrompt = reconstructedTurnId === ev.event_id && promptLoading;
-
-                              return (
-                                <div
-                                  key={ev.event_id}
-                                  style={{
-                                    border: "1px solid var(--line)",
-                                    borderRadius: "var(--r-md)",
-                                    padding: 12,
-                                    background: isTurn ? "var(--surface-2)" : undefined,
-                                  }}
-                                >
-                                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                    <b className="mono">{ev.event_id}</b>
-                                    <span className="mono sub">tick {ev.tick} · seq {ev.seq}</span>
-                                    <Chip className="plain">{KIND_LABEL[ev.payload.kind] ?? ev.payload.kind}</Chip>
-                                    {isTurn && (
-                                      <button
-                                        type="button"
-                                        className="btn btn-secondary"
-                                        style={{ marginLeft: "auto", fontSize: 12, padding: "4px 8px" }}
-                                        onClick={() => handleReconstructPrompt(ev.event_id)}
-                                        disabled={isLoadingPrompt}
-                                      >
-                                        {isLoadingPrompt ? "Reconstructing…" : "Reconstruct prompt"}
-                                      </button>
-                                    )}
-                                  </div>
-
-                                  <div style={{ marginTop: 8 }}>{summarize(ev)}</div>
-
-                                  {/* Turn details: belief change delta if any */}
-                                  {isTurn && Boolean(ev.payload.belief_change) && (
-                                    <div className="mono sub" style={{ fontSize: 11, marginTop: 6 }}>
-                                      Belief delta: {JSON.stringify(ev.payload.belief_change)}
-                                    </div>
-                                  )}
-
-                                  {/* Prompt reconstruction display */}
-                                  {isTurn && isReconstructed && (
-                                    <div style={{ marginTop: 12, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
-                                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                                        <Chip className="active">Hash verified</Chip>
-                                        <span className="sub" style={{ fontSize: 12 }}>
-                                          Shape: <span className="mono">{reconstructedPrompt.shape}</span> · Reconstructed from records and checked against turn prompt hash. Never persisted.
-                                        </span>
-                                      </div>
-                                      <div style={{ display: "grid", gap: 8 }}>
-                                        {reconstructedPrompt.messages.map((m, mIdx) => (
-                                          <div
-                                            key={mIdx}
-                                            style={{
-                                              background: "var(--surface)",
-                                              border: "1px solid var(--line)",
-                                              borderRadius: "var(--r-sm)",
-                                              padding: 10,
-                                            }}
-                                          >
-                                            <div className="mono" style={{ fontSize: 11, fontWeight: 600, color: "var(--primary)" }}>
-                                              {m.role.toUpperCase()}
-                                            </div>
-                                            <pre
-                                              style={{
-                                                fontSize: 12,
-                                                whiteSpace: "pre-wrap",
-                                                marginTop: 4,
-                                                fontFamily: "var(--font-mono)",
-                                                maxHeight: 280,
-                                                overflow: "auto",
-                                              }}
-                                            >
-                                              {m.content}
-                                            </pre>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* Prompt reconstruction error */}
-                                  {isTurn && isError && (
-                                    <div style={{ marginTop: 10 }}>
-                                      <Callout icon="alert">
-                                        <div>
-                                          <b>Cannot reconstruct prompt:</b> {promptError}
-                                          <div className="sub" style={{ fontSize: 11, marginTop: 4 }}>
-                                            The record cannot be verified against the turn’s recorded hash, so no approximation is shown.
-                                          </div>
-                                        </div>
-                                      </Callout>
-                                    </div>
-                                  )}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
+                      <div className="item">
+                        <div className="row" style={{ gap: 6 }}>{ICONS.share}<b>Heard by</b><span className="count-pill">{heardBy.length}</span></div>
+                        {heardBy.length === 0
+                          ? <p className="sub" style={{ fontSize: 12 }}>Nobody — this persona passed nothing on.</p>
+                          : edgeTable(heardBy, "v", "To")}
                       </div>
                     </div>
-                  )}
-                </div>
-              </div>
+                  </Section>
+
+                  <Section icon="clock" title="Timeline" tip="What this persona was shown, what it said, how its beliefs moved tick by tick, and which memories it wrote. Only its own events appear."
+                    tools={tlKinds.length > 1 && (
+                      <select className="input" aria-label="Event kind" value={tlKind} onChange={(e) => setTlKind(e.target.value)} style={{ maxWidth: 180 }}>
+                        <option value="story">all but cost ({personaEvents.filter((e) => e.payload.kind !== "cost").length})</option>
+                        <option value="all">all kinds ({personaEvents.length})</option>
+                        {tlKinds.map((k) => <option key={k} value={k}>{KIND_LABEL[k] ?? k} ({personaEvents.filter((e) => e.payload.kind === k).length})</option>)}
+                      </select>
+                    )}>
+                    {personaEventsLoading && <div className="empty">Loading persona events…</div>}
+                    {!personaEventsLoading && personaEvents.length === 0 && (
+                      <div className="empty">No recorded events for {activePersona} in world {w}.</div>
+                    )}
+                    {!personaEventsLoading && shown.length > 0 && (
+                      <ol className="tr-timeline">
+                        {shown.map((ev) => {
+                          const isTurn = ev.payload.kind === "turn";
+                          const isReconstructed = reconstructedTurnId === ev.event_id && reconstructedPrompt;
+                          const isError = reconstructedTurnId === ev.event_id && promptError;
+                          const isLoadingPrompt = reconstructedTurnId === ev.event_id && promptLoading;
+
+                          return (
+                            <li key={ev.event_id} className={`tr-item${isTurn ? " turn" : ""}`}>
+                              <span className="tr-dot" title={KIND_LABEL[ev.payload.kind] ?? ev.payload.kind}>{ICONS[KIND_ICON[ev.payload.kind] ?? "info"]}</span>
+                              <div style={{ minWidth: 0 }}>
+                                <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                                  <Chip className="plain">{KIND_LABEL[ev.payload.kind] ?? ev.payload.kind}</Chip>
+                                  <span className="mono sub" style={{ fontSize: 11 }}>tick {ev.tick} · seq {ev.seq}</span>
+                                  <span className="mono sub" style={{ fontSize: 11 }} title="trace id">{ev.event_id}</span>
+                                  {isTurn && (
+                                    <button type="button" className="btn btn-secondary" style={{ marginLeft: "auto", fontSize: 12, padding: "4px 8px" }}
+                                      onClick={() => handleReconstructPrompt(ev.event_id)} disabled={Boolean(isLoadingPrompt)}>
+                                      {ICONS.code}{isLoadingPrompt ? "Reconstructing…" : "Reconstruct prompt"}
+                                    </button>
+                                  )}
+                                </div>
+                                <div style={{ marginTop: 4, overflowWrap: "anywhere" }}>{summarize(ev)}</div>
+
+                                {isTurn && Boolean(ev.payload.belief_change) && (
+                                  <div className="mono sub" style={{ fontSize: 11, marginTop: 4 }}>
+                                    Belief delta: {JSON.stringify(ev.payload.belief_change)}
+                                  </div>
+                                )}
+
+                                {isTurn && isReconstructed && (
+                                  <div style={{ marginTop: 10, borderTop: "1px solid var(--line)", paddingTop: 10 }}>
+                                    <div className="row" style={{ gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                                      <Chip className="active">{ICONS.check} Hash verified</Chip>
+                                      <span className="mono sub" style={{ fontSize: 11 }}>{reconstructedPrompt.shape}</span>
+                                      <Tip>Reconstructed from records and checked against turn prompt hash. Never persisted: it leaves when you leave the page.</Tip>
+                                    </div>
+                                    <div style={{ display: "grid", gap: 8 }}>
+                                      {reconstructedPrompt.messages.map((m, mIdx) => (
+                                        <details key={mIdx} className="prompt-msg" open={m.role !== "system"}>
+                                          <summary className="mono">{m.role.toUpperCase()} <span className="sub">· {m.content.length.toLocaleString()} chars</span></summary>
+                                          <pre>{m.content}</pre>
+                                        </details>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {isTurn && isError && (
+                                  <div style={{ marginTop: 10 }}>
+                                    <Callout icon="alert">
+                                      <div>
+                                        <b>Cannot reconstruct prompt:</b> {promptError}
+                                        <div className="sub" style={{ fontSize: 11, marginTop: 4 }}>
+                                          The record cannot be verified against the turn’s recorded hash, so no approximation is shown.
+                                        </div>
+                                      </div>
+                                    </Callout>
+                                  </div>
+                                )}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    )}
+                  </Section>
+                </>
+              )}
             </div>
           )}
 
           {q === "events" && (
-            <div className="panel"><div className="panel-head"><h2>Events</h2><span className="hint">ordered by (persona, tick, seq) — closed ticks only</span>
-              <div className="tools"><select className="input" value={kind} onChange={(e) => setKind(e.target.value)} style={{ maxWidth: 200 }}>
-                {Object.keys(t.event_counts[w] ?? {}).map((k) => <option key={k} value={k}>{KIND_LABEL[k] ?? k} ({t.event_counts[w][k]})</option>)}
-              </select></div></div>
-              <div className="panel-body" style={{ display: "grid", gap: 6 }}>
-                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                  {Object.entries(t.event_counts[w] ?? {}).map(([k, c]) => (
-                    <span key={k} className="tag">{KIND_LABEL[k] ?? k}: {c}</span>
-                  ))}
+            <Section icon="layers" title="Events" tip="How many records of each kind this world wrote, closed ticks only, ordered by (persona, tick, seq). Cost and memory dominate bulk volume; turns are the unit of simulation and of spend. Pick a kind to highlight it.">
+              <div style={{ display: "grid", gap: 6 }}>
+                {Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([k, c]) => (
+                  <button key={k} type="button" className={`bar-row${kind === k ? " active" : ""}`} onClick={() => setKind(k)}>
+                    <span className="row" style={{ gap: 6, minWidth: 130 }}>{ICONS[KIND_ICON[k] ?? "info"]}{KIND_LABEL[k] ?? k}</span>
+                    <span className="bar"><span style={{ width: `${(c / maxCount) * 100}%` }} /></span>
+                    <span className="mono" style={{ minWidth: 60, textAlign: "right" }}>{c.toLocaleString()}</span>
+                  </button>
+                ))}
+              </div>
+              {resolveId && resolved && (
+                <div className="item" style={{ marginTop: 12, borderColor: "var(--primary)" }}>
+                  <div className="row" style={{ gap: 8, flexWrap: "wrap" }}><b className="mono">{resolved.event_id}</b> <span className="mono sub">tick {resolved.tick} · seq {resolved.seq}{resolved.persona_id ? ` · ${resolved.persona_id}` : ""}</span></div>
+                  <p>{summarize(resolved)}</p>
                 </div>
-                <p className="sub" style={{ color: "var(--ink-3)", fontSize: 12 }}>
-                  {t.event_counts[w]?.[kind] ?? 0} <span className="mono">{kind}</span> events in this world.
-                  Cost and memory dominate bulk volume; turns ({t.event_counts[w]?.turn ?? 0}) are the unit of simulation and of spend.
-                </p>
-                {resolveId && resolved && (
-                  <div style={{ border: "1px solid var(--primary)", borderRadius: "var(--r-md)", padding: 12 }}>
-                    <b className="mono">{resolved.event_id}</b> <span className="mono sub">tick {resolved.tick} · seq {resolved.seq}{resolved.persona_id ? ` · ${resolved.persona_id}` : ""}</span>
-                    <p style={{ marginTop: 6 }}>{summarize(resolved)}</p>
-                  </div>
-                )}
-              </div></div>
+              )}
+            </Section>
           )}
 
           {q === "beliefs" && (
-            <div className="panel"><div className="panel-head"><h2>Belief history</h2><span className="hint">snapshots + turns, per persona</span>
-              <div className="tools"><select className="input" value={persona ?? histPersonas[0] ?? ""} onChange={(e) => setPersona(e.target.value)} style={{ maxWidth: 260 }}>
-                {histPersonas.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select></div></div>
-              <div className="panel-body">
-                {hist && hist.length > 0 ? (
-                  <>
-                    <div className="chart-wrap"><BeliefChart history={hist} /></div>
+            <Section icon="sliders" title="Belief history" tools={personaPicker} tip="Value, fit and trust for one persona over ticks, from snapshots and turns. The table shows the last twelve points.">
+              {hist && hist.length > 0 ? (
+                <>
+                  <div className="chart-wrap"><BeliefChart history={hist} /></div>
+                  <div style={{ overflowX: "auto" }}>
                     <table className="tbl" style={{ marginTop: 8 }}><thead><tr><th className="num">Tick</th><th className="num">value</th><th className="num">fit</th><th className="num">trust</th></tr></thead>
                       <tbody>{hist.slice(-12).map((p, i) => (
                         <tr key={i}><td className="num mono">{p.tick}</td><td className="num">{(p.beliefs.value ?? 0).toFixed(2)}</td><td className="num">{(p.beliefs.fit ?? 0).toFixed(2)}</td><td className="num">{(p.beliefs.trust ?? 0).toFixed(2)}</td></tr>
                       ))}</tbody></table>
-                  </>
-                ) : <div className="empty"><b>No snapshots.</b>Pick a persona with belief history.</div>}
-              </div></div>
+                  </div>
+                </>
+              ) : <div className="empty"><b>No snapshots.</b>Pick a persona with belief history.</div>}
+            </Section>
           )}
 
           {q === "edges" && (
-            <div className="panel"><div className="panel-head"><h2>Influence edges</h2><span className="hint">persona pair × channel — count + last tick</span></div>
-              <div className="panel-body tight"><table className="tbl">
-                <thead><tr><th>From → to</th><th>Channel</th><th className="num">Messages</th><th className="num">Last tick</th></tr></thead>
-                <tbody>
-                  {t.edges_top.length === 0 && <tr><td colSpan={4} className="sub" style={{ textAlign: "center" }}>no word-of-mouth edges — survey-room-only worlds leave no edges</td></tr>}
-                  {t.edges_top.slice(0, 30).map((e, i) => (
-                    <tr key={i}><td className="mono">{e.u} → {e.v}</td><td className="mono">{e.channel}</td><td className="num">{e.count}</td><td className="num">{e.last_tick}</td></tr>
-                  ))}
-                </tbody>
-              </table></div></div>
+            <Section icon="network" title="Influence edges" tip="Persona pair by channel: how many messages passed and the last tick one did. The thirty busiest are shown. Click a persona to open its history.">
+              {t.edges_top.length === 0 ? (
+                <div className="empty"><b>No edges.</b>Worlds with no channels leave no edges.</div>
+              ) : (
+                <div style={{ overflowX: "auto" }}>
+                  <table className="tbl nowrap">
+                    <thead><tr><th>From → to</th><th>Channel</th><th className="num">Messages</th><th className="num">Last tick</th></tr></thead>
+                    <tbody>
+                      {t.edges_top.slice(0, 30).map((e, i) => (
+                        <tr key={i}>
+                          <td className="mono">
+                            <button type="button" className="linkish mono" onClick={() => openPersona(e.u)}>{e.u}</button> → <button type="button" className="linkish mono" onClick={() => openPersona(e.v)}>{e.v}</button>
+                          </td>
+                          <td><ChannelTag c={e.channel} /></td>
+                          <td className="num">{e.count}</td>
+                          <td className="num">{e.last_tick}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Section>
           )}
 
           {q === "verbatims" && (
             <div className="grid g2">
               {(["persona", "tick"] as const).map((g) => (
-                <div key={g} className="panel"><div className="panel-head"><h2>Verbatims by {g}</h2></div>
-                  <div className="panel-body" style={{ display: "grid", gap: 10 }}>
+                <Section key={g} icon={g === "persona" ? "users" : "clock"} title={`Verbatims by ${g}`} tip={`What personas said in their own words, grouped by ${g}. A few samples per group.`}>
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {(t.verbatim_groups[g] ?? []).length === 0 && <p className="sub" style={{ fontSize: 12 }}>No verbatims recorded.</p>}
                     {(t.verbatim_groups[g] ?? []).slice(0, 8).map((grp) => (
-                      <div key={grp.key} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 10 }}>
-                        <b className="mono">{grp.key}</b> <span className="sub">· {grp.count} records</span>
+                      <div key={grp.key} className="item">
+                        <div className="row" style={{ gap: 6 }}>
+                          {g === "persona"
+                            ? <button type="button" className="linkish mono" onClick={() => openPersona(grp.key)}>{grp.key}</button>
+                            : <b className="mono">tick {grp.key}</b>}
+                          <span className="count-pill">{grp.count}</span>
+                        </div>
                         {grp.samples.map((smp) => (
-                          <div key={smp.event_id} className="quote" style={{ borderLeft: "2px solid var(--line-2)", paddingLeft: 10, marginTop: 6, fontStyle: "italic", fontSize: 12.5 }}>
-                            “{smp.text}” <span className="mono sub" style={{ fontStyle: "normal" }}>— {smp.persona_id} · t{smp.tick} · {smp.action}</span>
-                          </div>
+                          <blockquote key={smp.event_id} className="verbatim">
+                            “{smp.text}”
+                            <span className="mono sub">{smp.persona_id} · t{smp.tick} · {smp.action}</span>
+                          </blockquote>
                         ))}
                       </div>
                     ))}
-                  </div></div>
+                  </div>
+                </Section>
               ))}
             </div>
           )}
 
           {q === "resolve" && (
-            <div className="panel"><div className="panel-head"><h2>Resolve trace ids</h2><span className="hint">exact — missing ids raise, so findings can cite them</span>
-              <div className="tools"><input className="input mono" placeholder="ev-…" value={resolveId ?? ""} onChange={(e) => setResolveId(e.target.value)} style={{ maxWidth: 300 }} /></div></div>
-              <div className="panel-body">
-                {resolved ? (
-                  <><b className="mono">{resolved.event_id}</b> <Chip className="plain">{KIND_LABEL[resolved.payload.kind] ?? resolved.payload.kind}</Chip>
-                    <p style={{ marginTop: 8 }}>{summarize(resolved)}</p>
-                    <pre className="mono" style={{ fontSize: 11, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 12, overflow: "auto", maxHeight: 320 }}>{JSON.stringify(resolved.payload, null, 1)}</pre></>
-                ) : <div className="empty"><b>Unknown id.</b>Paste an evidence_trace_id from the report — e.g. from <Link href={`/report?run=${runId}`}>findings →</Link></div>}
-              </div></div>
+            <Section icon="target" title="Resolve trace ids" tip="Exact: an id the record does not hold is refused, so every finding can cite its evidence."
+              tools={<input className="input mono" aria-label="Trace id" placeholder="ev-…" value={resolveId ?? ""} onChange={(e) => setResolveId(e.target.value)} style={{ maxWidth: 300 }} />}>
+              {resolved ? (
+                <div style={{ display: "grid", gap: 8 }}>
+                  <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                    <b className="mono">{resolved.event_id}</b>
+                    <Chip className="plain">{KIND_LABEL[resolved.payload.kind] ?? resolved.payload.kind}</Chip>
+                    <span className="mono sub">tick {resolved.tick} · seq {resolved.seq}</span>
+                    {resolved.persona_id && <button type="button" className="linkish mono" onClick={() => openPersona(resolved.persona_id!)}>{resolved.persona_id}</button>}
+                  </div>
+                  <p>{summarize(resolved)}</p>
+                  <pre className="mono" style={{ fontSize: 11, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 12, overflow: "auto", maxHeight: 320 }}>{JSON.stringify(resolved.payload, null, 1)}</pre>
+                </div>
+              ) : <div className="empty"><b>{resolveId ? "Unknown id." : "Paste a trace id."}</b>Use an evidence_trace_id from the report — e.g. from <Link href={`/report?run=${runId}`}>findings →</Link></div>}
+            </Section>
           )}
         </>
       )}
