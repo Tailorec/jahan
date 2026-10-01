@@ -33,6 +33,7 @@ export function IntentOverWaves({ waves }: { waves: WaveDigest[] }) {
         {audiences.map((a, i) => <span key={a}><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: SERIES[i % SERIES.length], marginRight: 4 }} />{a}</span>)}
         <span style={{ color: "var(--ink-2)" }}>- - - all audiences, share-weighted</span>
       </div>
+      <div style={{ overflowX: "auto" }}>
       <table className="tbl" style={{ marginTop: 8 }}>
         <thead><tr><th className="num">Tick</th><th className="num">Answered</th><th className="num">Adoption</th><th className="num">Reached by a channel</th><th className="num">Not reached</th></tr></thead>
         <tbody>{waves.map((w) => (
@@ -42,6 +43,7 @@ export function IntentOverWaves({ waves }: { waves: WaveDigest[] }) {
             <td className="num">{w.unreached}{w.unreached_adoption != null ? ` · ${(w.unreached_adoption * 100).toFixed(1)}%` : ""}</td></tr>
         ))}</tbody>
       </table>
+      </div>
     </div>
   );
 }

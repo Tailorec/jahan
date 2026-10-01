@@ -85,7 +85,7 @@ export default function RunPage() {
   }
 
   return (
-    <Shell crumbs={<><Link href="/">Workspace</Link> / <b>Run</b>{runId && <> / <span className="mono">{runId}</span></>}</>}>
+    <Shell crumbs={<><Link href="/">Workspace</Link> / <b>Run</b></>}>
       <RunBar runId={runId} />
       <PageHead
         title="Run — worlds over the population"
