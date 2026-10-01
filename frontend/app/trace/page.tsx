@@ -43,6 +43,9 @@ const DIM_TIP: Record<string, string> = {
 };
 
 /* A channel as its icon and plain name. */
+// A persona's whole record in one page; one past this says so rather than silently stopping.
+const PERSONA_EVENT_LIMIT = 5000;
+
 function ChannelTag({ c }: { c: string }) {
   return <span className="row" style={{ gap: 4 }}>{ICONS[CHANNEL_ICON[c] ?? "radio"]}{CHANNEL_NAME[c] ?? c}</span>;
 }
@@ -223,6 +226,8 @@ export default function TracePage() {
   const [personaEvents, setPersonaEvents] = React.useState<TraceEvent[]>([]);
   const [personaEventsLoading, setPersonaEventsLoading] = React.useState<boolean>(false);
   const [tlKind, setTlKind] = React.useState<string>("story");
+  const [personaTotal, setPersonaTotal] = React.useState<number>(0);
+  const [vMode, setVMode] = useSessionState<"mine" | "persona" | "tick">("trace:verbatims", "mine");
 
   const t = data?.trace ?? null;
   const worlds = t?.worlds ?? [];
@@ -247,7 +252,7 @@ export default function TracePage() {
     if (!runId || !activePersona) return;
     let cancelled = false;
     setPersonaEventsLoading(true);
-    fetch(`/api/runs/${runId}/events?persona_id=${encodeURIComponent(activePersona)}${w ? `&world_id=${encodeURIComponent(w)}` : ""}&limit=200`)
+    fetch(`/api/runs/${runId}/events?persona_id=${encodeURIComponent(activePersona)}${w ? `&world_id=${encodeURIComponent(w)}` : ""}&limit=${PERSONA_EVENT_LIMIT}`)
       .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`status ${res.status}`))))
       .then((payload) => {
         if (!cancelled) {
@@ -256,6 +261,7 @@ export default function TracePage() {
           // A persona's events, beliefs and verbatims are shown in one timeline, and none of another persona's appear in it
           const filtered = rawEvents.filter((e) => e.persona_id === activePersona || !e.persona_id);
           setPersonaEvents(filtered);
+          setPersonaTotal(Number(payload.total ?? rawEvents.length));
         }
       })
       .catch(() => {
@@ -312,6 +318,15 @@ export default function TracePage() {
   const tlKinds = Array.from(new Set(personaEvents.map((e) => e.payload.kind)));
   // "story" leaves out the per-call cost records, which outnumber everything else.
   const shown = tlKind === "all" ? personaEvents : tlKind === "story" ? personaEvents.filter((e) => e.payload.kind !== "cost") : personaEvents.filter((e) => e.payload.kind === tlKind);
+  // Everything the picked persona said: every turn that carried words, survey answers included.
+  const mine = personaEvents.flatMap((ev) => {
+    if (ev.payload.kind !== "turn") return [];
+    const turn = ev.payload.turn as { impression?: { channel?: string }; reaction?: { action?: string; verbatim?: string | null } } | undefined;
+    const text = turn?.reaction?.verbatim ?? (ev.payload.text as string | undefined);
+    if (!text) return [];
+    return [{ ev, channel: turn?.impression?.channel ?? "", action: turn?.reaction?.action ?? String(ev.payload.action ?? ""), text }];
+  });
+  const mineByChannel = mine.reduce<Record<string, number>>((acc, m) => { acc[m.channel] = (acc[m.channel] ?? 0) + 1; return acc; }, {});
   const openPersona = (p: string) => { setPersona(p); setTlKind("story"); setQ("persona"); };
 
   const TABS: [typeof q, string, keyof typeof ICONS, number | null][] = [
@@ -444,6 +459,9 @@ export default function TracePage() {
                       </select>
                     )}>
                     {personaEventsLoading && <div className="empty">Loading persona events…</div>}
+                    {!personaEventsLoading && personaTotal > personaEvents.length && (
+                      <Callout icon="alert"><div>Showing the first {personaEvents.length.toLocaleString()} of {personaTotal.toLocaleString()} events this persona wrote.</div></Callout>
+                    )}
                     {!personaEventsLoading && personaEvents.length === 0 && (
                       <div className="empty">No recorded events for {activePersona} in world {w}.</div>
                     )}
@@ -578,31 +596,68 @@ export default function TracePage() {
           )}
 
           {q === "verbatims" && (
-            <div className="grid g2">
-              {(["persona", "tick"] as const).map((g) => (
-                <Section key={g} icon={g === "persona" ? "users" : "clock"} title={`Verbatims by ${g}`} tip={`What personas said in their own words, grouped by ${g}. A few samples per group.`}>
+            <Section icon="forum" title="Verbatims" tip="What personas said in their own words. 'This persona' is everything the picked persona said, survey answers included; the grouped views show the personas or ticks with the most to say, three lines each — click a persona to read all of it."
+              tools={<>
+                <div className="segctl" role="tablist" aria-label="Verbatims view">
+                  {([["mine", "This persona", "users"], ["persona", "By persona", "layers"], ["tick", "By tick", "clock"]] as const).map(([id, label, icon]) => (
+                    <button key={id} type="button" role="tab" aria-selected={vMode === id} className={vMode === id ? "on" : ""} onClick={() => setVMode(id)}>{ICONS[icon]}{label}</button>
+                  ))}
+                </div>
+                {vMode === "mine" && personaPicker}
+              </>}>
+              {vMode === "mine" ? (
+                personaEventsLoading ? <div className="empty">Loading what {activePersona} said…</div>
+                : mine.length === 0 ? <div className="empty"><b>Nothing said.</b>{activePersona} wrote no words in world {w}.</div>
+                : (
                   <div style={{ display: "grid", gap: 10 }}>
-                    {(t.verbatim_groups[g] ?? []).length === 0 && <p className="sub" style={{ fontSize: 12 }}>No verbatims recorded.</p>}
-                    {(t.verbatim_groups[g] ?? []).slice(0, 8).map((grp) => (
+                    <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+                      <span className="chip plain">{ICONS.forum} {mine.length} said</span>
+                      {Object.entries(mineByChannel).map(([c, n]) => <span key={c} className="chip plain">{c === "survey_room" ? <>{ICONS.survey} survey</> : <ChannelTag c={c} />} · {n}</span>)}
+                      {personaTotal > personaEvents.length && <span className="chip risk">{ICONS.alert} first {personaEvents.length.toLocaleString()} of {personaTotal.toLocaleString()} events</span>}
+                    </div>
+                    {mine.map(({ ev, channel, action, text }) => (
+                      <div key={ev.event_id} className={`said${channel === "survey_room" ? " survey" : ""}`}>
+                        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                          <span className="mono sub" style={{ fontSize: 11 }}>t{ev.tick}</span>
+                          {channel === "survey_room"
+                            ? <span className="chip plain">{ICONS.survey} survey answer</span>
+                            : <span className="chip plain"><ChannelTag c={channel} /> · {action}</span>}
+                          <button type="button" className="linkish mono" style={{ marginLeft: "auto", fontSize: 11 }} onClick={() => { setResolveId(ev.event_id); setQ("resolve"); }}>{ev.event_id}</button>
+                        </div>
+                        <blockquote className="verbatim">“{text}”</blockquote>
+                      </div>
+                    ))}
+                  </div>
+                )
+              ) : (
+                <div style={{ display: "grid", gap: 10 }}>
+                  {(t.verbatim_groups[vMode] ?? []).length === 0 && <p className="sub" style={{ fontSize: 12 }}>No verbatims recorded.</p>}
+                  {(t.verbatim_groups[vMode] ?? []).length > 0 && (
+                    <p className="sub" style={{ fontSize: 12 }}>
+                      The {(t.verbatim_groups[vMode] ?? []).length} {vMode === "persona" ? "personas" : "ticks"} with the most said, their first three lines each.
+                    </p>
+                  )}
+                  <div className="grid g2">
+                    {(t.verbatim_groups[vMode] ?? []).map((grp) => (
                       <div key={grp.key} className="item">
                         <div className="row" style={{ gap: 6 }}>
-                          {g === "persona"
-                            ? <button type="button" className="linkish mono" onClick={() => openPersona(grp.key)}>{grp.key}</button>
+                          {vMode === "persona"
+                            ? <button type="button" className="linkish mono" onClick={() => { setPersona(grp.key); setVMode("mine"); }}>{grp.key}</button>
                             : <b className="mono">tick {grp.key}</b>}
                           <span className="count-pill">{grp.count}</span>
                         </div>
                         {grp.samples.map((smp) => (
                           <blockquote key={smp.event_id} className="verbatim">
                             “{smp.text}”
-                            <span className="mono sub">{smp.persona_id} · t{smp.tick} · {smp.action}</span>
+                            <span className="mono sub">{vMode === "tick" ? <button type="button" className="linkish mono" onClick={() => { setPersona(smp.persona_id); setVMode("mine"); }}>{smp.persona_id}</button> : `t${smp.tick}`} · {smp.action}</span>
                           </blockquote>
                         ))}
                       </div>
                     ))}
                   </div>
-                </Section>
-              ))}
-            </div>
+                </div>
+              )}
+            </Section>
           )}
 
           {q === "resolve" && (

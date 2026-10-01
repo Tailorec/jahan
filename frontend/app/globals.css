@@ -451,3 +451,11 @@ blockquote.verbatim > span { display: block; font-style: normal; font-size: 11px
 .belief-tip { position: absolute; top: 8px; transform: translateX(-50%); min-width: 150px; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-md); padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 14px rgb(0 0 0 / 0.08); pointer-events: none; display: grid; gap: 3px; }
 .belief-tip .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 .belief-scroll { overflow-x: auto; } .belief-scroll > .chart-wrap { min-width: 520px; }
+.segctl { display: inline-flex; border: 1px solid var(--line-2); border-radius: var(--r-md); overflow: hidden; }
+.segctl button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; font-size: 12.5px; border: none; background: var(--surface); color: var(--ink-2); cursor: pointer; }
+.segctl button + button { border-left: 1px solid var(--line-2); }
+.segctl button.on { background: var(--primary-soft); color: var(--primary-strong); font-weight: 600; }
+.segctl svg { width: 13px; height: 13px; }
+.said { display: grid; gap: 4px; border: 1px solid var(--line); border-radius: var(--r-md); padding: 8px 10px; }
+.said.survey { border-left: 3px solid var(--teal); }
+.panel-head .tools { flex-wrap: wrap; }
