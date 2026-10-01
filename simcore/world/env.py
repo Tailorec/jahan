@@ -14,6 +14,7 @@ is the partition's only writer — and no world state crosses the boundary: a
 world resumes by `reset` and replaying its recorded turns.
 """
 
+from array import array
 from dataclasses import dataclass, field
 from enum import StrEnum
 from collections.abc import Callable
@@ -186,9 +187,13 @@ class World:
             self._centralities = {persona_id: count / scale for persona_id, count in degree.items()}
         # Stimulus vectors for the `twitter` mode, cached by stimulus id at
         # arrival and read by ranking — ranking itself never embeds.
-        self._stimulus_vectors: dict[str, tuple[float, ...]] = {}
+        # Ranking vectors as float32 arrays: 4 bytes a value instead of a Python float's 32, and
+        # iterating one still yields Python floats, so cosine computes exactly as it always did.
+        self._stimulus_vectors: dict[str, array] = {}
         # Profiles for the `twitter` mode: the persona's attributes, plus its latest feed post.
-        self._profile_vectors: dict[str, tuple[float, ...]] = dict(self._config.profile_vectors)
+        self._profile_vectors: dict[str, array] = {
+            persona_id: array("f", vector) for persona_id, vector in self._config.profile_vectors
+        }
         self._latest_post: dict[str, str] = {}
         self._concept_id: str | None = None
         self._opened = False
@@ -335,7 +340,7 @@ class World:
         if not fresh:
             return
         for sid, vector in zip([sid for sid, _ in fresh], embed([text for _, text in fresh])):
-            self._stimulus_vectors[sid] = tuple(vector)
+            self._stimulus_vectors[sid] = array("f", vector)
 
     def _interventions_at(self, tick: int) -> tuple[InterventionKind, ...]:
         """Every intervention scheduled at this tick: they compose, never overwrite."""
@@ -475,7 +480,7 @@ class World:
         ):
             return
         for persona_id, vector in zip(persona_ids, embed([self._profile_text(pid) for pid in persona_ids])):
-            self._profile_vectors[persona_id] = tuple(vector)
+            self._profile_vectors[persona_id] = array("f", vector)
 
     def _platform_for(self, turn: Turn) -> str:
         """The platform a turn's authored stimulus is published on: its impression channel for

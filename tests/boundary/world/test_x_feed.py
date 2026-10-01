@@ -177,3 +177,23 @@ def test_a_world_without_the_feed_needs_no_embedder_whatever_its_feed_mode():
     world = make_world(config=WorldConfig(channels={"forum"}, feed_recsys_mode="twitter"), population=make_population())
     world.reset()
     assert answer_turn  # the forum world opened without a ranking model
+
+
+def test_ranking_vectors_are_float32_and_rank_exactly_as_float_tuples_did():
+    from array import array
+
+    import numpy as np
+
+    rng = np.random.default_rng(3)
+    ids = [f"s{i}" for i in range(40)]
+    sent = {sid: rng.standard_normal(768).astype(np.float32).tolist() for sid in ids}
+    profile = rng.standard_normal(768).astype(np.float32).tolist()
+    ages = {sid: i % 5 for i, sid in enumerate(ids)}
+    as_tuples = x_order(ids, frozenset(), {}, tuple(profile), {k: tuple(v) for k, v in sent.items()}, ages, 7, 3, "p")
+    as_arrays = x_order(ids, frozenset(), {}, array("f", profile), {k: array("f", v) for k, v in sent.items()}, ages, 7, 3, "p")
+    assert as_tuples == as_arrays
+
+    world = x_world()
+    world.reset()
+    assert all(isinstance(v, array) and v.typecode == "f" for v in world._profile_vectors.values())
+    assert world._stimulus_vectors and all(isinstance(v, array) for v in world._stimulus_vectors.values())
