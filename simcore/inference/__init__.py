@@ -8,5 +8,6 @@ never the scientific record (ADR 0021, 0022, 0023, 0024, 0025)."""
 from ._client import EmbeddingFailure, EmbeddingResult, InferenceClient, UnpinnedRoleError
 from ._probe import probe_embeddings
 from ._settings import ExecutionSettings
+from ._wire import request_hash
 
-__all__ = ["EmbeddingFailure", "EmbeddingResult", "ExecutionSettings", "InferenceClient", "UnpinnedRoleError", "probe_embeddings"]
+__all__ = ["EmbeddingFailure", "EmbeddingResult", "ExecutionSettings", "InferenceClient", "UnpinnedRoleError", "probe_embeddings", "request_hash"]

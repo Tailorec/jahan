@@ -92,6 +92,7 @@ from ._wire import (
     messages_text,
     price_table_cost,
     prompt_hash,
+    request_hash,
 )
 
 
@@ -477,8 +478,9 @@ class InferenceClient:
         # because recording a seed the provider ignored would promise determinism nobody gave.
         seed = derive_seed(request.sample) if pin.honours_seed and request.sample is not None else None
         schema = json.loads(request.json_schema) if request.json_schema is not None else None
-        active, data, hashed = request, body_bytes(chat_body(request, pin, seed=seed)), None
-        hashed = prompt_hash(data)
+        active, data = request, body_bytes(chat_body(request, pin, seed=seed))
+        # The same hash `request_hash` gives: reconstruction verifies a rebuilt prompt against it.
+        hashed = request_hash(request, pin)
         # The cache is keyed on the request the study issued; the accepted bytes recorded beside it are
         # whichever attempt's they turned out to be, so a replay reproduces the warm run exactly.
         cached = await self._cache_hit(request, pin, route, data, hashed)

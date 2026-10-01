@@ -50,6 +50,13 @@ def prompt_hash(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def request_hash(request, pin) -> str:
+    """The hash an answered request is recorded under: the exact bytes the endpoint received, with the
+    seed the pin was sent. Reconstruction checks a rebuilt prompt against this, never an approximation."""
+    seed = derive_seed(request.sample) if pin.honours_seed and request.sample is not None else None
+    return prompt_hash(body_bytes(chat_body(request, pin, seed=seed)))
+
+
 def derive_seed(sample) -> int:
     """The seed for one draw, derived from its world seed, persona, tick and sequence. Sending it is a
     request for repeatability, never a promise: determinism in this engine comes from replay."""
