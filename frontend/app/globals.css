@@ -392,3 +392,31 @@ th svg { width: 12px; height: 12px; vertical-align: -2px; }
 .nav-item .run-name { display: grid; min-width: 0; line-height: 1.25; }
 .nav-item .run-name b { font-weight: 500; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-item .run-name small { font-size: 11px; color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---------- report ---------- */
+.tab.tab-icon { display: inline-flex; align-items: center; gap: 6px; }
+.tab.tab-icon svg { width: 14px; height: 14px; }
+.tab .count { font-family: var(--font-mono); font-size: 11px; padding: 0 6px; border-radius: 999px; background: var(--surface-2); color: var(--ink-3); }
+.tab.active .count { background: var(--primary-soft); color: var(--primary-strong); }
+.rp-card { border: 1px solid var(--line); border-radius: var(--r-md); padding: 14px 16px; background: var(--bg); }
+.rp-card.risk { box-shadow: inset 3px 0 0 var(--risk); }
+.rp-statement { margin: 10px 0 8px; font-size: 14.5px; font-weight: 500; line-height: 1.45; }
+.rp-test { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px; color: var(--ink-2); padding: 8px 10px; border-radius: var(--r-md); background: var(--surface-2); }
+.rp-test svg { flex: none; width: 14px; height: 14px; margin-top: 2px; color: var(--teal); }
+.rp-quote { font-size: 34px; line-height: 0.8; color: var(--primary); font-family: Georgia, serif; }
+.rp-size { height: 6px; border-radius: 3px; background: var(--surface-2); margin: 8px 0 6px; overflow: hidden; }
+.rp-size span { display: block; height: 100%; background: var(--primary); border-radius: 3px; }
+.rp-card .row svg { width: 13px; height: 13px; display: inline-block; vertical-align: -2px; }
+.conf { display: inline-flex; align-items: center; gap: 3px; font-size: 11.5px; color: var(--ink-3); }
+.conf i { width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); }
+.conf-low i:nth-child(1), .conf-medium i:nth-child(-n+2), .conf-high i { background: var(--ok); }
+.conf i:last-of-type { margin-right: 3px; }
+.method { display: grid; gap: 0; }
+.method-row { display: grid; grid-template-columns: minmax(160px, 220px) 1fr; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.method-row:first-child { border-top: 0; }
+.method-row svg { width: 13px; height: 13px; display: inline-block; vertical-align: -2px; }
+@media (max-width: 700px) { .method-row { grid-template-columns: 1fr; gap: 4px; } }
+.runbar .mono { overflow-wrap: anywhere; min-width: 0; }
+.tabs { flex-wrap: wrap; row-gap: 4px; }
+.kpi .v { overflow-wrap: anywhere; }
+.pick svg { width: 13px; height: 13px; }
