@@ -247,8 +247,8 @@ export function TrustLine({ level, runId }: {
 }
 
 /* One section of a page: its icon, an optional step number, and a tip in place of a paragraph. */
-export function Section({ step, icon, title, tip, done, children }: {
-  step?: number; icon: keyof typeof ICONS; title: string; tip: React.ReactNode; done?: boolean; children: React.ReactNode;
+export function Section({ step, icon, title, tip, done, tools, children }: {
+  step?: number; icon: keyof typeof ICONS; title: string; tip: React.ReactNode; done?: boolean; tools?: React.ReactNode; children: React.ReactNode;
 }) {
   return (
     <div className="panel">
@@ -260,6 +260,7 @@ export function Section({ step, icon, title, tip, done, children }: {
           <Tip>{tip}</Tip>
           {done && <span className="sec-done" title="filled in">{ICONS.check}</span>}
         </div>
+        {tools && <div className="tools">{tools}</div>}
       </div>
       <div className="panel-body">{children}</div>
     </div>
