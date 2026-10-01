@@ -47,24 +47,123 @@ function ChannelTag({ c }: { c: string }) {
   return <span className="row" style={{ gap: 4 }}>{ICONS[CHANNEL_ICON[c] ?? "radio"]}{CHANNEL_NAME[c] ?? c}</span>;
 }
 
-function BeliefChart({ history }: { history: BeliefPoint[] }) {
-  const W = 560, H = 196, L = 40, R = 552, T = 30, B = 174;
-  const dims = ["value", "fit", "trust"] as const;
-  const colors = ["var(--seg1)", "var(--seg2)", "var(--seg3)"];
-  const maxTick = Math.max(...history.map((p) => p.tick), 1);
-  const x = (t: number) => L + (t / maxTick) * (R - L);
-  const y = (v: number) => B - v * (B - T);
+const DIMS = ["value", "fit", "trust"] as const;
+const SERIES_COLOR = ["var(--seg1)", "var(--seg2)", "var(--seg4)", "var(--seg3)", "var(--seg5)", "var(--ink-3)"];
+
+/* One value per tick: the last one the record wrote that tick, carried forward over ticks it wrote none. */
+function byTick(history: BeliefPoint[]) {
+  const ticks = Array.from(new Set(history.map((p) => p.tick))).sort((a, b) => a - b);
+  const last = new Map<number, Record<string, number>>();
+  for (const p of history) last.set(p.tick, p.beliefs);
+  return ticks.map((tick) => ({ tick, beliefs: last.get(tick)! }));
+}
+
+/* A marker per series, so lines lying on top of each other stay told apart. */
+function Marker({ i, x, y, color }: { i: number; x: number; y: number; color: string }) {
+  if (i % 3 === 1) return <rect x={x - 3.5} y={y - 3.5} width={7} height={7} fill="var(--bg)" stroke={color} strokeWidth={1.8} />;
+  if (i % 3 === 2) return <path d={`M${x},${y - 4.5} L${x + 4.5},${y + 3.5} L${x - 4.5},${y + 3.5} Z`} fill="var(--bg)" stroke={color} strokeWidth={1.8} />;
+  return <circle cx={x} cy={y} r={3.8} fill="var(--bg)" stroke={color} strokeWidth={1.8} />;
+}
+
+function BeliefChart({ history, claims = false }: { history: BeliefPoint[]; claims?: boolean }) {
+  const points = byTick(history);
+  const claimKeys = Array.from(new Set(history.flatMap((p) => Object.keys(p.beliefs)))).filter((k) => !(DIMS as readonly string[]).includes(k)).sort();
+  const keys = [...DIMS, ...claimKeys];
+  const [on, setOn] = React.useState<Set<string>>(() => new Set(claims ? keys : DIMS));
+  const [hover, setHover] = React.useState<number | null>(null);
+  const W = 640, H = 220, L = 34, R = 624, T = 12, B = 192;
+  const lo = points[0]?.tick ?? 0, hi = Math.max(points[points.length - 1]?.tick ?? 1, lo + 1);
+  const x = (t: number) => L + ((t - lo) / (hi - lo)) * (R - L);
+  // ponytail: a 2px nudge per series keeps identical lines visible; small against a 180px range.
+  const y = (v: number, k: number) => B - v * (B - T) + (k - 1) * 2;
+  const color = (k: string) => SERIES_COLOR[keys.indexOf(k) % SERIES_COLOR.length];
+  const shown = keys.filter((k) => on.has(k));
+  const toggle = (k: string) => setOn((prev) => { const next = new Set(prev); if (next.has(k)) next.delete(k); else next.add(k); return next; });
+  const first = points[0]?.beliefs ?? {}, final = points[points.length - 1]?.beliefs ?? {};
+  const hp = hover != null ? points[hover] : null;
+  const prev = hover != null && hover > 0 ? points[hover - 1] : null;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label="Belief history">
-      {[0, 0.25, 0.5, 0.75, 1].map((g) => (
-        <g key={g}><line className="gridline" x1={L} x2={R} y1={y(g)} y2={y(g)} /><text x={L - 6} y={y(g) + 3} textAnchor="end">{g}</text></g>
-      ))}
-      {dims.map((d, di) => (
-        <polyline key={d} fill="none" stroke={colors[di]} strokeWidth="2"
-          points={history.map((p) => `${x(p.tick).toFixed(1)},${y(p.beliefs[d] ?? 0.5).toFixed(1)}`).join(" ")} />
-      ))}
-      {dims.map((d, di) => <text key={d} x={L + di * 60} y={12} fill={colors[di]} style={{ fontWeight: 600 }}>— {d}</text>)}
-    </svg>
+    <div className="belief-chart">
+      <div className="belief-legend" role="group" aria-label="Lines shown">
+        {keys.map((k, ki) => (
+          <button key={k} type="button" aria-pressed={on.has(k)} className={`belief-key${on.has(k) ? " on" : ""}`} onClick={() => toggle(k)}
+            title={DIM_TIP[k] ?? `Credence in claim ${k}, from 0 to 1.`}>
+            <svg width="22" height="12" viewBox="0 0 22 12" aria-hidden>
+              <line x1="1" x2="21" y1="6" y2="6" stroke={color(k)} strokeWidth="2" strokeDasharray={ki >= DIMS.length ? "4 3" : undefined} />
+              <Marker i={ki} x={11} y={6} color={color(k)} />
+            </svg>
+            <span>{k}</span>
+            <span className="mono sub">{(first[k] ?? 0).toFixed(2)}→{(final[k] ?? 0).toFixed(2)}</span>
+          </button>
+        ))}
+      </div>
+      <div className="belief-scroll"><div className="chart-wrap" onMouseLeave={() => setHover(null)}>
+        <svg viewBox={`0 0 ${W} ${H}`} width="100%" role="img" aria-label={`Belief history: ${shown.map((k) => `${k} ${(first[k] ?? 0).toFixed(2)} to ${(final[k] ?? 0).toFixed(2)}`).join(", ")}`}>
+          <rect x={L} y={T} width={R - L} height={(B - T) / 2} fill="var(--surface-2)" opacity={0.5} />
+          {[0, 0.25, 0.5, 0.75, 1].map((g) => (
+            <g key={g}><line className="gridline" x1={L} x2={R} y1={B - g * (B - T)} y2={B - g * (B - T)} /><text x={L - 6} y={B - g * (B - T) + 3} textAnchor="end">{g}</text></g>
+          ))}
+          {points.map((p) => <text key={p.tick} x={x(p.tick)} y={H - 6} textAnchor="middle">t{p.tick}</text>)}
+          {hp && <line x1={x(hp.tick)} x2={x(hp.tick)} y1={T} y2={B} stroke="var(--ink-3)" strokeDasharray="3 3" />}
+          {shown.map((k) => {
+            const ki = keys.indexOf(k);
+            // Step after each tick: a belief holds until a turn moves it.
+            const d = points.map((p, i) => {
+              const px = x(p.tick).toFixed(1), py = y(p.beliefs[k] ?? 0.5, ki).toFixed(1);
+              return i === 0 ? `M${px},${py}` : `H${px} V${py}`;
+            }).join(" ");
+            return (
+              <g key={k}>
+                <path d={d} fill="none" stroke={color(k)} strokeWidth={ki >= DIMS.length ? 1.5 : 2.2} strokeDasharray={ki >= DIMS.length ? "5 4" : undefined} />
+                {points.map((p) => <Marker key={p.tick} i={ki} x={x(p.tick)} y={y(p.beliefs[k] ?? 0.5, ki)} color={color(k)} />)}
+              </g>
+            );
+          })}
+          {points.map((p, i) => {
+            const half = points.length > 1 ? (R - L) / (points.length - 1) / 2 : (R - L) / 2;
+            return <rect key={p.tick} x={x(p.tick) - half} y={T} width={half * 2} height={B - T} fill="transparent" onMouseEnter={() => setHover(i)} />;
+          })}
+        </svg>
+        {hp && (
+          <div className="belief-tip" style={{ left: `${Math.min(85, Math.max(15, (x(hp.tick) / W) * 100))}%` }}>
+            <b className="mono">tick {hp.tick}</b>
+            {shown.map((k) => {
+              const v = hp.beliefs[k] ?? 0, dv = prev ? v - (prev.beliefs[k] ?? 0) : 0;
+              return (
+                <div key={k} className="row" style={{ gap: 6 }}>
+                  <span className="dot" style={{ background: color(k) }} />{k}
+                  <span className="mono" style={{ marginLeft: "auto" }}>{v.toFixed(2)}</span>
+                  {Math.abs(dv) >= 0.005 && <span className="mono" style={{ color: dv > 0 ? "var(--ok)" : "var(--risk)" }}>{dv > 0 ? "▲" : "▼"}{Math.abs(dv).toFixed(2)}</span>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div></div>
+    </div>
+  );
+}
+
+/* Every tick's beliefs, with what moved since the tick before. */
+function BeliefTable({ history }: { history: BeliefPoint[] }) {
+  const points = byTick(history);
+  const keys = [...DIMS, ...Array.from(new Set(history.flatMap((p) => Object.keys(p.beliefs)))).filter((k) => !(DIMS as readonly string[]).includes(k)).sort()];
+  return (
+    <div style={{ overflowX: "auto" }}>
+      <table className="tbl nowrap" style={{ marginTop: 8 }}>
+        <thead><tr><th className="num">Tick</th>{keys.map((k) => <th key={k} className="num">{k}</th>)}</tr></thead>
+        <tbody>{points.map((p, i) => (
+          <tr key={p.tick}><td className="num mono">t{p.tick}</td>{keys.map((k) => {
+            const v = p.beliefs[k] ?? 0, dv = i > 0 ? v - (points[i - 1].beliefs[k] ?? 0) : 0;
+            return (
+              <td key={k} className="num">
+                {v.toFixed(2)}{Math.abs(dv) >= 0.005 && <span className="mono" style={{ marginLeft: 6, fontSize: 11, color: dv > 0 ? "var(--ok)" : "var(--risk)" }}>{dv > 0 ? "▲" : "▼"}{Math.abs(dv).toFixed(2)}</span>}
+              </td>
+            );
+          })}</tr>
+        ))}</tbody>
+      </table>
+    </div>
   );
 }
 
@@ -316,7 +415,7 @@ export default function TracePage() {
                         })}
                       </div>
                     ) : <p className="sub" style={{ fontSize: 12 }}>No belief snapshots for this persona.</p>}
-                    {hist && hist.length > 0 && <div className="chart-wrap"><BeliefChart history={hist} /></div>}
+                    {hist && hist.length > 0 && <BeliefChart key={activePersona} history={hist} />}
                   </Section>
 
                   <Section icon="network" title="Influence neighbourhood" tip="Recorded edges for this persona, naming the channel and how often. Click a persona to open its history.">
@@ -442,16 +541,11 @@ export default function TracePage() {
           )}
 
           {q === "beliefs" && (
-            <Section icon="sliders" title="Belief history" tools={personaPicker} tip="Value, fit and trust for one persona over ticks, from snapshots and turns. The table shows the last twelve points.">
+            <Section icon="sliders" title="Belief history" tools={personaPicker} tip="Value, fit, trust and each claim's credence for one persona, tick by tick, from snapshots and turns. Click a key to hide or show its line; hover the chart for a tick's numbers. Arrows mark what moved since the tick before.">
               {hist && hist.length > 0 ? (
                 <>
-                  <div className="chart-wrap"><BeliefChart history={hist} /></div>
-                  <div style={{ overflowX: "auto" }}>
-                    <table className="tbl" style={{ marginTop: 8 }}><thead><tr><th className="num">Tick</th><th className="num">value</th><th className="num">fit</th><th className="num">trust</th></tr></thead>
-                      <tbody>{hist.slice(-12).map((p, i) => (
-                        <tr key={i}><td className="num mono">{p.tick}</td><td className="num">{(p.beliefs.value ?? 0).toFixed(2)}</td><td className="num">{(p.beliefs.fit ?? 0).toFixed(2)}</td><td className="num">{(p.beliefs.trust ?? 0).toFixed(2)}</td></tr>
-                      ))}</tbody></table>
-                  </div>
+                  <BeliefChart key={activePersona} history={hist} claims />
+                  <BeliefTable history={hist} />
                 </>
               ) : <div className="empty"><b>No snapshots.</b>Pick a persona with belief history.</div>}
             </Section>

@@ -442,3 +442,12 @@ th svg { width: 12px; height: 12px; vertical-align: -2px; }
 blockquote.verbatim { margin: 0; border-left: 2px solid var(--line-2); padding-left: 10px; font-style: italic; font-size: 12.5px; }
 blockquote.verbatim > span { display: block; font-style: normal; font-size: 11px; margin-top: 2px; }
 .tbl.nowrap td, .tbl.nowrap th { white-space: nowrap; }
+.belief-chart { display: grid; gap: 8px; }
+.belief-legend { display: flex; flex-wrap: wrap; gap: 6px; }
+.belief-key { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); font-size: 12.5px; cursor: pointer; opacity: 0.45; }
+.belief-key.on { opacity: 1; border-color: var(--line-2); }
+.belief-key svg { display: inline-block; }
+.belief-key .sub { font-size: 11px; }
+.belief-tip { position: absolute; top: 8px; transform: translateX(-50%); min-width: 150px; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-md); padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 14px rgb(0 0 0 / 0.08); pointer-events: none; display: grid; gap: 3px; }
+.belief-tip .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+.belief-scroll { overflow-x: auto; } .belief-scroll > .chart-wrap { min-width: 520px; }
