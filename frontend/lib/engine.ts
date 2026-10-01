@@ -192,6 +192,11 @@ export interface RunSummary {
   has_trace_summary?: boolean;
   /* Why a study that is not running and has no report stopped: the last thing it said. */
   launch_error?: string | null;
+  /* What tells one run from another, read from its own files. */
+  product?: string | null;
+  category?: string | null;
+  personas?: number | null;
+  created_at?: string | null;
 }
 
 /* ---------- digest ---------- */
