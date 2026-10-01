@@ -12,11 +12,13 @@ from pathlib import Path
 FRONTEND = Path(__file__).resolve().parents[3] / "frontend"
 
 
-def test_per_tick_trajectories_for_audiences_and_communities_separately():
+def test_intent_over_waves_for_audiences_and_communities_separately():
+    """Audiences get a real trajectory over survey waves (M15); communities, where intent ended."""
     text = (FRONTEND / "app" / "atlas" / "page.tsx").read_text()
     for marker in (
-        "Per-tick trajectories: Audiences",
-        "Per-tick trajectories: Communities",
+        "Intent over waves: audiences",
+        "IntentOverWaves",
+        "Communities: where intent ended",
         "separately presented",
     ):
         assert marker in text, f"atlas lacks {marker!r}"

@@ -3,7 +3,8 @@
 import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
-import { PageHead, Chip, Callout, PmfBar, TrustLine } from "@/components/ui";
+import { PageHead, Chip, Callout, PmfBar, PmfLegend, TrustLine, ICONS, Section, Tip } from "@/components/ui";
+import { IntentOverWaves } from "@/components/charts";
 import { useApi, useRunId } from "@/lib/api";
 import {
   pmfMean,
@@ -23,6 +24,12 @@ interface Detail {
   trace: UITrace | null;
 }
 
+const CHANNEL_ICON: Record<string, keyof typeof ICONS> = { social_feed: "feed", forum: "forum", wom: "wom" };
+const CHANNEL_NAME: Record<string, string> = { social_feed: "X-like feed", forum: "Reddit-like forum", wom: "word of mouth" };
+
+/* Adoption as a tinted cell: the stronger the tint, the higher the share that would buy. */
+const heat = (adoption: number) => `color-mix(in srgb, var(--teal) ${Math.round(adoption * 60)}%, var(--bg))`;
+
 export default function AtlasPage() {
   const runId = useRunId();
   const { data, error } = useApi<Detail>(runId ? `/api/runs/${runId}` : null);
@@ -31,246 +38,194 @@ export default function AtlasPage() {
   const summaries = data?.digest?.summaries ?? {};
   const report = data?.report ?? null;
 
-  // Phase 9: Findings authored by extraction (never generated)
+  // Findings authored by extraction (never generated)
   const rankingFindings = (report?.findings ?? []).filter((f) => f.kind === "ranking");
   const riskFindings = (report?.findings ?? []).filter((f) => f.kind === "risk");
+  const measured = digests.filter((d) => d.adoption != null);
+  const best = measured.length ? Math.max(...measured.map((d) => d.adoption as number)) : null;
+  const spreads = Object.values(summaries).map((x) => x.adoption_spread).filter((x): x is number => x != null);
 
   return (
     <Shell crumbs={<><Link href="/">Workspace</Link> / Sweep / <b>Scenario atlas</b></>}>
       <PageHead
-        title="Sweep — scenarios × seeds"
-        sub="One run over many worlds sharing one budget. Each cell is a world: its digest measured adoption and polarization, and the spread across a scenario's worlds is the variance estimate."
-        actions={s && <span className="chip plain mono">{digests.length} world(s) · {s.seeds.length} seed(s)</span>}
+        title="Scenario atlas"
+        sub={<>Every world of this run side by side. <Tip>One run over many worlds sharing one budget: each scenario runs once per replicate seed. Each cell is a world — its digest measured adoption and polarization — and the spread across a scenario&apos;s worlds is the variance estimate that says whether an ordering survives.</Tip></>}
+        actions={s && <>
+          <span className="chip plain">{ICONS.layers} {s.scenarios.length} scenario{s.scenarios.length === 1 ? "" : "s"}</span>
+          <span className="chip plain">{ICONS.shuffle} {s.seeds.length} seed{s.seeds.length === 1 ? "" : "s"}</span>
+        </>}
       />
       {error && <Callout icon="alert"><div>{error}</div></Callout>}
       {!data && !error && <div className="empty"><b>Loading sweep…</b></div>}
       {data && <TrustLine level={data.report?.trust.level ?? null} runId={runId} />}
 
       {s && (
-        <div style={{ display: "grid", gap: 20 }}>
-          {/* Phase 9: Adoption against polarization plane */}
-          <div className="panel">
-            <div className="panel-head">
-              <h2>Adoption against polarization plane</h2>
-              <span className="hint">measured top-2 box and polarization per world, audience-weighted</span>
-            </div>
-            <div className="panel-body">
-              <table className="tbl">
+        <div style={{ display: "grid", gap: 4 }}>
+          <div className="kpis" style={{ marginBottom: 12 }}>
+            <Kpi icon="layers" label="Worlds" tip="A world is one scenario run under one replicate seed." value={String(digests.length)} />
+            <Kpi icon="target" label="Best adoption" tip="The highest share-weighted top-two-box purchase intent any world reached at its last survey wave."
+              value={best != null ? `${(best * 100).toFixed(1)}%` : "—"} />
+            <Kpi icon="shuffle" label="Replicate spread" tip="How far adoption moved between the seeds of one scenario. An ordering between scenarios only survives if their gap is bigger than this."
+              value={spreads.length ? `±${(Math.max(...spreads) * 100).toFixed(1)}%` : "—"} />
+            <Kpi icon="fork" label="Polarization" tip="How far communities split into opposing views. Unmeasured when the network formed no communities to compare."
+              value={digests.some((d) => d.polarization != null) ? "measured" : "unmeasured"} />
+          </div>
+
+          <Section icon="table" title="Adoption against polarization" tip="Measured top-two box and polarization per world, audience-weighted. Cells whose worlds ran at different degradation rungs are marked rather than silently compared. Unmeasured quantities render their reason where the number would have been.">
+            <div style={{ overflowX: "auto" }}>
+              <table className="tbl atlas">
                 <thead>
                   <tr>
                     <th>Scenario</th>
-                    {s.seeds.map((seed) => (
-                      <th key={seed} className="num">seed {seed}</th>
-                    ))}
-                    <th>Replicate spread</th>
+                    {s.seeds.map((seed) => <th key={seed} className="num">seed {seed}</th>)}
+                    <th>Spread <Tip>Replicate spread: the range of adoption across this scenario&apos;s seeds — what says whether an ordering survives.</Tip></th>
                   </tr>
                 </thead>
                 <tbody>
                   {s.scenarios.map((sc, si) => {
                     const scSummary = (sc.scenario_hash ? summaries[sc.scenario_hash] : null) ?? summaries[sc.variant.variant_id] ?? null;
                     const rungMixed = scSummary?.rung_mixed ?? false;
-
                     return (
                       <tr key={si}>
-                        <td className="strong">
-                          {sc.variant.variant_id} · {sc.variant.name}
-                          <br />
-                          <span className="sub">
-                            ${sc.price.amount} {sc.price.currency} · {sc.tick_unit} × {sc.horizon_ticks}
-                            {sc.interventions.length ? ` · ${sc.interventions.map((i) => `${i.kind}@${i.tick}`).join(", ")}` : ""}
-                          </span>
+                        <td>
+                          <b>{sc.variant.name}</b> <span className="mono sub">{sc.variant.variant_id}</span>
+                          <div className="row" style={{ gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                            <span className="chip plain" title="price">{ICONS.dollar} {sc.price.amount} {sc.price.currency}</span>
+                            <span className="chip plain" title="horizon">{ICONS.clock} {sc.horizon_ticks} {sc.tick_unit}s</span>
+                            {(sc.channels ?? []).length === 0
+                              ? <span className="chip plain" title="no channels: every persona sees the concept alone">{ICONS.survey} concept test</span>
+                              : (sc.channels ?? []).map((c) => <span key={c} className="chip plain" title={CHANNEL_NAME[c] ?? c}>{ICONS[CHANNEL_ICON[c] ?? "radio"]} {CHANNEL_NAME[c] ?? c}</span>)}
+                            {sc.interventions.length > 0 && <span className="chip plain">{sc.interventions.map((i) => `${i.kind}@${i.tick}`).join(", ")}</span>}
+                          </div>
                         </td>
                         {s.seeds.map((seed) => {
                           const d = digests.find((x) => x.seed === seed && (x.scenario_hash === sc.scenario_hash || digests.length <= s.seeds.length));
                           if (!d) return <td key={seed} className="num"><span className="sub">no world</span></td>;
-
-                          // Phase 9 acceptance criterion: A cell whose worlds ran at different degradation rungs is marked rather than silently compared
+                          // A cell whose worlds ran at different degradation rungs is marked rather than silently compared.
                           const cellDegraded = (d.rungs ?? []).length > 0;
-
                           return (
                             <td key={seed} className="num">
-                              <div style={{ display: "grid", gap: 4, justifyItems: "end" }}>
-                                {d.adoption != null ? (
-                                  <span className="heat" style={{ background: d.adoption > 0.5 ? "var(--primary-soft)" : "var(--surface-2)" }}>
-                                    {(d.adoption * 100).toFixed(1)}%
-                                  </span>
-                                ) : (
-                                  /* Phase 9 acceptance criterion: A quantity no world measured is stated as unmeasured with its reason, never drawn as zero */
-                                  <span className="sub" style={{ fontStyle: "italic", fontSize: 11 }}>
-                                    unmeasured: {d.unmeasured_reason ?? "unmeasured"}
-                                  </span>
-                                )}
-
-                                {d.polarization != null ? (
-                                  <span className="mono sub" style={{ fontSize: 11 }}>
-                                    pol {d.polarization.toFixed(2)}
-                                  </span>
-                                ) : d.polarization_reason ? (
-                                  <span className="sub" style={{ fontStyle: "italic", fontSize: 11 }}>
-                                    {d.polarization_reason}
-                                  </span>
-                                ) : null}
-
-                                {cellDegraded && (
-                                  <span className="chip warn" style={{ fontSize: 10 }}>
-                                    degraded rung ({d.rungs.join(", ")})
-                                  </span>
-                                )}
+                              <div className="atlas-cell" style={{ background: d.adoption != null ? heat(d.adoption) : "var(--surface-2)" }}>
+                                {d.adoption != null
+                                  ? <span className="big">{(d.adoption * 100).toFixed(1)}%</span>
+                                  : <span className="sub" style={{ fontStyle: "italic", fontSize: 11 }}>unmeasured: {d.unmeasured_reason ?? "unmeasured"}</span>}
+                                <span className="mono sub" style={{ fontSize: 11 }}>
+                                  {d.polarization != null ? <>pol {d.polarization.toFixed(2)}</> : <>pol — <Tip>{d.polarization_reason ?? "Polarization was not measured."}</Tip></>}
+                                </span>
+                                {cellDegraded && <span className="chip tier-explo" style={{ fontSize: 10 }}>degraded rung ({d.rungs.join(", ")})</span>}
                               </div>
                             </td>
                           );
                         })}
-
-                        {/* Replicate spread that says whether an ordering survives */}
-                        <td style={{ minWidth: 160 }}>
+                        <td style={{ minWidth: 120 }}>
                           {scSummary ? (
-                            <div style={{ fontSize: 12 }}>
-                              <div>
-                                Spread: <span className="mono">{scSummary.adoption_spread != null ? `±${(scSummary.adoption_spread * 100).toFixed(1)}%` : "n/a"}</span>
-                              </div>
-                              {rungMixed && (
-                                <span className="chip warn" style={{ fontSize: 10, marginTop: 4 }}>
-                                  different degradation rungs
-                                </span>
-                              )}
+                            <div style={{ display: "grid", gap: 4 }}>
+                              <span className="mono">{scSummary.adoption_spread != null ? `±${(scSummary.adoption_spread * 100).toFixed(1)}%` : "n/a"}</span>
+                              {rungMixed && <span className="chip tier-explo" style={{ fontSize: 10 }}>different degradation rungs</span>}
                             </div>
-                          ) : (
-                            <span className="sub">—</span>
-                          )}
+                          ) : <span className="sub">—</span>}
                         </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
-
-              <p className="sub" style={{ color: "var(--ink-3)", fontSize: 12, marginTop: 10 }}>
-                Cells whose worlds ran at different degradation rungs are marked rather than silently compared. Unmeasured quantities render their reason where the number would have been.
-              </p>
             </div>
-          </div>
+          </Section>
 
-          {/* Phase 9: Ranking findings over scenario replicates */}
           {rankingFindings.length > 0 && (
-            <div className="panel">
-              <div className="panel-head">
-                <h2>Ranking findings</h2>
-                <span className="hint">authored by extraction from scenario replicates — carrying the spread that says whether the order survives</span>
+            <Section icon="layers" title="Ranking findings" tip="Authored by extraction from scenario replicates — never generated — each carrying the spread that says whether the order survives, and the real-world test that would disprove it.">
+              <div style={{ display: "grid", gap: 10 }}>
+                {rankingFindings.map((f: Finding) => <FindingCard key={f.finding_id} f={f} />)}
               </div>
-              <div className="panel-body" style={{ display: "grid", gap: 12 }}>
-                {rankingFindings.map((f: Finding) => (
-                  <div key={f.finding_id} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 12 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <b className="mono">{f.finding_id}</b>
-                      <Chip className="active">{f.confidence} confidence</Chip>
-                      {f.ranked_scenarios && f.ranked_scenarios.length > 0 && (
-                        <span className="mono sub">
-                          ordered: {f.ranked_scenarios.map((h) => h.slice(0, 8)).join(" > ")}
-                        </span>
-                      )}
-                    </div>
-                    <p style={{ marginTop: 8, fontWeight: 500 }}>{f.statement}</p>
-                    <p className="sub" style={{ marginTop: 6, fontSize: 12 }}>
-                      <b>Disconfirming test:</b> {f.disconfirming_test}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
+            </Section>
           )}
 
-          {/* Phase 9: Risk findings from anomalies */}
           {riskFindings.length > 0 && (
-            <div className="panel">
-              <div className="panel-head">
-                <h2>Risk findings</h2>
-                <span className="hint">authored from recorded anomalies — each with evidence and disconfirming test</span>
+            <Section icon="alert" title="Risk findings" tip="Authored from recorded anomalies — each with its evidence and the real-world test that would disprove it.">
+              <div style={{ display: "grid", gap: 10 }}>
+                {riskFindings.map((f: Finding) => <FindingCard key={f.finding_id} f={f} />)}
               </div>
-              <div className="panel-body" style={{ display: "grid", gap: 12 }}>
-                {riskFindings.map((f: Finding) => (
-                  <div key={f.finding_id} style={{ border: "1px solid var(--line)", borderRadius: "var(--r-md)", padding: 12 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <b className="mono">{f.finding_id}</b>
-                      <Chip className="plain">{f.confidence} confidence</Chip>
-                    </div>
-                    <p style={{ marginTop: 8, fontWeight: 500 }}>{f.statement}</p>
-                    <p className="sub" style={{ marginTop: 6, fontSize: 12 }}>
-                      <b>Disconfirming test:</b> {f.disconfirming_test}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
+            </Section>
           )}
 
-          {/* Phase 9: Per-tick trajectories for audiences and, separately, for communities */}
           <div className="grid g2">
-            <div className="panel">
-              <div className="panel-head">
-                <h2>Per-tick trajectories: Audiences</h2>
-                <span className="hint">per-tick movement per audience</span>
-              </div>
-              <div className="panel-body tight">
+            <div>
+            <Section icon="survey" title="Intent over waves: audiences" tip="Purchase intent at every survey wave, one line per audience and the share-weighted whole dashed — one chart per world.">
+              <div style={{ display: "grid", gap: 16 }}>
                 {digests.map((d) => (
-                  <div key={d.world_id} style={{ padding: 12, borderBottom: "1px solid var(--line)" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                      <b className="mono">World {d.world_id}</b>
-                      <span className="sub mono">seed {d.seed}</span>
+                  <div key={d.world_id}>
+                    <div className="row" style={{ marginBottom: 6 }}>
+                      <b className="mono">world {d.world_id}</b>
+                      <span className="chip plain mono">seed {d.seed}</span>
                     </div>
-                    {Object.entries(d.audience_pmfs).length === 0 ? (
-                      <p className="sub" style={{ fontSize: 12 }}>
-                        unmeasured: {d.unmeasured_reason ?? "no intent measured"}
-                      </p>
-                    ) : (
-                      Object.entries(d.audience_pmfs).map(([a, pmf]) => (
-                        <div key={a} style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
-                          <span className="mono" style={{ minWidth: 120, fontSize: 12 }}>{a}</span>
-                          <div style={{ flex: 1 }}><PmfBar p={pmf} maxWidth="100%" /></div>
-                          <span className="mono sub" style={{ fontSize: 11 }}>
-                            mean {pmfMean(pmf).toFixed(2)} · top-2 {(top2box(pmf) * 100).toFixed(0)}%
-                          </span>
-                        </div>
-                      ))
-                    )}
+                    {(d.waves ?? []).length > 0
+                      ? <IntentOverWaves waves={d.waves!} />
+                      : <p className="sub" style={{ fontSize: 12 }}>unmeasured: {d.unmeasured_reason ?? "no intent measured"}</p>}
                   </div>
                 ))}
               </div>
-            </div>
+            </Section>
 
-            <div className="panel">
-              <div className="panel-head">
-                <h2>Per-tick trajectories: Communities</h2>
-                <span className="hint">separately presented from audiences</span>
-              </div>
-              <div className="panel-body tight">
+            </div>
+            <div>
+            <Section icon="fork" title="Communities: where intent ended" tip="Groups that formed in the social network, separately presented from audiences: each community's answers at the last wave. Communities often cut across audiences.">
+              <div style={{ display: "grid", gap: 16 }}>
                 {digests.map((d) => (
-                  <div key={d.world_id} style={{ padding: 12, borderBottom: "1px solid var(--line)" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                      <b className="mono">World {d.world_id}</b>
-                      <span className="sub mono">seed {d.seed}</span>
+                  <div key={d.world_id}>
+                    <div className="row" style={{ marginBottom: 6 }}>
+                      <b className="mono">world {d.world_id}</b>
+                      <span className="chip plain mono">seed {d.seed}</span>
                     </div>
                     {Object.entries(d.community_pmfs).length === 0 ? (
-                      <p className="sub" style={{ fontSize: 12 }}>
-                        {d.polarization_reason ?? "No communities formed in graph"}
-                      </p>
+                      <div className="row sub" style={{ fontSize: 12 }}>{ICONS.info} No communities formed <Tip>{d.polarization_reason ?? "No communities formed in the graph."}</Tip></div>
                     ) : (
-                      Object.entries(d.community_pmfs).map(([c, pmf]) => (
-                        <div key={c} style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
-                          <span className="mono" style={{ minWidth: 120, fontSize: 12 }}>{c}</span>
-                          <div style={{ flex: 1 }}><PmfBar p={pmf} maxWidth="100%" /></div>
-                          <span className="mono sub" style={{ fontSize: 11 }}>
-                            mean {pmfMean(pmf).toFixed(2)} · top-2 {(top2box(pmf) * 100).toFixed(0)}%
-                          </span>
-                        </div>
-                      ))
+                      <>
+                        {Object.entries(d.community_pmfs).map(([c, pmf]) => (
+                          <div key={c} className="row" style={{ marginTop: 4 }}>
+                            <span className="mono" style={{ minWidth: 110, fontSize: 12 }}>{c}</span>
+                            <div style={{ flex: 1 }}><PmfBar p={pmf} maxWidth="100%" /></div>
+                            <span className="mono sub" style={{ fontSize: 11 }}>{(top2box(pmf) * 100).toFixed(0)}% · μ {pmfMean(pmf).toFixed(2)}</span>
+                          </div>
+                        ))}
+                        <PmfLegend />
+                      </>
                     )}
                   </div>
                 ))}
               </div>
+            </Section>
             </div>
           </div>
         </div>
       )}
     </Shell>
+  );
+}
+
+/* One finding: what it says, how sure, and the test that would prove it wrong. */
+function FindingCard({ f }: { f: Finding }) {
+  return (
+    <div className="item">
+      <div className="row" style={{ flexWrap: "wrap" }}>
+        <b className="mono">{f.finding_id}</b>
+        <Chip className={f.kind === "risk" ? "risk" : "tier-pros"}>{f.confidence} confidence</Chip>
+        {f.ranked_scenarios && f.ranked_scenarios.length > 0 && (
+          <span className="mono sub">ordered: {f.ranked_scenarios.map((h) => h.slice(0, 8)).join(" > ")}</span>
+        )}
+      </div>
+      <p style={{ fontWeight: 500 }}>{f.statement}</p>
+      <p className="sub" style={{ fontSize: 12 }}><b>Disconfirming test:</b> {f.disconfirming_test}</p>
+    </div>
+  );
+}
+
+/* One number at the top of the page, with its icon and what it means on hover. */
+function Kpi({ icon, label, value, tip }: { icon: keyof typeof ICONS; label: string; value: string; tip: React.ReactNode }) {
+  return (
+    <div className="kpi">
+      <div className="k">{ICONS[icon]}{label}<Tip>{tip}</Tip></div>
+      <div className="v">{value}</div>
+    </div>
   );
 }

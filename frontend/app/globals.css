@@ -372,3 +372,11 @@ details.fold[open] > summary::after { transform: rotate(90deg); }
 .kpi .d { font-size: 11.5px; color: var(--ink-3); }
 .kpi.ok .v { color: var(--ok); } .kpi.no .v { color: var(--risk); } .kpi.warn .v { color: oklch(0.5 0.11 70); }
 .empty b svg { vertical-align: -2px; margin-right: 4px; }
+
+/* ---------- scenario atlas ---------- */
+.tbl.atlas td { vertical-align: top; }
+.tbl.atlas th { white-space: nowrap; }
+.atlas-cell { display: grid; gap: 3px; justify-items: end; padding: 8px 10px; border-radius: var(--r-md); min-width: 110px; }
+.atlas-cell .big { font-family: var(--font-mono); font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.chip svg { width: 12px; height: 12px; }
+th svg { width: 12px; height: 12px; vertical-align: -2px; }
