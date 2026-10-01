@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Callout, Chip } from "@/components/ui";
+import { Callout, Chip, ICONS } from "@/components/ui";
 import { useApi } from "@/lib/api";
 import { explainGate, gateMeter, type GateMeter } from "@/lib/gates";
 import type { GateResult } from "@/lib/engine";
@@ -44,13 +44,13 @@ export function SocialGraph({ runId, Meter, Tip }: {
   const maxCount = Math.max(1, ...data.degree_histogram.map(([, n]) => n));
 
   return (
-    <div style={{ display: "grid", gap: 14 }}>
-      <div className="stat-strip">
-        <div className="stat"><div className="k">Personas</div><div className="v">{s.personas.toLocaleString()}</div><div className="d">each one a node</div></div>
-        <div className="stat"><div className="k">Ties<Tip text="A tie is a relationship between two personas — who knows whom. Stronger ties join more similar people." /></div><div className="v">{s.ties.toLocaleString()}</div><div className="d">relationships in all</div></div>
-        <div className="stat"><div className="k">Ties per person</div><div className="v">{s.mean_ties}</div><div className="d">from {s.fewest_ties} to {s.most_ties}</div></div>
-        <div className="stat"><div className="k">Follows audiences<Tip text="Audience assortativity: whether ties join people of the same declared audience more than chance. 0 means ties ignore audiences, 1 that people only know their own audience. At 0.9 or above the network merely restates the audiences, and the population is refused." /></div><div className="v">{s.audience_assortativity === null ? "—" : s.audience_assortativity.toFixed(2)}</div><div className="d">0 ignores them · 1 only within</div></div>
-        <div className="stat"><div className="k">Fingerprint</div><div className="v mono" style={{ fontSize: 13 }}>{data.graph_hash.slice(0, 12)}…</div><div className="d">the same draw builds this exact network</div></div>
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 14 }}>
+      <div className="kpis">
+        <div className="kpi"><div className="k">{ICONS.users}Personas</div><div className="v">{s.personas.toLocaleString()}</div></div>
+        <div className="kpi"><div className="k">{ICONS.network}Ties<Tip text="A tie is a relationship between two personas — who knows whom. Stronger ties join more similar people." /></div><div className="v">{s.ties.toLocaleString()}</div></div>
+        <div className="kpi"><div className="k">{ICONS.share}Ties per person<Tip text="The mean number of ties a persona has, and the fewest and most any one has." /></div><div className="v">{s.mean_ties}</div><div className="d">{s.fewest_ties}–{s.most_ties}</div></div>
+        <div className="kpi"><div className="k">{ICONS.fork}Follows audiences<Tip text="Audience assortativity: whether ties join people of the same declared audience more than chance. 0 means ties ignore audiences, 1 that people only know their own audience. At 0.9 or above the network merely restates the audiences, and the population is refused." /></div><div className="v">{s.audience_assortativity === null ? "—" : s.audience_assortativity.toFixed(2)}</div></div>
+        <div className="kpi"><div className="k">{ICONS.code}Fingerprint<Tip text="The network's hash: the same draw builds this exact network." /></div><div className="v mono" style={{ fontSize: 13 }}>{data.graph_hash.slice(0, 12)}…</div></div>
       </div>
 
       {data.checks.length > 0 && (
