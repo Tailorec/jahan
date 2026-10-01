@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import React from "react";
+import { runKind, runLabel, runName, runWhen, type RunLike } from "@/lib/runs";
 import { useApi } from "@/lib/api";
 
 /* What the shell says about the engine and its studies is what the engine says: the recent runs, the
@@ -11,7 +12,7 @@ import { useApi } from "@/lib/api";
    and shows none. */
 interface Overview {
   workspace: { total_spend: number; total_studies: number } | null;
-  runs: { run_id: string; status: string; fake?: boolean; has_report?: boolean }[];
+  runs: RunLike[];
 }
 interface Status { engine_version: string; endpoint_configured: boolean }
 
@@ -30,6 +31,9 @@ const PAGES: { href: string; label: string; step?: string }[] = [
 export default function Shell({ crumbs, children }: { crumbs: React.ReactNode; children: React.ReactNode }) {
   const pathname = usePathname();
   const [open, setOpen] = React.useState(false);
+  // The run the address names, so the sidebar can mark the one being looked at.
+  const [current, setCurrent] = React.useState<string | null>(null);
+  React.useEffect(() => { setCurrent(new URLSearchParams(window.location.search).get("run")); }, [pathname]);
   const { data: overview } = useApi<Overview>("/api/overview");
   const { data: status } = useApi<Status>("/api/status");
   // Runs come oldest first; the shell offers the newest few, and studies over gates that never ran are not studies.
@@ -57,8 +61,12 @@ export default function Shell({ crumbs, children }: { crumbs: React.ReactNode; c
         <nav className="nav-group">
           <div className="nav-label">Recent studies</div>
           {recent.map((r) => (
-            <Link key={r.run_id} className="nav-item" href={`${r.has_report ? "/report" : "/run"}?run=${r.run_id}`} onClick={() => setOpen(false)}>
-              <span className="step-no">•</span><span className="mono" style={{ fontSize: 11.5 }}>{r.run_id.slice(0, 16)}…</span>{r.fake ? <span className="sub" style={{ marginLeft: 6, fontSize: 11 }}>fake</span> : null}
+            <Link key={r.run_id} className={`nav-item${r.run_id === current ? " active" : ""}`} aria-current={r.run_id === current ? "page" : undefined} href={`${r.has_report ? "/report" : "/run"}?run=${r.run_id}`} onClick={() => setOpen(false)}>
+              <span className="step-no">•</span>
+              <span className="run-name" title={`${runLabel(r)} — ${r.run_id}`}>
+                <b>{runName(r)}{r.fake ? " (fake)" : ""}</b>
+                <small>{runKind(r)}{runWhen(r) ? ` · ${runWhen(r)}` : ""}</small>
+              </span>
             </Link>
           ))}
           {overview && !recent.length && <div className="sub" style={{ padding: "4px 12px", fontSize: 12 }}>No study has run yet.</div>}

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
+import RunBar from "@/components/runbar";
 import { PageHead, Chip, Callout, PmfBar, PmfLegend, TrustLine, ICONS, Section, Tip } from "@/components/ui";
 import { IntentOverWaves } from "@/components/charts";
 import { useApi, useRunId } from "@/lib/api";
@@ -47,6 +48,7 @@ export default function AtlasPage() {
 
   return (
     <Shell crumbs={<><Link href="/">Workspace</Link> / Sweep / <b>Scenario atlas</b></>}>
+      <RunBar runId={runId} />
       <PageHead
         title="Scenario atlas"
         sub={<>Every world of this run side by side. <Tip>One run over many worlds sharing one budget: each scenario runs once per replicate seed. Each cell is a world — its digest measured adoption and polarization — and the spread across a scenario&apos;s worlds is the variance estimate that says whether an ordering survives.</Tip></>}

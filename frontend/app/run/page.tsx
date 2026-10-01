@@ -3,6 +3,7 @@
 import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
+import RunBar from "@/components/runbar";
 import { PageHead, Chip, Callout, PmfBar, PmfLegend, ICONS, TrustLine } from "@/components/ui";
 import { useApi, useRunId, api, whyNot } from "@/lib/api";
 import { worldForCell } from "@/lib/worlds";
@@ -85,6 +86,7 @@ export default function RunPage() {
 
   return (
     <Shell crumbs={<><Link href="/">Workspace</Link> / <b>Run</b>{runId && <> / <span className="mono">{runId}</span></>}</>}>
+      <RunBar runId={runId} />
       <PageHead
         title="Run — worlds over the population"
         sub={s ? <>One run over many worlds — scenarios × seeds sharing one budget. Status <b>{s.status}</b> · engine <span className="mono">{s.engine_version}</span> · config <span className="mono">{s.config_hash?.slice(0, 12)}…</span></>

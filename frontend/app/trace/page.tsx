@@ -3,6 +3,7 @@
 import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
+import RunBar from "@/components/runbar";
 import { useSessionState } from "@/lib/session";
 import { PageHead, Chip, Callout, TrustLine } from "@/components/ui";
 import { useApi, useRunId, whyNot } from "@/lib/api";
@@ -171,6 +172,7 @@ export default function TracePage() {
 
   return (
     <Shell crumbs={<><Link href="/">Workspace</Link> / Study / <b>Trace view</b></>}>
+      <RunBar runId={runId} />
       <PageHead
         title="Trace view"
         sub="The fixed set of questions that can be asked of a run's record — events, beliefs, edges, verbatims, resolve. Nothing that reads it can reach past it."

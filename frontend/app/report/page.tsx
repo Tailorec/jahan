@@ -3,6 +3,7 @@
 import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
+import RunBar from "@/components/runbar";
 import { useSessionState } from "@/lib/session";
 import { PageHead, Chip, Callout, PmfBar, PmfLegend } from "@/components/ui";
 import { useApi, useRunId } from "@/lib/api";
@@ -31,6 +32,7 @@ export default function ReportPage() {
 
   return (
     <Shell crumbs={<><Link href="/">Workspace</Link> / Study / <b>Report</b>{runId && <> / <span className="mono">{runId}</span></>}</>}>
+      <RunBar runId={runId} />
       <PageHead
         title="Study report"
         sub={r ? <>Config <span className="mono">{r.config_hash.slice(0, 12)}…</span> · contract <span className="mono">{r.contract_version}</span> · engine commit <span className="mono">{r.engine_commit.slice(0, 12)}</span></> : "Findings carry their trace evidence and the test that would falsify them."}
