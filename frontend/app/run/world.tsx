@@ -301,11 +301,34 @@ export default function WorldGraph({ runId, acts, clock, live }: { runId: string
         )}
       </div>
       <div className="world-legend">
-        {Object.entries(CHANNEL_NAME).map(([c, name]) => (
-          <span key={c} className="row" style={{ gap: 5 }}><span className="swatch" style={{ background: CHANNEL_COLOR[c] }} />{name}{byChannel[c] ? <span className="count-pill">{byChannel[c]}</span> : null}</span>
-        ))}
-        <span className="row" style={{ gap: 5 }}><span className="swatch" style={{ background: IDLE }} />not acted yet</span>
-        <span className="sub">· ring: a decision · moving dot: an item travelling to the persona who reacted · coloured line: a conversation link, thicker when used more · scroll to zoom, drag to move</span>
+        <div className="legend-group">
+          <span className="legend-title">Channel <Tip>A persona&apos;s dot takes the colour of the channel it last acted on. The counts are this tick&apos;s decisions.</Tip></span>
+          {Object.entries(CHANNEL_NAME).map(([c, name]) => (
+            <span key={c} className="legend-item" title={c === "survey_room" ? "A survey answer flashes a ring but leaves the dot's colour: a wave only reads." : undefined}>
+              <span className="swatch" style={c === "survey_room" ? { background: "transparent", boxShadow: `inset 0 0 0 2px ${CHANNEL_COLOR[c]}` } : { background: CHANNEL_COLOR[c] }} />{c === "survey_room" ? "survey (ring only)" : name}{byChannel[c] ? <span className="count-pill">{byChannel[c]}</span> : null}</span>
+          ))}
+          <span className="legend-item"><span className="swatch" style={{ background: IDLE }} />not acted yet</span>
+        </div>
+        <div className="legend-group">
+          <span className="legend-title">Reading it</span>
+          <span className="legend-item" title="A persona just made a decision: a ring pulses out from it, with a bubble naming what it did.">
+            <svg width="22" height="16" viewBox="0 0 22 16" aria-hidden><circle cx="11" cy="8" r="3.5" fill="#2f7fd8" /><circle cx="11" cy="8" r="6.5" fill="none" stroke="#2f7fd8" strokeWidth="1.5" opacity="0.5" /></svg>decision
+          </span>
+          <span className="legend-item" title="A persona just reacted to something that came from another persona: a message a friend passed on by word of mouth, or a post someone wrote on the feed or forum. The dot runs from the persona it came from to the one who reacted.">
+            <svg width="30" height="16" viewBox="0 0 30 16" aria-hidden><circle cx="3" cy="8" r="2.5" fill="#8e8a82" /><line x1="3" y1="8" x2="20" y2="8" stroke="#2a9d5c" strokeWidth="2" /><circle cx="20" cy="8" r="3.5" fill="#2a9d5c" /><circle cx="27" cy="8" r="2.5" fill="#8e8a82" /></svg>came from another persona
+          </span>
+          <span className="legend-item" title="Someone passed the product on to this persona by word of mouth. Thicker the more often it happened.">
+            <svg width="26" height="16" viewBox="0 0 26 16" aria-hidden><line x1="2" y1="8" x2="24" y2="8" stroke="#2a9d5c" strokeWidth="3.5" strokeLinecap="round" /></svg>word-of-mouth link
+          </span>
+          <span className="legend-item" title="This persona reacted to a post another persona wrote on the feed or forum: a weaker tie, drawn light.">
+            <svg width="26" height="16" viewBox="0 0 26 16" aria-hidden><line x1="2" y1="8" x2="24" y2="8" stroke="#e0672b" strokeWidth="1.2" opacity="0.5" strokeLinecap="round" /></svg>reacted to a post
+          </span>
+        </div>
+        <div className="legend-group legend-controls">
+          {[["scroll", "zoom"], ["drag", "move"], ["hover", "who"], ["click", "history"]].map(([k, what]) => (
+            <span key={k} className="legend-item"><span className="kbd">{k}</span>{what}</span>
+          ))}
+        </div>
       </div>
     </div>
   );

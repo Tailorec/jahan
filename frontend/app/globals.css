@@ -495,3 +495,11 @@ blockquote.verbatim > span { display: block; font-style: normal; font-size: 11px
 .run-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -6px 0 14px; }
 .run-meta .chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; overflow-wrap: anywhere; }
 .run-meta .chip svg { width: 13px; height: 13px; flex: none; }
+.world-legend { display: grid; gap: 6px; }
+.legend-group { display: flex; align-items: center; gap: 6px 14px; flex-wrap: wrap; }
+.legend-title { font-size: 10.5px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink-3); min-width: 78px; display: inline-flex; align-items: center; gap: 4px; }
+.legend-item { display: inline-flex; align-items: center; gap: 6px; cursor: default; }
+.legend-item svg { display: inline-block; flex: none; }
+.legend-controls { color: var(--ink-3); gap: 4px 6px; font-size: 11.5px; }
+.legend-controls .kbd { margin-left: 0; font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; background: var(--surface); color: var(--ink-2); }
+
