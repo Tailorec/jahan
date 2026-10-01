@@ -492,3 +492,6 @@ blockquote.verbatim > span { display: block; font-style: normal; font-size: 11px
 .pin { display: flex; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: var(--r-md); padding: 8px 10px; }
 .mix { display: flex; height: 8px; border-radius: 999px; overflow: hidden; }
 .tbl tr.picked td { background: var(--primary-soft); }
+.run-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: -6px 0 14px; }
+.run-meta .chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; overflow-wrap: anywhere; }
+.run-meta .chip svg { width: 13px; height: 13px; flex: none; }

@@ -420,7 +420,8 @@ def test_a_failed_or_gate_only_population_shows_its_gates(stack):
 def test_the_run_page_of_a_fake_study_says_so_and_names_its_pins(stack):
     text = _visible(_render(stack["base"], f"/run?run={stack['finished']}")[0])
     assert "fake study" in text
-    assert "tier_a: fake/" in text, "pinned roles are listed; roles pinned to nothing are not"
+    assert "Chat A fake/tier-a-1" in text and "Chat B fake/tier-b-1" in text, "pinned roles are listed by what they do"
+    assert "Safety" not in text, "roles pinned to nothing are not"
 
 
 @needs_a_browser

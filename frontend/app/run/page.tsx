@@ -23,15 +23,20 @@ interface Detail {
   report: { trust: { level: string } } | null;
 }
 
-/* A run's pins are a table of roles to models — and also the roles it leaves unpinned (`safety: null`)
-   and the fallbacks it names (`fallbacks: {}`), which have no model of their own. Only a role that
-   is pinned to a model is listed. */
-function pinned(pins: Record<string, unknown> | null | undefined): string {
-  const named = Object.entries(pins ?? {}).flatMap(([role, pin]) => {
+/* A run's pins as the models it used: roles sharing one model are one chip ("Chat" for both tiers). A role
+   pinned to nothing (`safety: null`) and the fallbacks map (`fallbacks: {}`) have no model and are left out. */
+function models(pins: Record<string, unknown> | null | undefined) {
+  const byModel = new Map<string, string[]>();
+  for (const [role, pin] of Object.entries(pins ?? {})) {
     const id = pin && typeof pin === "object" ? (pin as { model_id?: unknown }).model_id : undefined;
-    return typeof id === "string" ? [`${role}: ${id}`] : [];
+    if (typeof id === "string") byModel.set(id, [...(byModel.get(id) ?? []), role]);
+  }
+  return [...byModel.entries()].map(([id, roles]) => {
+    const chat = roles.filter((r) => r.startsWith("tier_"));
+    const label = roles.map((r) => (r.startsWith("tier_") ? (chat.length > 1 ? "Chat" : `Chat ${r.slice(-1).toUpperCase()}`) : ROLE_NAME[r] ?? r))
+      .filter((v, k, all) => all.indexOf(v) === k).join(" + ");
+    return { id, roles, label, icon: ROLE_ICON[roles[0]] ?? ("cpu" as keyof typeof ICONS) };
   });
-  return named.length ? named.join(" · ") : "—";
 }
 
 export default function RunPage() {
@@ -107,11 +112,24 @@ export default function RunPage() {
     <Shell crumbs={<><Link href="/">Workspace</Link> / <b>Run</b></>}>
       <RunBar runId={runId} />
       <PageHead
-        title="Run — worlds over the population"
-        sub={s ? <>One run over many worlds — scenarios × seeds sharing one budget. Status <b>{s.status}</b> · engine <span className="mono">{s.engine_version}</span> · config <span className="mono">{s.config_hash?.slice(0, 12)}…</span><br /><span className="mono" style={{ fontSize: 12 }}>{pinned(data?.pins)}</span></>
-          : "A sweep is one run over many worlds sharing one budget."}
-        actions={s && <><span className={`chip ${s.status === "completed" ? "ok" : "plain"}`}><span className="dot" />{s.live ? "running" : s.status}</span><span className="chip plain mono">${s.recorded_cost.toFixed(2)}{s.budget ? ` / $${s.budget.max_cost.toFixed(2)}` : ""}</span>{s.fake && <span className="chip tier-explo" title="No key, no corpus, no network">fake study</span>}</>}
+        title="Simulation run"
+        sub={<>Watch every world of this run, replayed tick by tick, and read its numbers. <Tip>One run is many worlds — each scenario under each replicate seed — sharing one budget. The engine records each tick whole; this page replays the record and shows the numbers the engine computed, never its own.</Tip></>}
+        actions={s && <>
+          <span className={`chip ${s.status === "completed" ? "ok" : "plain"}`}><span className="dot" />{s.live ? "running" : s.status}</span>
+          <span className="chip plain mono">{ICONS.dollar}{s.recorded_cost.toFixed(3)}{s.budget ? ` / ${s.budget.max_cost.toFixed(2)}` : ""}</span>
+          {s.fake && <span className="chip tier-explo" title="No key, no corpus, no network">fake study</span>}
+        </>}
       />
+      {s && (
+        <div className="run-meta">
+          {models(data?.pins).map((m) => (
+            <span key={m.id} className="chip plain" title={`pinned for ${m.roles.join(", ")}`}>{ICONS[m.icon]}<span className="sub">{m.label}</span> <span className="mono">{m.id}</span></span>
+          ))}
+          <span className="chip plain" title="The engine version that ran this study">{ICONS.code}<span className="sub">engine</span> <span className="mono">{s.engine_version}</span></span>
+          {s.config_hash && <span className="chip plain" title={`config ${s.config_hash}`}>{ICONS.tag}<span className="sub">config</span> <span className="mono">{s.config_hash.slice(0, 12)}</span></span>}
+          <Tip>The models each role was pinned to, fixed for the whole run — a call answered by any other model is refused as a pin failure. The config hash names everything the run was set up with; two runs with the same hash ran the same study.</Tip>
+        </div>
+      )}
       {error && <Callout icon="alert"><div>{error}</div></Callout>}
       {!data && !error && <div className="empty"><b>Loading run…</b></div>}
       {data && <TrustLine level={data.report?.trust.level ?? null} runId={runId} />}
