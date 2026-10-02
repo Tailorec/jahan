@@ -26,19 +26,21 @@ export function whyNot(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-export function useApi<T>(path: string | null) {
+/* `keep` holds the last answer while a refresh of the same thing loads, so a page polled every few seconds
+   updates in place instead of emptying between answers. */
+export function useApi<T>(path: string | null, { keep = false }: { keep?: boolean } = {}) {
   const [data, setData] = React.useState<T | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   React.useEffect(() => {
     if (!path) return;
     let live = true;
-    setData(null);
+    if (!keep) setData(null);
     setError(null);
     api<T>(path)
       .then((d) => { if (live) setData(d); })
       .catch((e) => { if (live) setError(whyNot(e)); });
     return () => { live = false; };
-  }, [path]);
+  }, [path, keep]);
   return { data, error };
 }
 
