@@ -37,7 +37,6 @@ flowchart LR
 | See why it works the way it does | [Decisions (ADRs)](adr/0001-derive-world-seed-from-replicate-and-variant.md) |
 | Read how each module was specified | [Design documents (PRDs)](prd/M0-who-you-study.md) |
 | See what it has measured so far | [Evaluations](evaluations/2026-09-17-holdout-bedrock/README.md) |
-| Run a real study | [Running a real study](running-a-real-study.md) |
 
 ## License
 

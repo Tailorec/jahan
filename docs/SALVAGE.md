@@ -106,7 +106,7 @@ Biggest salvage. Feeds **`population`, `inference`, `agent`, `elicitation`, `run
 | Repo path | Verdict | → Module | Notes |
 |---|---|---|---|
 | `persona/validation/scripts/decode_persona_1m.py` | **ADAPT** | `ports` (coreset adapter) | a 37-line reference decoder matching the dataset card: nibbles low first, set null-bitmap bit means missing, schema from the Hub |
-| `application/playground/litellm/config.yaml`, `run_proxy.sh` | **ADAPT (pattern)** | `inference`/`runner` | a LiteLLM proxy used as one global rpm/tpm limiter for every concurrent run, because bursts hit provider 429s. Kept as documentation: the engine always runs its own adaptive request and token limiter, and several engine processes share the gateway's limits as a common ceiling. **Shipped (M4)** as `docs/inference.md`: LiteLLM (retries, fallbacks, cache off; shared rpm/tpm), vLLM and Ollama configurations |
+| `application/playground/litellm/config.yaml`, `run_proxy.sh` | **ADAPT (pattern)** | `inference`/`runner` | a LiteLLM proxy used as one global rpm/tpm limiter for every concurrent run, because bursts hit provider 429s. Kept as documentation: the engine always runs its own adaptive request and token limiter, and several engine processes share the gateway's limits as a common ceiling. |
 | `persona/schema/dimensions.json` | **ADAPT** | `authoring` (ADR 0014) | the 1,290-dimension catalogue with labels, categories, values, phrases and defaults — the codebook ADR 0014's ontology drafting needs, available in the code repo. Drifts from the release codebook in places |
 
 ### 3.5 Persona-8B model weights (HF)

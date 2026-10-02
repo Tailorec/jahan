@@ -21,7 +21,8 @@ Decided 2026-10-02.
       quickstart and the CLI/interface tests need a brief and an ontology.
 - [x] Root clean-up: the superseded first-draft `ARCHITECTURE.md` and `OSSARCH.md` (open-core plan, old
       module names) removed; the current `FINAL_ARCH.md` and `SALVAGE.md` moved into `docs/`.
-- [ ] `docs/running-a-real-study.md` names `examples/` files that are no longer in the repository.
+- [x] `docs/running-a-real-study.md` and `docs/inference.md` removed (2026-10-02); a real-study guide
+      returns with a fresh real run and the example files it uses.
 - [ ] Naming: the package is `simcore` and the interface says ConsumerSim; the repository is Jahan.
 - [ ] Contributor License Agreement before the first outside pull request.
 

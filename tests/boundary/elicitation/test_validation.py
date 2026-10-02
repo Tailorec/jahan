@@ -67,12 +67,6 @@ def test_a_fake_scoring_identical_text_identically_is_deterministic_in_ci(base):
     assert first["metrics"] == second["metrics"]
 
 
-def test_the_gateway_guide_serves_titan_embeddings_through_litellm():
-    guide = (Path(__file__).resolve().parents[3] / "docs" / "inference.md").read_text()
-    assert "titan-embed-text-v2" in guide.lower() or "titan text embeddings v2" in guide.lower()
-    assert "litellm" in guide.lower()
-
-
 def test_the_satisfaction_version_that_failed_its_check_is_never_validated():
     """validate_mapping pinned whatever file it loaded, and the command computed its pin from that same file, so the
     satisfaction v1 that failed on Titan once produced a full report."""
