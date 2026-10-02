@@ -8,7 +8,7 @@ import { useSessionState } from "@/lib/session";
 import { PageHead, Chip, Callout, ICONS, Tip, Kpi, Section } from "@/components/ui";
 import { useApi, useRunId } from "@/lib/api";
 import type { Finding, ObjectionCluster, OutcomeDigest, RunSummary, StudyReport } from "@/lib/engine";
-import { worldName } from "@/lib/worlds";
+import { versionName, worldName } from "@/lib/worlds";
 import { BeliefMoves, CommunityIntent, IntentDiverging, IntentOverWaves } from "@/components/charts";
 
 interface Detail {
@@ -32,7 +32,7 @@ const CHANNEL: Record<string, { name: string; icon: keyof typeof ICONS }> = {
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 
 const SECTIONS: [string, string, keyof typeof ICONS][] = [
-  ["answer", "Answer", "target"], ["who", "Who would buy", "users"], ["moved", "How it moved", "survey"],
+  ["answer", "Answer", "target"], ["versions", "Versions", "layers"], ["who", "Who would buy", "users"], ["moved", "How it moved", "survey"],
   ["why", "Why", "forum"], ["findings", "Findings", "bulb"], ["trust", "Trust", "shield"], ["method", "Method", "sliders"],
 ];
 const GROUPS_SHOWN = 8;
@@ -41,6 +41,7 @@ export default function ReportPage() {
   const runId = useRunId();
   const { data, error } = useApi<Detail>(runId ? `/api/runs/${runId}` : null);
   const [kind, setKind] = useSessionState("report:kind", "all");
+  const [chosen, setChosen] = React.useState<string | null>(null);
   const r = data?.report ?? null;
   const s = data?.summary ?? null;
   // The full digests the run wrote carry what the report's compact ones leave out — communities among them.
@@ -48,18 +49,24 @@ export default function ReportPage() {
   const digestOf = (worldId: string) => full.find((d) => d.world_id === worldId) ?? r?.digests.find((d) => d.world_id === worldId) ?? null;
   // Findings by kind, in the order a reader most needs them: what moved intent before what was said.
   const ORDER = ["intent_trajectory", "ranking", "risk", "belief_shift", "wom_path", "objection", "recommendation"];
-  const kinds = ORDER.map((k) => [k, (r?.findings ?? []).filter((f) => f.kind === k).length] as const).filter(([, n]) => n > 0);
-  const shown = (r?.findings ?? []).filter((f) => kind === "all" || f.kind === kind).sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
+  // The world the per-world sections show: the one picked, else the first the report lists. A run's findings
+  // and groups each name their world, so nothing from two versions is read as one.
+  const worldId = chosen && r?.digests.some((d) => d.world_id === chosen) ? chosen : r?.digests[0]?.world_id ?? null;
+  const many = (r?.digests.length ?? 0) > 1;
+  const ofWorld = (id: string | null | undefined) => !many || !id || id === worldId;
+  const worldFindings = (r?.findings ?? []).filter((f) => !many || f.kind === "ranking" || f.finding_id.includes(`-${worldId}-`));
+  const kinds = ORDER.map((k) => [k, (r?.findings ?? []).filter((f) => f.kind === k && worldFindings.includes(f)).length] as const).filter(([, n]) => n > 0);
+  const shown = worldFindings.filter((f) => kind === "all" || f.kind === kind).sort((a, b) => ORDER.indexOf(a.kind) - ORDER.indexOf(b.kind));
   const confident = shown.filter((f) => f.confidence !== "low");
   const unsure = shown.filter((f) => f.confidence === "low");
   // The headline world: the first the report lists. A sweep's others follow, each named by its version and seed.
-  const lead = r?.digests[0] ? digestOf(r.digests[0].world_id) : null;
+  const lead = worldId ? digestOf(worldId) : null;
   const waves = lead?.waves ?? [];
   const first = waves.find((w) => w.adoption != null);
   const last = [...waves].reverse().find((w) => w.adoption != null);
   const moved = first && last && first !== last ? (last.adoption! - first.adoption!) : null;
-  const objections = r?.objection_clusters ?? [];
-  const reasons = r?.reason_clusters ?? [];
+  const objections = (r?.objection_clusters ?? []).filter((c) => ofWorld(c.world_id));
+  const reasons = (r?.reason_clusters ?? []).filter((c) => ofWorld(c.world_id));
   const rankings = (r?.findings ?? []).filter((f) => f.kind === "ranking");
   const nameOf = (d: { world_id: string; scenario_hash?: string; seed?: number }) =>
     (s && worldName(s.scenarios, s.seeds, d)) ?? `world ${d.world_id}`;
@@ -85,7 +92,16 @@ export default function ReportPage() {
       {r && (
         <>
           <nav className="rp-toc" aria-label="Report sections">
-            {SECTIONS.map(([id, label, icon]) => <a key={id} href={`#${id}`}>{ICONS[icon]}{label}</a>)}
+            {SECTIONS.filter(([id]) => (id !== "versions" || many) && (id !== "moved" || waves.length > 1)).map(([id, label, icon]) => <a key={id} href={`#${id}`}>{ICONS[icon]}{label}</a>)}
+            {many && (
+              <label className="rp-world">
+                <span className="sub">Showing</span>
+                <select className="input" aria-label="World shown" value={worldId ?? ""} onChange={(e) => setChosen(e.target.value)}>
+                  {r.digests.map((d) => <option key={d.world_id} value={d.world_id}>{nameOf(digestOf(d.world_id) ?? d)}</option>)}
+                </select>
+                <Tip>The sections from Who would buy down to Findings describe one world — one version under one seed. Pick another to read it; the answer and the versions compare them all.</Tip>
+              </label>
+            )}
           </nav>
 
           {/* 1 · The answer */}
@@ -100,7 +116,7 @@ export default function ReportPage() {
             <Kpi icon="shield" label="Trust" tip="How far these results have been checked against real people. Uncalibrated means not at all yet." value={r.trust.level.replace(/_/g, " ")} tone={r.trust.level === "uncalibrated" ? "warn" : "ok"} />
           </div>
           <div className="rp-answer">
-            {r.digests.map((d) => {
+            {!many && r.digests.map((d) => {
               const dd = digestOf(d.world_id) ?? d;
               const w = (dd.waves ?? []).filter((x) => x.adoption != null);
               return (
@@ -113,10 +129,21 @@ export default function ReportPage() {
               );
             })}
             {rankings.map((f) => <p key={f.finding_id} className="rp-verdict">{ICONS.layers} {f.statement} <span className={`conf conf-${f.confidence}`}><i /><i /><i />{f.confidence}</span></p>)}
-            {r.digests.length > 1 && <Link className="btn sm" href={`/atlas?run=${runId}`} style={{ justifySelf: "start" }}>{ICONS.layers} Compare the versions in the atlas</Link>}
+            {many && rankings.length === 0 && <p className="rp-verdict">{ICONS.layers} {r.digests.length} worlds; the analysis wrote no ranking finding, so which version leads is not shown to beat chance. Their shares are compared below.</p>}
+            {many && <Link className="btn sm" href={`/atlas?run=${runId}`} style={{ justifySelf: "start" }}>{ICONS.layers} Compare the versions in the atlas</Link>}
           </div>
 
-          {/* 2 · Who would buy */}
+          {/* 2 · Versions */}
+          {many && (
+            <>
+              <div id="versions" className="rp-anchor" />
+              <Section icon="layers" title="Versions compared" tip="Every world's share who would buy, side by side, longest first. A world is one version under one seed; whether one version beats another by more than chance is the analysis's ranking finding above. Click a world to read it below.">
+                <VersionBars digests={r.digests.map((d) => digestOf(d.world_id) ?? d)} nameOf={nameOf} chosen={worldId} onPick={setChosen} />
+              </Section>
+            </>
+          )}
+
+          {/* 3 · Who would buy */}
           <div id="who" className="rp-anchor" />
           {lead && (
             <Section icon="users" title="Who would buy" tip="Purchase intent at the last wave, by audience and by the network's communities, as bars centred on 'maybe'. The headline world is shown; a sweep's others are in the atlas.">
@@ -131,7 +158,7 @@ export default function ReportPage() {
 
           {/* 3 · How it moved */}
           <div id="moved" className="rp-anchor" />
-          {lead && waves.length > 0 && (
+          {lead && waves.length > 1 && (
             <Section icon="survey" title="How it moved" tip="The share who would buy at every survey wave, by audience or split into personas a channel had reached against those it had not.">
               <IntentOverWaves waves={waves} />
             </Section>
@@ -144,7 +171,7 @@ export default function ReportPage() {
               <Groups title="What held people back" icon="alert" tone="no" clusters={objections} runId={runId} empty="No objections were found: no persona's turn objected." />
               <Groups title="What persuaded" icon="check" tone="ok" clusters={reasons} runId={runId} empty={r.reason_clusters ? "No reasons to buy were found." : "This report was written before reasons to buy were collected."} />
             </div>
-            {lead && <div style={{ marginTop: 16 }}><div className="lbl">{ICONS.sliders} How beliefs moved</div><BeliefMoves mean={lead.belief_movement_mean} abs={lead.belief_movement_abs} /></div>}
+            {lead && Object.values(lead.belief_movement_abs ?? {}).some((v) => v !== 0) && <div style={{ marginTop: 16 }}><div className="lbl">{ICONS.sliders} How beliefs moved</div><BeliefMoves mean={lead.belief_movement_mean} abs={lead.belief_movement_abs} /></div>}
           </Section>
 
           {/* 5 · Findings */}
@@ -152,7 +179,7 @@ export default function ReportPage() {
           <Section icon="bulb" title="Findings" tip="Statements the engine authored from the record, never generated: each with its confidence, its evidence and the real-world test that would disprove it. Low-confidence ones are folded below.">
             <div style={{ display: "grid", gap: 10 }}>
               <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
-                <button className={`pick${kind === "all" ? " on" : ""}`} onClick={() => setKind("all")}>all <span className="n">{r.findings.length}</span></button>
+                <button className={`pick${kind === "all" ? " on" : ""}`} onClick={() => setKind("all")}>all <span className="n">{worldFindings.length}</span></button>
                 {kinds.map(([k, n]) => (
                   <button key={k} className={`pick${kind === k ? " on" : ""}`} onClick={() => setKind(k)}>{ICONS[KIND[k]?.icon ?? "info"]}{KIND[k]?.label ?? k} <span className="n">{n}</span></button>
                 ))}
@@ -209,8 +236,9 @@ export default function ReportPage() {
           <div id="method" className="rp-anchor" />
           <Section icon="sliders" title="Method disclosure" tip="How the numbers were produced: channels and waves, the models every call was pinned to, the seeds, and the frozen templates and anchor scales.">
             <div className="method">
-              {(r.method.scenarios ?? []).map((sc) => (
-                <MethodRow key={sc.variant_id} icon="radio" label={`Channels · ${sc.variant_id}`}>
+              {/* Versions can share a variant (and so its random draws): a version is named and keyed by its place. */}
+              {(r.method.scenarios ?? []).map((sc, i) => (
+                <MethodRow key={i} icon="radio" label={`Channels · ${s?.scenarios[i] ? versionName(s.scenarios[i]) : sc.variant_id}`}>
                   {sc.channels.length ? sc.channels.map((c) => <span key={c} className="chip plain" style={{ marginRight: 4 }}>{ICONS[CHANNEL[c]?.icon ?? "radio"]} {CHANNEL[c]?.name ?? c}</span>) : "none — a concept test: every persona sees the concept alone"}
                   <div className="sub" style={{ marginTop: 4 }}>{ICONS.survey} a survey wave every {sc.survey_every} ticks, at tick 0 and the last of {sc.horizon_ticks}{sc.launch_reach != null ? `; launch reach ${(sc.launch_reach * 100).toFixed(0)}%` : ""}</div>
                 </MethodRow>
@@ -245,6 +273,25 @@ export default function ReportPage() {
         </>
       )}
     </Shell>
+  );
+}
+
+/* Each world's share who would buy as a bar on one scale, longest first, the world being read marked. */
+function VersionBars({ digests, nameOf, chosen, onPick }: {
+  digests: OutcomeDigest[]; nameOf: (d: OutcomeDigest) => string; chosen: string | null; onPick: (id: string) => void;
+}) {
+  const ranked = [...digests].sort((a, b) => (b.adoption ?? -1) - (a.adoption ?? -1));
+  const top = Math.max(0.01, ...digests.map((d) => d.adoption ?? 0));
+  return (
+    <div className="vbars">
+      {ranked.map((d) => (
+        <button key={d.world_id} type="button" className={`vbar${d.world_id === chosen ? " on" : ""}`} onClick={() => onPick(d.world_id)} aria-pressed={d.world_id === chosen}>
+          <span className="vbar-name">{nameOf(d)}</span>
+          <span className="vbar-track">{d.adoption != null && <span style={{ width: `${(d.adoption / top) * 100}%` }} />}</span>
+          <span className="vbar-val">{d.adoption != null ? pct(d.adoption) : <span className="sub">unmeasured: {d.unmeasured_reason}</span>}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 
