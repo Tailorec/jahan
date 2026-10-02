@@ -32,7 +32,7 @@ const CHANNEL: Record<string, { name: string; icon: keyof typeof ICONS }> = {
 const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 
 const SECTIONS: [string, string, keyof typeof ICONS][] = [
-  ["answer", "Answer", "target"], ["versions", "Versions", "layers"], ["who", "Who would buy", "users"], ["moved", "How it moved", "survey"],
+  ["answer", "Answer", "target"], ["versions", "Versions", "layers"], ["who", "Who would buy", "users"], ["moved", "Purchase intent", "survey"],
   ["why", "Why", "forum"], ["findings", "Findings", "bulb"], ["trust", "Trust: how far to rely on it", "shield"], ["method", "Method disclosure", "sliders"],
 ];
 const GROUPS_SHOWN = 8;
@@ -70,9 +70,23 @@ export default function ReportPage() {
   const moved = first && last && first !== last ? (last.adoption! - first.adoption!) : null;
   const objections = (r?.objection_clusters ?? []).filter((c) => ofWorld(c.world_id));
   const reasons = (r?.reason_clusters ?? []).filter((c) => ofWorld(c.world_id));
-  const rankings = (r?.findings ?? []).filter((f) => f.kind === "ranking");
   const nameOf = (d: { world_id: string; scenario_hash?: string; seed?: number }) =>
     (s && worldName(s.scenarios, s.seeds, d)) ?? `world ${d.world_id}`;
+  // Each world's answers at its last wave as one row — a row per audience when there are several, since the
+  // engine records intent by audience and the page does not blend them.
+  const versionPmfs: Record<string, number[]> = {};
+  const versionOrder: Record<string, number> = {};
+  const versionCaption: Record<string, string> = {};
+  (r?.digests ?? []).forEach((d0, i) => {
+    const d = digestOf(d0.world_id) ?? d0;
+    const audiences = Object.entries(d.audience_pmfs ?? {});
+    audiences.forEach(([a, pmf]) => {
+      const key = audiences.length > 1 ? `${nameOf(d)} · ${a}` : nameOf(d);
+      versionPmfs[key] = pmf; versionOrder[key] = -i;
+      versionCaption[key] = audiences.length > 1 ? `${((d.audience_shares?.[a] ?? 0) * 100).toFixed(0)}% of the market` : `seed ${d.seed}`;
+    });
+  });
+  const rankings = (r?.findings ?? []).filter((f) => f.kind === "ranking");
 
   return (
     <Shell crumbs={<><Link href="/">Workspace</Link> / Study / <b>Report</b></>}>
@@ -95,7 +109,7 @@ export default function ReportPage() {
       {r && (
         <>
           <nav className="rp-toc" aria-label="Report sections">
-            {SECTIONS.filter(([id]) => (id !== "versions" || many) && (id !== "moved" || waves.length > 1)).map(([id, label, icon]) => TABBED.includes(id)
+            {SECTIONS.filter(([id]) => (id !== "versions" || many)).map(([id, label, icon]) => TABBED.includes(id)
               ? <a key={id} href="#details" onClick={() => setTab(id)}>{ICONS[icon]}{label}</a>
               : <a key={id} href={`#${id}`}>{ICONS[icon]}{label}</a>)}
             {many && (
@@ -161,11 +175,28 @@ export default function ReportPage() {
             </Section>
           )}
 
-          {/* 3 · How it moved */}
+          {/* 3 · Purchase intent */}
           <div id="moved" className="rp-anchor" />
-          {lead && waves.length > 1 && (
-            <Section icon="survey" title="How it moved" tip="The share who would buy at every survey wave, by audience or split into personas a channel had reached against those it had not.">
-              <IntentOverWaves waves={waves} />
+          {lead && (
+            <Section icon="survey" title="Purchase intent" tip="How likely personas said they were to buy, on the five-point scale. With several versions, each version's answers at its last wave side by side; then the world being read across every survey wave, by audience or split into personas a channel had reached against those it had not.">
+              <div style={{ display: "grid", gap: 18 }}>
+                {many && (
+                  <div>
+                    <div className="lbl">{ICONS.layers} Every version, at its last wave</div>
+                    <IntentDiverging
+                      pmfs={versionPmfs} weights={versionOrder}
+                      caption={(key) => versionCaption[key] ?? ""} name={(key) => key} />
+                  </div>
+                )}
+                <div>
+                  {many && <div className="lbl">{ICONS.survey} {nameOf(lead)}, wave by wave</div>}
+                  {waves.length > 1
+                    ? <IntentOverWaves waves={waves} />
+                    : waves.length === 1
+                      ? <p className="sub" style={{ fontSize: 13 }}>One survey wave, at tick {waves[0].tick}: a concept test measures intent once, so there is no movement to draw. Add channels and a longer horizon to see intent move.</p>
+                      : <p className="sub" style={{ fontSize: 13 }}>unmeasured: {lead.unmeasured_reason ?? "no wave answered"}</p>}
+                </div>
+              </div>
             </Section>
           )}
 
