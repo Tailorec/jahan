@@ -944,6 +944,23 @@ def create_app(
         worlds = [_read_json_silent(path) for path in sorted(live.glob("*.json"))] if live.is_dir() else []
         return {"worlds": [world for world in worlds if isinstance(world, dict)]}
 
+    @app.get("/api/runs/{run_id}/live/decisions")
+    def run_live_decisions(request: Request, run_id: str, world_id: str) -> dict[str, Any]:
+        """Decisions heard in a world's open tick, in the order they landed (ADR 0050). Provisional: the
+        tick's record, once closed, replaces them — and an interrupted tick's never become record at all."""
+        path = Path(_run_dir(request, run_id), "live", f"{Path(world_id).name}.decisions.jsonl")
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            lines = []
+        decisions = []
+        for line in lines:
+            try:
+                decisions.append(json.loads(line))
+            except ValueError:
+                continue  # a line still being written
+        return {"world_id": world_id, "provisional": True, "decisions": decisions}
+
     @app.get("/api/runs/{run_id}/digest")
     def run_digest(request: Request, run_id: str) -> dict[str, Any]:
         return _read_json(Path(_run_dir(request, run_id), "digest.json"))
