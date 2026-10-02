@@ -7,9 +7,12 @@ import RunBar from "@/components/runbar";
 import { useSessionState } from "@/lib/session";
 import { PageHead, Chip, Callout, TrustLine, ICONS, Section, Tip, Kpi } from "@/components/ui";
 import { useApi, useRunId, whyNot } from "@/lib/api";
-import type { BeliefPoint, TraceEdge, TraceEvent, UITrace } from "@/lib/engine";
+import type { BeliefPoint, OutcomeDigest, RunSummary, TraceEdge, TraceEvent, UITrace } from "@/lib/engine";
+import { worldName } from "@/lib/worlds";
 
 interface Detail {
+  summary: RunSummary | null;
+  digest: { digests: OutcomeDigest[] } | null;
   trace: UITrace | null;
   manifest: { persona_ids: string[] } | null;
   report: { trust: { level: string } } | null;
@@ -368,8 +371,8 @@ export default function TracePage() {
         sub={<>Ask the run&apos;s record a fixed set of questions. <Tip>Events, beliefs, edges, verbatims and resolve are the only questions the record answers. Nothing that reads it can reach past it, and prompts are rebuilt on demand, never stored.</Tip></>}
         actions={t && w && <>
           {worlds.length > 1
-            ? <select className="input mono" aria-label="World" value={w} onChange={(e) => setWorld(e.target.value)} style={{ maxWidth: 180 }}>
-                {worlds.map((x) => <option key={x} value={x}>world {x}</option>)}
+            ? <select className="input" aria-label="World" value={w} onChange={(e) => setWorld(e.target.value)} style={{ maxWidth: 260 }}>
+                {worlds.map((x) => <option key={x} value={x}>{(data?.summary && worldName(data.summary.scenarios, data.summary.seeds, data.digest?.digests.find((d) => d.world_id === x))) ?? `world ${x}`}</option>)}
               </select>
             : <span className="chip plain mono">{ICONS.layers} world {w}</span>}
           <span className="chip plain mono">{ICONS.clock} tick ≤ {t.max_tick[w]}</span>

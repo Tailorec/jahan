@@ -32,4 +32,4 @@ Decided 2026-10-03:
       themselves and offer to launch versions.
 
 ## Phase 6 — names everywhere
-- [ ] World picker, run bar, run details, report and trace name worlds by label and seed.
+- [x] World picker, run details and trace name worlds (report and run bar still to do) by label and seed.
