@@ -86,6 +86,7 @@ export interface GateResult {
   chi_square?: number;
   degrees_of_freedom?: number;
   p_value?: number;
+  adjusted_p_value?: number | null;
   significance_level?: number;
   ks_statistic?: number;
   ks_similarity?: number;

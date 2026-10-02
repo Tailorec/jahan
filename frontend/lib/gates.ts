@@ -21,8 +21,10 @@ export function explainGate(r: GateResult, label: (id: string) => string = (id) 
     return {
       title: name,
       question: `Does ${name} among the drawn personas look like it does among the people they were drawn from?`,
-      result: r.p_value === undefined ? "Not measured." : `A gap this size would turn up by chance ${pct(r.p_value)} of the time.`,
-      rule: `Passes when that chance is above ${pct(alpha)}.`,
+      result: r.p_value === undefined ? "Not measured." : `A gap this size would turn up by chance ${pct(r.p_value)} of the time${r.adjusted_p_value != null ? `; ${pct(r.adjusted_p_value)} once every attribute tested is counted` : ""}.`,
+      rule: r.adjusted_p_value != null
+        ? `Passes when that chance, adjusted for testing every attribute at once (Holm), is above ${pct(alpha)}.`
+        : `Passes when that chance is above ${pct(alpha)}.`,
       raw: `χ² ${r.chi_square?.toFixed(2) ?? "—"} · dof ${r.degrees_of_freedom ?? "—"} · p ${r.p_value?.toFixed(3) ?? "—"}`,
       failed: `The draw's ${name} differs from its pools by more than chance explains: the sample is skewed.`,
     };
@@ -70,7 +72,8 @@ export interface GateMeter { value: number; line: number; max: number; short: st
 
 export function gateMeter(r: GateResult): GateMeter {
   if (r.kind === "categorical") {
-    const value = r.p_value ?? 0;
+    // The adjusted chance is what decides the gate (ADR 0049); older reports carry only the raw one.
+    const value = r.adjusted_p_value ?? r.p_value ?? 0;
     const line = r.significance_level ?? 0.05;
     return { value, line, max: 1, short: `chance ${pct(value)} · needs above ${pct(line)}` };
   }
