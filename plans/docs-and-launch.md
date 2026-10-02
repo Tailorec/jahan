@@ -13,7 +13,10 @@ Decided 2026-10-02.
 - [x] `README.md`: pitch, what makes it different, honest-results callout, data and license.
 
 ## Launch blockers (decisions owed)
-- [ ] GPL dependencies: `igraph` (GPL-2.0+) and `leidenalg` (GPL-3.0+) in `population/_communities.py`.
+- [x] GPL dependencies: `igraph` (GPL-2.0+) and `leidenalg` (GPL-3.0+) in `population/_communities.py` —
+      kept for now (decided 2026-10-02). They are installed by pip, not shipped, which leaves a legal grey area.
+      Never publish an artefact that bundles them (Docker image, frozen app, vendored wheels). The fallback is
+      networkx Louvain, with an identity re-pin.
 - [ ] A fresh clone cannot run a fake study: `examples/` and `ontologies/` are not in the repository but the
       quickstart and the CLI/interface tests need a brief and an ontology.
 - [x] Root clean-up: the superseded first-draft `ARCHITECTURE.md` and `OSSARCH.md` (open-core plan, old
