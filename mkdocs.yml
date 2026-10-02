@@ -1,0 +1,54 @@
+site_name: Jahan
+site_description: An open, reproducible engine for simulating how a population of LLM personas reacts to a product — feeds, forums, word of mouth and survey waves, every number traceable to the turn that produced it.
+site_author: Faishal Manzar
+site_url: https://tailorec.github.io/jahan/
+repo_url: https://github.com/Tailorec/jahan
+repo_name: Tailorec/jahan
+edit_uri: edit/master/docs/
+copyright: Copyright 2026 Faishal Manzar · Functional Source License 1.1 (Apache-2.0 future license)
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: deep orange
+      accent: teal
+      toggle: { icon: material/weather-night, name: Dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: deep orange
+      accent: teal
+      toggle: { icon: material/weather-sunny, name: Light mode }
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc: { permalink: true }
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.superfences:
+      custom_fences:
+        - { name: mermaid, class: mermaid, format: !!python/name:pymdownx.superfences.fence_code_format }
+  # The glossary lives at the repository root as CONTEXT.md and is included, never copied.
+  - pymdownx.snippets: { base_path: ["."], check_paths: true }
+
+# Evaluation partitions and scripts are evidence kept beside their write-ups, not pages.
+exclude_docs: |
+  *.py
+  *.json
+  *.parquet
+
+plugins:
+  - search

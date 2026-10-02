@@ -28,3 +28,6 @@ frontend/.next-test/
 
 # Audience sets saved by Who you study, like the ontologies they are drafted against.
 /audiences/
+
+# The documentation site, built by `mkdocs build` and deployed by .github/workflows/docs.yml.
+/site/
