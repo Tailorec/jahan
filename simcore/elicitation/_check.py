@@ -227,15 +227,22 @@ def check_anchors(
     return result
 
 
+def _tagged(model_id: str) -> bool:
+    """`name:tag` with both parts present: Ollama's own id, the tag naming one build of the model."""
+    name, sep, tag = model_id.partition(":")
+    return bool(sep and name and tag)
+
+
 def require_provider_model(model_id: str) -> str:
     """Refuse an embedding model named only by a gateway alias.
 
     A check result is evidence about one model. Titan's records once named the model `embed` — the name a LiteLLM
     proxy was given — so nothing in them said which model passed or failed, and pointing that alias at another
     model would have let the new model inherit the result. A provider's own identifier carries a `.` or a `/`
-    (`amazon.titan-embed-text-v2:0`, `openai/text-embedding-3-small`); a bare name does not. This refuses the
-    alias that happened; it cannot catch a qualified name deliberately pointed at another model."""
-    if "." not in model_id and "/" not in model_id:
+    (`amazon.titan-embed-text-v2:0`, `openai/text-embedding-3-small`), or a model and its build tag as Ollama
+    names them (`qwen3-embedding:4b`); a bare name does not. This refuses the alias that happened; it cannot
+    catch a qualified name deliberately pointed at another model."""
+    if "." not in model_id and "/" not in model_id and not _tagged(model_id):
         raise ValueError(
             f"embedding model {model_id!r} names no provider, so a check result cannot say which model it judged; "
             "serve and pin the provider's own model id (e.g. amazon.titan-embed-text-v2:0) rather than a gateway alias"

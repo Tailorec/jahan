@@ -249,6 +249,12 @@ def test_an_embedding_model_named_by_a_gateway_alias_is_refused_for_checking_and
         check_anchors("purchase-intent-v1", "purchase_intent", "v1", LexiconEmbed(levels, model_id="embed"), staged, write_record=False)
     passing = check_anchors("purchase-intent-v1", "purchase_intent", "v1", LexiconEmbed(levels), staged)
     assert passing.passed and passing.embed_model_id == "lexicon/v1" and passing.served_model_id == "lexicon/v1"
+    from simcore.elicitation._check import require_provider_model
+
+    assert require_provider_model("qwen3-embedding:4b") == "qwen3-embedding:4b", "Ollama's name:tag is its own id"
+    for alias in ("embed", "embed:", ":4b"):
+        with pytest.raises(ValueError, match="names no provider"):
+            require_provider_model(alias)
     record_path = staged / "purchase_intent" / "v1.check.json"
     record_path.write_text(record_path.read_text().replace('"lexicon/v1"', '"embed"'))
     with pytest.raises(ValueError, match="names no provider"):
