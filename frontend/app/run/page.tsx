@@ -11,7 +11,7 @@ import ActivityStream from "./activity";
 import Numbers from "./numbers";
 import { CHANNEL_COLOR, provisionalActs, useClock, useHeard, useTicks, type Clock } from "./replay";
 import { useApi, useRunId, api, whyNot } from "@/lib/api";
-import { worldForCell } from "@/lib/worlds";
+import { versionName, worldForCell, worldName } from "@/lib/worlds";
 import { FORCE_WARNING, movedInputRefusal } from "@/lib/resume";
 import type { OutcomeDigest, RunSummary, ScenarioSummary } from "@/lib/engine";
 
@@ -44,6 +44,8 @@ export default function RunPage() {
   const [poll, setPoll] = React.useState(0);
   const { data, error } = useApi<Detail>(runId ? `/api/runs/${runId}?t=${poll}` : null, { keep: true });
   const [world, setWorld] = React.useState<string | null>(null);
+  // A link may name the world to show (the atlas links each world here).
+  React.useEffect(() => { const named = new URLSearchParams(window.location.search).get("world"); if (named) setWorld(named); }, []);
   const [busy, setBusy] = React.useState<"cancel" | "resume" | null>(null);
   const [refusal, setRefusal] = React.useState<string | null>(null);
   const s = data?.summary ?? null;
@@ -58,6 +60,9 @@ export default function RunPage() {
   // Decisions heard before any tick closes name the world they come from, so a just-started study has one to show.
   const heard = useHeard(runId, namedWorld, watching);
   const shownWorld = heard.world;
+  // A world by its version's name and seed: from its final digest, else its live one.
+  const nameOf = (id: string) => s ? worldName(s.scenarios, s.seeds,
+    digests.find((d) => d.world_id === id) ?? (live?.worlds ?? []).find((x) => x.world_id === id)?.digest ?? undefined) : null;
   const lastClosed = (() => {
     const p = (s?.progress ?? []).find((x) => x.world_id === shownWorld)?.last_closed_tick;
     const o = (s?.outcomes ?? []).find((x) => x.world_id === shownWorld)?.last_closed_tick;
@@ -162,7 +167,7 @@ export default function RunPage() {
             })}
             {s.world_ids.length > 1 && (
               <select className="input mono" aria-label="World" value={shownWorld ?? ""} onChange={(e) => { setWorld(e.target.value); clock.setTick(0); }} style={{ marginLeft: "auto", maxWidth: 200 }}>
-                {s.world_ids.map((id) => <option key={id} value={id}>world {id.slice(0, 12)}</option>)}
+                {s.world_ids.map((id) => <option key={id} value={id}>{nameOf(id) ?? `world ${id.slice(0, 12)}`}</option>)}
               </select>
             )}
           </div>
@@ -261,7 +266,7 @@ export default function RunPage() {
               {s.scenarios.map((sc, si) => (
                 <div key={si} className="item">
                   <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-                    <b>{sc.variant.name}</b><span className="mono sub">{sc.variant.variant_id}</span>
+                    <b>{versionName(sc)}</b>{sc.label && <span className="sub">{sc.variant.name}</span>}
                     <span className="mono sub" style={{ marginLeft: "auto", fontSize: 11 }}>scenario {si + 1}</span>
                   </div>
                   <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
@@ -293,12 +298,15 @@ export default function RunPage() {
                       <thead><tr><th>Seed</th><th>World</th><th>Status</th><th className="num">Last tick</th><th>Rungs</th><th className="num">Adoption</th><th className="num">Polarization</th><th /></tr></thead>
                       <tbody>
                         {s.seeds.map((seed) => {
-                          const worldId = worldForCell(digests, seed, { worldIds: s.world_ids, scenarios: s.scenarios.length, seeds: s.seeds.length });
+                          // A sweep's world is its version and its seed; a seed alone names a world only in a one-version run.
+                          const worldId = digests.find((d) => d.scenario_hash === sc.scenario_hash && d.seed === seed)?.world_id
+                            ?? (live?.worlds ?? []).find((x) => x.digest?.scenario_hash === sc.scenario_hash && x.digest?.seed === seed)?.world_id
+                            ?? (s.scenarios.length === 1 ? worldForCell(digests, seed, { worldIds: s.world_ids, scenarios: s.scenarios.length, seeds: s.seeds.length }) : undefined);
                           const oc = s.outcomes.find((o) => o.world_id === worldId);
                           const dg = digests.find((d) => d.world_id === worldId);
                           return (
                             <tr key={seed} className={worldId && worldId === shownWorld ? "picked" : ""}>
-                              <td className="num mono">{seed}</td>
+                              <td className="num mono">{s.seeds.length > 1 ? `${s.seeds.indexOf(seed) + 1} · ` : ""}{seed}</td>
                               <td className="mono">{worldId?.slice(0, 12) ?? "—"}</td>
                               <td>{oc ? <Chip className={oc.status === "completed" ? "ok" : "plain"}>{oc.status.replace("_", " ")}</Chip> : "—"}</td>
                               <td className="num">{oc?.last_closed_tick ?? "—"}</td>
