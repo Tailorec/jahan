@@ -21,7 +21,7 @@ Decided 2026-10-03:
 - [x] A run serves each world's label and seed index; a rename is recorded beside the run and served over it.
 
 ## Phase 3 — launching versions from the interface (engine + web)
-- [ ] The study request carries versions (label + what differs) and a seed count; the web writes a grid and
+- [x] The study request carries versions (label + what differs) and a seed count; the web writes a grid and
       launches `sweep run`; a single version still launches `concepts run`.
 
 ## Phase 4 — New study: versions

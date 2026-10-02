@@ -10,6 +10,8 @@ calls live, so neither path recomputes what the other computes.
 from __future__ import annotations
 
 import json
+
+import yaml
 from functools import lru_cache
 import re
 import threading
@@ -110,6 +112,19 @@ class RenameRequest(BaseModel):
     label: str = Field(min_length=1, max_length=60)
 
 
+class VersionRequest(BaseModel):
+    """One version of a study: its name, and whatever it changes from the study's own settings. Anything left
+    out is the study's: the brief's price and description, the request's channels, horizon and survey schedule."""
+
+    model_config = ConfigDict(extra="forbid")
+    label: str = Field(min_length=1, max_length=60)
+    price: float | None = Field(default=None, gt=0)
+    description: str | None = Field(default=None, min_length=1, max_length=2000)
+    channels: list[str] | None = None
+    horizon: int | None = Field(default=None, ge=1)
+    survey_every: int | None = Field(default=None, ge=1)
+
+
 class StudyRequest(_CorpusChoices):
     """What a person configures to start a study — study inputs, never execution config.
 
@@ -148,6 +163,15 @@ class StudyRequest(_CorpusChoices):
     price_embed_in: float | None = Field(default=None, ge=0)
     # What the report recommends a reader do to check the result against real people.
     validation: str | None = Field(default=None, max_length=2000)
+    # Versions to compare (ADR 0052): each a named change to the study, run under every seed as one sweep.
+    versions: list[VersionRequest] | None = Field(default=None, min_length=1, max_length=8)
+
+    @field_validator("versions")
+    @classmethod
+    def _versions_are_told_apart(cls, value: list[VersionRequest] | None) -> list[VersionRequest] | None:
+        if value is not None and len({version.label.strip().lower() for version in value}) != len(value):
+            raise ValueError("two versions share a name: each version needs its own")
+        return value
 
     @field_validator("brief_yaml")
     @classmethod
@@ -458,6 +482,79 @@ def _study_argv(request: Request, run_id: str, body: StudyRequest) -> list[str]:
     return argv
 
 
+def _seed_list(seeds: str | list[int]) -> list[int]:
+    return [int(seed) for seed in seeds] if isinstance(seeds, list) else [int(part) for part in str(seeds).split(",") if part.strip()]
+
+
+def _versions_grid(request: Request, run_dir: Path, body: StudyRequest) -> Path:
+    """The grid a study's versions run as: each version a scenario, assembled the way a single study's is, every
+    seed for each. Versions sharing a description share a variant, so they share their random draws and differ
+    only in what they change; two versions identical apart from their names are refused."""
+    from simcore.cli._study import assemble_scenario
+    from simcore.schemas import canonical_hash
+
+    pack = _load_pack(Path(run_dir, "brief.yaml"), _ontologies_root(request))
+    variant_of: dict[str, str] = {}
+    scenarios, seen = [], {}
+    for version in body.versions or []:
+        description = version.description or pack.brief.product.description
+        variant_id = variant_of.setdefault(description, f"v{len(variant_of)}")
+        channels = version.channels if version.channels is not None else body.channels
+        try:
+            scenario = assemble_scenario(
+                pack, variant_id=variant_id, name=pack.brief.product.name, description=description,
+                tick_unit=body.tick_unit, horizon_ticks=version.horizon or body.horizon, channels=channels,
+                survey_every=version.survey_every or body.survey_every,
+                launch_reach=body.launch_reach if sorted(channels) == ["wom"] else 0.10,
+                price=version.price, label=version.label,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=f"version {version.label!r}: {exc}")
+        twin = seen.setdefault(canonical_hash(scenario), version.label)
+        if twin != version.label:
+            raise HTTPException(status_code=422, detail=f"versions {twin!r} and {version.label!r} differ only in their names")
+        scenarios.append(scenario.model_dump(mode="json"))
+    grid = Path(run_dir, "grid.yaml")
+    grid.write_text(yaml.safe_dump({"brief": "brief.yaml", "scenarios": scenarios, "seeds": _seed_list(body.seeds)}, sort_keys=False), encoding="utf-8")
+    return grid
+
+
+def _sweep_argv(request: Request, run_id: str, body: StudyRequest, grid: Path) -> list[str]:
+    """The command a study with versions runs: `sweep run` over its grid, with the same pins, corpus and costs a
+    single study passes."""
+    import sys
+
+    argv = [
+        sys.executable, "-m", "simcore.cli", "sweep", "run",
+        "--grid", str(grid),
+        "--budget", str(body.budget),
+        "--ontologies", _ontologies_root(request),
+        "--anchors", _anchors_root(request),
+        "--out", str(_runs_dir(request)),
+        "--run-id", run_id,
+        "--n", str(body.n),
+    ]
+    if body.fake:
+        argv.append("--fake")
+    else:
+        argv.extend(["--model", str(body.model), "--embed-model", str(body.embed_model)])
+        if body.recsys_embed_model:
+            argv.extend(["--recsys-embed-model", str(body.recsys_embed_model)])
+    for version in body.anchor_versions or _default_anchor_versions(_anchors_root(request)):
+        argv.extend(["--anchor-version", str(version)])
+    argv.extend(_corpus_flags(body))
+    for flag, value in (
+        ("--population-seed", body.population_seed),
+        ("--price-chat-in", body.price_chat_in),
+        ("--price-chat-out", body.price_chat_out),
+        ("--price-embed-in", body.price_embed_in),
+        ("--validation", body.validation),
+    ):
+        if value is not None:
+            argv.extend([flag, str(value)])
+    return argv
+
+
 def _corpus_flags(body: _CorpusChoices) -> list[str]:
     """`--shards` and `--sources`, when the study names them — the same flags the command line takes."""
     flags: list[str] = []
@@ -710,7 +807,8 @@ def create_app(
 
         if not body.fake and (not body.model or not body.embed_model):
             raise HTTPException(status_code=422, detail="a real study pins its models: model and embed_model")
-        if not body.fake and "social_feed" in body.channels and not body.recsys_embed_model:
+        ticked = {*body.channels, *(c for version in body.versions or [] for c in (version.channels or []))}
+        if not body.fake and "social_feed" in ticked and not body.recsys_embed_model:
             raise HTTPException(
                 status_code=422,
                 detail="a study that ticks the social feed pins its ranking model: recsys_embed_model (TwHIN-BERT)",
@@ -742,7 +840,7 @@ def create_app(
             _validate_brief(candidate, _ontologies_root(request))
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
-        argv = _study_argv(request, run_id, body)
+        argv = _sweep_argv(request, run_id, body, _versions_grid(request, run_dir, body)) if body.versions else _study_argv(request, run_id, body)
         lifecycle.write_launch_record(run_dir, {"argv": argv, "cwd": request.app.state.engine_root})
         try:
             lifecycle.launch(run_id, argv, request.app.state.engine_root, run_dir=run_dir)

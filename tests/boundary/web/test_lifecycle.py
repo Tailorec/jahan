@@ -375,3 +375,27 @@ def test_a_study_whose_report_failed_does_not_say_it_completed(tmp_path, monkeyp
     progress = json.loads((out / run_id / "progress.json").read_text())
     assert progress["status"] == "running", "the study never finished, and its progress file said it had"
     assert not (out / run_id / "result.json").exists()
+
+
+def test_a_study_with_named_versions_runs_each_version_under_every_seed(tmp_path):
+    """Versions launched from the interface run as one sweep: one world per version per seed, each named, each
+    showing its personas its own price. Two versions that differ only in their names are refused before launch."""
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    client = _client(runs)
+    versions = [{"label": "Budget", "price": 1.99}, {"label": "Premium", "price": 3.49, "channels": ["wom"]}]
+    run_id = _start(client, seeds="4021,4022", horizon=2, versions=versions)
+    detail, _ = _poll(client, run_id)
+    assert detail["status"] == "completed", detail
+    assert [sc["label"] for sc in detail["scenarios"]] == ["Budget", "Premium"]
+    assert len(detail["world_ids"]) == 4
+    view = TraceStore(runs / run_id / "trace").view(run_id)
+    prices = {e.payload.stimulus.text.rsplit("Price: ", 1)[1] for e in view.events(EventFilter(kinds=("stimulus_published",)))
+              if e.payload.stimulus.kind.value == "concept"}
+    assert prices == {"1.99 USD", "3.49 USD"}
+
+    twins = client.post("/api/runs", json={"brief_yaml": BRIEF, "evidence_json": EVIDENCE, "fake": True,
+                                           "versions": [{"label": "A", "price": 2.0}, {"label": "B", "price": 2.0}]})
+    assert twins.status_code == 422 and "differ only in their names" in twins.text
+    same_name = client.post("/api/runs", json={"brief_yaml": BRIEF, "fake": True, "versions": [{"label": "A"}, {"label": "a"}]})
+    assert same_name.status_code == 422
