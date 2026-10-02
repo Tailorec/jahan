@@ -15,7 +15,7 @@ ChatMessage = Mapping[str, str]
 
 @runtime_checkable
 class ChatPort(Protocol):
-    def complete(self, requests: Sequence[ChatRequest]) -> tuple[ChatOutcome, ...]: ...
+    def complete(self, requests: Sequence[ChatRequest], on_outcome=None) -> tuple[ChatOutcome, ...]: ...
 
     def chat(
         self,

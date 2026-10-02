@@ -48,8 +48,13 @@ class FakeChat:
         self._failures = dict(failures or {})
         self.calls: list[str] = []
 
-    def complete(self, requests: Sequence[ChatRequest]) -> tuple[ChatOutcome, ...]:
-        return tuple(self._one(request) for request in requests)
+    def complete(self, requests: Sequence[ChatRequest], on_outcome=None) -> tuple[ChatOutcome, ...]:
+        outcomes = []
+        for index, request in enumerate(requests):
+            outcomes.append(self._one(request))
+            if on_outcome is not None:
+                on_outcome(index, outcomes[-1])
+        return tuple(outcomes)
 
     def chat(
         self,

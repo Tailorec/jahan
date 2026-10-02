@@ -210,9 +210,13 @@ class InferenceClient:
         """The pinned embedding model, so the client satisfies `EmbedPort` wherever the fake is accepted."""
         return self.resolve(InferenceRole.EMBED).model_id
 
-    def complete(self, requests: Sequence[ChatRequest]) -> tuple[ChatOutcome, ...]:
+    def complete(self, requests: Sequence[ChatRequest], on_outcome=None) -> tuple[ChatOutcome, ...]:
         """One outcome per request in request order, whatever order the responses arrive in. Every pin is
-        resolved first, so an unpinned role is refused before any request is sent."""
+        resolved first, so an unpinned role is refused before any request is sent.
+
+        `on_outcome(index, outcome)`, when given, hears each outcome as it lands, so a watcher can show a
+        decision before its batch ends. It only listens: what it does never reaches the outcomes, and an
+        error in it is swallowed rather than allowed to fail a call that succeeded."""
         pins = [self.resolve(request.role) for request in requests]
         for request, pin in zip(requests, pins, strict=True):
             if request.role in (InferenceRole.EMBED, InferenceRole.RECSYS_EMBED):
@@ -221,7 +225,7 @@ class InferenceClient:
             return ()
         batch, batch_context = start_span("inference.chat.batch", {SIMCORE_BATCH_SIZE: len(requests)}, operation="batch", provider=self._tracer_provider)
         try:
-            outcomes = run(self._gather(list(requests), pins, batch_context))
+            outcomes = run(self._gather(list(requests), pins, batch_context, on_outcome))
         finally:
             finish(batch, ok=True, attributes={SIMCORE_BATCH_SIZE: len(requests)})
         return outcomes
@@ -406,7 +410,7 @@ class InferenceClient:
 
     # --- the batch: a bounded queue feeding workers under the ceiling -----------------------------------
 
-    async def _gather(self, requests: list[ChatRequest], pins: list[ModelPin], batch_context) -> tuple[ChatOutcome, ...]:
+    async def _gather(self, requests: list[ChatRequest], pins: list[ModelPin], batch_context, on_outcome=None) -> tuple[ChatOutcome, ...]:
         outcomes: list[ChatOutcome | None] = [None] * len(requests)
         queue: asyncio.Queue = asyncio.Queue(maxsize=max(1, self.settings.queue_bound))
         workers = min(self._ceiling.maximum, len(requests))
@@ -426,6 +430,7 @@ class InferenceClient:
                     return
                 index, (request, pin) = job
                 outcomes[index] = await self._execute(request, pin, batch_context)
+                heard(on_outcome, index, outcomes[index])
 
         producer = asyncio.create_task(produce())
         crew = [asyncio.create_task(work()) for _ in range(workers)]
@@ -900,3 +905,13 @@ def _outcome_attributes(outcome: ChatOutcome | None) -> dict:
     if isinstance(outcome, CallFailure):
         return {SIMCORE_FAILURE_KIND: outcome.kind.value, SIMCORE_FAILURE_DETAIL: outcome.detail, SIMCORE_ATTEMPTS: outcome.attempts, SIMCORE_ROUTE: outcome.route.value}
     return {}
+
+
+def heard(on_outcome, index: int, outcome) -> None:
+    """Tell a listener about one outcome; a listener's failure is its own and never the call's."""
+    if on_outcome is None:
+        return
+    try:
+        on_outcome(index, outcome)
+    except Exception:  # noqa: BLE001 — a display side-channel must not fail a recorded call
+        pass
