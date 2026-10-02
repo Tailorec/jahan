@@ -207,8 +207,9 @@ def test_a_finished_study_arrives_with_its_evidence_resolved(stack):
         for finding in detail["report"]["findings"]
         for trace_id in finding.get("evidence_trace_ids", [])[:12]
     }
-    assert cited, "the fake study's findings cite evidence"
     assert cited <= set(detail["trace"]["resolved"]), "every cited event resolves to the event itself"
+    # The fake personas only praise, so since ADR 0053 the evidence they leave is a reason to buy, not an objection.
+    assert detail["report"]["reason_clusters"] and not detail["report"]["objection_clusters"]
 
 
 def test_a_failed_or_gate_only_run_is_readable(stack):
