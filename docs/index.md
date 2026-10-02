@@ -14,7 +14,7 @@ rebuilt from the record and checked against the hash taken when it ran.
     Jahan is **uncalibrated**: no result has yet been checked against how real people behaved. Its own first
     holdout found that a model asked to fill in people's attitudes captures *relative* differences between
     groups but holds a biased overall picture, and loses to a plain demographic baseline
-    ([evaluation](evaluations/2026-09-17-holdout-bedrock/README.md)). Read its numbers as what a simulation
+    ([results](research/results.md#holdout)). Read its numbers as what a simulation
     measured, never as facts about a market.
 
 ## How a study flows
@@ -33,10 +33,13 @@ flowchart LR
 
 | You want to… | Read |
 |---|---|
+| Understand what a study is | [How a study works](concepts/index.md) |
+| See the maths, with worked examples | [Population gates](concepts/population.md) · [Social network](concepts/social-network.md) · [Measuring intent](concepts/measuring-intent.md) · [Results](concepts/results-and-trust.md) |
+| Know what it cannot tell you | [Limitations](concepts/limitations.md) |
+| See what it has measured so far | [Results so far](research/results.md) |
+| Install it | [Install](getting-started/install.md) |
 | Learn the words the engine uses | [Glossary](reference/glossary.md) |
-| See why it works the way it does | [Decisions (ADRs)](adr/0001-derive-world-seed-from-replicate-and-variant.md) |
-| Read how each module was specified | [Design documents (PRDs)](prd/M0-who-you-study.md) |
-| See what it has measured so far | [Evaluations](evaluations/2026-09-17-holdout-bedrock/README.md) |
+| See why it works the way it does | [Decisions (ADRs)](adr/index.md) |
 
 ## License
 

@@ -37,6 +37,9 @@ markdown_extensions:
   - tables
   - toc: { permalink: true }
   - pymdownx.details
+  - footnotes
+  # Formulas are written as $...$ and $$...$$ and typeset by MathJax in the browser.
+  - pymdownx.arithmatex: { generic: true }
   - pymdownx.highlight
   - pymdownx.superfences:
       custom_fences:
@@ -50,5 +53,41 @@ exclude_docs: |
   *.json
   *.parquet
 
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
+
 plugins:
   - search
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - Install: getting-started/install.md
+      - Your first study: getting-started/first-study.md
+      - Running against real models: getting-started/real-models.md
+  - Concepts:
+      - How a study works: concepts/index.md
+      - The brief: concepts/brief.md
+      - Personas and the population: concepts/population.md
+      - The social network: concepts/social-network.md
+      - Scenarios and worlds: concepts/scenarios-and-worlds.md
+      - Channels: concepts/channels.md
+      - Beliefs, memory and reflection: concepts/beliefs-and-memory.md
+      - Measuring purchase intent: concepts/measuring-intent.md
+      - The trace: concepts/trace.md
+      - Results and trust: concepts/results-and-trust.md
+      - Limitations: concepts/limitations.md
+  - Research:
+      - Methodology: research/methodology.md
+      - Results so far: research/results.md
+      - Threats to validity: research/threats-to-validity.md
+      - Related work: research/related-work.md
+      - References: research/references.md
+  - Reference:
+      - Glossary: reference/glossary.md
+  - Design records:
+      - Architecture: FINAL_ARCH.md
+      - Salvage inventory: SALVAGE.md
+      - Decisions (ADRs): adr/index.md
+      - Module specifications (PRDs): prd/index.md
