@@ -945,21 +945,24 @@ def create_app(
         return {"worlds": [world for world in worlds if isinstance(world, dict)]}
 
     @app.get("/api/runs/{run_id}/live/decisions")
-    def run_live_decisions(request: Request, run_id: str, world_id: str) -> dict[str, Any]:
-        """Decisions heard in a world's open tick, in the order they landed (ADR 0050). Provisional: the
-        tick's record, once closed, replaces them — and an interrupted tick's never become record at all."""
-        path = Path(_run_dir(request, run_id), "live", f"{Path(world_id).name}.decisions.jsonl")
-        try:
-            lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError:
-            lines = []
+    def run_live_decisions(request: Request, run_id: str, world_id: str | None = None) -> dict[str, Any]:
+        """Decisions heard in an open tick, in the order they landed, each naming its world (ADR 0050).
+        Provisional: the tick's record, once closed, replaces them — and an interrupted tick's never become
+        record at all. Without a world, every world's: a study names its worlds only after the first closes."""
+        live = Path(_run_dir(request, run_id), "live")
+        paths = [live / f"{Path(world_id).name}.decisions.jsonl"] if world_id else sorted(live.glob("*.decisions.jsonl"))
         decisions = []
-        for line in lines:
+        for path in paths:
             try:
-                decisions.append(json.loads(line))
-            except ValueError:
-                continue  # a line still being written
-        return {"world_id": world_id, "provisional": True, "decisions": decisions}
+                lines = path.read_text(encoding="utf-8").splitlines()
+            except OSError:
+                continue
+            for line in lines:
+                try:
+                    decisions.append({**json.loads(line), "world_id": path.name.removesuffix(".decisions.jsonl")})
+                except ValueError:
+                    continue  # a line still being written
+        return {"provisional": True, "decisions": decisions}
 
     @app.get("/api/runs/{run_id}/digest")
     def run_digest(request: Request, run_id: str) -> dict[str, Any]:
