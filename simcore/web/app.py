@@ -1086,6 +1086,16 @@ def create_app(
                     continue  # a line still being written
         return {"provisional": True, "decisions": decisions}
 
+    @app.get("/api/runs/{run_id}/report.md")
+    def run_report_markdown(request: Request, run_id: str):
+        """The report as the study wrote it, for a person to keep or share."""
+        from fastapi.responses import PlainTextResponse
+
+        path = Path(_run_dir(request, run_id), "report.md")
+        if not path.is_file():
+            raise _missing(f"run {run_id} has no report.md yet")
+        return PlainTextResponse(path.read_text(encoding="utf-8"), media_type="text/markdown; charset=utf-8")
+
     @app.get("/api/runs/{run_id}/digest")
     def run_digest(request: Request, run_id: str) -> dict[str, Any]:
         return _read_json(Path(_run_dir(request, run_id), "digest.json"))
