@@ -1,9 +1,9 @@
 "use client";
 
 import React from "react";
-import { Kpi, PmfBar, Section, Tip } from "@/components/ui";
-import { IntentOverWaves } from "@/components/charts";
-import { pmfMean, top2box, type OutcomeDigest } from "@/lib/engine";
+import { Kpi, Section, Tip } from "@/components/ui";
+import { CommunityIntent, IntentDiverging, IntentOverWaves } from "@/components/charts";
+import type { OutcomeDigest } from "@/lib/engine";
 
 const DIM = ["value", "fit", "trust"] as const;
 
@@ -31,7 +31,7 @@ export default function Numbers({ d, asOf }: { d: OutcomeDigest; asOf: string })
         <Section icon="pie" title="Purchase intent by audience" tip="The SSR purchase-intent distribution at the latest wave: each audience's share at every point of the five-point scale. Bars are centred on 'maybe', so 'would not buy' extends left and 'would buy' extends right; the top-two box is the share who probably or definitely would.">
           {Object.entries(d.audience_pmfs).length === 0
             ? <p className="sub" style={{ fontSize: 12 }}>unmeasured: {d.unmeasured_reason ?? "no wave answered yet"}</p>
-            : <IntentDiverging pmfs={d.audience_pmfs} shares={d.audience_shares} />}
+            : <IntentDiverging pmfs={d.audience_pmfs} weights={d.audience_shares} caption={(_, share) => `${(share * 100).toFixed(0)}% of the market`} />}
         </Section>
 
         <Section icon="sliders" title="Belief movement per dimension" tip="For value, fit and trust: the solid bar is the net change per turn (which way beliefs moved on balance) and the shaded band is the average size of a move in either direction. A short bar in a wide band means personas moved a lot but in opposite directions, so the moves cancelled out. Survey answers only read beliefs, so they are not counted.">
@@ -39,99 +39,30 @@ export default function Numbers({ d, asOf }: { d: OutcomeDigest; asOf: string })
         </Section>
       </div>
 
-      <div className="grid g2">
-        <Section icon="layers" title="Action mix" tip="What personas did across every channel, survey answers included.">
-          <div style={{ display: "grid", gap: 6 }}>
-            {Object.entries(d.action_mix).sort((a, b) => b[1] - a[1]).map(([a, n]) => (
-              <div key={a} className="bar-row" style={{ cursor: "default" }}>
-                <span style={{ minWidth: 90 }}>{a}</span>
-                <span className="bar"><span style={{ width: `${(n / mixTotal) * 100}%` }} /></span>
-                <span className="mono" style={{ minWidth: 50, textAlign: "right" }}>{n}</span>
-              </div>
-            ))}
-          </div>
-        </Section>
-        <Section icon="fork" title="Communities" tip="Intent by the network's communities at the latest wave. Communities are fixed when the population is drawn; when none formed, the reason is shown.">
-          {Object.keys(d.community_pmfs).length === 0
-            ? <p className="sub" style={{ fontSize: 12 }}>{d.polarization_reason ?? "No communities formed in this network."}</p>
-            : (
-              <div style={{ display: "grid", gap: 8 }}>
-                {Object.entries(d.community_pmfs).map(([c, pmf]) => (
-                  <div key={c} className="row" style={{ gap: 8 }}>
-                    <span className="mono" style={{ minWidth: 90, fontSize: 12 }}>{c} <span className="sub">({d.community_sizes[c] ?? 0})</span></span>
-                    <div style={{ flex: 1 }}><PmfBar p={pmf} maxWidth="100%" /></div>
-                    <span className="mono sub" style={{ fontSize: 11 }}>{(top2box(pmf) * 100).toFixed(0)}%</span>
-                  </div>
-                ))}
-              </div>
-            )}
-        </Section>
-      </div>
+      <Section icon="fork" title="Communities" tip="Intent in each of the social network's communities at the latest wave — clusters of people tied more to each other than to the rest, found when the population was drawn and fixed for the run. They cut across audiences, so a community can lean differently from any audience in it. Polarization says how far communities' intent differs.">
+        <CommunityIntent d={d} />
+      </Section>
+
+      <Section icon="layers" title="Action mix" tip="What personas did across every channel, survey answers included.">
+        <div className="mix-grid">
+          {Object.entries(d.action_mix).sort((a, b) => b[1] - a[1]).map(([a, n]) => (
+            <div key={a} className="bar-row" style={{ cursor: "default" }}>
+              <span style={{ minWidth: 90 }}>{a.replace(/_/g, " ")}</span>
+              <span className="bar"><span style={{ width: `${(n / mixTotal) * 100}%` }} /></span>
+              <span className="mono" style={{ minWidth: 50, textAlign: "right" }}>{n}</span>
+            </div>
+          ))}
+        </div>
+      </Section>
     </div>
   );
 }
 
-const sentence = (s: string) => { const t = s.replace(/_/g, " "); return t.charAt(0).toUpperCase() + t.slice(1); };
-const LEVELS = ["definitely not", "probably not", "maybe", "probably yes", "definitely yes"];
 const DIM_TIP: Record<string, string> = {
   value: "Whether the product seems worth its price.",
   fit: "Whether the product suits the persona's life.",
   trust: "Whether the persona believes the brand's claims.",
 };
-
-/* Each audience's intent as a bar centred on "maybe": would-not-buy extends left, would-buy right, so rows
-   line up and compare at a glance. The layout scales so the longest side of any row fills its half. */
-function IntentDiverging({ pmfs, shares }: { pmfs: Record<string, number[]>; shares: Record<string, number> }) {
-  const [hover, setHover] = React.useState<{ audience: string; level: number; at: number } | null>(null);
-  const rows = Object.entries(pmfs).sort((a, b) => (shares[b[0]] ?? 0) - (shares[a[0]] ?? 0));
-  const left = (p: number[]) => p[0] + p[1] + p[2] / 2;
-  const right = (p: number[]) => p[2] / 2 + p[3] + p[4];
-  const reach = Math.max(...rows.flatMap(([, p]) => [left(p), right(p)]), 0.01);
-  const scale = 50 / reach; // percent of the bar's width per unit of probability
-  return (
-    <div className="div-chart">
-      <div className="div-row div-head sub"><span /><div className="div-axis"><span>← would not buy</span><span>maybe</span><span>would buy →</span></div><span /></div>
-      {rows.map(([audience, p]) => {
-        let at = 50 - left(p) * scale;
-        return (
-          <div key={audience} className="div-row">
-            <div className="div-name">
-              <b>{sentence(audience)}</b>
-              <span className="sub">{((shares[audience] ?? 0) * 100).toFixed(0)}% of the market</span>
-            </div>
-            <div className="div-bar" onMouseLeave={() => setHover(null)}>
-              <span className="div-mid" />
-              {p.map((v, level) => {
-                const width = v * scale, x = at;
-                at += width;
-                const on = hover?.audience === audience && hover.level === level;
-                return (
-                  <span key={level} className={`div-seg likert-${level + 1}${on ? " on" : ""}`} style={{ left: `${x}%`, width: `${width}%` }}
-                    onMouseEnter={() => setHover({ audience, level, at: x + width / 2 })} aria-label={`${LEVELS[level]}: ${(v * 100).toFixed(1)}%`}>
-                    {width >= 7 ? `${Math.round(v * 100)}%` : ""}
-                  </span>
-                );
-              })}
-              {hover?.audience === audience && (
-                <span className="div-tip" style={{ left: `${Math.min(85, Math.max(15, hover.at))}%` }}>
-                  <b>{(p[hover.level] * 100).toFixed(1)}%</b> {LEVELS[hover.level]}
-                </span>
-              )}
-            </div>
-            <div className="div-stat">
-              <b>{(top2box(p) * 100).toFixed(0)}%</b>
-              <span className="sub">would buy</span>
-              <span className="sub mono">mean {pmfMean(p).toFixed(2)}</span>
-            </div>
-          </div>
-        );
-      })}
-      <div className="pmf-legend">
-        {LEVELS.map((label, i) => <span key={label}><i className={`likert-${i + 1}`} />{label}</span>)}
-      </div>
-    </div>
-  );
-}
 
 /* Net direction and size of belief moves: a solid bar from zero to the mean change, over a shaded band as
    wide as the average move either way. Both share one scale, centred on zero. */

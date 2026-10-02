@@ -4,13 +4,11 @@ import Link from "next/link";
 import React from "react";
 import Shell from "@/components/shell";
 import RunBar from "@/components/runbar";
-import { PageHead, Chip, Callout, PmfBar, PmfLegend, TrustLine, ICONS, Section, Tip, Kpi } from "@/components/ui";
-import { IntentOverWaves } from "@/components/charts";
+import { PageHead, Chip, Callout, TrustLine, ICONS, Section, Tip } from "@/components/ui";
+import { CommunityIntent, IntentOverWaves } from "@/components/charts";
 import { api, useApi, useRunId, whyNot } from "@/lib/api";
 import { versionName } from "@/lib/worlds";
 import {
-  pmfMean,
-  top2box,
   type Finding,
   type OutcomeDigest,
   type RunSummary,
@@ -146,15 +144,7 @@ export default function AtlasPage() {
               {versions.flatMap((v) => v.worlds.map((d) => (
                 <div key={d.world_id}>
                   <div className="row" style={{ gap: 8, marginBottom: 6 }}><span className="swatch" style={{ background: v.color }} /><b>{versionName(v.sc)}</b><span className="chip plain mono">seed {s.seeds.indexOf(d.seed) + 1}</span></div>
-                  {Object.entries(d.community_pmfs).length === 0
-                    ? <div className="row sub" style={{ fontSize: 12 }}>{ICONS.info} No communities formed <Tip>{d.polarization_reason ?? "No communities formed in the graph."}</Tip></div>
-                    : <>{Object.entries(d.community_pmfs).map(([c, pmf]) => (
-                        <div key={c} className="row" style={{ marginTop: 4 }}>
-                          <span className="mono" style={{ minWidth: 110, fontSize: 12 }}>{c}</span>
-                          <div style={{ flex: 1 }}><PmfBar p={pmf} maxWidth="100%" /></div>
-                          <span className="mono sub" style={{ fontSize: 11 }}>{(top2box(pmf) * 100).toFixed(0)}% · μ {pmfMean(pmf).toFixed(2)}</span>
-                        </div>
-                      ))}<PmfLegend /></>}
+                  <CommunityIntent d={d} />
                 </div>
               )))}
             </div>

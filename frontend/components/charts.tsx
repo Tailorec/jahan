@@ -1,7 +1,8 @@
 "use client";
 
 import React from "react";
-import type { WaveDigest } from "@/lib/engine";
+import { pmfMean, top2box, type OutcomeDigest, type WaveDigest } from "@/lib/engine";
+import { ICONS, Tip } from "@/components/ui";
 
 /* A validated categorical order (dataviz validator, light surface): adjacent hues stay apart for normal and
    colour-blind vision. Assigned in this order to audiences sorted by name, never cycled by rank. */
@@ -162,3 +163,105 @@ export function IntentOverWaves({ waves }: { waves: WaveDigest[] }) {
     </div>
   );
 }
+
+const sentence = (s: string) => { const t = s.replace(/_/g, " "); return t.charAt(0).toUpperCase() + t.slice(1); };
+const LEVELS = ["definitely not", "probably not", "maybe", "probably yes", "definitely yes"];
+const communityName = (key: string) => key.replace(/^community-/, "Community ");
+
+/* Intent per group as a bar centred on "maybe": would-not-buy extends left, would-buy right, so rows line up and
+   compare at a glance. Rows are ordered by weight; the layout scales so the longest side of any row fills its half. */
+export function IntentDiverging({ pmfs, weights, caption, name = sentence }: {
+  pmfs: Record<string, number[]>; weights: Record<string, number>; caption: (key: string, weight: number) => string; name?: (key: string) => string;
+}) {
+  const [hover, setHover] = React.useState<{ audience: string; level: number; at: number } | null>(null);
+  const rows = Object.entries(pmfs).sort((a, b) => (weights[b[0]] ?? 0) - (weights[a[0]] ?? 0));
+  const left = (p: number[]) => p[0] + p[1] + p[2] / 2;
+  const right = (p: number[]) => p[2] / 2 + p[3] + p[4];
+  const reach = Math.max(...rows.flatMap(([, p]) => [left(p), right(p)]), 0.01);
+  const scale = 50 / reach; // percent of the bar's width per unit of probability
+  return (
+    <div className="div-chart">
+      <div className="div-row div-head sub"><span /><div className="div-axis"><span>← would not buy</span><span>maybe</span><span>would buy →</span></div><span /></div>
+      {rows.map(([audience, p]) => {
+        let at = 50 - left(p) * scale;
+        return (
+          <div key={audience} className="div-row">
+            <div className="div-name">
+              <b>{name(audience)}</b>
+              <span className="sub">{caption(audience, weights[audience] ?? 0)}</span>
+            </div>
+            <div className="div-bar" onMouseLeave={() => setHover(null)}>
+              <span className="div-mid" />
+              {p.map((v, level) => {
+                const width = v * scale, x = at;
+                at += width;
+                const on = hover?.audience === audience && hover.level === level;
+                return (
+                  <span key={level} className={`div-seg likert-${level + 1}${on ? " on" : ""}`} style={{ left: `${x}%`, width: `${width}%` }}
+                    onMouseEnter={() => setHover({ audience, level, at: x + width / 2 })} aria-label={`${LEVELS[level]}: ${(v * 100).toFixed(1)}%`}>
+                    {width >= 7 ? `${Math.round(v * 100)}%` : ""}
+                  </span>
+                );
+              })}
+              {hover?.audience === audience && (
+                <span className="div-tip" style={{ left: `${Math.min(85, Math.max(15, hover.at))}%` }}>
+                  <b>{(p[hover.level] * 100).toFixed(1)}%</b> {LEVELS[hover.level]}
+                </span>
+              )}
+            </div>
+            <div className="div-stat">
+              <b>{(top2box(p) * 100).toFixed(0)}%</b>
+              <span className="sub">would buy</span>
+              <span className="sub mono">mean {pmfMean(p).toFixed(2)}</span>
+            </div>
+          </div>
+        );
+      })}
+      <div className="pmf-legend">
+        {LEVELS.map((label, i) => <span key={label}><i className={`likert-${i + 1}`} />{label}</span>)}
+      </div>
+    </div>
+  );
+}
+
+/* Where intent ended in each community of the network: the same centred bars as audiences, sized by how many
+   people each holds, under the engine's polarization — or, when no communities formed, why not. */
+export function CommunityIntent({ d }: { d: OutcomeDigest }) {
+  const sizes = d.community_sizes ?? {};
+  const keys = Object.keys(d.community_pmfs ?? {});
+  if (keys.length === 0) {
+    return (
+      <div className="comm-none">
+        <span className="sec-icon">{ICONS.fork}</span>
+        <div>
+          <b>No communities formed in this network.</b>
+          <p className="sub">{d.polarization_reason ?? "The network did not split into clearly separated groups, so there is no polarization to measure."}</p>
+        </div>
+      </div>
+    );
+  }
+  const people = Object.values(sizes).reduce((a, b) => a + b, 0) || 1;
+  const byIntent = [...keys].sort((a, b) => top2box(d.community_pmfs[a]) - top2box(d.community_pmfs[b]));
+  const low = byIntent[0], high = byIntent[byIntent.length - 1];
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div className="comm-head">
+        <span className="chip plain">{keys.length} communities · {people} people</span>
+        <span className="chip plain">
+          Polarization <b className="mono">{d.polarization != null ? d.polarization.toFixed(3) : "—"}</b>
+          <Tip>{d.polarization != null
+            ? "How far the communities' intent distributions differ from one another, weighted by size. 0 means every community answered alike; larger means they pull apart."
+            : d.polarization_reason ?? "Polarization was not measured."}</Tip>
+        </span>
+        {keys.length > 1 && (
+          <span className="sub" style={{ fontSize: 12.5 }}>
+            Would buy runs from <b>{(top2box(d.community_pmfs[low]) * 100).toFixed(0)}%</b> in {communityName(low)} to <b>{(top2box(d.community_pmfs[high]) * 100).toFixed(0)}%</b> in {communityName(high)}.
+          </span>
+        )}
+      </div>
+      <IntentDiverging pmfs={d.community_pmfs} weights={sizes} name={communityName}
+        caption={(_, n) => `${n} people · ${Math.round((n / people) * 100)}% of the network`} />
+    </div>
+  );
+}
+
