@@ -106,3 +106,21 @@ def test_a_survey_room_impression_carries_one_exposure_and_produces_one_reaction
     (outcome,) = turns([job], chat=FakeChat(responder=answering()))
     assert isinstance(outcome, CompletedTurn)
     assert outcome.turn.reaction.subject_stimulus_id == job.presentation.impression.exposures[0].stimulus_id
+
+
+def test_each_decision_is_heard_as_its_reply_lands_and_hearing_changes_nothing():
+    """ADR 0050: a watcher hears every persona's decision before the batch ends — who, where, what, in their
+    words — and listening, even with a listener that fails, leaves every outcome as it would have been."""
+    jobs = [make_job(k, n=k) for k in range(4)]
+    heard = []
+    with_listener = turns(jobs, chat=FakeChat(responder=answering()), on_decision=heard.append)
+    without = turns(jobs, chat=FakeChat(responder=answering()))
+    assert [o.model_dump() for o in with_listener] == [o.model_dump() for o in without]
+    recorded = [(o.turn.impression.persona_id, o.turn.reaction.action.value, o.turn.reaction.verbatim) for o in with_listener]
+    assert [(d["persona_id"], d["action"], d["verbatim"]) for d in heard] == recorded
+    assert all(d["tick"] == jobs[0].presentation.impression.tick and d["channel"] for d in heard)
+
+    def broken(_decision):
+        raise RuntimeError("the page fell over")
+
+    assert [o.model_dump() for o in turns(jobs, chat=FakeChat(responder=answering()), on_decision=broken)] == [o.model_dump() for o in without]

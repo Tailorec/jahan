@@ -86,12 +86,18 @@ def turns(
     blocks: PersonaBlockCache | None = None,
     embed=None,
     stimulus_texts: Mapping[str, str] | None = None,
+    on_decision=None,
 ) -> tuple[TurnOutcome, ...]:
-    """One outcome per job in request order: a completed turn or a recorded turn failure."""
+    """One outcome per job in request order: a completed turn or a recorded turn failure.
+
+    `on_decision(decision)`, when given, hears each persona's decision as soon as its reply parses — before
+    the batch, its scoring or its guard check finish — so a watcher can show it. It is provisional: the guard
+    may still send the turn back, and only the recorded tick says what happened."""
     cfg = config or AgentConfig()
     cache = blocks if blocks is not None else PersonaBlockCache()
     prepared = [_prepare(job, cfg, ontology, cache, embed, stimulus_texts) for job in jobs]
-    first = _dispatch(chat, [(position, item.request) for position, item in enumerate(prepared) if item.request is not None])
+    listen = None if on_decision is None else (lambda position, outcome: _announce(prepared[position].job, outcome, on_decision))
+    first = _dispatch(chat, [(position, item.request) for position, item in enumerate(prepared) if item.request is not None], listen)
     for position, item in enumerate(prepared):
         if item.request is not None:
             _bill(item, first[position])
@@ -99,7 +105,7 @@ def turns(
 
     rejected = [entry for entry in reacted if entry.failure is None and _rejection(entry) is not None]
     retried = _dispatch(
-        chat, [(entry.position, _strict_request(entry, cfg)) for entry in rejected]
+        chat, [(entry.position, _strict_request(entry, cfg)) for entry in rejected], listen
     )
     for entry in rejected:
         _bill(entry.item, retried[entry.position])
@@ -175,13 +181,37 @@ def _bill(item: _Prepared, outcome: Completion | CallFailure | None) -> None:
         item.costs.extend(outcome.costs)
 
 
-def _dispatch(chat, calls: list[tuple[int, ChatRequest]]) -> dict[int, Completion | CallFailure]:
+def _dispatch(chat, calls: list[tuple[int, ChatRequest]], listen=None) -> dict[int, Completion | CallFailure]:
     """One batched call per round; positions map back to jobs in request order."""
     if not calls:
         return {}
     positions = [position for position, _ in calls]
-    outcomes = chat.complete([request for _, request in calls])
+    requests = [request for _, request in calls]
+    if listen is None:
+        outcomes = chat.complete(requests)
+    else:
+        outcomes = chat.complete(requests, on_outcome=lambda index, outcome: listen(positions[index], outcome))
     return dict(zip(positions, outcomes))
+
+
+def _announce(job: TurnJob, outcome, on_decision) -> None:
+    """A reply that parses, as the decision a watcher sees: who, where, what, in their words, and who it came from."""
+    if not isinstance(outcome, Completion):
+        return
+    try:
+        parsed = parse_reaction(outcome.text)
+    except ValueError:
+        return  # an unparseable reply is retried or recorded as a failure; there is no decision to show yet
+    impression = job.presentation.impression
+    context = job.presentation.view.contexts.get(parsed.subject_stimulus_id)
+    try:
+        on_decision({
+            "tick": impression.tick, "persona_id": impression.persona_id, "channel": str(impression.channel),
+            "action": parsed.action.value, "verbatim": parsed.verbatim, "subject_stimulus_id": parsed.subject_stimulus_id,
+            "via_persona_id": context.via_persona_id if context is not None else None,
+        })
+    except Exception:  # noqa: BLE001 — a watcher's failure is its own; the turn is recorded regardless
+        pass
 
 
 def _question_for(task: TurnTask, channel: object | None = None) -> str:
