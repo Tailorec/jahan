@@ -20,7 +20,7 @@ likely it was to buy it; afterwards each persona's simulated intent was compared
   open-source habits, tools such as Git, GitHub and Python. **No AI attribute and no value mentioning AI**: not
   `att_ai`, `ai_task_*`, `coding_ai_*`, `coding_agent_*`, nor ChatGPT, Claude or Copilot usage. No attribute was
   completed by a model.
-- **Concept:** *Codepilot Review*, $19 a month — "an AI code-review assistant that comments on your pull requests,
+- **Concept:** *Codepilot Review* — "an AI code-review assistant that comments on your pull requests,
   explains risky changes and suggests fixes before a human reviewer looks". One survey wave, no channels.
 - **Scale:** purchase intent scored by SSR against anchor set `purchase-intent-v1`, version v2, which passed its check
   on this embedding model (rank stability 1.00; the 0.6B model had failed at 0.75).
@@ -44,13 +44,13 @@ likely it was to buy it; afterwards each persona's simulated intent was compared
   developer uses AI for review is mostly not written in those attributes. So this benchmark asks a hard question,
   and the honest reading is that the simulation adds nothing beyond them.
 - **The level is three times too high.** The simulation puts 45% in the top two boxes; 16% of these developers
-  really use AI for code review. Part of the gap is the construct — "would buy a $19 tool" is not "uses AI for
+  really use AI for code review. Part of the gap is the construct — "would buy this tool" is not "uses AI for
   review" — but the direction matches the earlier holdout's finding of a biased overall picture.
 - **Answers collapse to the middle.** For 83% of personas the most likely answer is the scale's midpoint; the mean
   score's standard deviation across 1,500 personas is 0.26 on a 1–5 scale. The model answered almost everyone with a
   variation of "I might try it if it helps, but I would not trust it blindly".
 - **What it did pick up is the obvious cue.** Students' simulated top-two box is 0.23–0.24 against 0.44–0.49 for
-  everyone else — the model reacts to "student" and a $19 price. Real students use AI for review no less than
+  everyone else — the model reacts to "student" itself — personas were shown no price (see the correction below). Real students use AI for review no less than
   others (19–26% in this sample).
 
 By group (measured truth, cells with at least 15 personas), the simulated level is nearly flat while the real one
@@ -68,7 +68,7 @@ market facts. The engine's trust level stays **uncalibrated**.
 
 ## Threats to validity
 
-- **Construct gap.** The truth is current or planned AI use for code review, not willingness to pay $19 for one
+- **Construct gap.** The truth is current or planned AI use for code review, not willingness to buy one
   product. A persona can rationally use a free tool and decline a paid one. A benchmark with a purchase outcome would
   be a stricter test.
 - **One model, one prompt, one product.** A larger or differently prompted model may separate personas better;
@@ -83,3 +83,11 @@ market facts. The engine's trust level stays **uncalibrated**.
 `analyze.py <run_id>` beside this file, run from the engine checkout with the corpus cached. The run's brief and
 ontology are recorded in its run directory; personas' real answers are read from the corpus at analysis time and
 are not stored here.
+
+## Correction (2026-10-03)
+
+The brief priced the product at $19, but personas were never shown a price: the engine built the concept from the
+brief's description alone and left the scenario's price out (fixed in ADR 0051). Everything above holds for the
+concept *without* a price. The students' lower intent cannot be a reaction to the price; it is a reaction to being
+a student. A rerun with the price shown is owed before reading anything into price sensitivity.
+
