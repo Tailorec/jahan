@@ -33,14 +33,17 @@ const pct = (x: number) => `${(x * 100).toFixed(1)}%`;
 
 const SECTIONS: [string, string, keyof typeof ICONS][] = [
   ["answer", "Answer", "target"], ["versions", "Versions", "layers"], ["who", "Who would buy", "users"], ["moved", "How it moved", "survey"],
-  ["why", "Why", "forum"], ["findings", "Findings", "bulb"], ["trust", "Trust", "shield"], ["method", "Method", "sliders"],
+  ["why", "Why", "forum"], ["findings", "Findings", "bulb"], ["trust", "Trust: how far to rely on it", "shield"], ["method", "Method disclosure", "sliders"],
 ];
 const GROUPS_SHOWN = 8;
+// Sections read one at a time, as tabs, below the ones every reader needs.
+const TABBED = ["why","findings","trust","method"];
 
 export default function ReportPage() {
   const runId = useRunId();
   const { data, error } = useApi<Detail>(runId ? `/api/runs/${runId}` : null);
   const [kind, setKind] = useSessionState("report:kind", "all");
+  const [tab, setTab] = useSessionState("report:section", "why");
   const [chosen, setChosen] = React.useState<string | null>(null);
   const r = data?.report ?? null;
   const s = data?.summary ?? null;
@@ -92,7 +95,9 @@ export default function ReportPage() {
       {r && (
         <>
           <nav className="rp-toc" aria-label="Report sections">
-            {SECTIONS.filter(([id]) => (id !== "versions" || many) && (id !== "moved" || waves.length > 1)).map(([id, label, icon]) => <a key={id} href={`#${id}`}>{ICONS[icon]}{label}</a>)}
+            {SECTIONS.filter(([id]) => (id !== "versions" || many) && (id !== "moved" || waves.length > 1)).map(([id, label, icon]) => TABBED.includes(id)
+              ? <a key={id} href="#details" onClick={() => setTab(id)}>{ICONS[icon]}{label}</a>
+              : <a key={id} href={`#${id}`}>{ICONS[icon]}{label}</a>)}
             {many && (
               <label className="rp-world">
                 <span className="sub">Showing</span>
@@ -164,19 +169,24 @@ export default function ReportPage() {
             </Section>
           )}
 
-          {/* 4 · Why */}
-          <div id="why" className="rp-anchor" />
-          <Section icon="forum" title="Why" tip="What held people back and what persuaded them — each group labelled with something a persona actually wrote, sized by how many times it was said — and how their beliefs moved.">
+          {/* 4–7 · Why, findings, trust and method: one at a time, as tabs */}
+          <div id="details" className="rp-anchor" />
+          <div className="tabs" role="tablist" style={{ marginTop: 16 }}>
+            {SECTIONS.filter(([id]) => TABBED.includes(id)).map(([id, label, icon]) => (
+              <button key={id} className={`tab tab-icon${tab === id ? " active" : ""}`} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>
+                {ICONS[icon]}{label}{id === "findings" && <span className="count">{worldFindings.length}</span>}
+              </button>
+            ))}
+          </div>
+          {tab === "why" && <Section icon="forum" title="Why" tip="What held people back and what persuaded them — each group labelled with something a persona actually wrote, sized by how many times it was said — and how their beliefs moved.">
             <div className="rp-why">
               <Groups title="What held people back" icon="alert" tone="no" clusters={objections} runId={runId} empty="No objections were found: no persona's turn objected." />
               <Groups title="What persuaded" icon="check" tone="ok" clusters={reasons} runId={runId} empty={r.reason_clusters ? "No reasons to buy were found." : "This report was written before reasons to buy were collected."} />
             </div>
             {lead && Object.values(lead.belief_movement_abs ?? {}).some((v) => v !== 0) && <div style={{ marginTop: 16 }}><div className="lbl">{ICONS.sliders} How beliefs moved</div><BeliefMoves mean={lead.belief_movement_mean} abs={lead.belief_movement_abs} /></div>}
-          </Section>
+          </Section>}
 
-          {/* 5 · Findings */}
-          <div id="findings" className="rp-anchor" />
-          <Section icon="bulb" title="Findings" tip="Statements the engine authored from the record, never generated: each with its confidence, its evidence and the real-world test that would disprove it. Low-confidence ones are folded below.">
+          {tab === "findings" && <Section icon="bulb" title="Findings" tip="Statements the engine authored from the record, never generated: each with its confidence, its evidence and the real-world test that would disprove it. Low-confidence ones are folded below.">
             <div style={{ display: "grid", gap: 10 }}>
               <div className="row" style={{ flexWrap: "wrap", gap: 6 }}>
                 <button className={`pick${kind === "all" ? " on" : ""}`} onClick={() => setKind("all")}>all <span className="n">{worldFindings.length}</span></button>
@@ -193,11 +203,9 @@ export default function ReportPage() {
                 </details>
               )}
             </div>
-          </Section>
+          </Section>}
 
-          {/* 6 · Trust */}
-          <div id="trust" className="rp-anchor" />
-          <Section icon="shield" title="Trust: how far to rely on it" tip="How far these results have been checked against real people, what the study assumed without evidence, and what the record says about its own quality.">
+          {tab === "trust" && <Section icon="shield" title="Trust: how far to rely on it" tip="How far these results have been checked against real people, what the study assumed without evidence, and what the record says about its own quality.">
             <div style={{ display: "grid", gap: 14 }}>
               <div className={`verdict ${r.trust.level === "uncalibrated" ? "tie" : "lead"}`}>
                 <span className="sec-icon">{ICONS.shield}</span>
@@ -230,11 +238,9 @@ export default function ReportPage() {
                 </div>
               </div>
             </div>
-          </Section>
+          </Section>}
 
-          {/* 7 · Method */}
-          <div id="method" className="rp-anchor" />
-          <Section icon="sliders" title="Method disclosure" tip="How the numbers were produced: channels and waves, the models every call was pinned to, the seeds, and the frozen templates and anchor scales.">
+          {tab === "method" && <Section icon="sliders" title="Method disclosure" tip="How the numbers were produced: channels and waves, the models every call was pinned to, the seeds, and the frozen templates and anchor scales.">
             <div className="method">
               {/* Versions can share a variant (and so its random draws): a version is named and keyed by its place. */}
               {(r.method.scenarios ?? []).map((sc, i) => (
@@ -269,7 +275,7 @@ export default function ReportPage() {
                 </div>
               </details>
             )}
-          </Section>
+          </Section>}
         </>
       )}
     </Shell>
