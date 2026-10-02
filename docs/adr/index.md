@@ -55,3 +55,4 @@ Each architecture decision record says what was decided, why, and what else was 
 | 0049 | [A population's categorical gates are judged as one family](0049-a-populations-categorical-gates-are-one-family.md) |
 | 0050 | [A running study shows decisions before they are record](0050-a-running-study-shows-decisions-before-they-are-record.md) |
 | 0051 | [A version shows its personas its own description and price](0051-a-version-shows-its-own-description-and-price.md) |
+| 0052 | [A version is named outside its identity](0052-a-version-is-named-outside-its-identity.md) |

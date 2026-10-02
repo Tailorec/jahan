@@ -17,8 +17,8 @@ Decided 2026-10-03:
 - [x] ADR 0051; the code-review benchmark write-up corrected (it showed no price).
 
 ## Phase 2 — a version's name (engine)
-- [ ] `Scenario.label`, optional, excluded from the scenario hash; the grid and the interface can set it.
-- [ ] A run serves each world's label and seed index; a rename is recorded beside the run and served over it.
+- [x] `Scenario.label`, optional, excluded from the scenario hash; the grid and the interface can set it.
+- [x] A run serves each world's label and seed index; a rename is recorded beside the run and served over it.
 
 ## Phase 3 — launching versions from the interface (engine + web)
 - [ ] The study request carries versions (label + what differs) and a seed count; the web writes a grid and
