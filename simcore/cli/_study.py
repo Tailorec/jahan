@@ -10,6 +10,7 @@ that owns it.
 from __future__ import annotations
 
 import json
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -539,7 +540,25 @@ def run_study(handles: StudyHandles, *, max_workers: int = 1, force: bool = Fals
             embed_texts=lambda texts: handles.embed.embed(texts, role=InferenceRole.RECSYS_EMBED).vectors.tolist(),
         )
 
+    # Which world this thread is running, so a decision heard mid-tick is filed under its world: worlds run
+    # one per thread, and each is built on the thread that runs it.
+    running = threading.local()
+    live = handles.run_dir / "live"
+    file_lock = threading.Lock()
+
+    def decided(decision: dict) -> None:
+        """A persona's decision as its reply lands, before the tick that holds it closes. Provisional and apart
+        from the trace (ADR 0050): the page shows it at once, and the closed tick replaces it."""
+        world_id = getattr(running, "world_id", None)
+        if world_id is None:
+            return
+        with file_lock:
+            live.mkdir(exist_ok=True)
+            with open(live / f"{world_id}.decisions.jsonl", "a", encoding="utf-8") as out:
+                out.write(json.dumps(decision) + "\n")
+
     def world_factory(header):
+        running.world_id = header.world_id
         store.create_world(handles.run_id, header)
         # A world's channels come from its scenario, never beside it (ADR 0048).
         return World(header, population=handles.population, config=feed)
@@ -553,6 +572,7 @@ def run_study(handles: StudyHandles, *, max_workers: int = 1, force: bool = Fals
             blocks=blocks,
             embed=handles.embed,
             stimulus_texts=trace.published,
+            on_decision=decided,
         )
 
     cells = {
@@ -610,6 +630,9 @@ def run_study(handles: StudyHandles, *, max_workers: int = 1, force: bool = Fals
         except Exception:
             pass
         publish_live_digest(world_id, tick)
+        # The closed tick is in the record now; its provisional decisions have served their purpose.
+        with file_lock:
+            (live / f"{world_id}.decisions.jsonl").unlink(missing_ok=True)
 
     result = run(
         handles.config,

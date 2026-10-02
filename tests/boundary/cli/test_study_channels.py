@@ -137,3 +137,27 @@ def test_a_running_study_leaves_each_worlds_numbers_as_of_its_last_closed_tick(t
         ended = next(d for d in final if d["world_id"] == world["world_id"])
         assert world["digest"]["waves"] == ended["waves"]
         assert world["digest"]["audience_pmfs"] == ended["audience_pmfs"]
+
+
+def test_a_running_study_files_each_decision_before_its_tick_closes_then_clears_it(tmp_path, monkeypatch):
+    """ADR 0050: decisions land in live/<world>.decisions.jsonl as replies arrive; when the tick closes and
+    its record exists, the file is removed, so it never outlives the tick it describes."""
+    monkeypatch.chdir(tmp_path)
+    out = tmp_path / "runs"
+    run_id = "run-" + "0" * 24 + "90"
+    seen: dict[int, list[dict]] = {}
+    real_unlink = Path.unlink
+
+    def watch(path, missing_ok=False):
+        if path.name.endswith(".decisions.jsonl") and path.exists():
+            for line in path.read_text().splitlines():
+                decision = json.loads(line)
+                seen.setdefault(decision["tick"], []).append(decision)
+        return real_unlink(path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "unlink", watch)
+    code, output = run_command(*fake_args(out, run_id, channels="social_feed,wom", survey_every="1"))
+    assert code == 0, output
+    assert sorted(seen) == [0, 1], "every tick's decisions were filed before it closed"
+    assert {d["channel"] for d in seen[1]} >= {"survey_room"} and all(d["persona_id"] and d["action"] for d in seen[1])
+    assert not list((out / run_id / "live").glob("*.decisions.jsonl")), "no decision outlives its tick"
