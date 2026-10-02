@@ -297,6 +297,8 @@ export interface StudyReport {
   trust: TrustStatement;
   findings: Finding[];
   objection_clusters: ObjectionCluster[];
+  /* What persuaded, grouped as objections are (ADR 0053). Absent on reports written before it. */
+  reason_clusters?: ObjectionCluster[];
   digests: OutcomeDigest[];
   assumptions: Assumption[];
   method: MethodDisclosure;
