@@ -474,6 +474,8 @@ class Report(SimBaseModel):
     findings: tuple[Finding, ...]
     anomalies: tuple[Anomaly, ...] = ()
     objection_clusters: tuple[ObjectionCluster, ...] = ()
+    # What persuaded, grouped exactly as objections are (ADR 0053): a quoted medoid and the verbatims it stands for.
+    reason_clusters: tuple[ObjectionCluster, ...] = ()
     digests: tuple[OutcomeDigest, ...] = Field(min_length=1)
 
     @model_validator(mode="after")

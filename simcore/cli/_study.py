@@ -18,6 +18,7 @@ from simcore.agent import AgentConfig, PersonaBlockCache
 from simcore.agent import turns as agent_turns
 from simcore.analysis import (
     cluster_objections,
+    cluster_reasons,
     detect_anomalies,
     digest,
     findings,
@@ -712,6 +713,8 @@ def analyze_study(handles: StudyHandles, result: RunResult) -> dict:
         # is the same answer at twice the price.
         clusters = cluster_objections(cell["view"], embed=handles.embed, pinned_embed_model=handles.embed_pin,
                                       world_id=world_id)
+        reasons = cluster_reasons(cell["view"], embed=handles.embed, pinned_embed_model=handles.embed_pin,
+                                  world_id=world_id)
         found = findings(cell["view"], embed=handles.embed, pinned_embed_model=handles.embed_pin,
                          seed=cell["seed"], world_id=world_id, clusters=clusters, digest=cell["digest"])
         detected = detect_anomalies(cell["view"], digest=cell["digest"], replicate_spread=summary.belief_move_spread)
@@ -723,6 +726,7 @@ def analyze_study(handles: StudyHandles, result: RunResult) -> dict:
             "anomalies": detected.anomalies,
             "unmeasured": detected.unmeasured,
             "clusters": clusters,
+            "reasons": reasons,
         }
     return {"digests": digests, "worlds": worlds, "summaries": summaries}
 
@@ -753,6 +757,7 @@ def write_report(handles: StudyHandles, analysis: dict, *, validation: str) -> d
     all_findings = [finding for cell in analysis["worlds"].values() for finding in cell["findings"]]
     all_anomalies = [anomaly for cell in analysis["worlds"].values() for anomaly in cell["anomalies"]]
     all_clusters = [cluster for cell in analysis["worlds"].values() for cluster in cell["clusters"]]
+    all_reasons = [cluster for cell in analysis["worlds"].values() for cluster in cell.get("reasons", ())]
     pack = ReportPack(
         config=handles.config,
         trust=trust_statement(),
@@ -761,6 +766,7 @@ def write_report(handles: StudyHandles, analysis: dict, *, validation: str) -> d
         engine_commit=ENGINE_VERSION,
         anomalies=tuple(all_anomalies),
         clusters=tuple(all_clusters),
+        reasons=tuple(all_reasons),
         forced_from=tuple(entry.forced_from),
         forced_inputs=tuple(entry.forced_inputs),
     )

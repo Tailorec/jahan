@@ -56,6 +56,41 @@ def objection_records(view) -> list[VerbatimRecord]:
     return [record for record in _ordered_verbatims(view) if record.event_id in objecting]
 
 
+# Actions that say yes outright; anything else counts as a reason only through what the turn measured.
+_ENDORSING = frozenset({"buy", "like", "upvote", "repost"})
+
+
+def cluster_reasons(view, *, embed, threshold: float | None = None, seed: int = 0,
+                    pinned_embed_model: str | None = None,
+                    world_id: str | None = None) -> tuple[ObjectionCluster, ...]:
+    """Group one world's reasons to buy — the counterpart of its objections — the same way (ADR 0053)."""
+    return cluster_verbatims(reason_records(view), embed=embed, threshold=threshold, seed=seed,
+                             pinned_embed_model=pinned_embed_model, world_id=world_id)
+
+
+def reason_records(view) -> list[VerbatimRecord]:
+    """The verbatims that endorse: an endorsing action (buy, like, upvote, repost); a survey answer whose scored
+    intent leans to buying (top two boxes outweigh the bottom two); or a channel turn that moved the persona's
+    beliefs up on balance. A verbatim is never both a reason and an objection."""
+    from simcore.schemas import EventFilter
+
+    objecting = {record.event_id for record in objection_records(view)}
+    endorsing = set()
+    for event in view.events(EventFilter.model_validate({"kinds": ("turn",)})):
+        reaction = event.payload.turn.reaction
+        if not reaction.verbatim or event.event_id in objecting:
+            continue
+        if reaction.action.value in _ENDORSING:
+            endorsing.add(event.event_id)
+        elif reaction.intent is not None:
+            pmf = reaction.intent.pmf
+            if pmf[3] + pmf[4] > pmf[0] + pmf[1]:
+                endorsing.add(event.event_id)
+        elif reaction.belief_change is not None and sum(reaction.belief_change.dimensions.values()) > 0:
+            endorsing.add(event.event_id)
+    return [record for record in _ordered_verbatims(view) if record.event_id in endorsing]
+
+
 def cluster_verbatims(records: Sequence[VerbatimRecord], *, embed, threshold: float | None = None, seed: int = 0,
                       pinned_embed_model: str | None = None,
                       world_id: str | None = None) -> tuple[ObjectionCluster, ...]:

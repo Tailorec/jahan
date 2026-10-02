@@ -36,6 +36,7 @@ class ReportPack:
     engine_commit: str
     anomalies: tuple[Anomaly, ...] = ()
     clusters: tuple[ObjectionCluster, ...] = ()
+    reasons: tuple[ObjectionCluster, ...] = ()
     forced_from: tuple[str, ...] = ()
     forced_inputs: tuple[str, ...] = ()
     contract_version: str = SCHEMA_VERSION
@@ -66,6 +67,14 @@ class ReportPack:
             tuple(
                 item if isinstance(item, ObjectionCluster) else ObjectionCluster.model_validate(item)
                 for item in self.clusters
+            ),
+        )
+        object.__setattr__(
+            self,
+            "reasons",
+            tuple(
+                item if isinstance(item, ObjectionCluster) else ObjectionCluster.model_validate(item)
+                for item in self.reasons
             ),
         )
         object.__setattr__(self, "forced_from", tuple(self.forced_from))
