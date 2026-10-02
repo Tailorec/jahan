@@ -2,7 +2,7 @@
 
 **Scope:** the open-source simulation engine, implementation only. No business, market, positioning, pricing, or tiering content — this document is what you build from.
 **Language/runtime:** Python 3.12+, `uv`-managed.
-**License:** Apache-2.0 (matches upstream OASIS and ASAL).
+**License:** Functional Source License 1.1, Apache-2.0 future license (`LICENSE.md`). Code salvaged from upstream keeps its own license and attribution; see `SALVAGE.md`.
 **Salvage sources:** [OASIS](https://github.com/camel-ai/oasis) (Apache-2.0), [ASAL](https://github.com/SakanaAI/asal) (Apache-2.0), [MatrAIx-Persona-8B](https://github.com/MatrAIx-ai/MatrAIx-Persona-8B) (MIT) + HF dataset `MatrAIx2026/MatrAIx_Persona_1M`.
 **Companion documents:** `CONTEXT.md` is the project glossary and is authoritative on naming — where a word here disagrees with it, the glossary wins. `docs/adr/` records decisions whose reasoning would otherwise be invisible in the code. `docs/prd/` and `plans/` carry per-module requirements and phasing.
 
