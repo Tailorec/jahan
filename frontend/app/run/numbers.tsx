@@ -2,10 +2,9 @@
 
 import React from "react";
 import { Kpi, Section, Tip } from "@/components/ui";
-import { CommunityIntent, IntentDiverging, IntentOverWaves } from "@/components/charts";
+import { BeliefMoves, CommunityIntent, IntentDiverging, IntentOverWaves } from "@/components/charts";
 import type { OutcomeDigest } from "@/lib/engine";
 
-const DIM = ["value", "fit", "trust"] as const;
 
 /* The world's numbers — every one the engine's. While the study runs they are its digest as of the last
    closed tick; once it ends, the final digest the report is built on. */
@@ -57,44 +56,3 @@ export default function Numbers({ d, asOf }: { d: OutcomeDigest; asOf: string })
     </div>
   );
 }
-
-const DIM_TIP: Record<string, string> = {
-  value: "Whether the product seems worth its price.",
-  fit: "Whether the product suits the persona's life.",
-  trust: "Whether the persona believes the brand's claims.",
-};
-
-/* Net direction and size of belief moves: a solid bar from zero to the mean change, over a shaded band as
-   wide as the average move either way. Both share one scale, centred on zero. */
-function BeliefMoves({ mean, abs }: { mean: Record<string, number>; abs: Record<string, number> }) {
-  const reach = Math.max(0.01, ...DIM.map((k) => Math.max(Math.abs(mean[k] ?? 0), abs[k] ?? 0)));
-  const pos = (v: number) => 50 + (v / reach) * 46; // keep 4% clear at each end
-  return (
-    <div className="moves">
-      <div className="moves-row moves-head sub"><span /><div className="moves-axis"><span>−{reach.toFixed(2)}</span><span>no change</span><span>+{reach.toFixed(2)}</span></div><span /></div>
-      {DIM.map((k) => {
-        const m = mean[k] ?? 0, a = abs[k] ?? 0;
-        const up = m >= 0;
-        return (
-          <div key={k} className="moves-row">
-            <span className="moves-name">{k}<Tip>{DIM_TIP[k]}</Tip></span>
-            <div className="moves-track" aria-label={`${k}: net ${up ? "+" : ""}${m.toFixed(3)}, average move ${a.toFixed(3)}`}>
-              <span className="moves-band" style={{ left: `${pos(-a)}%`, width: `${pos(a) - pos(-a)}%` }} />
-              <span className="moves-zero" />
-              <span className={`moves-bar ${up ? "up" : "down"}`} style={{ left: `${Math.min(pos(0), pos(m))}%`, width: `${Math.abs(pos(m) - pos(0))}%` }} />
-            </div>
-            <span className="moves-val">
-              <b className={up ? "up" : "down"}>{up ? "+" : "−"}{Math.abs(m).toFixed(3)}</b>
-              <span className="sub"> net · ±{a.toFixed(3)} typical</span>
-            </span>
-          </div>
-        );
-      })}
-      <div className="moves-key sub">
-        <span><i className="moves-key-bar" />net change per turn</span>
-        <span><i className="moves-key-band" />typical size of a move</span>
-      </div>
-    </div>
-  );
-}
-
