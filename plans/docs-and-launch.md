@@ -16,8 +16,9 @@ Decided 2026-10-02.
 - [ ] GPL dependencies: `igraph` (GPL-2.0+) and `leidenalg` (GPL-3.0+) in `population/_communities.py`.
 - [ ] A fresh clone cannot run a fake study: `examples/` and `ontologies/` are not in the repository but the
       quickstart and the CLI/interface tests need a brief and an ontology.
-- [ ] Root documents that describe a paid tier and link outside the repository (`ARCHITECTURE.md`,
-      `OSSARCH.md`, `SALVAGE.md`, `FINAL_ARCH.md`).
+- [x] Root clean-up: the superseded first-draft `ARCHITECTURE.md` and `OSSARCH.md` (open-core plan, old
+      module names) removed; the current `FINAL_ARCH.md` and `SALVAGE.md` moved into `docs/`.
+- [ ] `docs/running-a-real-study.md` names `examples/` files that are no longer in the repository.
 - [ ] Naming: the package is `simcore` and the interface says ConsumerSim; the repository is Jahan.
 - [ ] Contributor License Agreement before the first outside pull request.
 
