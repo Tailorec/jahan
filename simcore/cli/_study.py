@@ -546,12 +546,9 @@ def run_study(handles: StudyHandles, *, max_workers: int = 1, force: bool = Fals
     live = handles.run_dir / "live"
     file_lock = threading.Lock()
 
-    def decided(decision: dict) -> None:
+    def decided(world_id: str, decision: dict) -> None:
         """A persona's decision as its reply lands, before the tick that holds it closes. Provisional and apart
         from the trace (ADR 0050): the page shows it at once, and the closed tick replaces it."""
-        world_id = getattr(running, "world_id", None)
-        if world_id is None:
-            return
         with file_lock:
             live.mkdir(exist_ok=True)
             with open(live / f"{world_id}.decisions.jsonl", "a", encoding="utf-8") as out:
@@ -564,6 +561,9 @@ def run_study(handles: StudyHandles, *, max_workers: int = 1, force: bool = Fals
         return World(header, population=handles.population, config=feed)
 
     def agent_fn(jobs):
+        # The world is read here, on its own thread: replies are heard on the inference client's loop thread,
+        # which runs no world, so the listener carries the world it was made for.
+        world_id = getattr(running, "world_id", None)
         return agent_turns(
             jobs,
             chat=handles.chat,
@@ -572,7 +572,7 @@ def run_study(handles: StudyHandles, *, max_workers: int = 1, force: bool = Fals
             blocks=blocks,
             embed=handles.embed,
             stimulus_texts=trace.published,
-            on_decision=decided,
+            on_decision=None if world_id is None else (lambda decision: decided(world_id, decision)),
         )
 
     cells = {

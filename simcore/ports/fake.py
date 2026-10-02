@@ -1,3 +1,4 @@
+import threading
 """The deterministic `ChatPort`: the same prompt always yields the same completion, in batches.
 
 Keyed by the prompt it is given, so two runs in one process or two see identical answers. A prompt
@@ -49,12 +50,14 @@ class FakeChat:
         self.calls: list[str] = []
 
     def complete(self, requests: Sequence[ChatRequest], on_outcome=None) -> tuple[ChatOutcome, ...]:
-        outcomes = []
-        for index, request in enumerate(requests):
-            outcomes.append(self._one(request))
-            if on_outcome is not None:
-                on_outcome(index, outcomes[-1])
-        return tuple(outcomes)
+        outcomes = tuple(self._one(request) for request in requests)
+        if on_outcome is not None:
+            # Heard on another thread, as the real client hears replies on its event loop's thread: a listener
+            # that leans on the caller's thread works here only if it would work against a real endpoint.
+            listener = threading.Thread(target=lambda: [on_outcome(index, outcome) for index, outcome in enumerate(outcomes)])
+            listener.start()
+            listener.join()
+        return outcomes
 
     def chat(
         self,
