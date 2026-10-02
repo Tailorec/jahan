@@ -79,7 +79,7 @@ def test_measured_adoption_renders_as_a_number_in_the_same_place():
 
 def test_confidence_beside_each_finding_and_calibration_never_beside_any():
     report = render([finding_payload()], digests(), pack())
-    findings_section = report.markdown.split("## Findings")[1].split("## Objection")[0]
+    findings_section = report.markdown.split("## Findings")[1].split("## Trust")[0]
     assert "confidence medium" in findings_section
     assert "uncalibrated" not in findings_section
     assert "calibrat" not in findings_section
@@ -169,7 +169,28 @@ def test_clusters_of_two_worlds_are_told_apart_on_the_page():
     first = cluster_payload(world_id="a00631e91974")
     second = cluster_payload(world_id="4ecd96cdea45")
     report = render([finding_payload()], digests(), pack(clusters=[first, second]))
-    lines = [line for line in report.markdown.splitlines() if line.startswith('"')]
+    lines = [line for line in report.markdown.splitlines() if line.startswith('- "')]
     assert len(lines) == 2 and lines[0] != lines[1]
     assert "a00631e91974" in report.markdown and "4ecd96cdea45" in report.markdown
     assert [entry["world_id"] for entry in report.data["objection_clusters"]] == ["4ecd96cdea45", "a00631e91974"]
+
+
+def test_reasons_to_buy_render_beside_objections_and_long_tails_fold_rather_than_drop():
+    """The report answers why in both directions: what held people back and what persuaded (ADR 0053). Past the
+    first ten groups the rest stay in the document, folded — nothing is dropped and nothing is counted."""
+    objections = [cluster_payload(label=f"objection {k}") for k in range(12)]
+    reasons = [cluster_payload(label="I would buy it for the gym")]
+    report = render([finding_payload()], digests(), pack(clusters=objections, reasons=reasons))
+    why = report.markdown.split("## Why")[1].split("## Findings")[0]
+    held, persuaded = why.split("### What persuaded")
+    assert "<details><summary>Smaller groups of objections</summary>" in held
+    assert all(f'"objection {k}"' in held for k in range(12))
+    assert '"I would buy it for the gym"' in persuaded
+    assert report.data["reason_clusters"][0]["label"] == "I would buy it for the gym"
+
+
+def test_low_confidence_findings_are_folded_after_the_rest():
+    low = finding_payload(finding_id="f-objection-09", confidence="low")
+    report = render([finding_payload(), low], digests(), pack())
+    findings = report.markdown.split("## Findings")[1].split("## Trust")[0]
+    assert findings.index("confidence medium") < findings.index("<details><summary>Low-confidence findings</summary>") < findings.index("f-objection-09")

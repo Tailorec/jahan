@@ -87,6 +87,7 @@ class _DigestSection:
     wom_deliveries: int
     wom_reach: int
     rungs: tuple[str, ...]
+    community_sizes: tuple[tuple[str, int], ...] = ()
     # Intent over time (ADR 0048): the survey waves as the digest holds them, and what each
     # channel showed and reached.
     waves: tuple = ()
@@ -105,6 +106,8 @@ class _ScenarioSection:
     survey_every: int
     horizon_ticks: int
     launch_reach: float | None
+    scenario_hash: str = ""
+    name: str = ""
 
 
 # Where the ports depart from their sources, stated wherever they ran (PRD M15).
@@ -142,6 +145,7 @@ class _Document:
     trust_caveats: tuple[str, ...]
     findings: tuple[_FindingSection, ...]
     clusters: tuple[_ClusterSection, ...]
+    reasons: tuple[_ClusterSection, ...]
     digests: tuple[_DigestSection, ...]
     assumptions: tuple[_AssumptionSection, ...]
     pins: tuple[tuple[str, str], ...]
@@ -196,17 +200,20 @@ def _build(findings: tuple[Finding, ...], digests: tuple[OutcomeDigest, ...], pa
         )
         for finding in sorted(findings, key=_finding_key)
     )
-    ordered_clusters = tuple(
-        _ClusterSection(
-            label=cluster.label,
-            size=cluster.size,
-            threshold=cluster.threshold,
-            verbatim_trace_ids=tuple(cluster.verbatim_trace_ids),
-            embed_model_id=cluster.embed_model_id,
-            world_id=cluster.world_id,
+    def sections(clusters) -> tuple[_ClusterSection, ...]:
+        return tuple(
+            _ClusterSection(
+                label=cluster.label,
+                size=cluster.size,
+                threshold=cluster.threshold,
+                verbatim_trace_ids=tuple(cluster.verbatim_trace_ids),
+                embed_model_id=cluster.embed_model_id,
+                world_id=cluster.world_id,
+            )
+            for cluster in sorted(clusters, key=_cluster_key)
         )
-        for cluster in sorted(pack.clusters, key=_cluster_key)
-    )
+
+    ordered_clusters = sections(pack.clusters)
     ordered_digests = tuple(
         _DigestSection(
             scenario_hash=digest.scenario_hash,
@@ -227,6 +234,7 @@ def _build(findings: tuple[Finding, ...], digests: tuple[OutcomeDigest, ...], pa
             wom_deliveries=digest.wom_deliveries,
             wom_reach=digest.wom_reach,
             rungs=tuple(rung.value for rung in digest.rungs),
+            community_sizes=tuple(sorted(digest.community_sizes.items(), key=lambda item: (-item[1], item[0]))),
             waves=tuple(digest.waves),
             audience_pmfs=tuple(sorted((name, tuple(pmf)) for name, pmf in digest.audience_pmfs.items())),
             exposures_by_channel=tuple(sorted((c.value, n) for c, n in digest.exposures_by_channel.items())),
@@ -251,6 +259,7 @@ def _build(findings: tuple[Finding, ...], digests: tuple[OutcomeDigest, ...], pa
         trust_caveats=tuple(pack.trust.caveats),
         findings=ordered_findings,
         clusters=ordered_clusters,
+        reasons=sections(pack.reasons),
         digests=ordered_digests,
         assumptions=tuple(_AssumptionSection(text=item.text, source=item.source.value) for item in ledger),
         pins=ordered_pins,
@@ -262,6 +271,8 @@ def _build(findings: tuple[Finding, ...], digests: tuple[OutcomeDigest, ...], pa
         scenarios=tuple(
             _ScenarioSection(
                 variant_id=scenario.variant.variant_id,
+                scenario_hash=canonical_hash(scenario),
+                name=scenario.label or f"{scenario.variant.name} at {scenario.price.amount!r} {scenario.price.currency}",
                 channels=tuple(sorted(channel.value for channel in scenario.channels)),
                 survey_every=scenario.survey_every,
                 horizon_ticks=scenario.horizon_ticks,
@@ -272,36 +283,140 @@ def _build(findings: tuple[Finding, ...], digests: tuple[OutcomeDigest, ...], pa
     )
 
 
+# How many objection or reason groups a report spells out before folding the rest. The rest stay in the document,
+# folded — a reader opens them; nothing is dropped and nothing is counted here.
+GROUPS_SHOWN = 10
+
+
+def _version_of(doc: _Document, scenario_hash: str) -> str:
+    named = next((scenario.name for scenario in doc.scenarios if scenario.scenario_hash == scenario_hash), "")
+    return named or scenario_hash[:12]
+
+
+def _first_and_last(digest: _DigestSection) -> tuple:
+    measured = [wave for wave in digest.waves if wave.adoption is not None]
+    return (measured[0], measured[-1]) if measured else (None, None)
+
+
+def _groups(lines: list[str], clusters: tuple[_ClusterSection, ...], doc: _Document, noun: str) -> None:
+    if not clusters:
+        lines.extend([f"No {noun} were found in this run.", ""])
+        return
+    several = len({cluster.world_id for cluster in clusters}) > 1
+
+    def line(cluster: _ClusterSection) -> str:
+        return ('- "' + _inline(cluster.label) + '" — ' + repr(cluster.size)
+                + (" verbatim" if cluster.size == 1 else " verbatims")
+                + (" in world " + cluster.world_id if several and cluster.world_id else ""))
+
+    lines.extend([line(cluster) for cluster in clusters[:GROUPS_SHOWN]] + [""])
+    if clusters[GROUPS_SHOWN:]:
+        lines.extend([f"<details><summary>Smaller groups of {noun}</summary>", ""])
+        lines.extend([line(cluster) for cluster in clusters[GROUPS_SHOWN:]] + ["", "</details>", ""])
+
+
+def _finding_lines(lines: list[str], finding: _FindingSection) -> None:
+    lines.extend(["### " + finding.finding_id + " · " + finding.kind + " · confidence " + finding.confidence, ""])
+    lines.extend([_inline(finding.statement), ""])
+    lines.extend(["Evidence: " + _cited(finding.evidence_trace_ids), ""])
+    lines.extend(["Disconfirming test: " + _inline(finding.disconfirming_test), ""])
+
+
 def _to_markdown(doc: _Document) -> str:
+    """The report in the order a reader decides by: the answer, who would buy, how it moved, why, then the
+    findings, how far to trust it, and the method — with every world's full digest as an appendix."""
     lines = ["# Study report", ""]
     lines.extend(["Run " + doc.run_id + " · contract " + doc.contract_version, ""])
-    lines.extend(["## Trust", ""])
-    lines.extend(["Calibration: " + doc.trust_level + ".", ""])
-    for caveat in doc.trust_caveats:
-        lines.extend([_inline(caveat), ""])
+
+    lines.extend(["## The answer", ""])
+    lines.extend(["What the simulation measured. How far to rely on it is stated under Trust.", ""])
+    for digest in doc.digests:
+        first, last = _first_and_last(digest)
+        head = "- " + _version_of(doc, digest.scenario_hash) + ", seed " + repr(digest.seed) + ": "
+        if last is None:
+            lines.append(head + "adoption unmeasured — " + _inline(str(digest.unmeasured_reason)))
+        elif first is last:
+            lines.append(head + "adoption " + _number(last.adoption) + " at tick " + repr(last.tick))
+        else:
+            lines.append(head + "adoption " + _number(last.adoption) + " at the last wave (tick " + repr(last.tick)
+                         + "), from " + _number(first.adoption) + " at the first (tick " + repr(first.tick) + ")")
+    lines.append("")
+    # Whether one version beats another is the analysis's to say, in its ranking findings; the page quotes them.
+    for finding in (f for f in doc.findings if f.kind == "ranking"):
+        lines.extend([_inline(finding.statement) + " (" + finding.finding_id + ", confidence " + finding.confidence + ")", ""])
+
+    lines.extend(["## Who would buy", ""])
+    for digest in doc.digests:
+        _, last = _first_and_last(digest)
+        lines.extend(["### " + _version_of(doc, digest.scenario_hash) + ", seed " + repr(digest.seed), ""])
+        if last is not None and last.audience_adoption:
+            lines.extend(["| Audience | Share | Would buy (top-two box) |", "|---|---|---|"])
+            lines.extend("| " + name + " | " + _number(last.audience_shares.get(name, 0.0)) + " | " + _number(value) + " |"
+                         for name, value in last.audience_adoption.items())
+            lines.append("")
+        if digest.community_sizes:
+            lines.extend(["Communities: " + ", ".join(name + " (" + repr(size) + " people)" for name, size in digest.community_sizes)
+                          + "; " + _measure("polarization", digest.polarization), ""])
+        else:
+            lines.extend(["No communities formed" + (" — " + _inline(digest.polarization_reason) if digest.polarization_reason else "") + ".", ""])
+
+    lines.extend(["## How it moved", ""])
+    for digest in doc.digests:
+        if not digest.waves:
+            continue
+        lines.extend(["### " + _version_of(doc, digest.scenario_hash) + ", seed " + repr(digest.seed), ""])
+        for wave in digest.waves:
+            line = "- tick " + repr(wave.tick) + ": adoption " + (_number(wave.adoption) if wave.adoption is not None else "unmeasured")
+            if wave.reached_adoption is not None:
+                line += "; reached by a channel " + repr(wave.reached) + " at " + _number(wave.reached_adoption)
+            if wave.unreached_adoption is not None:
+                line += "; not reached " + repr(wave.unreached) + " at " + _number(wave.unreached_adoption)
+            lines.append(line)
+        lines.append("")
+
+    lines.extend(["## Why", ""])
+    lines.extend(["### What held people back", ""])
+    _groups(lines, doc.clusters, doc, "objections")
+    lines.extend(["### What persuaded", ""])
+    _groups(lines, doc.reasons, doc, "reasons to buy")
+    lines.extend(["### How beliefs moved", ""])
+    for digest in doc.digests:
+        lines.extend(["- " + _version_of(doc, digest.scenario_hash) + ", seed " + repr(digest.seed) + ": " + (", ".join(
+            dim + " " + _number(value) + " net, " + _number(absolute) + " typical"
+            for (dim, value), (_, absolute) in zip(digest.belief_movement_mean, digest.belief_movement_abs))
+            if digest.belief_movement_mean else "no belief moved")])
+    lines.append("")
+
     lines.extend(["## Findings", ""])
     if not doc.findings:
         lines.extend(["No findings were authored for this run.", ""])
-    for finding in doc.findings:
-        lines.extend(["### " + finding.finding_id + " · " + finding.kind + " · confidence " + finding.confidence, ""])
-        lines.extend([_inline(finding.statement), ""])
-        lines.extend(["Evidence: " + _cited(finding.evidence_trace_ids), ""])
-        lines.extend(["Disconfirming test: " + _inline(finding.disconfirming_test), ""])
-    lines.extend(["## Objection clusters", ""])
-    if not doc.clusters:
-        lines.extend(["No objection clusters were reported for this run.", ""])
-    for cluster in doc.clusters:
-        lines.extend(
-            [
-                '"' + _inline(cluster.label) + '" — '
-                + repr(cluster.size)
-                + " verbatims at cosine "
-                + _number(cluster.threshold)
-                + (" in world " + cluster.world_id if cluster.world_id else ""),
-                "",
-            ]
-        )
-    lines.extend(["## Digests", ""])
+    for level in ("high", "medium"):
+        for finding in (f for f in doc.findings if f.confidence == level):
+            _finding_lines(lines, finding)
+    low = [finding for finding in doc.findings if finding.confidence == "low"]
+    if low:
+        lines.extend(["<details><summary>Low-confidence findings</summary>", ""])
+        for finding in low:
+            _finding_lines(lines, finding)
+        lines.extend(["</details>", ""])
+
+    lines.extend(["## Trust: how far to rely on it", ""])
+    lines.extend(["Calibration: " + doc.trust_level + ".", ""])
+    for caveat in doc.trust_caveats:
+        lines.extend([_inline(caveat), ""])
+    lines.extend(["### Assumptions", ""])
+    if not doc.assumptions:
+        lines.extend(["No assumptions were recorded for this study.", ""])
+    for assumption in doc.assumptions:
+        lines.extend(["- " + _inline(assumption.text) + " (" + assumption.source + ")", ""])
+    lines.extend(["### What the record says about itself", ""])
+    for digest in doc.digests:
+        lines.append("- " + _version_of(doc, digest.scenario_hash) + ", seed " + repr(digest.seed) + ": "
+                     + repr(digest.turn_count) + " turns, " + repr(digest.turns_without_intent) + " of them scored no intent"
+                     + ("; ran degraded: " + ", ".join(digest.rungs) if digest.rungs else "; ran at full fidelity"))
+    lines.append("")
+
+    lines.extend(["## Appendix: every world", ""])
     for digest in doc.digests:
         lines.extend(["### World " + digest.world_id + " · seed " + repr(digest.seed), ""])
         lines.extend(["Scenario: " + digest.scenario_hash, ""])
@@ -361,12 +476,7 @@ def _to_markdown(doc: _Document) -> str:
             lines.append("")
         if digest.rungs:
             lines.extend(["Ran degraded: " + ", ".join(digest.rungs), ""])
-    lines.extend(["## Assumption ledger", ""])
-    if not doc.assumptions:
-        lines.extend(["No assumptions were recorded for this study.", ""])
-    for assumption in doc.assumptions:
-        lines.extend(["- " + _inline(assumption.text) + " (" + assumption.source + ")", ""])
-    lines.extend(["## Method disclosure", ""])
+    lines.extend(["## Method", ""])
     for scenario in doc.scenarios:
         lines.extend([
             "Scenario " + scenario.variant_id + ": channels "
@@ -443,6 +553,17 @@ def _to_data(doc: _Document) -> dict:
                 "world_id": cluster.world_id,
             }
             for cluster in doc.clusters
+        ],
+        "reason_clusters": [
+            {
+                "label": cluster.label,
+                "size": cluster.size,
+                "threshold": cluster.threshold,
+                "verbatim_trace_ids": list(cluster.verbatim_trace_ids),
+                "embed_model_id": cluster.embed_model_id,
+                "world_id": cluster.world_id,
+            }
+            for cluster in doc.reasons
         ],
         "digests": [
             {
@@ -523,6 +644,7 @@ def render(
         "findings": validated_findings,
         "anomalies": pack.anomalies,
         "objection_clusters": pack.clusters,
+        "reason_clusters": pack.reasons,
         "digests": validated_digests,
     })
     doc = _build(report.findings, report.digests, pack)
