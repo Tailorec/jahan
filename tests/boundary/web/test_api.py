@@ -193,7 +193,7 @@ def test_a_fake_study_serves_end_to_end_with_no_network(tmp_path, monkeypatch):
     summary = client.get(f"/api/runs/{run_id}/summary").json()
     assert summary["run_id"] == run_id and summary["worlds"]
     report = client.get(f"/api/runs/{run_id}/report").json()
-    assert report["run_id"] == run_id and report["findings"]
+    assert report["run_id"] == run_id and isinstance(report["findings"], list) and report["digests"]
     assert client.get(f"/api/runs/{run_id}/digest").json()["run_id"] == run_id
     assert client.get(f"/api/runs/{run_id}/findings").json()["findings"] == report["findings"]
     assert "clusters" in client.get(f"/api/runs/{run_id}/clusters").json()

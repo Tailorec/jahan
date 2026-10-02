@@ -18,11 +18,13 @@ def _seeded_view(store: TraceStore):
     return store.view(entry.config.run_id, header.world_id)
 
 
-def test_objection_belief_shift_and_wom_findings_authored_from_one_trace(tmp_path):
+def test_belief_shift_and_wom_findings_authored_from_one_trace_and_no_objection_from_praise(tmp_path):
+    """The built trace's verbatims are all favourable, so it authors belief shifts and word-of-mouth paths and,
+    since ADR 0053, no objection: praise is not one."""
     view = _seeded_view(TraceStore(tmp_path))
     authored = findings(view, embed=FakeEmbed(), threshold=0.99, seed=4021)
     kinds = {finding.kind.value for finding in authored}
-    assert {"objection", "belief_shift", "wom_path"} <= kinds
+    assert {"belief_shift", "wom_path"} <= kinds and "objection" not in kinds
 
 
 def test_every_finding_resolves_against_the_view_at_authorship(tmp_path):
@@ -64,9 +66,11 @@ def test_no_finding_states_calibration_and_confidence_ignores_it(tmp_path):
 
 
 class _VerbatimView:
-    """A view over caller-supplied verbatims alone: no turns, no edges, resolve by id."""
+    """A view over caller-supplied verbatims and the turns that said them: each an objection unless `objects` is
+    false; no edges, resolve by id."""
 
-    def __init__(self, said: list[tuple[str, str]]):
+    def __init__(self, said: list[tuple[str, str]], objects: bool = True):
+        self._objects = objects
         from simcore.schemas import VerbatimGroup, VerbatimGrouping, VerbatimRecord
 
         self._records = [
@@ -88,7 +92,9 @@ class _VerbatimView:
         return self._groups
 
     def events(self, _filter):
-        return ()
+        from tests.boundary.analysis.test_clusters import objecting_turns
+
+        return objecting_turns(self._records, objects=self._objects)
 
     def edges(self):
         return ()
@@ -115,17 +121,16 @@ def test_an_objection_finding_counts_the_personas_not_the_verbatims(tmp_path):
     assert "3 verbatims" in authored[0].statement
 
 
-def test_an_objection_finding_states_what_was_measured_not_a_sentiment(tmp_path):
-    """Clustering groups what personas said; it cannot tell praise from an objection, so the
-    statement quotes and counts rather than characterising."""
+def test_praise_is_not_an_objection(tmp_path):
+    """ADR 0053: objection findings come from verbatims whose turns objected. Praise, however often it is said,
+    is not an objection, and an objection is quoted and counted rather than characterised."""
     from tests.boundary.analysis.test_clusters import _TopicalEmbed
 
-    view = _VerbatimView([("p-000001", "I would buy this tomorrow"), ("p-000002", "I would buy this tomorrow")])
-    authored = [f for f in findings(view, embed=_TopicalEmbed(), threshold=0.75, seed=1)
-                if f.kind.value == "objection"]
-    assert len(authored) == 1
-    assert "objection" not in authored[0].statement.lower()
-    assert "I would buy this tomorrow" in authored[0].statement
+    praise = _VerbatimView([("p-000001", "I would buy this tomorrow"), ("p-000002", "I would buy this tomorrow")], objects=False)
+    assert [f for f in findings(praise, embed=_TopicalEmbed(), threshold=0.75, seed=1) if f.kind.value == "objection"] == []
+    doubt = _VerbatimView([("p-000001", "too pricey for me"), ("p-000002", "too pricey for me")])
+    authored = [f for f in findings(doubt, embed=_TopicalEmbed(), threshold=0.75, seed=1) if f.kind.value == "objection"]
+    assert len(authored) == 1 and "too pricey for me" in authored[0].statement
 
 
 class _MovesOnlyView:
@@ -137,7 +142,7 @@ class _MovesOnlyView:
         self._events = tuple(
             SimpleNamespace(
                 payload=SimpleNamespace(kind="turn", turn=SimpleNamespace(
-                    reaction=SimpleNamespace(belief_change=SimpleNamespace(
+                    reaction=SimpleNamespace(verbatim=None, belief_change=SimpleNamespace(
                         dimensions={dim: delta}, claim_credence={})))),
                 tick=index, seq=index, event_id=f"ev-{'0' * 21}{index:05d}", persona_id=f"p-00000{index}")
             for index, (dim, delta) in enumerate(moves)

@@ -21,7 +21,7 @@ _BELIEF_HIGH_N = 10
 _BELIEF_STATED_DECIMALS = 2
 
 
-def findings(view, *, embed, threshold: float = 0.75, seed: int = 0,
+def findings(view, *, embed, threshold: float | None = None, seed: int = 0,
              pinned_embed_model: str | None = None, world_id: str | None = None,
              clusters: tuple | None = None,
              anomalies: Sequence[Anomaly] | None = None,
@@ -63,7 +63,7 @@ def _said_by(view) -> dict[str, str]:
             for group in view.verbatims(VerbatimGrouping.PERSONA) for record in group.records}
 
 
-def _objection_findings(view, *, embed, threshold: float, seed: int,
+def _objection_findings(view, *, embed, threshold: float | None, seed: int,
                         pinned_embed_model: str | None, world_id: str | None = None,
                         clusters: tuple | None = None) -> list[Finding]:
     if clusters is None:

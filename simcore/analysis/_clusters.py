@@ -1,7 +1,7 @@
 """Objection clusters: what personas objected to, grouped deterministically.
 
-Verbatims are embedded once through the run's pinned embedding model and grouped by
-cosine similarity at a recorded threshold, with ties broken from a derived seed. Each
+Objections are chosen from what each turn recorded, embedded once through the run's pinned embedding model,
+and grouped by average-linkage cosine similarity at a recorded threshold, with ties broken from a derived seed. Each
 cluster is labelled by its medoid — the verbatim nearest the centre, quoted as written.
 No k-means, no generated summaries. Two runs over one trace produce one answer.
 """
@@ -14,43 +14,105 @@ import numpy as np
 from simcore.schemas import ObjectionCluster, VerbatimGrouping, VerbatimRecord
 
 
-def cluster_objections(view, *, embed, threshold: float = 0.75, seed: int = 0,
+# The share of the run's own objection pairs a group must be as similar as, when no threshold is given: groups join
+# only while their average similarity is in the top quarter of this run's pairs. Relative, so it carries across
+# embedding models whose similarities sit at different levels (ADR 0053).
+_RELATIVE_QUANTILE = 0.75
+# Actions that say no outright; anything else counts as an objection only through what the turn measured.
+_REFUSING = frozenset({"reject", "complain", "downvote"})
+
+
+def cluster_objections(view, *, embed, threshold: float | None = None, seed: int = 0,
                        pinned_embed_model: str | None = None,
                        world_id: str | None = None) -> tuple[ObjectionCluster, ...]:
-    """Group one world's verbatims by embedding cosine similarity.
+    """Group one world's objections — and only its objections — by embedding similarity.
 
-    The view supplies the verbatims; `embed` is the run's pinned embedding model, called
-    exactly once with every verbatim in deterministic order. `threshold` is the recorded
-    cosine-similarity parameter and travels on every cluster reported. When the run's pin
-    is given, an embedding model other than the pin is refused: a digest cannot be computed
-    in a different embedding space from the study it describes. `world_id` names the world the
-    view reads, so a report gathering several worlds' clusters can tell them apart.
-    """
-    if not 0.0 <= threshold <= 1.0:
+    `objection_records` chooses what counts as an objection from what each turn recorded; `cluster_verbatims`
+    groups them. With no `threshold`, the cut is relative to this run's own similarities and recorded on every
+    cluster, so a cluster always says the threshold it was grouped at."""
+    return cluster_verbatims(objection_records(view), embed=embed, threshold=threshold, seed=seed,
+                             pinned_embed_model=pinned_embed_model, world_id=world_id)
+
+
+def objection_records(view) -> list[VerbatimRecord]:
+    """The verbatims that object (ADR 0053): a refusing action (reject, complain, downvote); a survey answer whose
+    scored intent leans to not buying (bottom two boxes outweigh the top two); or a channel turn that moved the
+    persona's beliefs down on balance. Praise and neutral comments are not objections."""
+    from simcore.schemas import EventFilter
+
+    objecting = set()
+    for event in view.events(EventFilter.model_validate({"kinds": ("turn",)})):
+        reaction = event.payload.turn.reaction
+        if not reaction.verbatim:
+            continue
+        if reaction.action.value in _REFUSING:
+            objecting.add(event.event_id)
+        elif reaction.intent is not None:
+            pmf = reaction.intent.pmf
+            if pmf[0] + pmf[1] > pmf[3] + pmf[4]:
+                objecting.add(event.event_id)
+        elif reaction.belief_change is not None and sum(reaction.belief_change.dimensions.values()) < 0:
+            objecting.add(event.event_id)
+    return [record for record in _ordered_verbatims(view) if record.event_id in objecting]
+
+
+def cluster_verbatims(records: Sequence[VerbatimRecord], *, embed, threshold: float | None = None, seed: int = 0,
+                      pinned_embed_model: str | None = None,
+                      world_id: str | None = None) -> tuple[ObjectionCluster, ...]:
+    """Group verbatims by average-linkage cosine similarity: two groups join while their members are, on average,
+    at least `threshold` alike. Average linkage does not chain the way single linkage does — one bridging sentence
+    cannot pull two topics into one group. `embed` is called exactly once, in deterministic order. When the run's
+    pin is given, any other embedding model is refused: a digest cannot be computed in a different embedding space
+    from the study it describes."""
+    if threshold is not None and not 0.0 <= threshold <= 1.0:
         raise ValueError(f"clustering threshold lies in [0, 1], got {threshold}")
     if pinned_embed_model is not None and embed.model_id != pinned_embed_model:
         raise ValueError(
             f"the run pins {pinned_embed_model} for every embedding, "
             f"but clustering was asked through {embed.model_id}"
         )
-    records = _ordered_verbatims(view)
+    records = sorted(records, key=lambda record: record.event_id)
     if not records:
         return ()
     vectors = _embed_once(embed, [record.text for record in records])
-    components = _components(vectors, threshold)
+    cut = threshold if threshold is not None else _relative_threshold(vectors)
     clusters = []
-    for members in _ordered_components(components, records):
+    for members in _ordered_components(_average_linkage(vectors, cut), records):
         medoid = _medoid(members, vectors, seed)
-        member_ids = tuple(sorted(records[index].event_id for index in members))
         clusters.append(ObjectionCluster.model_validate({
             "label": records[medoid].text,
-            "verbatim_trace_ids": member_ids,
+            "verbatim_trace_ids": tuple(sorted(records[index].event_id for index in members)),
             "size": len(members),
-            "threshold": threshold,
+            "threshold": cut,
             "embed_model_id": embed.model_id,
             "world_id": world_id,
         }))
     return tuple(clusters)
+
+
+def _relative_threshold(vectors: np.ndarray) -> float:
+    """The similarity this run's pairs reach in their top quarter, rounded so it reads and records cleanly."""
+    if vectors.shape[0] < 2:
+        return 1.0
+    similarity = vectors @ vectors.T
+    pairs = similarity[np.triu_indices(vectors.shape[0], k=1)]
+    return float(np.clip(round(float(np.quantile(pairs, _RELATIVE_QUANTILE)), 3), 0.0, 1.0))
+
+
+def _average_linkage(vectors: np.ndarray, threshold: float) -> list[list[int]]:
+    """Agglomerative groups: merge while the average cosine similarity between two groups is at least `threshold`."""
+    from scipy.cluster.hierarchy import fcluster, linkage
+    from scipy.spatial.distance import pdist
+
+    n = vectors.shape[0]
+    if n == 1:
+        return [[0]]
+    distances = np.clip(pdist(vectors, "cosine"), 0.0, 2.0)
+    labels = fcluster(linkage(distances, "average"), t=1.0 - threshold + 1e-9, criterion="distance")
+    groups: dict[int, list[int]] = {}
+    for index, label in enumerate(labels):
+        groups.setdefault(int(label), []).append(index)
+    return list(groups.values())
 
 
 def _ordered_verbatims(view) -> list[VerbatimRecord]:
@@ -67,32 +129,6 @@ def _embed_once(embed, texts: Sequence[str]) -> np.ndarray:
     norms = np.linalg.norm(vectors, axis=1, keepdims=True)
     norms[norms == 0.0] = 1.0
     return vectors / norms
-
-
-def _components(vectors: np.ndarray, threshold: float) -> list[int]:
-    n = vectors.shape[0]
-    parent = list(range(n))
-    similarity = vectors @ vectors.T
-
-    def find(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    def union(i: int, j: int) -> None:
-        root_i, root_j = find(i), find(j)
-        if root_i != root_j:
-            parent[max(root_i, root_j)] = min(root_i, root_j)
-
-    for i in range(n):
-        for j in range(i + 1, n):
-            if float(similarity[i, j]) >= threshold:
-                union(i, j)
-    groups: dict[int, list[int]] = {}
-    for i in range(n):
-        groups.setdefault(find(i), []).append(i)
-    return list(groups.values())
 
 
 def _ordered_components(components: list[list[int]], records: list[VerbatimRecord]) -> list[list[int]]:

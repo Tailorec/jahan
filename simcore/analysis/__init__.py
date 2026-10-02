@@ -1,7 +1,7 @@
 """Deriving meaning from a trace: digests, clusters, anomalies, findings, trajectories, and the trust guard."""
 
 from ._anomalies import AnomalyReport, AnomalyThresholds, detect_anomalies
-from ._clusters import cluster_objections
+from ._clusters import cluster_objections, cluster_verbatims, objection_records
 from ._digest import digest
 from ._findings import findings, ranking_findings, risk_findings
 from ._progress import WorldProgress, world_progress
@@ -19,6 +19,8 @@ __all__ = [
     "WorldProgress",
     "WorldTrajectories",
     "cluster_objections",
+    "cluster_verbatims",
+    "objection_records",
     "detect_anomalies",
     "digest",
     "findings",

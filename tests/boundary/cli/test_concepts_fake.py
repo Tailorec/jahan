@@ -74,7 +74,9 @@ def test_the_whole_pipeline_runs_with_no_module_stubbed(tmp_path, monkeypatch):
     full = json.loads((run_dir / "digest.json").read_text())
     assert sum(entry["turn_count"] for entry in full["digests"]) == kinds["turn"]
     data = json.loads((run_dir / "report.json").read_text())
-    assert len(data["findings"]) >= 1
+    # Every fake verbatim is favourable, so since ADR 0053 none is an objection: the report is whole without one.
+    assert isinstance(data["findings"], list) and len(data["digests"]) == len(world_ids)
+    assert not [f for f in data["findings"] if f["kind"] == "objection"]
 
 
 def test_two_fake_runs_under_one_seed_produce_identical_reports(tmp_path, monkeypatch):
