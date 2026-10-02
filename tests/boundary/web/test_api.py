@@ -238,3 +238,31 @@ def test_ontologies_and_briefs_come_from_the_engine_checkout(tmp_path):
     detail = client.get(f"/api/briefs/{briefs[0]['name']}").json()
     assert detail["brief"]["product"]["name"] == briefs[0]["product"]
     assert client.get("/api/briefs/no_such_brief").status_code == 404
+
+
+def test_a_version_is_named_at_launch_renamed_later_and_no_identity_moves(tmp_path, monkeypatch):
+    """ADR 0052: the run serves each version's hash and name; a rename is recorded beside the run and served over
+    the launch name; the run's world ids and config hash stay what they were."""
+    from fastapi.testclient import TestClient
+    from simcore.web.app import create_app
+    from tests.boundary.cli.support import run_command
+    from tests.boundary.cli.test_sweep import RUN_ID, sweep_args, write_grid
+
+    monkeypatch.chdir(tmp_path)
+    grid = write_grid(tmp_path, prices=(2.49, 2.99))
+    grid.write_text(grid.read_text().replace("  - variant:", "  - label: Launch name\n    variant:", 1))
+    out = tmp_path / "runs"
+    code, output = run_command(*sweep_args(grid, out, RUN_ID))
+    assert code == 0, output
+    client = TestClient(create_app(runs_dir=out))
+    before = client.get(f"/api/runs/{RUN_ID}").json()
+    named, unnamed = before["scenarios"]
+    assert named["label"] == "Launch name" and unnamed["label"] is None
+    assert all(len(sc["scenario_hash"]) == 64 for sc in before["scenarios"])
+
+    renamed = client.put(f"/api/runs/{RUN_ID}/labels", json={"scenario_hash": unnamed["scenario_hash"], "label": "Premium $2.99"})
+    assert renamed.status_code == 200
+    after = client.get(f"/api/runs/{RUN_ID}").json()
+    assert [sc["label"] for sc in after["scenarios"]] == ["Launch name", "Premium $2.99"]
+    assert after["world_ids"] == before["world_ids"] and after["config_hash"] == before["config_hash"]
+    assert client.put(f"/api/runs/{RUN_ID}/labels", json={"scenario_hash": "0" * 64, "label": "x"}).status_code == 422

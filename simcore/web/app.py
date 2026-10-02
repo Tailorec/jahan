@@ -102,6 +102,14 @@ class _CorpusChoices(BaseModel):
         return list(value)
 
 
+class RenameRequest(BaseModel):
+    """A version's new name: presentation only, outside every identity hash."""
+
+    model_config = ConfigDict(extra="forbid")
+    scenario_hash: str = Field(min_length=64, max_length=64)
+    label: str = Field(min_length=1, max_length=60)
+
+
 class StudyRequest(_CorpusChoices):
     """What a person configures to start a study — study inputs, never execution config.
 
@@ -944,13 +952,29 @@ def create_app(
         worlds = [_read_json_silent(path) for path in sorted(live.glob("*.json"))] if live.is_dir() else []
         return {"worlds": [world for world in worlds if isinstance(world, dict)]}
 
+    @app.put("/api/runs/{run_id}/labels")
+    def rename_version(request: Request, run_id: str, body: RenameRequest) -> dict[str, Any]:
+        """Name or rename one version of a run. Recorded beside the run, never in its configuration, so the
+        world ids and config hash it was launched under stay what they were (ADR 0052)."""
+        run_dir = _run_dir(request, run_id)
+        known = {sc.get("scenario_hash") for sc in ((_run_entry(run_dir, request) or {}).get("scenarios") or [])}
+        if body.scenario_hash not in known:
+            raise HTTPException(status_code=422, detail=f"run {run_id} has no version {body.scenario_hash[:12]}…")
+        path = Path(run_dir, "labels.json")
+        renames = _read_json_silent(path) or {}
+        renames[body.scenario_hash] = body.label
+        partial = path.with_suffix(".json.partial")
+        partial.write_text(f"{json.dumps(renames, indent=1)}\n", encoding="utf-8")
+        partial.replace(path)
+        return {"scenario_hash": body.scenario_hash, "label": body.label}
+
     @app.get("/api/runs/{run_id}/live/decisions")
     def run_live_decisions(request: Request, run_id: str, world_id: str | None = None) -> dict[str, Any]:
         """Decisions heard in an open tick, in the order they landed, each naming its world (ADR 0050).
         Provisional: the tick's record, once closed, replaces them — and an interrupted tick's never become
         record at all. Without a world, every world's: a study names its worlds only after the first closes."""
         live = Path(_run_dir(request, run_id), "live")
-        paths = [live / f"{Path(world_id).name}.decisions.jsonl"] if world_id else sorted(live.glob("*.decisions.jsonl"))
+        paths = [Path(live, f"{Path(world_id).name}.decisions.jsonl")] if world_id else sorted(live.glob("*.decisions.jsonl"))
         decisions = []
         for path in paths:
             try:
@@ -1919,6 +1943,24 @@ def _why_it_stopped(run_dir: Path, hide: tuple[str, ...]) -> str | None:
     return lifecycle.log_tail(run_dir, hide)
 
 
+def _named_scenarios(run_dir: Path, scenarios: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each scenario with its hash and its name: the label it launched with, or a later rename recorded beside
+    the run in `labels.json`. A name is presentation and outside every identity hash (ADR 0052)."""
+    from simcore.schemas import Scenario, canonical_hash
+
+    renames = _read_json_silent(Path(run_dir, "labels.json")) or {}
+    named = []
+    for raw in scenarios:
+        try:
+            scenario_hash = canonical_hash(Scenario.model_validate(raw))
+        except ValueError:
+            named.append(raw)
+            continue
+        label = renames.get(scenario_hash) if isinstance(renames, dict) else None
+        named.append({**raw, "scenario_hash": scenario_hash, "label": label or raw.get("label")})
+    return named
+
+
 def _finished_entry(
     run_dir: Path, result: dict[str, Any], gate: Any, report: Any, hide: tuple[str, ...] = ()
 ) -> dict[str, Any]:
@@ -1936,7 +1978,7 @@ def _finished_entry(
         "config_hash": registry.get("config_hash"),
         "seeds": config.get("seeds", []),
         "budget": config.get("budget"),
-        "scenarios": config.get("scenarios", []),
+        "scenarios": _named_scenarios(run_dir, config.get("scenarios", [])),
         "world_ids": [outcome.get("world_id") for outcome in outcomes],
         "outcomes": outcomes,
         "has_gate_report": gate is not None,
@@ -2008,7 +2050,7 @@ def _running_entry(
         "config_hash": live.get("config_hash"),
         "seeds": config.get("seeds", []),
         "budget": config.get("budget"),
-        "scenarios": config.get("scenarios", []),
+        "scenarios": _named_scenarios(run_dir, config.get("scenarios", [])),
         "world_ids": list(live.get("world_ids", [])),
         "outcomes": [],
         "has_gate_report": gate is not None,
