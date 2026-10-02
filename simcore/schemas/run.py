@@ -166,6 +166,11 @@ def wave_plan(survey_every: int, horizon_ticks: int, personas: int, replicates: 
 class Scenario(SimBaseModel):
     """One variant together with the conditions it faces; it describes no random draw."""
 
+    # A version's name ("Budget $9") is how a person tells versions apart, not what the version is: it stays out
+    # of every identity hash, so naming or renaming a version never makes a different world.
+    _hash_exclude_: ClassVar[frozenset[str]] = frozenset({"label"})
+
+    label: Annotated[str, Field(min_length=1, max_length=60)] | None = None
     variant: Variant
     price: Price
     # Omitted weights inherit the brief's declared audience shares; stated ones must sum to one.

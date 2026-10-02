@@ -181,3 +181,16 @@ def test_each_version_shows_its_personas_its_own_price(tmp_path, monkeypatch):
     assert len(concepts) == 2 and len(set(concepts.values())) == 2
     assert sorted(text.rsplit("Price: ", 1)[1] for text in concepts.values()) == ["2.49 USD", "2.99 USD"]
     assert all(text.startswith("Baseline concept at the brief price") for text in concepts.values())
+
+
+def test_a_versions_name_changes_no_identity():
+    """A label is how a person tells versions apart: naming or renaming one never makes a different world."""
+    from simcore.schemas import Scenario, canonical_hash, derive_world_id
+    from tests.study_builders import scenario_payload
+
+    plain = Scenario.model_validate(scenario_payload())
+    named = Scenario.model_validate({**scenario_payload(), "label": "Budget $9"})
+    renamed = Scenario.model_validate({**scenario_payload(), "label": "Cheapest tier"})
+    assert named.label == "Budget $9"
+    assert canonical_hash(plain) == canonical_hash(named) == canonical_hash(renamed)
+    assert derive_world_id(plain, 4021, "ab12" * 16) == derive_world_id(renamed, 4021, "ab12" * 16)
