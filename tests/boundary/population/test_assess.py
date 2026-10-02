@@ -257,3 +257,30 @@ def test_building_a_study_unlike_its_category_is_refused_before_any_model_is_cal
     with pytest.raises(GateFailure, match="before any model was called"):
         build(pack_with_targets(marginals, audiences=[]), 300, 4021, coreset=default_source(), inference=fake)
     assert fake.calls == []
+
+
+def test_categorical_gates_are_judged_as_one_family_by_holm():
+    """ADR 0049: 29 attributes tested each at 0.05 fail a fair sample about 77% of the time. Holm holds
+    the chance of any false failure at the level, while a real skew still fails."""
+    from simcore.population._assess import holm
+    from simcore.schemas import CategoricalGateResult
+
+    def gate(attribute, p):
+        return CategoricalGateResult(kind="categorical", attribute=attribute, chi_square=1.0, degrees_of_freedom=1, p_value=p)
+
+    adjusted = holm([gate("a", 0.01), gate("b", 0.04), gate("c", 0.03), gate("d", 0.005)])
+    assert [round(r.adjusted_p_value, 6) for r in adjusted] == [0.03, 0.06, 0.06, 0.02]
+    assert [r.p_value for r in adjusted] == [0.01, 0.04, 0.03, 0.005], "the raw p-value is kept beside it"
+
+    # The real draw that exposed it: two of 29 below 0.05 by chance, the rest spread over (0, 1).
+    fair = holm([gate("x", 0.017), gate("y", 0.039)] + [gate(f"z{k}", 0.05 + k * 0.03) for k in range(27)])
+    assert all(r.passed for r in fair)
+    skewed = holm([gate("skewed", 1e-6)] + [gate(f"z{k}", 0.05 + k * 0.03) for k in range(28)])
+    assert not skewed[0].passed and all(r.passed for r in skewed[1:])
+
+
+def test_a_report_written_before_the_correction_still_judges_by_its_raw_p_value():
+    from simcore.schemas import CategoricalGateResult
+
+    old = CategoricalGateResult.model_validate({"kind": "categorical", "attribute": "a", "chi_square": 1.0, "degrees_of_freedom": 1, "p_value": 0.03})
+    assert old.adjusted_p_value is None and not old.passed

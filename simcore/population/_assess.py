@@ -156,6 +156,23 @@ def assess(
     )
 
 
+def holm(results: list) -> list:
+    """Holm-adjust the categorical gates' p-values as one family (ADR 0049).
+
+    Testing each of many attributes at the level fails a fair sample by chance: at 0.05 a 29-attribute
+    ontology fails one about 77% of the time. The step-down adjustment holds the chance of any false
+    failure at the level, and is never more conservative than Bonferroni. Ordinal gates judge a similarity
+    floor, not a p-value, and are left as they are.
+    """
+    ranked = sorted((i for i, r in enumerate(results) if isinstance(r, CategoricalGateResult)), key=lambda i: results[i].p_value)
+    m, running = len(ranked), 0.0
+    adjusted = list(results)
+    for rank, i in enumerate(ranked):
+        running = max(running, min(1.0, (m - rank) * results[i].p_value))
+        adjusted[i] = results[i].model_copy(update={"adjusted_p_value": running})
+    return adjusted
+
+
 def _quotas(shares: Mapping[Identifier, float], n: int, order: Sequence[Identifier]) -> dict[Identifier, int]:
     """Whole quotas summing to `n`, by largest remainder, tie-broken by the brief's audience order."""
     raw = {name: shares[name] * n for name in order}
@@ -317,6 +334,7 @@ def _gate_results(
                 )
     if not results:
         raise GateFailure("no declared attribute could be gated from the sample")
+    results = holm(results)
     origins = FrozenDict(
         {
             result.attribute: weakest_origin(

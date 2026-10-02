@@ -43,11 +43,14 @@ class CategoricalGateResult(SimBaseModel):
     significance_level: OpenUnitInterval = 0.05
     # What this gate compared the sample against: the study's own design, or measured category targets.
     reference: GateReference = GateReference.DESIGN
+    # Holm-adjusted across every categorical gate of one report (ADR 0049): the level bounds the chance of
+    # any false failure in the family, not of each test. Absent on reports written before the correction.
+    adjusted_p_value: UnitInterval | None = None
 
     @computed_field
     @property
     def passed(self) -> bool:
-        return self.p_value > self.significance_level
+        return (self.p_value if self.adjusted_p_value is None else self.adjusted_p_value) > self.significance_level
 
 
 class OrdinalGateResult(SimBaseModel):
