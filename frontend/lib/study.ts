@@ -54,6 +54,22 @@ export function womAlone(channels: readonly ChannelName[]): boolean {
 /* The feed's ranking model as the gateway serves it (tools/twhin_server.py behind LiteLLM). */
 export const DEFAULT_RECSYS_MODEL = "twhin-bert-base";
 
+/* One version of a study to compare: its name, and what it changes. A blank field keeps the study's own value —
+   the brief's price and description, the study's channels, horizon and survey schedule. `channels` null keeps the
+   study's channels; an empty list is a concept test. */
+export interface VersionForm {
+  label: string;
+  price: string;
+  description: string;
+  channels: ChannelName[] | null;
+  horizon: string;
+  surveyEvery: string;
+}
+
+export function blankVersion(label: string): VersionForm {
+  return { label, price: "", description: "", channels: null, horizon: "", surveyEvery: "" };
+}
+
 export interface StudyForm {
   n: string;
   horizon: string;
@@ -74,6 +90,20 @@ export interface StudyForm {
   priceChatOut: string;
   priceEmbedIn: string;
   validation: string;
+  /* Versions to compare; none runs the study as it is, one world per seed. */
+  versions?: VersionForm[];
+}
+
+/* Every channel any version ticks, the study's own included. */
+export function channelsTicked(form: StudyForm): ChannelName[] {
+  const all = new Set<ChannelName>(form.channels);
+  for (const version of form.versions ?? []) for (const c of version.channels ?? []) all.add(c);
+  return [...all];
+}
+
+/* How many worlds the study runs: each version under every seed. */
+export function worldCount(form: StudyForm): number {
+  return Math.max(1, form.versions?.length ?? 0) * Math.max(1, parseSeeds(form.seeds).length);
 }
 
 /* Every shard that is actually cached: the draw reads only what the machine holds, named explicitly so the
@@ -146,8 +176,22 @@ export function problems(form: StudyForm): string[] {
   if (womAlone(form.channels) && reach !== undefined && (reach < 0 || reach > 1)) {
     found.push("The launch reach is a share, between zero and one.");
   }
-  if (form.channels.includes("social_feed") && !form.recsysEmbedModel.trim()) {
+  if (channelsTicked(form).includes("social_feed") && !form.recsysEmbedModel.trim()) {
     found.push("The social feed ranks by its own model: name it (twhin-bert-base, served beside the gateway).");
+  }
+  const versions = form.versions ?? [];
+  if (versions.length === 1) found.push("Compare at least two versions, or remove the one to run the study as it is.");
+  if (versions.length > 8) found.push("Compare at most eight versions at once.");
+  const names = versions.map((v) => v.label.trim().toLowerCase());
+  if (names.some((name) => !name)) found.push("Name every version.");
+  else if (new Set(names).size !== names.length) found.push("Two versions share a name: give each its own.");
+  for (const v of versions) {
+    const price = number(v.price);
+    if (v.price.trim() && (price === undefined || price <= 0)) found.push(`Version "${v.label}": the price is a positive number.`);
+    for (const [label, raw] of [["horizon", v.horizon], ["survey interval", v.surveyEvery]] as const) {
+      const k = number(raw);
+      if (raw.trim() && (k === undefined || !Number.isInteger(k) || k < 1)) found.push(`Version "${v.label}": the ${label} is a whole number of one or more.`);
+    }
   }
   return found;
 }
@@ -167,7 +211,22 @@ export function studyRequest(form: StudyForm, briefYaml: string, evidence: unkno
   // Only word of mouth alone has a launch reach; any other combination sends none.
   const reach = number(form.launchReach);
   if (womAlone(form.channels) && reach !== undefined) body.launch_reach = reach;
-  if (form.channels.includes("social_feed")) body.recsys_embed_model = form.recsysEmbedModel.trim();
+  if (channelsTicked(form).includes("social_feed")) body.recsys_embed_model = form.recsysEmbedModel.trim();
+  // Each version sends only what it changes; the engine fills the rest from the study.
+  if (form.versions?.length) {
+    body.versions = form.versions.map((v) => {
+      const version: Record<string, unknown> = { label: v.label.trim() };
+      const price = number(v.price);
+      if (price !== undefined) version.price = price;
+      if (v.description.trim()) version.description = v.description.trim();
+      if (v.channels !== null) version.channels = [...v.channels];
+      const horizon = number(v.horizon);
+      if (horizon !== undefined) version.horizon = horizon;
+      const every = number(v.surveyEvery);
+      if (every !== undefined) version.survey_every = every;
+      return version;
+    });
+  }
   if (form.validation.trim()) body.validation = form.validation.trim();
   const seed = number(form.populationSeed);
   if (seed !== undefined) body.population_seed = seed;

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  CHANNELS, CHANNEL_GUIDE, cachedShards, defaultAnchor, defaultSources, gateRequest, leftOut, shardsFor, parseSeeds, problems, studyRequest, womAlone,
+  CHANNELS, CHANNEL_GUIDE, blankVersion, cachedShards, defaultAnchor, defaultSources, gateRequest, leftOut, shardsFor, parseSeeds, problems, studyRequest, womAlone, worldCount,
   type AnchorCatalogue, type CorpusInfo, type StudyForm,
 } from "../lib/study.ts";
 
@@ -149,4 +149,25 @@ test("a feed without its ranking model, or a launch reach that is no share, is n
   assert.deepEqual(problems(form({ channels: ["forum"], recsysEmbedModel: "" })), []);
   assert.match(problems(form({ channels: ["wom"], launchReach: "1.5" })).join(" "), /launch reach/);
   assert.deepEqual(problems(form({ channels: [], launchReach: "1.5" })), [], "a hidden field is never a problem");
+});
+
+test("versions send only what they change, and a study without them sends none", () => {
+  assert.equal(studyRequest(form(), "b", null).versions, undefined);
+  const budget = { ...blankVersion("Budget"), price: "9" };
+  const wom = { ...blankVersion("Word of mouth"), channels: ["wom" as const], horizon: "4" };
+  const body = studyRequest(form({ versions: [budget, wom] }), "b", null);
+  assert.deepEqual(body.versions, [{ label: "Budget", price: 9 }, { label: "Word of mouth", channels: ["wom"], horizon: 4 }]);
+  assert.equal(worldCount(form({ versions: [budget, wom] })), 4, "two versions under two seeds");
+  assert.equal(worldCount(form()), 2, "no versions: one world per seed");
+});
+
+test("versions are refused when they cannot be told apart or say something impossible", () => {
+  const says = (versions: ReturnType<typeof blankVersion>[]) => problems(form({ versions })).join(" ");
+  assert.match(says([blankVersion("Only")]), /at least two versions/);
+  assert.match(says([blankVersion("A"), blankVersion("a")]), /share a name/);
+  assert.match(says([blankVersion("A"), blankVersion("")]), /Name every version/);
+  assert.match(says([{ ...blankVersion("A"), price: "-3" }, blankVersion("B")]), /positive number/);
+  assert.match(says([{ ...blankVersion("A"), horizon: "1.5" }, blankVersion("B")]), /whole number/);
+  assert.match(problems(form({ channels: [], recsysEmbedModel: "", versions: [{ ...blankVersion("Feed"), channels: ["social_feed"] }, blankVersion("B")] })).join(" "), /ranks by its own model/);
+  assert.deepEqual(problems(form({ versions: [{ ...blankVersion("A"), price: "9" }, blankVersion("B")] })), []);
 });
