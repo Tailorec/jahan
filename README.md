@@ -28,7 +28,7 @@ would buy it.
 
 | | |
 |---|---|
-| `simcore/` | The engine: schemas, brief, population, world, agent, inference, elicitation, runner, trace, analysis, report, web API |
+| `jahan/` | The engine: schemas, brief, population, world, agent, inference, elicitation, runner, trace, analysis, report, web API |
 | `frontend/` | A local web interface: define who you study, launch a study, watch its worlds replay, read the report and trace |
 | `docs/adr/` | 48 architecture decision records: why the engine works the way it does |
 | `docs/prd/` | The specification each module was built from |

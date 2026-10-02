@@ -43,7 +43,7 @@ and one fitted to this ladder would be a fit to its own test.
 The mapping validation was not run on real reviews. It requires a pinned satisfaction version with a
 passing check (plan Phase 8), and none exists — scoring reviews against anchors the gate refused would
 break the chain the design was built to enforce. No review dataset was downloaded and none is committed.
-The command (`python -m simcore.elicitation --reviews reviews.jsonl --seed 7 --out mapping.json`) and the
+The command (`python -m jahan.elicitation --reviews reviews.jsonl --seed 7 --out mapping.json`) and the
 runbook below stand ready for a future passing version.
 
 ## Engine defect the real run exposed
@@ -57,12 +57,12 @@ numbers above are from the corrected, frozen satisfaction ladder — a single ru
 ## Runbook (re-run or next candidate)
 
 ```bash
-export SIMCORE_INFERENCE_BASE_URL=http://127.0.0.1:4000/v1
+export JAHAN_INFERENCE_BASE_URL=http://127.0.0.1:4000/v1
 # 1. Anchor checks against the model the versions will be used with:
 uv run python -c "
-from simcore.inference import ExecutionSettings, InferenceClient
-from simcore.schemas import ModelPins
-from simcore.elicitation import check_anchors, assert_pinnable
+from jahan.inference import ExecutionSettings, InferenceClient
+from jahan.schemas import ModelPins
+from jahan.elicitation import check_anchors, assert_pinnable
 pins = ModelPins.model_validate({'tier_a': 'tier-a/model', 'tier_b': 'tier-b/model',
     'embed': {'model_id': 'embed', 'serves': ['embed']}})
 client = InferenceClient(pins, ExecutionSettings())
@@ -72,7 +72,7 @@ for construct, set_id in (('purchase_intent', 'purchase-intent-v1'), ('satisfact
 "
 # 2. Only a passing version pins; only a pinned satisfaction version validates:
 #    assert_pinnable(set_id, construct, 'v1', embed_model_id='embed')
-#    uv run python -m simcore.elicitation --reviews /tmp/reviews.jsonl --seed 7 --out mapping.json
+#    uv run python -m jahan.elicitation --reviews /tmp/reviews.jsonl --seed 7 --out mapping.json
 ```
 
 Per ADR 0028 the next embedding candidate, if these anchors are ever re-tested, is Cohere Embed v4.

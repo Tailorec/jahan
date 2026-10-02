@@ -7,7 +7,7 @@ engine was designed to answer it by combining two pieces of research:
 
 * **OASIS** (camel-ai/oasis) — language-model agents living on a social platform: an X-like feed or a Reddit-like
   forum, a recommender deciding what each agent sees, a clock deciding who is active, and actions (post, like,
-  repost, reply, vote, follow) through which information spreads. ConsumerSim adds a third way information travels:
+  repost, reply, vote, follow) through which information spreads. Jahan adds a third way information travels:
   word of mouth along the population's social ties.
 * **SSR** (arXiv 2510.08338, *LLMs reproduce human purchase intent via semantic similarity elicitation of Likert
   ratings*) — a persona answers a purchase-intent question in words, and the answer becomes a distribution over a
@@ -21,7 +21,7 @@ per channel per tick" (FINAL_ARCH, ARCHITECTURE, the M7 PRD and plan).
 The engine does not do it. Measured against the code on 2026-09-29:
 
 * **One platform per world.** `WorldConfig.platform` is a single channel, and `World._presentations`
-  (`simcore/world/env.py`) takes exactly one branch: feed, forum or survey room. Feed and forum cannot run together.
+  (`jahan/world/env.py`) takes exactly one branch: feed, forum or survey room. Feed and forum cannot run together.
 * **Word of mouth is hard-wired**, not chosen: always on beside a feed or forum, always off in the survey room. It
   cannot be switched off, and it cannot run alone — a word-of-mouth-only study drew its population and crashed on
   the first tick, so it was removed as a choice (2026-09-20).

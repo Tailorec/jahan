@@ -33,7 +33,7 @@ Two modules behind one product.
 
 `web` (M13) serves the engine over HTTP. It reads through `TraceView`'s five closed shapes and `analysis`,
 and it **derives nothing** (ADR 0045): it serialises, filters, pages and streams, and every number it
-returns is a field of something a module that owns it produced. It ships as the `simcore[web]` extra, so
+returns is a field of something a module that owns it produced. It ships as the `jahan[web]` extra, so
 the core keeps its ten dependencies. It runs studies as subprocesses, because the trace is already the
 status channel — a view opens on a live run — and because a tick is recorded whole or not at all, so
 cancelling loses at most the tick in flight and resuming is a re-run with the same id.
@@ -122,7 +122,7 @@ entries.
 **Two modules, one product.** `web` is a new module (M13) rather than a second entrypoint on `cli`, which
 already has one job. `ui` (M14) is the only module not written in Python, and it holds no engine logic.
 
-**`simcore[web]` extra.** The core keeps its ten runtime dependencies; the server's belong to an extra, as
+**`jahan[web]` extra.** The core keeps its ten runtime dependencies; the server's belong to an extra, as
 telemetry's already do.
 
 **The web layer derives nothing (ADR 0045).** It may serialise, filter, page and stream. A panel that wants

@@ -74,7 +74,7 @@ Very little of the ordering. Three reasons, each from the run itself:
 * **Seed 4021 was refused as a population draw** (gate: `region` p = 0.034). It was not tuned; the draw was
   repeated with seed 4022, which passed. Seed 4021 remains a *world* seed.
 * **Community detection crashed on population seed 4022** (`OverflowError`, a 64-bit seed against a signed
-  64-bit limit). Fixed in `simcore/population/_communities.py` without changing any partition a fitting seed
+  64-bit limit). Fixed in `jahan/population/_communities.py` without changing any partition a fitting seed
   already produced.
 
 ## What would make this worth reading as more than a demonstration

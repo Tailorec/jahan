@@ -1,6 +1,6 @@
 # The engine is a research instrument, and its default persona corpus is research-only
 
-ConsumerSim is built to test a research question — whether a grounded synthetic population can reproduce how people respond to a product — not to sell concept tests. Its default corpus, MatrAIx Persona 1M, is released under `matraix-research-only`: non-commercial research use, with subsets inheriting the terms, the MIT licence covering only the MatrAIx code, and several upstream sources carrying their own restrictions (Wikipedia CC BY-SA 4.0, Stack Overflow ODbL, PRISM CC BY-NC, Amazon Reviews research use, NORC terms for GSS). The engine is positioned accordingly: Persona 1M is the research corpus reached through `CoresetSource` at runtime, and any other use brings its own corpus through the same port.
+Jahan is built to test a research question — whether a grounded synthetic population can reproduce how people respond to a product — not to sell concept tests. Its default corpus, MatrAIx Persona 1M, is released under `matraix-research-only`: non-commercial research use, with subsets inheriting the terms, the MIT licence covering only the MatrAIx code, and several upstream sources carrying their own restrictions (Wikipedia CC BY-SA 4.0, Stack Overflow ODbL, PRISM CC BY-NC, Amazon Reviews research use, NORC terms for GSS). The engine is positioned accordingly: Persona 1M is the research corpus reached through `CoresetSource` at runtime, and any other use brings its own corpus through the same port.
 
 ## Considered options
 

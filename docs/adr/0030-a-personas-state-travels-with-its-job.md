@@ -38,4 +38,4 @@ memories, which is a dot product, not an index.
 The agent's interface is wider than the architecture's sketch, and `FINAL_ARCH.md` §5.6 is amended to match. The
 runner owns persistence, checkpointing and resume, and gains a determinism check it did not have: state rebuilt by
 replaying a trace must equal the checkpoint written during the run. Memory events, belief snapshots and probe
-results need trace payloads, which land in `simcore/schemas` before either the agent or the world branch begins.
+results need trace payloads, which land in `jahan/schemas` before either the agent or the world branch begins.

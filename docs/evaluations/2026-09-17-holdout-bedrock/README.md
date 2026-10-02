@@ -168,9 +168,9 @@ A demographics-arm run of 3,945 personas takes about one minute on Ministral and
 # a short-term Bedrock API key, derived from existing AWS credentials (expires within 12 hours)
 python -c "from aws_bedrock_token_generator import provide_token; print(provide_token(region='us-east-1'))"
 
-SIMCORE_INFERENCE_BASE_URL=https://bedrock-mantle.us-east-1.api.aws/v1 \
-SIMCORE_INFERENCE_API_KEY=<key> \
-  python -m simcore.holdout --endpoint --model deepseek.v3.2 --information demographics --pool 20000 --out report.json
+JAHAN_INFERENCE_BASE_URL=https://bedrock-mantle.us-east-1.api.aws/v1 \
+JAHAN_INFERENCE_API_KEY=<key> \
+  python -m jahan.holdout --endpoint --model deepseek.v3.2 --information demographics --pool 20000 --out report.json
 ```
 
 `run_holdout.py` in this directory produces the same report and also meters tokens, cost and failure kinds. The

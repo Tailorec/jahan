@@ -93,7 +93,7 @@ provider call per text. A batch of 64 therefore looks like one request to the li
 to Bedrock, and the quota is blown while the engine believes it is well inside it. Running with
 one text per request and 50 requests per minute holds. The limiter counting texts rather than
 requests is recorded as a follow-up; until then, a study against a quota this tight sets
-`SIMCORE_INFERENCE_EMBEDDINGS_BATCH_SIZE=1`.
+`JAHAN_INFERENCE_EMBEDDINGS_BATCH_SIZE=1`.
 
 **A cached answer is not a run.** An early attempt reported a complete study in 0.2 seconds: the
 engine's own response cache, populated by earlier attempts, served every turn. The report now

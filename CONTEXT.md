@@ -1,4 +1,4 @@
-# ConsumerSim
+# Jahan
 
 A simulation engine that runs a population of grounded personas through interacting environments to observe how they react to a product proposition. This glossary is the project's ubiquitous language — the words the code, the docs, and the conversation all use for the same things.
 

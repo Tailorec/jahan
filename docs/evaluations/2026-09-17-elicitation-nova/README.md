@@ -123,12 +123,12 @@ Lowering the 0.8 threshold now would be tuning the gate to the result it just ga
 
 ```bash
 # proxy: model_name and model both amazon.nova-2-multimodal-embeddings-v1:0 (bedrock/ prefix on model), us-east-1
-export SIMCORE_INFERENCE_BASE_URL=http://127.0.0.1:4000/v1
-export SIMCORE_INFERENCE_CONCURRENCY=1 SIMCORE_INFERENCE_EMBEDDINGS_BATCH_SIZE=1 SIMCORE_INFERENCE_REQUESTS_PER_MINUTE=18
+export JAHAN_INFERENCE_BASE_URL=http://127.0.0.1:4000/v1
+export JAHAN_INFERENCE_CONCURRENCY=1 JAHAN_INFERENCE_EMBEDDINGS_BATCH_SIZE=1 JAHAN_INFERENCE_REQUESTS_PER_MINUTE=18
 uv run python -c "
-from simcore.inference import ExecutionSettings, InferenceClient
-from simcore.schemas import ModelPins
-from simcore.elicitation import check_anchors
+from jahan.inference import ExecutionSettings, InferenceClient
+from jahan.schemas import ModelPins
+from jahan.elicitation import check_anchors
 m = 'amazon.nova-2-multimodal-embeddings-v1:0'
 client = InferenceClient(ModelPins.model_validate({'tier_a': 'tier-a/model', 'tier_b': 'tier-b/model',
     'embed': {'model_id': m, 'serves': [m]}}), ExecutionSettings.from_environment())

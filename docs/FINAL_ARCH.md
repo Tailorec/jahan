@@ -1,4 +1,4 @@
-# ConsumerSim — Engine Architecture
+# Jahan — Engine Architecture
 
 **Scope:** the open-source simulation engine, implementation only. No business, market, positioning, pricing, or tiering content — this document is what you build from.
 **Language/runtime:** Python 3.12+, `uv`-managed.
@@ -146,7 +146,7 @@ Each spec states what the module **owns**, what it **hides**, its **interface**,
 
 **Owns:** every type crossing a module boundary, and the invariants that are true of the data by definition.
 **Hides:** nothing. This is a leaf.
-**Hard rule:** imports nothing from `simcore`, and only `pydantic` (with its own `pydantic-core` engine) + stdlib from outside. No numpy, no pyarrow, no networkx. If `schemas` needs a project import, a type is in the wrong file.
+**Hard rule:** imports nothing from `jahan`, and only `pydantic` (with its own `pydantic-core` engine) + stdlib from outside. No numpy, no pyarrow, no networkx. If `schemas` needs a project import, a type is in the wrong file.
 
 **Interface:** ~40 frozen pydantic v2 models with `extra="forbid"`, `allow_inf_nan=False`, and immutable containers only — tuples, frozensets and `FrozenDict`; list, dict and set annotations are refused at class definition, and `model_copy(update=...)` re-validates — grouped one file per domain — `brief`, `persona`, `population`, `sim`, `run`, `trace`, `report`, `enums`, `errors`, `base`.
 
@@ -269,7 +269,7 @@ Sampling, graph rewiring and community detection draw from **independent streams
 6. **Cost** — the gateway's reported cost, else the pin's declared price (recorded as `estimate` when the response reported no usage), else `unknown`; budget enforcement refuses `unknown` unless unbudgeted spend is explicitly accepted.
 7. **Structure** — a pin declaring structured output receives a strict `response_format` schema; every response is still parsed leniently (`coerce_json`), validated against the declared schema, repaired once with a stricter prompt, and otherwise recorded as an invalid-output failure — and distributions are validated against the corpus vocabulary where they are used, which is the caller that knows what it asked.
 8. **Seed** — a seed derived from world seed, persona, tick and sequence is sent where the pin honours it, and recorded; provider determinism is never promised, because reproducibility comes from replay (ADR 0011).
-9. **Telemetry** — a span per batch and per call, retries and fallbacks as span events, `gen_ai.*` attributes named in one module, metadata only unless content capture is explicitly enabled (ADR 0022). The core depends on `opentelemetry-api` alone; the SDK and OTLP exporter are the optional `simcore[otel]` extra.
+9. **Telemetry** — a span per batch and per call, retries and fallbacks as span events, `gen_ai.*` attributes named in one module, metadata only unless content capture is explicitly enabled (ADR 0022). The core depends on `opentelemetry-api` alone; the SDK and OTLP exporter are the optional `jahan[otel]` extra.
 
 **Completion is sampled, not chosen (ADR 0024).** Projection asks the model for a probability distribution over an attribute's vocabulary for each persona, and the engine samples the value with the population's seeded stream at a recorded `completion_temperature`. A distribution that does not cover the vocabulary or sum to one within tolerance is refused like an off-list value.
 
@@ -277,7 +277,7 @@ Sampling, graph rewiring and community detection draw from **independent streams
 
 **Roles:** `tier_a` (bulk persona ticks — Persona-8B served by vLLM or through a gateway, small-instruct fallback), `tier_b` (first impressions, conversations, reflections, purchases — a frontier model), `embed` (**one** pinned model for anchors, responses and recsys alike — mixing embedding models invalidates SSR geometry; every vector's dimension is checked against the first), `safety` (a routed role; its moderation behaviour belongs to the caller).
 
-**Holdout evaluation:** `python -m simcore.holdout` hides measured attitudes on Stack Overflow rows, projects them through the production path — in one of two arms, `demographics` (only the conditioning set, ADR 0019's question) or `all` (every other declared attribute), with the baseline always seeing exactly what projection saw — the same completion machinery, reached through an evaluation-only affordance, since no *study* may synthesize a psychographic but the technique can only be judged by running it — and scores the stated distributions with proper scoring rules — log loss and Brier score — against a smoothed demographic-conditional baseline built on the pool alone, beside marginal distance, calibration and recovered demographic dependence corrected for what sparse cells show by chance. The proper scores lead because the others cannot rank a projection on their own: marginal distance cannot see demographics, and calibration scores uniform guessing as perfect. The report records the pins, served models, seeds, completion temperature and row counts behind every number. It runs on the fake in CI and on a real endpoint when pointed at one — the engine's central number, owed by ADR 0019.
+**Holdout evaluation:** `python -m jahan.holdout` hides measured attitudes on Stack Overflow rows, projects them through the production path — in one of two arms, `demographics` (only the conditioning set, ADR 0019's question) or `all` (every other declared attribute), with the baseline always seeing exactly what projection saw — the same completion machinery, reached through an evaluation-only affordance, since no *study* may synthesize a psychographic but the technique can only be judged by running it — and scores the stated distributions with proper scoring rules — log loss and Brier score — against a smoothed demographic-conditional baseline built on the pool alone, beside marginal distance, calibration and recovered demographic dependence corrected for what sparse cells show by chance. The proper scores lead because the others cannot rank a projection on their own: marginal distance cannot see demographics, and calibration scores uniform guessing as perfect. The report records the pins, served models, seeds, completion temperature and row counts behind every number. It runs on the fake in CI and on a real endpoint when pointed at one — the engine's central number, owed by ADR 0019.
 
 **Salvage:** MatrAIx `openai_client.py` (`coerce_json`; timeouts became httpx configuration), `llm_usage.py`'s token accounting and `cost_source` provenance (without its LiteLLM price dependency). OASIS's async fan-out behind one concurrency ceiling, as a pattern only. **Withdrawn:** MatrAIx's per-provider branches in `model_client.py` (ADR 0021), its `persona_model.py` pin precedence (pins are recorded study inputs, never environment variables — ADR 0009), and OASIS's CAMEL-based agent model access, whose random model scheduling, uncontrollable memory and swallowed errors conflict with ADR 0009, 0011 and 0023.
 
@@ -456,7 +456,7 @@ A `RunResult` carries the registry entry and one outcome per world id — `compl
 **Interface:** `write(events: Iterable[TraceEvent]) -> None` · `view(run_id) -> TraceView` · `finalize(world_id)` · `registry.record(entry)`
 
 `TraceSink`, `TraceView` and `RunRegistry` are protocols in `ports`; `TraceStore` and
-`SqliteRunRegistry` in `simcore/trace/` satisfy them, with in-memory fakes beside them for
+`SqliteRunRegistry` in `jahan/trace/` satisfy them, with in-memory fakes beside them for
 tests that need no filesystem. Every boundary test runs against a temporary directory.
 
 `TraceView` is a **typed, closed set** of read shapes — `events(filter)`, `beliefs(persona_id)`, `edges()`, `verbatims(grouping)`, `resolve(trace_ids)` — not an open handle to Parquet files. The previous design passed "trace views" as an undefined wide interface, which is what let derivation logic leak into two consumers.
@@ -536,7 +536,7 @@ spine, and belongs with `report`/`cli`; deferred deliberately.
 
 ### 5.12 `cli` — entrypoints
 
-Entry is `python -m simcore.cli`. Plumbing only: the CLI wires modules together, formats errors and writes files. It derives nothing, renders nothing and decides nothing a study did not already state.
+Entry is `python -m jahan.cli`. Plumbing only: the CLI wires modules together, formats errors and writes files. It derives nothing, renders nothing and decides nothing a study did not already state.
 
 | Command | Behavior |
 |---|---|
@@ -576,7 +576,7 @@ A study that measured no adoption still exits 0 and reports why. An exhausted bu
 
 **Trust is stated once.** The run's `TrustStatement` appears once per study view and never on a finding; the trust page shows the ladder and what a level above `UNCALIBRATED` requires; nothing in the interface writes or overrides a trust level; a finding's own confidence renders beside it and is never presented as the engine's calibration.
 
-**Test posture:** the API is exercised in-process against temporary directories with the fake backend — the suite reaches no network. A live run and a finished run answer identically through the same endpoints; the package performs no arithmetic over what it serves, asserted over the package in the shape `report`'s discipline test uses. The server ships as the `simcore[web]` extra (`fastapi`, `uvicorn`); the core's ten runtime dependencies are unchanged.
+**Test posture:** the API is exercised in-process against temporary directories with the fake backend — the suite reaches no network. A live run and a finished run answer identically through the same endpoints; the package performs no arithmetic over what it serves, asserted over the package in the shape `report`'s discipline test uses. The server ships as the `jahan[web]` extra (`fastapi`, `uvicorn`); the core's ten runtime dependencies are unchanged.
 
 ---
 
@@ -584,7 +584,7 @@ A study that measured no adoption still exits 0 and reports why. An exhausted bu
 
 The only module not written in Python, and the only one that holds no engine logic. It renders what the API returns and configures what a study states: intake → ontology builder → population → run → trace → atlas → report → trust. The interface speaks the glossary — Population, never cohort; Audience and Community, never segment — with a redirect from the old cohort address.
 
-**One implementation, two delivery paths, same rule as the shapes:** a derived shape is computed once in Python; the CLI writes it into the run directory, and the API serves the same function live. The interface's own API routes are proxies to the engine (`SIMCORE_WEB_URL`, default `http://127.0.0.1:8000` — the one thing the interface is configured with) and nothing else: it reads no run directory, starts no process, mints no run id and finds no checkout, asserted over its source. There is no second mode. Every engine number arrives over HTTP, and a refusal keeps the status and the sentence the engine gave (`lib/refusal.ts`), so a brief the engine turns away, or an attribute the corpus does not carry, is explained at the screen rather than reduced to a status code. The shell states only what the engine said: recent studies, its version, whether an endpoint is configured, the spend the workspace summary derived — a single-operator application has no plan, no quota and no account, and shows none.
+**One implementation, two delivery paths, same rule as the shapes:** a derived shape is computed once in Python; the CLI writes it into the run directory, and the API serves the same function live. The interface's own API routes are proxies to the engine (`JAHAN_WEB_URL`, default `http://127.0.0.1:8000` — the one thing the interface is configured with) and nothing else: it reads no run directory, starts no process, mints no run id and finds no checkout, asserted over its source. There is no second mode. Every engine number arrives over HTTP, and a refusal keeps the status and the sentence the engine gave (`lib/refusal.ts`), so a brief the engine turns away, or an attribute the corpus does not carry, is explained at the screen rather than reduced to a status code. The shell states only what the engine said: recent studies, its version, whether an endpoint is configured, the spend the workspace summary derived — a single-operator application has no plan, no quota and no account, and shows none.
 
 **Nothing generated is displayed as derived.** Cluster labels are quoted verbatims; findings carry their evidence and disconfirming tests; a quantity that could not be measured renders its reason where the number would have been. The run's calibration states once per study view (`TrustLine`) and is never adjustable; a fake run is marked as fake wherever it appears; audiences and communities are presented as different things. Where a chart would be empty the diagnostic appears instead — no communities formed, unmeasured with its reason, a failed gate readable because a study that never ran is the case the population page most needs to explain.
 
@@ -654,13 +654,15 @@ Three layers, with distinct jobs. The middle layer is the primary one and is whe
 ## 9. Repository layout
 
 ```
-consumersim/
-├── FINAL_ARCH.md
-├── SALVAGE.md
-├── NOTICE.md                    CAMEL-AI · Sakana AI · MatrAIx attribution
-├── LICENSE                      Apache-2.0
+jahan/
+├── README.md
+├── CONTEXT.md                   the glossary
+├── LICENSE.md                   FSL-1.1-ALv2
 ├── pyproject.toml
-├── simcore/
+├── mkdocs.yml                   the documentation site
+├── docs/                        architecture · salvage · ADRs · PRDs · evaluations
+├── frontend/                    the interface
+├── jahan/
 │   ├── schemas/                 leaf: contracts only
 │   ├── ports/                   port protocols + all adapters (fake, fixture, synthetic, http, hf)
 │   ├── brief/
@@ -676,11 +678,6 @@ consumersim/
 │   └── cli/
 ├── anchors/                     versioned SSR anchor sets
 ├── ontologies/                  versioned category ontologies, `<category>/<version>.json`
-├── examples/
-│   ├── protein_water.yaml       concept test
-│   ├── protein_water.yaml.evidence.json   what its cited URLs served, machine-written
-│   ├── subreddit_policy.yaml    forum dynamics
-│   └── price_grid.yaml          sweep
 └── tests/
     ├── property/                layer 1
     ├── boundary/                layer 2 — one directory per module
@@ -738,7 +735,7 @@ Not built now. Each carries the condition that would justify building it, so the
 | **LLM-as-judge scoring** | Rule-based anomaly flags cover current needs deterministically and cheaply; a judge adds cost and its own calibration burden | Rule-based flags demonstrably underperform on real traces |
 | **Analyst-debate reporting** (multi-role bull/bear synthesis) | `analysis` already authors findings deterministically with citations, so the trust invariant holds without it. A debate layer earns its cost only when *explanation quality* is the bottleneck, not trust | Reports are trusted, and an A/B on decision-usefulness (with vs. without) shows a difference |
 | **Corpus-grounded study authoring** (ontology drafting + audience proposal, ADR 0014) | The audience-proposal half shipped in M3.5 — `population.interpret_audience` turns words into predicates bounded by the catalog's coverage, through `ChatPort`, with the interpretation shown for confirmation before any draw. What remains is drafting the *whole ontology* (domains, ordinal scales, relevance order) from the codebook and publishing a versioned diff, which is an authoring surface rather than an engine module | A drafting command that reads the enumerated codebook (attributes, value sets, populated counts — now readable through `HfCoresetSource` and `IndexCoresetCatalog`), proposes a `CategoryOntology`, and writes it as a new versioned file a person approves (ADR 0004) |
-| **Packed 4-bit decoder and `HfCoresetSource`** | **MET by M3.5 (`simcore/ports/decoder.py`, `simcore/ports/hf.py`).** The decoder is verified against a generated parquet in the release's real packed format — codes indexed from zero, two to a byte low nibble first, the null bitmap as the sole authority on presence with an absent bitmap meaning fully populated, and `attribute_overrides` beating the code — and against the four cached shards, whose decoded `populated_attribute_count` matches the corpus's own on every row sampled. No corpus row is committed; real-shard tests skip when the cache is absent (ADR 0016) | — |
+| **Packed 4-bit decoder and `HfCoresetSource`** | **MET by M3.5 (`jahan/ports/decoder.py`, `jahan/ports/hf.py`).** The decoder is verified against a generated parquet in the release's real packed format — codes indexed from zero, two to a byte low nibble first, the null bitmap as the sole authority on presence with an absent bitmap meaning fully populated, and `attribute_overrides` beating the code — and against the four cached shards, whose decoded `populated_attribute_count` matches the corpus's own on every row sampled. No corpus row is committed; real-shard tests skip when the cache is absent (ADR 0016) | — |
 | **Benchmark harness against real human studies** | Requires real human study data, which the engine does not have. Until then every run is `UNCALIBRATED` and the engine claims nothing about accuracy | Human study data available. Building this openly and publishing the methodology is the single highest-value addition to the engine — the `AnchorSource` and `PersonaPatchSource` ports exist specifically so it can be added without changing any module signature |
 
 ---

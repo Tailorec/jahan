@@ -27,7 +27,7 @@ retired and not planning for a child's education") where the feed's are generic.
 * **`wom` is not an environment.** It is a channel a message is *delivered* on, beside a feed's or forum's own
   presentation. Asking to run a study on it drew the whole population and then failed on the first tick with
   `the wom channel is delivered, not presented`. The command, the API and the interface now offer only the three
-  environments a study runs on, from one definition (`STUDY_CHANNELS` in `simcore/schemas/enums.py`), and the command
+  environments a study runs on, from one definition (`STUDY_CHANNELS` in `jahan/schemas/enums.py`), and the command
   refuses `wom` at parse time, before anything is drawn.
 * **A forum study crashed its own report.** The interface-launched forum study finished its world and then died
   building the digest: `a response mass contains a zero, which the SSR softmax cannot emit`. The published SSR formula

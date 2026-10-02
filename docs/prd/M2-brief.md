@@ -10,7 +10,7 @@ There is also a narrower, sharper failure this module exists to prevent. A claim
 
 ## Solution
 
-A small package, `simcore/brief`, with three public functions and no state.
+A small package, `jahan/brief`, with three public functions and no state.
 
 `load_brief(path, ontology_dir) -> BriefPack` is a pure function of two files. It reads the author's YAML, refuses anything the contract refuses, resolves the category ontology by the exact version the brief names, joins the two into a `BriefPack`, and returns it. It opens no sockets and consults no clock, so the same files always produce the same brief.
 
@@ -70,7 +70,7 @@ After this module exists, a person can write a file, run the engine against it, 
 
 **The assumption ledger.** A derived view, not a stored record: `assumptions_of` returns `Assumption` values built from the brief's stated assumptions, its claims marked assumed, and its structural omissions — most importantly an undeclared target market, which the contract already exposes. Nothing is stored, so nothing can go stale or disagree with the brief, and no new type crosses a module boundary.
 
-**Dependencies and packaging.** `pyyaml` joins the core dependencies. The HTTP adapter uses the standard library rather than adding a second HTTP stack for one request. This module creates `simcore/ports/`, holding port protocols and their adapters together so that no core module can import a concrete adapter; `EvidencePort` is its first protocol, and the module imports only the protocol.
+**Dependencies and packaging.** `pyyaml` joins the core dependencies. The HTTP adapter uses the standard library rather than adding a second HTTP stack for one request. This module creates `jahan/ports/`, holding port protocols and their adapters together so that no core module can import a concrete adapter; `EvidencePort` is its first protocol, and the module imports only the protocol.
 
 ## Testing Decisions
 

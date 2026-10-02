@@ -23,7 +23,8 @@ Decided 2026-10-02.
       module names) removed; the current `FINAL_ARCH.md` and `SALVAGE.md` moved into `docs/`.
 - [x] `docs/running-a-real-study.md` and `docs/inference.md` removed (2026-10-02); a real-study guide
       returns with a fresh real run and the example files it uses.
-- [ ] Naming: the package is `simcore` and the interface says ConsumerSim; the repository is Jahan.
+- [ ] Naming: everything is Jahan. Docs done 2026-10-02: the docs, README and glossary already say `jahan`,
+      `jahan[web]` and `JAHAN_*`. The code still says `simcore`, `SIMCORE_*` and ConsumerSim, and is renamed separately.
 - [ ] Contributor License Agreement before the first outside pull request.
 
 ## Phase 2 — README hero

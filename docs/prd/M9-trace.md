@@ -7,7 +7,7 @@ results and cost records; `world` returns published stimuli, drops and intervent
 All of it is written through a port with a fake, and when the fake is taken away there is nowhere for it to go.
 
 The contracts are already here — `TraceEvent`, its ten payload kinds, `PartitionHeader` and `TracePartition`
-validate themselves in `simcore/schemas/trace.py`, and `read_partition` exists. What is missing is everything
+validate themselves in `jahan/schemas/trace.py`, and `read_partition` exists. What is missing is everything
 around them: where a partition lives while its run is alive, what happens when the run finishes, how a reader asks
 it anything, and what happens when the schema moves under a trace that is already on disk.
 
@@ -139,5 +139,5 @@ deliberately. The world's platform state, which stays internal to `world`.
 
 ## Further Notes
 
-`TraceView` does not exist in `simcore/schemas` yet and is the one thing both this module and `runner` need, so it
+`TraceView` does not exist in `jahan/schemas` yet and is the one thing both this module and `runner` need, so it
 lands on `master` before either branch begins — the same sequencing that worked for M6's contracts.

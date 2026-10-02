@@ -97,7 +97,7 @@ ticks against them, and the unit travels forward so a report can label an axis t
 ## Implementation Decisions
 
 **Interface.** `reset(header) -> WorldDelta`, `step(tick, turns) -> WorldDelta`. `WorldDelta` already exists in
-`simcore/schemas/world.py` and is not widened without an ADR.
+`jahan/schemas/world.py` and is not widened without an ADR.
 
 **State.** SQLite from phase one (OASIS `database.py`, extended with provenance columns at write time), internal to
 the module. Nothing crosses the boundary; replay is the contract (ADR 0011).
