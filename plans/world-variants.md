@@ -25,7 +25,7 @@ Decided 2026-10-03:
       launches `sweep run`; a single version still launches `concepts run`.
 
 ## Phase 4 — New study: versions
-- [ ] A "Versions" section: add, name and edit versions; the world count and a call estimate before launch.
+- [x] A "Versions" section: add, name and edit versions; the world count and a call estimate before launch.
 
 ## Phase 5 — the atlas, decision-first
 - [ ] Ranked versions with seed spread, a verdict, intent over waves per version, the grid; one-world runs explain

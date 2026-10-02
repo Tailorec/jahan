@@ -9,8 +9,8 @@ import { api, useApi, whyNot } from "@/lib/api";
 import { briefToYaml, type BriefForm } from "@/lib/briefYaml";
 import type { AudienceSet, CategoryOntology, ClaimSource } from "@/lib/engine";
 import {
-  CHANNELS, CHANNEL_GUIDE, defaultAnchor, defaultSources, gateRequest, leftOut, problems, shardsFor, studyRequest, womAlone, DEFAULT_RECSYS_MODEL,
-  type AnchorCatalogue, type ChannelName, type CorpusInfo, type StudyForm,
+  CHANNELS, CHANNEL_GUIDE, blankVersion, channelsTicked, defaultAnchor, defaultSources, gateRequest, leftOut, problems, shardsFor, studyRequest, womAlone, worldCount, DEFAULT_RECSYS_MODEL,
+  type AnchorCatalogue, type ChannelName, type CorpusInfo, type StudyForm, type VersionForm,
 } from "@/lib/study";
 import { TEXT_SOURCES } from "@/lib/sources";
 
@@ -75,6 +75,8 @@ export default function IntakePage() {
   const [priceChatOut, setPriceChatOut] = useSessionState("intake:priceChatOut", "");
   const [priceEmbedIn, setPriceEmbedIn] = useSessionState("intake:priceEmbedIn", "");
   const [validation, setValidation] = useSessionState("intake:validation", "");
+  const [versions, setVersions] = useSessionState<VersionForm[]>("intake:versions", []);
+  const setVersion = (i: number, patch: Partial<VersionForm>) => setVersions(versions.map((v, j) => (j === i ? { ...v, ...patch } : v)));
   const { data: corpus } = useApi<CorpusInfo>("/api/corpus");
   const { data: anchors } = useApi<AnchorCatalogue>("/api/anchors");
   React.useEffect(() => {
@@ -145,10 +147,10 @@ export default function IntakePage() {
   const realNeedsEndpoint = endpoint?.endpoint_configured === false;
   const studyForm: StudyForm = {
     n, horizon, tickUnit, seeds, budget, channels, surveyEvery, launchReach, recsysEmbedModel, anchorVersion, model, embedModel,
-    populationSeed, shards, sources, priceChatIn, priceChatOut, priceEmbedIn, validation,
+    populationSeed, shards, sources, priceChatIn, priceChatOut, priceEmbedIn, validation, versions,
   };
   const wordOfMouthAlone = womAlone(channels);
-  const feedTicked = channels.includes("social_feed");
+  const feedTicked = channelsTicked(studyForm).includes("social_feed");
   // The wave ticks and the answers they take are the engine's to derive (ADR 0045); the page asks.
   const [wavePlan, setWavePlan] = React.useState<{ ticks: number[]; answers: number } | null>(null);
   React.useEffect(() => {
@@ -471,7 +473,57 @@ export default function IntakePage() {
             )}
           </Section>
 
-          <Section step={5} icon="sliders" title="Models & run" done={!!model.trim() && !!embedModel.trim()}
+          <Section step={5} icon="layers" title="Versions" done
+            tip="Compare versions of the study in one run: each version changes what you choose — price, the description personas read, channels, horizon or survey schedule — and keeps the rest. Every version runs under every seed over the same people, so differences come from what you changed. Versions that keep the same description share their random draws.">
+            {versions.length === 0 ? (
+              <div className="versions-empty">
+                <span className="sub">One version: the study as set above, one world per seed.</span>
+                <button type="button" className="btn sm" onClick={() => setVersions([blankVersion("Baseline"), blankVersion("Version B")])}>{ICONS.plus} Compare versions</button>
+              </div>
+            ) : (
+              <div style={{ display: "grid", gap: 10 }}>
+                {versions.map((v, i) => (
+                  <div key={i} className="version-card">
+                    <div className="row" style={{ gap: 8 }}>
+                      <span className="version-letter">{String.fromCharCode(65 + i)}</span>
+                      <input className="input" aria-label={`Version ${i + 1} name`} value={v.label} maxLength={60} placeholder="Name it — e.g. Budget $9" onChange={(e) => setVersion(i, { label: e.target.value })} style={{ fontWeight: 600 }} />
+                      <button type="button" className="icon-btn" aria-label={`remove version ${v.label || i + 1}`} onClick={() => setVersions(versions.filter((_, j) => j !== i))}>{ICONS.x}</button>
+                    </div>
+                    <div className="version-fields">
+                      <Field icon="dollar" label="Price"><input className="input mono" value={v.price} placeholder={`${form.price || "—"} ${form.currency || "USD"}`} onChange={(e) => setVersion(i, { price: e.target.value })} /></Field>
+                      <Field icon="clock" label="Horizon"><input className="input mono" value={v.horizon} placeholder={horizon} onChange={(e) => setVersion(i, { horizon: e.target.value })} /></Field>
+                      <Field icon="survey" label="Survey every"><input className="input mono" value={v.surveyEvery} placeholder={surveyEvery} onChange={(e) => setVersion(i, { surveyEvery: e.target.value })} /></Field>
+                    </div>
+                    <Field icon="tag" label="Description personas read">
+                      <textarea className="input" rows={2} value={v.description} placeholder={form.product.description || "the brief's description"} onChange={(e) => setVersion(i, { description: e.target.value })} />
+                    </Field>
+                    <div className="version-chans">
+                      <span className="lbl">{ICONS.radio} Channels</span>
+                      <button type="button" className={`chip ${v.channels === null ? "on" : "plain"}`} onClick={() => setVersion(i, { channels: null })}>same as study · {channelLabel}</button>
+                      {CHANNELS.map((c) => {
+                        const on = v.channels !== null && v.channels.includes(c);
+                        return (
+                          <button key={c} type="button" className={`chip ${on ? "on" : "plain"}`} aria-pressed={on}
+                            onClick={() => { const list = v.channels ?? []; setVersion(i, { channels: on ? list.filter((x) => x !== c) : [...list, c].sort() }); }}>
+                            {ICONS[CHANNEL_CARD[c].icon]} {CHANNEL_CARD[c].title.split(" (")[0]}
+                          </button>
+                        );
+                      })}
+                      {v.channels !== null && v.channels.length === 0 && <span className="sub" style={{ fontSize: 12 }}>concept test</span>}
+                    </div>
+                  </div>
+                ))}
+                <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                  {versions.length < 8 && <button type="button" className="btn sm" onClick={() => setVersions([...versions, blankVersion(`Version ${String.fromCharCode(65 + versions.length)}`)])}>{ICONS.plus} Version</button>}
+                  <button type="button" className="btn btn-secondary sm" onClick={() => setVersions([])}>Run as one version</button>
+                  <span className="chip plain" style={{ marginLeft: "auto" }}>{ICONS.layers} {worldCount(studyForm)} worlds · {versions.length} versions × {replicates} seed{replicates === 1 ? "" : "s"}</span>
+                </div>
+                <div className="help">A blank field keeps the study&apos;s own value. Seeds are set below.</div>
+              </div>
+            )}
+          </Section>
+
+          <Section step={6} icon="sliders" title="Models & run" done={!!model.trim() && !!embedModel.trim()}
             tip="The models every call is pinned to, how long the study runs, how many replicates and what it may spend. The endpoint and its key are the server's environment; this form never asks for either.">
             <div className="grid g2">
               <Field icon="cpu" label="Chat model" tip="Pinned: recorded, hashed and fixed for the whole run."><input className="input mono" value={model} placeholder="amazon.nova-micro-v1:0" onChange={(e) => setModel(e.target.value)} /></Field>

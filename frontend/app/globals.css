@@ -559,3 +559,13 @@ blockquote.verbatim > span { display: block; font-style: normal; font-size: 11px
   .moves-row { grid-template-columns: minmax(0, 1fr) auto; }
   .moves-track { grid-column: 1 / -1; grid-row: 2; }
 }
+/* New study: versions */
+.versions-empty { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.version-card { display: grid; gap: 8px; border: 1px solid var(--line-2); border-radius: var(--r-md); padding: 10px 12px; background: var(--bg); }
+.version-letter { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--primary-soft); color: var(--primary-strong); font-weight: 700; font-size: 12px; flex: none; }
+.version-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.version-chans { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.version-chans .chip { cursor: pointer; display: inline-flex; align-items: center; gap: 4px; }
+.version-chans .chip svg { width: 12px; height: 12px; }
+.chip.on { border-color: var(--primary); background: var(--primary-soft); color: var(--primary-strong); }
+@media (max-width: 700px) { .version-fields { grid-template-columns: 1fr; } }
