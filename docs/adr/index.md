@@ -53,3 +53,4 @@ Each architecture decision record says what was decided, why, and what else was 
 | 0047 | [A study's description drafts its audiences, never its category's conditioning set](0047-a-study-description-drafts-audiences-never-the-conditioning-set.md) |
 | 0048 | [Channels, survey waves and launch reach are scenario content](0048-channels-and-survey-waves-are-scenario-content.md) |
 | 0049 | [A population's categorical gates are judged as one family](0049-a-populations-categorical-gates-are-one-family.md) |
+| 0050 | [A running study shows decisions before they are record](0050-a-running-study-shows-decisions-before-they-are-record.md) |
