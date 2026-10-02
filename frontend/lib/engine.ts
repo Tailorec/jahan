@@ -145,6 +145,8 @@ export interface Variant {
 }
 export interface Scenario {
   scenario_hash?: string;
+  /* A version's name (ADR 0052): presentation, outside every identity hash; a rename is served over it. */
+  label?: string | null;
   variant: Variant;
   price: Price;
   audience_weights: Record<string, number>;
