@@ -95,6 +95,44 @@ function toAct(ev: TraceEvent, posts: Record<string, Post>): Act {
   };
 }
 
+export interface Heard { world_id: string; tick: number; persona_id: string; channel: string; action: string; verbatim: string | null; subject_stimulus_id: string | null; via_persona_id: string | null }
+
+/* Decisions heard in an open tick, as each persona's reply lands and before the tick is recorded (ADR 0050):
+   polled while the study runs. Without a world yet — a study names its worlds only once one closes a tick —
+   it follows whichever world the decisions come from. */
+export function useHeard(runId: string | null, world: string | null, watching: boolean) {
+  const [decisions, setDecisions] = React.useState<Heard[]>([]);
+  React.useEffect(() => {
+    setDecisions([]);
+    if (!runId || !watching) return;
+    let live = true;
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/runs/${encodeURIComponent(runId)}/live/decisions${world ? `?world_id=${encodeURIComponent(world)}` : ""}`);
+        if (res.ok && live) setDecisions((await res.json()).decisions ?? []);
+      } catch { /* the next poll tries again */ }
+    };
+    poll();
+    const timer = setInterval(poll, 2000);
+    return () => { live = false; clearInterval(timer); };
+  }, [runId, world, watching]);
+  return { decisions, world: world ?? decisions[0]?.world_id ?? null };
+}
+
+/* The open tick — the one after the last closed — as replay acts. Provisional: replaced by the record. */
+export function provisionalActs(decisions: Heard[], world: string | null, lastClosed: number | null, posts: Record<string, Post>) {
+  const open = lastClosed == null ? 0 : lastClosed + 1;
+  const acts: Act[] = decisions.filter((d) => d.world_id === world && d.tick === open).map((d, i) => {
+    const author = d.subject_stimulus_id ? posts[d.subject_stimulus_id]?.author ?? null : null;
+    const from = d.via_persona_id ?? (author && author !== d.persona_id ? author : null);
+    return {
+      id: `live-${open}-${i}`, tick: d.tick, seq: i, persona: d.persona_id, channel: d.channel, action: d.action,
+      text: d.verbatim, subject: d.subject_stimulus_id, from, via: d.via_persona_id ? "wom" : from ? "post" : null,
+    };
+  });
+  return { tick: open, acts };
+}
+
 /* The replay clock every tab shares: which tick is showing, whether it plays, and how fast. A running
    study's clock waits at the newest closed tick and moves on when the engine closes the next. */
 export function useClock(lastClosed: number | null) {

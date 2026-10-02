@@ -9,7 +9,7 @@ import { useSessionState } from "@/lib/session";
 import WorldGraph from "./world";
 import ActivityStream from "./activity";
 import Numbers from "./numbers";
-import { CHANNEL_COLOR, useClock, useTicks, type Clock } from "./replay";
+import { CHANNEL_COLOR, provisionalActs, useClock, useHeard, useTicks, type Clock } from "./replay";
 import { useApi, useRunId, api, whyNot } from "@/lib/api";
 import { worldForCell } from "@/lib/worlds";
 import { FORCE_WARNING, movedInputRefusal } from "@/lib/resume";
@@ -42,7 +42,7 @@ function models(pins: Record<string, unknown> | null | undefined) {
 export default function RunPage() {
   const runId = useRunId();
   const [poll, setPoll] = React.useState(0);
-  const { data, error } = useApi<Detail>(runId ? `/api/runs/${runId}?t=${poll}` : null);
+  const { data, error } = useApi<Detail>(runId ? `/api/runs/${runId}?t=${poll}` : null, { keep: true });
   const [world, setWorld] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState<"cancel" | "resume" | null>(null);
   const [refusal, setRefusal] = React.useState<string | null>(null);
@@ -52,16 +52,25 @@ export default function RunPage() {
   const active = digests.find((d) => d.world_id === world) ?? digests[0] ?? null;
   const watching = !!s && (s.live || s.status === "running");
   const [tab, setTab] = useSessionState<string>("run:tab", "world");
-  const { data: live } = useApi<{ worlds: { world_id: string; tick_closed: number; digest: OutcomeDigest | null; reason?: string }[] }>(runId ? `/api/runs/${runId}/live?t=${poll}` : null);
+  const { data: live } = useApi<{ worlds: { world_id: string; tick_closed: number; digest: OutcomeDigest | null; reason?: string }[] }>(runId ? `/api/runs/${runId}/live?t=${poll}` : null, { keep: true });
   // The world on show: the one picked, else the first the run names.
-  const shownWorld = world ?? active?.world_id ?? (s ? worldForCell(digests, s.seeds[0], { worldIds: s.world_ids, scenarios: s.scenarios.length, seeds: s.seeds.length }) : null) ?? null;
+  const namedWorld = world ?? active?.world_id ?? (s ? worldForCell(digests, s.seeds[0], { worldIds: s.world_ids, scenarios: s.scenarios.length, seeds: s.seeds.length }) : null) ?? null;
+  // Decisions heard before any tick closes name the world they come from, so a just-started study has one to show.
+  const heard = useHeard(runId, namedWorld, watching);
+  const shownWorld = heard.world;
   const lastClosed = (() => {
     const p = (s?.progress ?? []).find((x) => x.world_id === shownWorld)?.last_closed_tick;
     const o = (s?.outcomes ?? []).find((x) => x.world_id === shownWorld)?.last_closed_tick;
-    return p ?? o ?? data?.trace?.max_tick[shownWorld ?? ""] ?? null;
+    // While a study runs only its progress says which tick closed: the trace's highest tick counts events of
+    // a tick still in progress, and reading that tick as recorded would show it empty and hide its decisions.
+    return p ?? o ?? (watching ? null : data?.trace?.max_tick[shownWorld ?? ""] ?? null);
   })();
-  const { acts, posts, failed } = useTicks(runId, shownWorld, lastClosed);
-  const clock = useClock(lastClosed);
+  const { acts: recorded, posts, failed } = useTicks(runId, shownWorld, lastClosed);
+  // The open tick's decisions as they land (ADR 0050), shown until the recorded tick replaces them.
+  const open = React.useMemo(() => provisionalActs(heard.decisions, shownWorld, lastClosed, posts), [heard.decisions, shownWorld, lastClosed, posts]);
+  const provisional = watching && open.acts.length > 0 && !recorded[open.tick]?.length ? open.tick : null;
+  const acts = React.useMemo(() => (provisional == null ? recorded : { ...recorded, [provisional]: open.acts }), [recorded, provisional, open.acts]);
+  const clock = useClock(provisional ?? lastClosed);
   const channels = new Set((s?.scenarios ?? []).flatMap((sc) => sc.channels ?? []));
   const liveWorld = (live?.worlds ?? []).find((x) => x.world_id === shownWorld) ?? null;
   const finalDigest = digests.find((d) => d.world_id === shownWorld) ?? null;
@@ -158,9 +167,9 @@ export default function RunPage() {
             )}
           </div>
           {failed && <Callout icon="alert"><div>The record could not be read: {failed}</div></Callout>}
-          {["world", "feed", "forum", "wom"].includes(tab) && <ClockBar clock={clock} watching={watching} loaded={Object.keys(acts).length} />}
+          {["world", "feed", "forum", "wom"].includes(tab) && <ClockBar clock={clock} watching={watching} loaded={Object.keys(acts).length} provisional={provisional} />}
           {tab === "world" && runId && (
-            s.has_gate_report || s.world_ids.length ? <WorldGraph runId={runId} acts={acts} clock={clock} live={watching} />
+            s.has_gate_report || s.world_ids.length ? <WorldGraph runId={runId} acts={acts} clock={clock} live={watching} provisional={provisional} />
               : <div className="empty"><b>No world yet.</b>The population is still being drawn.</div>
           )}
           {tab === "feed" && runId && <ActivityStream channel="social_feed" acts={acts} posts={posts} clock={clock} runId={runId} />}
@@ -345,7 +354,7 @@ const TABS: [string, string, keyof typeof ICONS, string | null][] = [
 ];
 
 /* The replay clock: the tick on show, play and pause, speed, and a jump to the newest closed tick. */
-function ClockBar({ clock, watching, loaded }: { clock: Clock; watching: boolean; loaded: number }) {
+function ClockBar({ clock, watching, loaded, provisional }: { clock: Clock; watching: boolean; loaded: number; provisional: number | null }) {
   const last = clock.lastClosed ?? 0;
   return (
     <div className="clockbar">
@@ -361,9 +370,11 @@ function ClockBar({ clock, watching, loaded }: { clock: Clock; watching: boolean
         {[0.5, 1, 2, 4].map((v) => <option key={v} value={v}>{v}×</option>)}
       </select>
       <button type="button" className="btn btn-secondary" onClick={() => clock.setTick(last)} disabled={clock.tick >= last}>Newest tick</button>
-      {watching ? <span className="chip ok"><span className="dot" />live · one tick behind</span> : <span className="chip plain">replay</span>}
+      {provisional != null
+        ? <span className="chip warn" title="These decisions arrived as each persona's reply landed. They are provisional until the tick closes and is recorded; an interrupted tick is asked again."><span className="dot" />live · tick {provisional} in progress</span>
+        : watching ? <span className="chip ok"><span className="dot" />live · waiting for the next decision</span> : <span className="chip plain">replay</span>}
       {loaded <= last && <span className="sub" style={{ fontSize: 12 }}>loading ticks {loaded}/{last + 1}…</span>}
-      <Tip>The engine publishes a tick only when all of it is recorded, so the page replays each closed tick&apos;s decisions in the order they happened. A running study is followed one tick behind; a finished one replays the same way. The feed, forum and word-of-mouth tabs show everything up to the tick on show.</Tip>
+      <Tip>While a study runs, each persona&apos;s decision appears the moment its reply lands — provisional until its tick closes and is recorded, when the record replaces it. A finished study replays its recorded ticks in the order they happened. The feed, forum and word-of-mouth tabs show everything up to the tick on show.</Tip>
     </div>
   );
 }

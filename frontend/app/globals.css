@@ -503,3 +503,7 @@ blockquote.verbatim > span { display: block; font-style: normal; font-size: 11px
 .legend-controls { color: var(--ink-3); gap: 4px 6px; font-size: 11.5px; }
 .legend-controls .kbd { margin-left: 0; font-family: var(--font-mono); font-size: 10.5px; padding: 1px 6px; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 4px; background: var(--surface); color: var(--ink-2); }
 
+/* A provisional, still-open tick: decisions that are not yet record. */
+.chip.warn { border-color: oklch(0.86 0.07 90); color: oklch(0.45 0.10 85); background: color-mix(in srgb, var(--warn) 12%, var(--surface)); }
+.chip.warn .dot { background: var(--warn); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.3; } }

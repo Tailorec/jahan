@@ -22,7 +22,7 @@ type Links = "all" | "wom" | "none";
    again in the order the record wrote them — the persona flashes in its channel's colour with a bubble
    naming what it did, and when the item came from another persona the link between them lights and stays:
    the conversation network forming. */
-export default function WorldGraph({ runId, acts, clock, live }: { runId: string; acts: Record<number, Act[]>; clock: Clock; live: boolean }) {
+export default function WorldGraph({ runId, acts, clock, live, provisional = null }: { runId: string; acts: Record<number, Act[]>; clock: Clock; live: boolean; provisional?: number | null }) {
   const { data, error } = useApi<Network>(`/api/runs/${encodeURIComponent(runId)}/graph/network`);
   const host = React.useRef<HTMLDivElement>(null);
   const [mode, setMode] = React.useState<Mode>("decision");
@@ -30,13 +30,13 @@ export default function WorldGraph({ runId, acts, clock, live }: { runId: string
   const [hover, setHover] = React.useState<{ x: number; y: number; node: number } | null>(null);
   const [stats, setStats] = React.useState({ acted: 0, links: 0, now: 0, waiting: false });
   const sim = React.useRef({
-    pos: 0, tick: -1, fired: 0, last: 0,
+    pos: 0, tick: -1, fired: 0, last: 0, nextAt: 0,
     color: [] as (string | null)[], did: [] as (string | null)[],
     flashes: [] as Flash[], travels: [] as Travel[], bubbles: [] as Bubble[],
     links: new Map<string, Link>(),
   });
-  const props = React.useRef({ acts, clock, mode, live, show });
-  props.current = { acts, clock, mode, live, show };
+  const props = React.useRef({ acts, clock, mode, live, show, provisional });
+  props.current = { acts, clock, mode, live, show, provisional };
 
   // Layout once per network: ForceAtlas2 run to rest, so tied people sit together.
   const layout = React.useMemo(() => {
@@ -105,6 +105,26 @@ export default function WorldGraph({ runId, acts, clock, live }: { runId: string
       // The clock moved and the network has not been rebuilt for it yet: hold until it is.
       if (s.tick !== c.tick) { draw(now); raf = requestAnimationFrame(step); return; }
       const tickActs = all[c.tick] ?? [];
+      // The open tick (ADR 0050): decisions play as they land, one at a time, faster when a backlog builds,
+      // and the clock stays here until the record closes the tick.
+      if (props.current.provisional === c.tick) {
+        const backlog = tickActs.length - s.fired;
+        if (c.playing && backlog > 0 && now >= s.nextAt) {
+          // Far behind (a page opened mid-tick), the backlog is applied quietly and only the latest play out.
+          while (tickActs.length - s.fired > 40) { apply(tickActs[s.fired], layout.index, s, null); s.fired++; }
+          apply(tickActs[s.fired], layout.index, s, now);
+          s.fired++;
+          s.nextAt = now + 140 / c.speed / (1 + backlog / 10);
+        }
+        s.flashes = s.flashes.filter((x) => now - x.at < FLASH_MS);
+        s.travels = s.travels.filter((x) => now - x.at < TRAVEL_MS);
+        s.bubbles = s.bubbles.filter((x) => now - x.at < BUBBLE_MS);
+        draw(now);
+        if (frame % 15 === 0) setStats({ acted: s.color.filter(Boolean).length, links: s.links.size, now: s.fired, waiting: backlog === 0 });
+        frame++;
+        raf = requestAnimationFrame(step);
+        return;
+      }
       const duration = Math.max(4000, Math.min(14000, tickActs.length * 90)) / c.speed;
       if (c.playing && all[c.tick]) s.pos += dt;
       // Fire every act whose moment has come: acts are spread evenly over the tick, in record order.
@@ -273,7 +293,9 @@ export default function WorldGraph({ runId, acts, clock, live }: { runId: string
           <span>{stats.acted} have acted</span>
           <span>{stats.links} conversation links</span>
           <span>tick {clock.tick}: {stats.now}/{tickActs.length} decisions</span>
-          {stats.waiting && <span className="chip plain">{ICONS.clock} waiting for tick {clock.tick + 1} to close</span>}
+          {provisional === clock.tick
+            ? <span className="chip warn"><span className="dot" />provisional · decisions as they land{stats.waiting ? " · waiting for the next" : ""}</span>
+            : stats.waiting && <span className="chip plain">{ICONS.clock} waiting for tick {clock.tick + 1} to close</span>}
         </span>
         <label className="row" style={{ gap: 6, marginLeft: "auto", fontSize: 12 }}>
           colour by
