@@ -163,8 +163,11 @@ def assemble_scenario(
     channels: list[str] | tuple[str, ...] = (),
     survey_every: int = 1,
     launch_reach: float = 0.10,
+    price: float | None = None,
+    label: str | None = None,
 ) -> Scenario:
-    """The study's baseline scenario: the whole proposition at the brief's price.
+    """The study's baseline scenario: the whole proposition at the brief's price, or a version of it — another
+    price, another wording, another label — when a study compares versions.
 
     The variant emphasizes every claim the brief makes — the concept presents the
     product, not a slice of it — and the audiences run at the shares the brief declares.
@@ -179,13 +182,14 @@ def assemble_scenario(
             "a run configuration cannot inherit what was never declared"
         )
     scenario = Scenario.model_validate({
+        "label": label,
         "variant": {
             "variant_id": variant_id,
             "name": name,
             "description": description,
             "emphasized_claims": [claim.id for claim in pack.brief.claims],
         },
-        "price": pack.brief.price.model_dump(mode="json"),
+        "price": {**pack.brief.price.model_dump(mode="json"), **({} if price is None else {"amount": price})},
         "audience_weights": dict(weights),
         "tick_unit": tick_unit,
         "horizon_ticks": horizon_ticks,
