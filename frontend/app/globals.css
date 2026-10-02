@@ -507,3 +507,11 @@ blockquote.verbatim > span { display: block; font-style: normal; font-size: 11px
 .chip.warn { border-color: oklch(0.86 0.07 90); color: oklch(0.45 0.10 85); background: color-mix(in srgb, var(--warn) 12%, var(--surface)); }
 .chip.warn .dot { background: var(--warn); animation: pulse 1.4s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.3; } }
+/* Purchase intent over survey waves */
+.intent-chart { display: grid; gap: 8px; min-width: 0; grid-template-columns: minmax(0, 1fr); }
+.intent-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.intent-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; }
+.intent-legend svg { display: inline-block; }
+.intent-plot { position: relative; min-width: 0; overflow: hidden; }
+.intent-plot > svg { display: block; }
+.intent-tip { position: absolute; top: 6px; transform: translateX(-50%); width: 236px; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-md); padding: 8px 10px; font-size: 12px; box-shadow: 0 4px 14px rgb(0 0 0 / 0.08); pointer-events: none; display: grid; gap: 3px; }
