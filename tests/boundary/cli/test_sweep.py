@@ -162,3 +162,22 @@ def test_rerunning_an_interrupted_sweep_completes_only_unfinished_cells(tmp_path
     stepped_worlds = {world_id for world_id, _ in stepped}
     assert len(stepped_worlds) == 1
     assert sorted(tick for _, tick in stepped) == [1, 2]
+
+
+def test_each_version_shows_its_personas_its_own_price(tmp_path, monkeypatch):
+    """ADR 0051: two versions differing only in price showed one identical concept, so no sweep could separate
+    them. A persona is shown the version's description and its price."""
+    from simcore.schemas import EventFilter
+    from simcore.trace import TraceStore
+
+    monkeypatch.chdir(tmp_path)
+    grid = write_grid(tmp_path, prices=(2.49, 2.99))
+    out = tmp_path / "runs"
+    code, output = run_command(*sweep_args(grid, out, RUN_ID))
+    assert code == 0, output
+    view = TraceStore(out / RUN_ID / "trace").view(RUN_ID)
+    concepts = {e.world_id: e.payload.stimulus.text for e in view.events(EventFilter(kinds=("stimulus_published",)))
+                if e.payload.stimulus.kind.value == "concept"}
+    assert len(concepts) == 2 and len(set(concepts.values())) == 2
+    assert sorted(text.rsplit("Price: ", 1)[1] for text in concepts.values()) == ["2.49 USD", "2.99 USD"]
+    assert all(text.startswith("Baseline concept at the brief price") for text in concepts.values())

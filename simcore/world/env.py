@@ -283,15 +283,20 @@ class World:
     # -- internals ------------------------------------------------------------------
 
     def _publish_study_stimuli(self) -> list[Stimulus]:
-        """The brief's proposition as stimuli: the concept, then one post per claim."""
+        """The version under test as stimuli: its concept, then one post per claim.
+
+        The concept is the scenario's own variant description and price (ADR 0051): what a version tests is
+        what its personas are shown, so two versions that differ in price or wording show different concepts.
+        """
         brief = self._header.pack.brief
+        scenario = self._header.scenario
         stimuli = [
             Stimulus(
                 stimulus_id=_ids.stimulus_id(self._world_seed, 0, "study", 0),
                 tick=0,
                 author=None,
                 kind=StimulusKind.CONCEPT,
-                text=brief.product.description,
+                text=f"{scenario.variant.description}\nPrice: {scenario.price.amount:.2f} {scenario.price.currency}",
             )
         ]
         for index, claim in enumerate(brief.claims, start=1):
