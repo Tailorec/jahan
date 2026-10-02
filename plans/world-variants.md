@@ -28,7 +28,7 @@ Decided 2026-10-03:
 - [x] A "Versions" section: add, name and edit versions; the world count and a call estimate before launch.
 
 ## Phase 5 — the atlas, decision-first
-- [ ] Ranked versions with seed spread, a verdict, intent over waves per version, the grid; one-world runs explain
+- [x] Ranked versions with seed spread, a verdict, intent over waves per version, the grid; one-world runs explain
       themselves and offer to launch versions.
 
 ## Phase 6 — names everywhere
