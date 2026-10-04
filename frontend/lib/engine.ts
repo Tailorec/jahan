@@ -1,4 +1,4 @@
-/* ConsumerSim engine domain — TypeScript mirror of simcore/schemas.
+/* Jahan engine domain — TypeScript mirror of simcore/schemas.
    Vocabulary follows CONTEXT.md (brief, claim, assumption ledger, audience,
    population, scenario, world, digest, finding, trace view, ...).
    All data comes from the engine's own artefacts via /api/* — nothing here is

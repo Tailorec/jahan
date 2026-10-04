@@ -42,8 +42,8 @@ export default function Shell({ crumbs, children }: { crumbs: React.ReactNode; c
     <div className="shell">
       <aside className={`sidebar${open ? " open" : ""}`} id="sidebar">
         <div className="brand">
-          <div className="brand-mark">CS</div>
-          <div className="brand-name">ConsumerSim<small>synthetic market engine</small></div>
+          <div className="brand-mark">J</div>
+          <div className="brand-name">Jahan<small>synthetic market engine</small></div>
         </div>
         <nav className="nav-group">
           <div className="nav-label">Workspace</div>

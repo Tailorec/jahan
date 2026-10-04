@@ -1,4 +1,4 @@
-# ConsumerSim frontend — UI layer for sim_engine (Next.js)
+# Jahan frontend — UI layer for sim_engine (Next.js)
 
 Same lab-instrument design system as `~/jahan_sim/mockups` (Inter + JetBrains Mono, honey-amber tokens in
 `app/globals.css`), but every page is bound to the engine's real domain. Vocabulary follows `CONTEXT.md`:
