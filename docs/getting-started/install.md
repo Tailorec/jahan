@@ -49,4 +49,5 @@ uv run --only-group docs mkdocs serve -a 127.0.0.1:8001     # live preview, besi
 ## Next
 
 - [Your first study](first-study.md), with no API keys and no downloads
+- [Running the application end to end](real-models.md), engine + LiteLLM + local TwHIN-BERT + corpus + web interface
 - [How a study works](../concepts/index.md)

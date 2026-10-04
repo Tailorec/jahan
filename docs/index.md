@@ -38,6 +38,7 @@ flowchart LR
 | Know what it cannot tell you | [Limitations](concepts/limitations.md) |
 | See what it has measured so far | [Results so far](research/results.md) |
 | Install it | [Install](getting-started/install.md) |
+| Run it end to end | [Running the application](getting-started/real-models.md) |
 | Learn the words the engine uses | [Glossary](reference/glossary.md) |
 | See why it works the way it does | [Decisions (ADRs)](adr/index.md) |
 
