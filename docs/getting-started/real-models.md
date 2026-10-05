@@ -87,6 +87,35 @@ so a truncated or substituted shard is refused rather than quietly
 read[^hf]. A study that names shards or sources you have not fetched fails at
 the gate with the fetch command, before it costs anything.
 
+### Start the meaning-search embeddings early
+
+Searching audiences by meaning — and the AI drafting on Who-you-study — needs
+one embedding per codebook attribute (~1,290 of them) through the pinned
+embedding model, cached beside the corpus. The build takes ~25 minutes and
+runs in the background, so kick it off as soon as the gateway (step 4) and the
+engine API (step 6) are up, then carry on with the rest of the setup while it
+works:
+
+1. Start the engine API, then fire one search — the first search starts
+   the build. Drafting alone does not start it.
+   ```bash
+   set -a; source .env; set +a
+   uv run --extra web python -m simcore.web --runs runs --port 8000
+
+   # in another terminal — this request starts the background build:
+   curl -s "http://127.0.0.1:8000/api/codebook?query=income&mode=meaning&limit=5" > /dev/null
+   ```
+2. Confirm it started:
+   ```bash
+   ls ~/.cache/consumersim/coreset/*/consumersim-index/ | grep partial
+   ```
+   An `embeddings-*.partial.jsonl` file means it is building; `wc -l` on it
+   shows attributes done out of ~1,290. When it finalizes into a `.npz` +
+   `.json` pair, search by meaning and drafting unlock.
+3. Until then, search falls back to word matching and drafting answers 409
+   ("it is building") — that is waiting, not failure. The build resumes after
+   a server restart, so nothing is lost if you stop halfway.
+
 ## 4. Put LiteLLM in front of your models
 
 Install the proxy ([LiteLLM docs](https://docs.litellm.ai/docs/proxy/quick_start)):
@@ -240,6 +269,10 @@ uv run python -m simcore.cli concepts run <brief.yaml> --fake
 4. Launch, watch ticks close and spend accrue against the budget on the Run
    page, and read the report when it completes. A cancelled run resumes with
    the same id; a run outlives a server restart.
+
+!!! note "First start builds two caches in the background"
+    The persona value matrix and the attribute embeddings are each built once
+    per machine — see "Start the meaning-search embeddings early" in step 3.
 
 A gate-only check without running anything:
 
