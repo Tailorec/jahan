@@ -1,3 +1,5 @@
+![Jahan logo](assets/logo.png){ width="220" }
+
 # Jahan
 
 *Jahan* (جہان) is Urdu for **world**.

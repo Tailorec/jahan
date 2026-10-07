@@ -9,6 +9,8 @@ copyright: Copyright 2026 Faishal Manzar · Functional Source License 1.1 (Apach
 
 theme:
   name: material
+  logo: assets/logo.png
+  favicon: assets/logo.png
   features:
     - navigation.sections
     - navigation.indexes

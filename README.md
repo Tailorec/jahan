@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/logo.png" alt="Jahan logo" width="220" />
+</p>
+
 # Jahan
 
 **Simulate how a population reacts to your product — and trace every number back to the turn that produced it.**
