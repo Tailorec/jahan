@@ -1,4 +1,7 @@
-![Jahan logo](assets/logo.png){ width="220" }
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png" />
+  <img src="assets/logo-light.png" alt="Jahan logo" width="220" />
+</picture>
 
 # Jahan
 

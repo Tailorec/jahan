@@ -4,6 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Jahan — synthetic market engine",
   description: "Run a population of grounded personas through interacting environments.",
+  icons: { icon: "/logo-mark.png" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

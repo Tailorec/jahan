@@ -9,8 +9,8 @@ copyright: Copyright 2026 Faishal Manzar · Functional Source License 1.1 (Apach
 
 theme:
   name: material
-  logo: assets/logo.png
-  favicon: assets/logo.png
+  logo: assets/logo-light.png
+  favicon: assets/logo-light.png
   features:
     - navigation.sections
     - navigation.indexes
@@ -56,6 +56,7 @@ exclude_docs: |
   *.parquet
 
 extra_javascript:
+  - javascripts/logo.js
   - javascripts/mathjax.js
   - https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js
 

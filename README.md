@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="Jahan logo" width="220" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.png" />
+    <img src="docs/assets/logo-light.png" alt="Jahan logo" width="220" />
+  </picture>
 </p>
 
 # Jahan

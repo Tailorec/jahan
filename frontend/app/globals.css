@@ -73,10 +73,9 @@ svg { display: block; }
 }
 .brand { display: flex; align-items: center; gap: 10px; padding: 18px 20px 14px; }
 .brand-mark {
-  width: 28px; height: 28px; border-radius: 7px; background: var(--primary);
-  display: grid; place-items: center; color: #fff; font-weight: 700; font-size: 13px;
-  font-family: var(--font-mono); letter-spacing: -0.03em;
+  width: 28px; height: 28px;
 }
+.brand-mark img { width: 100%; height: 100%; display: block; }
 .brand-name { font-weight: 650; font-size: 15px; letter-spacing: -0.01em; }
 .brand-name small { display: block; font-weight: 450; font-size: 10.5px; color: var(--ink-3); letter-spacing: 0; }
 
